@@ -597,13 +597,17 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
                               const std::unordered_map<std::string, ModuleNode*>& module_defs,
                               const std::vector<std::unique_ptr<ExpressionNode>>* overrides,
                               const std::string& parent_scope) {
+    std::cout << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
+
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
         if (overrides && i < overrides->size()) {
             val = eval_const_expr((*overrides)[i].get(), parent_scope);
+            std::cout << "     * Parameter override: " << p.name << " = " << val << "\n";
         } else {
             val = eval_const_expr(p.default_expr.get(), scope);
+            std::cout << "     * Parameter default: " << p.name << " = " << val << "\n";
         }
         param_map[scope + "." + p.name] = val;
     }
@@ -636,6 +640,8 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             std::string mem_scope = scope + "." + s.name;
             memory_map[mem_scope] = MemoryArray(mem_scope, w, depth);
+            std::cout << "     * Memory allocated: " << mem_scope 
+                      << " [" << w << "-bit x " << depth << " words]\n";
         } else {
             get_or_create_net(scope + "." + s.name, w);
         }
@@ -707,6 +713,7 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
+    std::cout << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     std::unordered_map<std::string, ModuleNode*> module_defs;
     for (auto& mod : modules) {
         module_defs[mod->name] = mod.get();
@@ -728,6 +735,7 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
     }
     if (!top) top = modules.front().get();
 
+    std::cout << "  -> Selected top-level root module: '" << top->name << "'\n";
     elaborate_module(top, top->name, module_defs);
 }
 
@@ -789,13 +797,16 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel] Initiated\n";
-    std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
-    std::cout << "Slice Interconnects Bound: " << slice_bindings.size() << "\n";
-    std::cout << "Gate Primitives Instantiated: " << gates.size() << "\n";
-    std::cout << "Continuous Assigns Bound: " << continuous_assigns.size() << "\n";
-    std::cout << "Memory Arrays Allocated: " << memory_map.size() << "\n";
-    std::cout << "--------------------------------------------------------\n";
+    std::cout << "[PHASE 4: Scheduler Initialization]\n";
+    std::cout << "  -> Hierarchical Nets Elaborated : " << netlist.size() << "\n";
+    std::cout << "  -> Slice Interconnects Bound    : " << slice_bindings.size() << "\n";
+    std::cout << "  -> Built-in Gates Instantiated  : " << gates.size() << "\n";
+    std::cout << "  -> Continuous Assigns Bound     : " << continuous_assigns.size() << "\n";
+    std::cout << "  -> Memory Arrays Allocated      : " << memory_map.size() << "\n";
+    std::cout << "  -> Concurrent Processes Bound   : " << processes.size() << "\n";
+
+    std::cout << "[PHASE 5: Simulation Runtime (Discrete-Event Scheduler)]\n";
+    std::cout << "--------------------------------------------------------\n" << std::flush;
 
     propagate_comb();
 
@@ -819,5 +830,5 @@ void Engine::run() {
     }
 
     std::cout << "--------------------------------------------------------\n";
-    std::cout << "Simulation finished at sim_time = " << sim_time << ".\n";
+    std::cout << "[CAS SUMMARY] Simulation completed cleanly at T = " << sim_time << " ns.\n" << std::flush;
 }
