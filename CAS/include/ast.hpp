@@ -27,6 +27,7 @@ enum class TokenType {
     TOKEN_RBRACE,
     TOKEN_SEMICOLON,
     TOKEN_COMMA,
+    TOKEN_DOT,
     TOKEN_EQUAL,
     TOKEN_PLUS,
     TOKEN_MINUS,
@@ -65,7 +66,7 @@ struct StatementNode : public ASTNode {
 };
 
 struct BlockingAssignNode : public StatementNode {
-    std::vector<std::string> lhs_targets; // Supports single or {a, b} concatenations
+    std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
     BlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r)
         : lhs_targets(std::move(targets)), rhs(std::move(r)) {}
@@ -81,7 +82,7 @@ struct DisplayStatementNode : public StatementNode {
 struct FinishStatementNode : public StatementNode {};
 
 struct ProcessNode : public ASTNode {
-    bool is_combinational; // true = always_comb, false = initial
+    bool is_combinational;
     std::vector<std::unique_ptr<StatementNode>> body;
     ProcessNode(bool comb) : is_combinational(comb) {}
 };
@@ -93,9 +94,23 @@ struct PortNode {
     uint32_t lsb;
 };
 
+struct PortConnection {
+    std::string port_name;     // The port inside the child module (e.g. .a)
+    std::string connected_net; // The wire in the parent module (e.g. (a))
+};
+
+struct InstantiationNode : public ASTNode {
+    std::string module_type;   // e.g., adder
+    std::string instance_name; // e.g., u_dut
+    std::vector<PortConnection> connections;
+    InstantiationNode(std::string type, std::string inst)
+        : module_type(std::move(type)), instance_name(std::move(inst)) {}
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     std::vector<PortNode> ports;
-    std::vector<PortNode> signals; // logic declarations
+    std::vector<PortNode> signals;
     std::vector<std::unique_ptr<ProcessNode>> processes;
+    std::vector<std::unique_ptr<InstantiationNode>> instantiations;
 };

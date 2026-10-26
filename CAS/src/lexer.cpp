@@ -50,12 +50,13 @@ Token Lexer::next_token() {
     if (c == '}') { advance(); return {TokenType::TOKEN_RBRACE, "}", 0, 0, line}; }
     if (c == ';') { advance(); return {TokenType::TOKEN_SEMICOLON, ";", 0, 0, line}; }
     if (c == ',') { advance(); return {TokenType::TOKEN_COMMA, ",", 0, 0, line}; }
+    if (c == '.') { advance(); return {TokenType::TOKEN_DOT, ".", 0, 0, line}; }
     if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, line}; }
     if (c == '=') { advance(); return {TokenType::TOKEN_EQUAL, "=", 0, 0, line}; }
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, line}; }
 
-    // Numbers (Decimal or Base Formats like 4'd12)
+    // Numbers
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();

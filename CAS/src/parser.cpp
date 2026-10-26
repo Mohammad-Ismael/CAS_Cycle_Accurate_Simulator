@@ -72,7 +72,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>();
     }
 
-    // Assignment: target = expr; OR {c, s} = expr;
+    // Blocking Assignment: target = expr; OR {c, s} = expr;
     std::vector<std::string> targets;
     if (match(TokenType::TOKEN_LBRACE)) {
         while (true) {
@@ -102,7 +102,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         mod->name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
 
-        // Ports List
+        // Ports List (Optional: e.g. tb has no port list)
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 PortNode port;
@@ -156,8 +156,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
             else if (current.type == TokenType::TOKEN_ALWAYS_COMB || current.type == TokenType::TOKEN_INITIAL) {
                 bool is_comb = (current.type == TokenType::TOKEN_ALWAYS_COMB);
-                advance(); // Consume always_comb or initial
-                
+                advance(); // consume always_comb or initial
                 auto proc = std::make_unique<ProcessNode>(is_comb);
                 expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
                 while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
@@ -166,8 +165,35 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
+            // Module Instantiation: Type Name (.Port(Wire), ...);
+            else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                std::string mod_type = current.text;
+                advance();
+                std::string inst_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected instance name");
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' for instance port map");
+
+                auto inst = std::make_unique<InstantiationNode>(mod_type, inst_name);
+
+                while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                    expect(TokenType::TOKEN_DOT, "Expected '.' before port name in port connection");
+                    std::string p_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected port name");
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after port name");
+                    std::string conn_net = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected net connected to port");
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
+
+                    inst->connections.push_back({p_name, conn_net});
+                    if (!match(TokenType::TOKEN_COMMA)) break;
+                }
+
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instantiation");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instantiation");
+                mod->instantiations.push_back(std::move(inst));
+            }
             else {
-                advance(); // Gracefully skip unrecognized outer tokens
+                advance();
             }
         }
         expect(TokenType::TOKEN_ENDMODULE, "Expected 'endmodule'");
