@@ -61,70 +61,41 @@ Token Lexer::next_token() {
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, line}; }
 
-    // Multi-character checks
+    // Multi-character Operators
     if (c == '&') {
         advance();
-        if (peek() == '&') {
-            advance();
-            return {TokenType::TOKEN_LOGICAL_AND, "&&", 0, 0, line};
-        }
+        if (peek() == '&') { advance(); return {TokenType::TOKEN_LOGICAL_AND, "&&", 0, 0, line}; }
         return {TokenType::TOKEN_AND, "&", 0, 0, line};
     }
-
     if (c == '|') {
         advance();
-        if (peek() == '|') {
-            advance();
-            return {TokenType::TOKEN_LOGICAL_OR, "||", 0, 0, line};
-        }
+        if (peek() == '|') { advance(); return {TokenType::TOKEN_LOGICAL_OR, "||", 0, 0, line}; }
         return {TokenType::TOKEN_OR_BIT, "|", 0, 0, line};
     }
-
     if (c == '!') {
         advance();
-        if (peek() == '=') {
-            advance();
-            return {TokenType::TOKEN_NEQ, "!=", 0, 0, line};
-        }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_NEQ, "!=", 0, 0, line}; }
         return {TokenType::TOKEN_NOT, "!", 0, 0, line};
     }
-
     if (c == '=') {
         advance();
-        if (peek() == '=') {
-            advance();
-            return {TokenType::TOKEN_EQ, "==", 0, 0, line};
-        }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_EQ, "==", 0, 0, line}; }
         return {TokenType::TOKEN_EQUAL, "=", 0, 0, line};
     }
-
     if (c == '<') {
         advance();
-        if (peek() == '=') {
-            advance();
-            return {TokenType::TOKEN_LE, "<=", 0, 0, line};
-        }
-        if (peek() == '<') {
-            advance();
-            return {TokenType::TOKEN_SHL, "<<", 0, 0, line};
-        }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_LE, "<=", 0, 0, line}; }
+        if (peek() == '<') { advance(); return {TokenType::TOKEN_SHL, "<<", 0, 0, line}; }
         return {TokenType::TOKEN_LT, "<", 0, 0, line};
     }
-
     if (c == '>') {
         advance();
-        if (peek() == '=') {
-            advance();
-            return {TokenType::TOKEN_GE, ">=", 0, 0, line};
-        }
-        if (peek() == '>') {
-            advance();
-            return {TokenType::TOKEN_SHR, ">>", 0, 0, line};
-        }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_GE, ">=", 0, 0, line}; }
+        if (peek() == '>') { advance(); return {TokenType::TOKEN_SHR, ">>", 0, 0, line}; }
         return {TokenType::TOKEN_GT, ">", 0, 0, line};
     }
 
-    // Numeric literals
+    // Numeric Literals
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
@@ -147,7 +118,6 @@ Token Lexer::next_token() {
                     break;
                 }
             }
-
             if (!is_x_or_z) {
                 try {
                     if (base == 'd' || base == 'D') val = std::stoull(digits);
@@ -157,18 +127,27 @@ Token Lexer::next_token() {
                     val = 0;
                 }
             }
-
             return {TokenType::TOKEN_NUMBER, digits, val, width, line};
         }
         return {TokenType::TOKEN_NUMBER, num_str, std::stoull(num_str), 32, line};
     }
 
-    // Strings
+    // String Literals
     if (c == '"') {
         advance();
         std::string s;
-        while (peek() != '"' && peek() != '\0') s += advance();
-        advance();
+        while (peek() != '"' && peek() != '\0') {
+            if (peek() == '\\') {
+                advance();
+                char esc = advance();
+                if (esc == 'n') s += '\n';
+                else if (esc == 't') s += '\t';
+                else s += esc;
+            } else {
+                s += advance();
+            }
+        }
+        if (peek() == '"') advance();
         return {TokenType::TOKEN_STRING, s, 0, 0, line};
     }
 
@@ -193,9 +172,21 @@ Token Lexer::next_token() {
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, line};
         if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, line};
         if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, line};
+
+        // Sensitivity 'or' keyword (also acts as gate 'or')
+        if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};
+
+        // Gate Primitives
+        if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, line};
+        if (ident == "xor") return {TokenType::TOKEN_GATE_XOR, ident, 0, 0, line};
+        if (ident == "nand") return {TokenType::TOKEN_GATE_NAND, ident, 0, 0, line};
+        if (ident == "nor") return {TokenType::TOKEN_GATE_NOR, ident, 0, 0, line};
+        if (ident == "xnor") return {TokenType::TOKEN_GATE_XNOR, ident, 0, 0, line};
+        if (ident == "not") return {TokenType::TOKEN_GATE_NOT, ident, 0, 0, line};
+        if (ident == "buf") return {TokenType::TOKEN_GATE_BUF, ident, 0, 0, line};
+
         if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, line};
         if (ident == "negedge") return {TokenType::TOKEN_NEGEDGE, ident, 0, 0, line};
-        if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};
         if (ident == "if") return {TokenType::TOKEN_IF, ident, 0, 0, line};
         if (ident == "else") return {TokenType::TOKEN_ELSE, ident, 0, 0, line};
         if (ident == "case") return {TokenType::TOKEN_CASE, ident, 0, 0, line};
@@ -205,7 +196,9 @@ Token Lexer::next_token() {
         if (ident == "end") return {TokenType::TOKEN_END, ident, 0, 0, line};
         if (ident == "initial") return {TokenType::TOKEN_INITIAL, ident, 0, 0, line};
         if (ident == "$display") return {TokenType::TOKEN_DISPLAY, ident, 0, 0, line};
+        if (ident == "$monitor") return {TokenType::TOKEN_MONITOR, ident, 0, 0, line};
         if (ident == "$finish") return {TokenType::TOKEN_FINISH, ident, 0, 0, line};
+        if (ident == "$stop") return {TokenType::TOKEN_STOP, ident, 0, 0, line};
         if (ident == "$dumpfile") return {TokenType::TOKEN_DUMPFILE, ident, 0, 0, line};
         if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, line};
 

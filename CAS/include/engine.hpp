@@ -13,9 +13,15 @@ struct BoundProcess {
     bool completed = false;
 };
 
-struct NetBinding {
-    size_t src_net_id;
-    size_t dst_net_id;
+struct NetSliceRef {
+    size_t net_id;
+    uint32_t offset;
+    uint32_t width;
+};
+
+struct SliceBinding {
+    NetSliceRef src;
+    NetSliceRef dst;
 };
 
 struct NBAUpdate {
@@ -43,8 +49,23 @@ struct MemoryArray {
 
 struct ContinuousAssignBinding {
     std::string scope;
-    size_t target_net_id;
+    NetSliceRef target;
     ExpressionNode* rhs;
+};
+
+struct GateInstance {
+    GateType type;
+    std::string scope;
+    NetSliceRef out_target;
+    std::vector<ExpressionNode*> in_exprs;
+};
+
+struct MonitorSession {
+    bool active = false;
+    std::string scope;
+    std::string format_string;
+    std::vector<std::string> args;
+    std::vector<LogicVal> prev_values;
 };
 
 struct SimEvent {
@@ -63,44 +84,45 @@ private:
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
     std::vector<BoundProcess> processes;
-    std::vector<NetBinding> port_bindings;
 
-    // Memory arrays & continuous assigns
-    std::unordered_map<std::string, MemoryArray> memory_map;
+    std::vector<SliceBinding> slice_bindings;
     std::vector<ContinuousAssignBinding> continuous_assigns;
-
-    // Task table: scoped_name -> TaskNode*
+    std::vector<GateInstance> gates;
+    std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, TaskNode*> task_map;
 
-    // Stratified IEEE 1800 Regions
+    // Active Monitor Session
+    MonitorSession monitor_session;
+
     std::vector<NBAUpdate> nba_queue;
     std::vector<NBAMemUpdate> nba_mem_queue;
 
-    // Simulation Time Wheel
     uint64_t sim_time = 0;
     std::priority_queue<SimEvent, std::vector<SimEvent>, std::greater<SimEvent>> time_wheel;
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
 
-    // VCD Dumper State
     bool vcd_enabled = false;
     std::string vcd_filename;
     std::ofstream vcd_file;
     uint64_t last_dump_time = ~0ULL;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
+    NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
+    LogicVal read_slice(const NetSliceRef& ref);
+    void write_slice(const NetSliceRef& ref, const LogicVal& val);
+
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void propagate_comb();
     void evaluate_sequential_blocks();
     void commit_nba_updates();
     void step_process(size_t pid);
+    void check_monitor();
 
-    // Hierarchical Elaboration
     void elaborate_module(ModuleNode* mod, const std::string& scope,
                           const std::unordered_map<std::string, ModuleNode*>& module_defs);
 
-    // VCD Subroutines
     std::string generate_vcd_id(size_t id);
     void init_vcd_header();
     void dump_vcd_sample(bool initial_dump = false);

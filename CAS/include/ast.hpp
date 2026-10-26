@@ -136,8 +136,9 @@ struct DelayStatementNode : public StatementNode {
 struct DisplayStatementNode : public StatementNode {
     std::string format_string;
     std::vector<std::string> args;
-    DisplayStatementNode(std::string fmt, std::vector<std::string> a)
-        : format_string(std::move(fmt)), args(std::move(a)) {}
+    bool is_monitor = false;
+    DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false)
+        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon) {}
 };
 
 struct FinishStatementNode : public StatementNode {};
@@ -154,6 +155,16 @@ struct ContinuousAssignNode : public ASTNode {
     std::unique_ptr<ExpressionNode> rhs;
     ContinuousAssignNode(std::string tgt, std::unique_ptr<ExpressionNode> r)
         : target_name(std::move(tgt)), rhs(std::move(r)) {}
+};
+
+// Gate primitives: and, or, xor, etc.
+enum class GateType { AND, OR, XOR, NAND, NOR, XNOR, NOT, BUF };
+
+struct GatePrimitiveNode : public ASTNode {
+    GateType type;
+    std::string instance_name;
+    std::unique_ptr<ExpressionNode> out_expr;
+    std::vector<std::unique_ptr<ExpressionNode>> in_exprs;
 };
 
 enum class ProcessType {
@@ -184,16 +195,17 @@ struct PortNode {
 };
 
 struct PortConnection {
-    std::string port_name;
-    std::string connected_net;
+    std::string port_name; // Empty if positional
+    std::unique_ptr<ExpressionNode> expr;
 };
 
 struct InstantiationNode : public ASTNode {
     std::string module_type;
     std::string instance_name;
+    bool is_positional = false;
     std::vector<PortConnection> connections;
-    InstantiationNode(std::string type, std::string inst)
-        : module_type(std::move(type)), instance_name(std::move(inst)) {}
+    InstantiationNode(std::string type, std::string inst, bool pos = false)
+        : module_type(std::move(type)), instance_name(std::move(inst)), is_positional(pos) {}
 };
 
 struct ModuleNode : public ASTNode {
@@ -201,6 +213,7 @@ struct ModuleNode : public ASTNode {
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
+    std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;

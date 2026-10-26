@@ -11,7 +11,7 @@ Engine::~Engine() {
 
 std::string Engine::generate_vcd_id(size_t id) {
     std::string res;
-    size_t base = 94; // Printable ASCII range 33 ('!') through 126 ('~')
+    size_t base = 94;
     do {
         res += (char)(33 + (id % base));
         id /= base;
@@ -30,24 +30,71 @@ size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width)
     return id;
 }
 
+NetSliceRef Engine::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
+    if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
+        std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
+        size_t id = net_map.at(full_name);
+        return {id, 0, netlist[id].width};
+    }
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        std::string full_name = scope.empty() ? idx->name : (scope + "." + idx->name);
+        size_t id = net_map.at(full_name);
+        if (!idx->is_part_select) {
+            LogicVal iv = eval_expr(idx->msb_expr.get(), scope);
+            uint32_t off = iv.is_unknown() ? 0 : (uint32_t)iv.aval;
+            return {id, off, 1};
+        } else {
+            LogicVal mv = eval_expr(idx->msb_expr.get(), scope);
+            LogicVal lv = eval_expr(idx->lsb_expr.get(), scope);
+            uint32_t msb = mv.is_unknown() ? 0 : (uint32_t)mv.aval;
+            uint32_t lsb = lv.is_unknown() ? 0 : (uint32_t)lv.aval;
+            uint32_t w = (msb >= lsb) ? (msb - lsb + 1) : (lsb - msb + 1);
+            return {id, lsb, w};
+        }
+    }
+    // Support constant literals (e.g. 1'b0, 1'b1, 0) tied to module input ports
+    if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        static size_t const_counter = 0;
+        std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
+        size_t id = get_or_create_net(const_net_name, num->width);
+        LogicVal val = num->is_unknown ? LogicVal::make_x(num->width) : LogicVal::make_known(num->width, num->value);
+        netlist[id].set(val);
+        return {id, 0, num->width};
+    }
+
+    throw std::runtime_error("Expression is not a bindable net target");
+}
+
+LogicVal Engine::read_slice(const NetSliceRef& ref) {
+    const auto& net_val = netlist[ref.net_id].value;
+    uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
+    uint64_t a = (net_val.aval >> ref.offset) & mask;
+    uint64_t b = (net_val.bval >> ref.offset) & mask;
+    return LogicVal(ref.width, a, b);
+}
+
+void Engine::write_slice(const NetSliceRef& ref, const LogicVal& val) {
+    auto cur = netlist[ref.net_id].value;
+    uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
+    uint64_t clear_mask = ~(mask << ref.offset);
+
+    uint64_t new_a = (cur.aval & clear_mask) | ((val.aval & mask) << ref.offset);
+    uint64_t new_b = (cur.bval & clear_mask) | ((val.bval & mask) << ref.offset);
+    netlist[ref.net_id].set(LogicVal(cur.width, new_a, new_b));
+}
+
 LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        if (num->is_unknown) {
-            return LogicVal::make_x(num->width);
-        }
+        if (num->is_unknown) return LogicVal::make_x(num->width);
         return LogicVal::make_known(num->width, num->value);
     }
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
-        if (ident->name == "$time") {
-            return LogicVal::make_known(64, sim_time);
-        }
+        if (ident->name == "$time") return LogicVal::make_known(64, sim_time);
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         return netlist[net_map.at(scoped_ident)].value;
     }
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
-
-        // Check if target is a 1D Memory Array
         if (memory_map.find(scoped_ident) != memory_map.end()) {
             const auto& mem = memory_map.at(scoped_ident);
             LogicVal addr_val = eval_expr(idx_node->msb_expr.get(), scope);
@@ -57,17 +104,12 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
             return mem.words[addr_val.aval];
         }
 
-        // Standard Scalar Net bit-select or part-select
         const auto& target_val = netlist[net_map.at(scoped_ident)].value;
         if (!idx_node->is_part_select) {
             LogicVal idx_val = eval_expr(idx_node->msb_expr.get(), scope);
-            if (idx_val.is_unknown() || idx_val.aval >= target_val.width) {
-                return LogicVal::make_x(1);
-            }
+            if (idx_val.is_unknown() || idx_val.aval >= target_val.width) return LogicVal::make_x(1);
             uint32_t sh = idx_val.aval;
-            uint64_t a = (target_val.aval >> sh) & 1;
-            uint64_t b = (target_val.bval >> sh) & 1;
-            return LogicVal(1, a, b);
+            return LogicVal(1, (target_val.aval >> sh) & 1, (target_val.bval >> sh) & 1);
         } else {
             LogicVal msb_v = eval_expr(idx_node->msb_expr.get(), scope);
             LogicVal lsb_v = eval_expr(idx_node->lsb_expr.get(), scope);
@@ -79,9 +121,7 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
             uint32_t lsb = lsb_v.aval;
             uint32_t slice_w = msb - lsb + 1;
             uint64_t mask = (slice_w >= 64) ? ~0ULL : ((1ULL << slice_w) - 1);
-            uint64_t a = (target_val.aval >> lsb) & mask;
-            uint64_t b = (target_val.bval >> lsb) & mask;
-            return LogicVal(slice_w, a, b);
+            return LogicVal(slice_w, (target_val.aval >> lsb) & mask, (target_val.bval >> lsb) & mask);
         }
     }
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
@@ -90,9 +130,7 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
             if (val.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
-        if (un->op == '~') {
-            return val.bitwise_not();
-        }
+        if (un->op == '~') return val.bitwise_not();
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         LogicVal l = eval_expr(bin->lhs.get(), scope);
@@ -119,19 +157,13 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "<=") return LogicVal::rel_le(l, r);
         if (bin->op == ">")  return LogicVal::rel_gt(l, r);
         if (bin->op == ">=") return LogicVal::rel_ge(l, r);
-
         if (bin->op == "&&") {
-            if ((!l.is_unknown() && l.aval == 0) || (!r.is_unknown() && r.aval == 0)) {
-                return LogicVal::make_known(1, 0);
-            }
+            if ((!l.is_unknown() && l.aval == 0) || (!r.is_unknown() && r.aval == 0)) return LogicVal::make_known(1, 0);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.aval != 0 && r.aval != 0) ? 1 : 0);
         }
-
         if (bin->op == "||") {
-            if ((!l.is_unknown() && l.aval != 0) || (!r.is_unknown() && r.aval != 0)) {
-                return LogicVal::make_known(1, 1);
-            }
+            if ((!l.is_unknown() && l.aval != 0) || (!r.is_unknown() && r.aval != 0)) return LogicVal::make_known(1, 1);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.aval != 0 || r.aval != 0) ? 1 : 0);
         }
@@ -141,14 +173,9 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (cond.is_unknown()) {
             LogicVal t_val = eval_expr(tern->true_expr.get(), scope);
             LogicVal f_val = eval_expr(tern->false_expr.get(), scope);
-            uint32_t w = std::max(t_val.width, f_val.width);
-            return LogicVal::make_x(w);
+            return LogicVal::make_x(std::max(t_val.width, f_val.width));
         }
-        if (cond.to_bool()) {
-            return eval_expr(tern->true_expr.get(), scope);
-        } else {
-            return eval_expr(tern->false_expr.get(), scope);
-        }
+        return cond.to_bool() ? eval_expr(tern->true_expr.get(), scope) : eval_expr(tern->false_expr.get(), scope);
     }
     return LogicVal::make_x(1);
 }
@@ -204,13 +231,69 @@ void Engine::dump_vcd_sample(bool initial_dump) {
     for (auto& net : netlist) {
         if (initial_dump || net.modified) {
             if (net.width == 1) {
-                if (net.value.is_unknown()) {
-                    vcd_file << "x" << net.vcd_id << "\n";
-                } else {
-                    vcd_file << (net.value.aval & 1) << net.vcd_id << "\n";
-                }
+                if (net.value.is_unknown()) vcd_file << "x" << net.vcd_id << "\n";
+                else vcd_file << (net.value.aval & 1) << net.vcd_id << "\n";
             } else {
                 vcd_file << "b" << net.value.to_bin_string() << " " << net.vcd_id << "\n";
+            }
+        }
+    }
+}
+
+void Engine::check_monitor() {
+    if (!monitor_session.active) return;
+
+    bool values_changed = false;
+    std::vector<LogicVal> current_values;
+
+    for (const auto& arg_name : monitor_session.args) {
+        if (arg_name == "$time") {
+            current_values.push_back(LogicVal::make_known(64, sim_time));
+        } else {
+            std::string scoped_arg = monitor_session.scope + "." + arg_name;
+            if (net_map.find(scoped_arg) != net_map.end()) {
+                current_values.push_back(netlist[net_map.at(scoped_arg)].value);
+            } else {
+                current_values.push_back(LogicVal::make_x(1));
+            }
+        }
+    }
+
+    if (monitor_session.prev_values.empty()) {
+        values_changed = true;
+    } else {
+        for (size_t i = 0; i < current_values.size(); ++i) {
+            if (current_values[i] != monitor_session.prev_values[i]) {
+                values_changed = true;
+                break;
+            }
+        }
+    }
+
+    if (values_changed) {
+        monitor_session.prev_values = current_values;
+        size_t arg_idx = 0;
+        for (size_t i = 0; i < monitor_session.format_string.size(); ++i) {
+            if (monitor_session.format_string[i] == '%' && i + 1 < monitor_session.format_string.size()) {
+                char spec = monitor_session.format_string[++i];
+                if (spec == '0' && i + 1 < monitor_session.format_string.size() && monitor_session.format_string[i + 1] == 't') {
+                    spec = 't'; i++;
+                } else if (spec == '0' && i + 1 < monitor_session.format_string.size() && (monitor_session.format_string[i + 1] == 'h' || monitor_session.format_string[i + 1] == 'd' || monitor_session.format_string[i + 1] == 'b')) {
+                    spec = monitor_session.format_string[++i];
+                }
+
+                if (arg_idx < current_values.size()) {
+                    const auto& val = current_values[arg_idx++];
+                    if (val.is_unknown()) {
+                        std::cout << "x";
+                    } else {
+                        if (spec == 'd' || spec == 't') std::cout << val.aval;
+                        else if (spec == 'b') std::cout << val.to_bin_string();
+                        else if (spec == 'h') std::cout << std::hex << val.aval << std::dec;
+                    }
+                }
+            } else {
+                std::cout << monitor_session.format_string[i];
             }
         }
     }
@@ -222,24 +305,49 @@ void Engine::propagate_comb() {
     while (changed && iters < 100) {
         changed = false;
 
-        // 1. Port interconnect bindings
-        for (auto& bind : port_bindings) {
-            if (netlist[bind.dst_net_id].value != netlist[bind.src_net_id].value) {
-                netlist[bind.dst_net_id].set(netlist[bind.src_net_id].value);
+        // 1. Module port interconnect slice bindings
+        for (auto& bind : slice_bindings) {
+            LogicVal src_val = read_slice(bind.src);
+            LogicVal dst_val = read_slice(bind.dst);
+            if (src_val != dst_val) {
+                write_slice(bind.dst, src_val);
                 changed = true;
             }
         }
 
-        // 2. Continuous assign statements
+        // 2. Built-in Gate Primitives
+        for (auto& g : gates) {
+            LogicVal res = eval_expr(g.in_exprs[0], g.scope);
+            for (size_t i = 1; i < g.in_exprs.size(); ++i) {
+                LogicVal next_in = eval_expr(g.in_exprs[i], g.scope);
+                if (g.type == GateType::AND) res = LogicVal::bitwise_and(res, next_in);
+                else if (g.type == GateType::OR) res = LogicVal::bitwise_or(res, next_in);
+                else if (g.type == GateType::XOR) res = LogicVal::bitwise_xor(res, next_in);
+                else if (g.type == GateType::NAND) res = LogicVal::bitwise_and(res, next_in);
+                else if (g.type == GateType::NOR) res = LogicVal::bitwise_or(res, next_in);
+                else if (g.type == GateType::XNOR) res = LogicVal::bitwise_xor(res, next_in);
+            }
+            if (g.type == GateType::NAND || g.type == GateType::NOR || g.type == GateType::XNOR || g.type == GateType::NOT) {
+                res = res.bitwise_not();
+            }
+            LogicVal cur_out = read_slice(g.out_target);
+            if (cur_out != res) {
+                write_slice(g.out_target, res);
+                changed = true;
+            }
+        }
+
+        // 3. Continuous assign statements
         for (auto& ca : continuous_assigns) {
             LogicVal val = eval_expr(ca.rhs, ca.scope);
-            if (netlist[ca.target_net_id].value != val) {
-                netlist[ca.target_net_id].set(val);
+            LogicVal cur = read_slice(ca.target);
+            if (cur != val) {
+                write_slice(ca.target, val);
                 changed = true;
             }
         }
 
-        // 3. always_comb blocks
+        // 4. always_comb blocks
         for (auto& bp : processes) {
             if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
             for (auto& stmt : bp.proc->body) {
@@ -247,7 +355,6 @@ void Engine::propagate_comb() {
             }
         }
 
-        // Check if any net was modified
         for (const auto& n : netlist) {
             if (n.modified) {
                 changed = true;
@@ -278,14 +385,12 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 continue;
             }
             LogicVal item_val = eval_expr(item.match_expr.get(), bp.scope);
-            LogicVal eq_check = LogicVal::logical_eq(sel_val, item_val);
-            if (eq_check.to_bool()) {
+            if (LogicVal::logical_eq(sel_val, item_val).to_bool()) {
                 for (auto& s : item.statements) execute_statement(s.get(), bp);
                 branch_taken = true;
                 break;
             }
         }
-
         if (!branch_taken && default_item) {
             for (auto& s : default_item->statements) execute_statement(s.get(), bp);
         }
@@ -300,47 +405,49 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         }
     }
-    else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
-        // Delay inside sequential execution or task body
-        sim_time += delay->delay;
-        dump_vcd_sample();
-    }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
-        std::cout << "[CAS $display] ";
-        size_t arg_idx = 0;
-        for (size_t i = 0; i < disp->format_string.size(); ++i) {
-            if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {
-                char spec = disp->format_string[++i];
-                if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
-                    spec = 't';
-                    i++;
-                } else if (spec == '0' && i + 1 < disp->format_string.size() && (disp->format_string[i + 1] == 'h' || disp->format_string[i + 1] == 'd' || disp->format_string[i + 1] == 'b')) {
-                    spec = disp->format_string[++i];
-                }
+        if (disp->is_monitor) {
+            monitor_session.active = true;
+            monitor_session.scope = bp.scope;
+            monitor_session.format_string = disp->format_string;
+            monitor_session.args = disp->args;
+            monitor_session.prev_values.clear();
+            check_monitor();
+        } else {
+            std::cout << "[CAS $display] ";
+            size_t arg_idx = 0;
+            for (size_t i = 0; i < disp->format_string.size(); ++i) {
+                if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {
+                    char spec = disp->format_string[++i];
+                    if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
+                        spec = 't'; i++;
+                    } else if (spec == '0' && i + 1 < disp->format_string.size() && (disp->format_string[i + 1] == 'h' || disp->format_string[i + 1] == 'd' || disp->format_string[i + 1] == 'b')) {
+                        spec = disp->format_string[++i];
+                    }
 
-                if (arg_idx < disp->args.size()) {
-                    std::string arg_name = disp->args[arg_idx++];
-                    if (arg_name == "$time") {
-                        std::cout << sim_time;
-                    } else {
-                        std::string scoped_arg = bp.scope + "." + arg_name;
-                        size_t net_id = net_map.at(scoped_arg);
-                        const auto& net = netlist[net_id];
-
-                        if (net.value.is_unknown()) {
-                            std::cout << "x";
+                    if (arg_idx < disp->args.size()) {
+                        std::string arg_name = disp->args[arg_idx++];
+                        if (arg_name == "$time") {
+                            std::cout << sim_time;
                         } else {
-                            if (spec == 'd' || spec == 't') std::cout << net.value.aval;
-                            else if (spec == 'b') std::cout << net.value.to_bin_string();
-                            else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
+                            std::string scoped_arg = bp.scope + "." + arg_name;
+                            size_t net_id = net_map.at(scoped_arg);
+                            const auto& net = netlist[net_id];
+                            if (net.value.is_unknown()) {
+                                std::cout << "x";
+                            } else {
+                                if (spec == 'd' || spec == 't') std::cout << net.value.aval;
+                                else if (spec == 'b') std::cout << net.value.to_bin_string();
+                                else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
+                            }
                         }
                     }
+                } else {
+                    std::cout << disp->format_string[i];
                 }
-            } else {
-                std::cout << disp->format_string[i];
             }
+            std::cout << "\n";
         }
-        std::cout << "\n";
     }
     else if (dynamic_cast<FinishStatementNode*>(stmt)) {
         std::cout << "[CAS $finish] Simulation Terminated at time " << sim_time << ".\n";
@@ -365,16 +472,13 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 if (memory_map.find(scoped_mem) != memory_map.end()) {
                     auto& mem = memory_map.at(scoped_mem);
-                    if (addr < mem.depth) {
-                        mem.words[addr] = rhs_val;
-                    }
+                    if (addr < mem.depth) mem.words[addr] = rhs_val;
                 }
             }
         }
     }
     else if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
-
         if (assign->lhs_targets.size() > 1) {
             int shift = 0;
             for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
@@ -382,8 +486,7 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 size_t net_id = net_map.at(scoped_target);
                 uint32_t width = netlist[net_id].width;
                 uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                LogicVal slice(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
-                netlist[net_id].set(slice);
+                netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
                 shift += width;
             }
         } else {
@@ -404,19 +507,12 @@ void Engine::evaluate_sequential_blocks() {
             size_t net_id = net_map.at(scoped_sig);
             const auto& net = netlist[net_id];
 
-            if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) {
-                triggered = true;
-                break;
-            } else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) {
-                triggered = true;
-                break;
-            }
+            if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) { triggered = true; break; }
+            else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) { triggered = true; break; }
         }
 
         if (triggered) {
-            for (auto& stmt : bp.proc->body) {
-                execute_statement(stmt.get(), bp);
-            }
+            for (auto& stmt : bp.proc->body) execute_statement(stmt.get(), bp);
         }
     }
 }
@@ -424,21 +520,16 @@ void Engine::evaluate_sequential_blocks() {
 void Engine::commit_nba_updates() {
     if (nba_queue.empty() && nba_mem_queue.empty()) return;
 
-    for (const auto& update : nba_queue) {
-        netlist[update.net_id].set(update.val);
-    }
+    for (const auto& update : nba_queue) netlist[update.net_id].set(update.val);
     nba_queue.clear();
 
     for (const auto& mem_up : nba_mem_queue) {
         if (memory_map.find(mem_up.mem_scoped_name) != memory_map.end()) {
             auto& mem = memory_map.at(mem_up.mem_scoped_name);
-            if (mem_up.addr < mem.depth) {
-                mem.words[mem_up.addr] = mem_up.val;
-            }
+            if (mem_up.addr < mem.depth) mem.words[mem_up.addr] = mem_up.val;
         }
     }
     nba_mem_queue.clear();
-
     propagate_comb();
 }
 
@@ -462,7 +553,16 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
         size_t target_id = net_map.at(scoped_target);
-        continuous_assigns.push_back({scope, target_id, ca->rhs.get()});
+        continuous_assigns.push_back({scope, {target_id, 0, netlist[target_id].width}, ca->rhs.get()});
+    }
+
+    for (auto& g : mod->gates) {
+        GateInstance gi;
+        gi.type = g->type;
+        gi.scope = scope;
+        gi.out_target = resolve_slice_ref(g->out_expr.get(), scope);
+        for (auto& ie : g->in_exprs) gi.in_exprs.push_back(ie.get());
+        gates.push_back(gi);
     }
 
     for (auto& t : mod->tasks) {
@@ -482,25 +582,34 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
 
         elaborate_module(submod, child_scope, module_defs);
 
-        for (auto& conn : inst->connections) {
-            std::string parent_net_name = scope + "." + conn.connected_net;
-            std::string child_net_name = child_scope + "." + conn.port_name;
-
-            size_t parent_id = net_map.at(parent_net_name);
-            size_t child_id = net_map.at(child_net_name);
+        for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
+            auto& conn = inst->connections[conn_idx];
+            std::string target_port_name;
+            if (inst->is_positional) {
+                if (conn_idx >= submod->ports.size()) {
+                    throw std::runtime_error("Positional connection out of bounds in " + inst->instance_name);
+                }
+                target_port_name = submod->ports[conn_idx].name;
+            } else {
+                target_port_name = conn.port_name;
+            }
 
             std::string dir = "input";
             for (auto& p : submod->ports) {
-                if (p.name == conn.port_name) {
+                if (p.name == target_port_name) {
                     dir = p.direction;
                     break;
                 }
             }
 
+            NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
+            size_t child_net_id = net_map.at(child_scope + "." + target_port_name);
+            NetSliceRef child_ref = {child_net_id, 0, netlist[child_net_id].width};
+
             if (dir == "input") {
-                port_bindings.push_back({parent_id, child_id});
+                slice_bindings.push_back({parent_ref, child_ref});
             } else {
-                port_bindings.push_back({child_id, parent_id});
+                slice_bindings.push_back({child_ref, parent_ref});
             }
         }
     }
@@ -579,9 +688,9 @@ void Engine::step_process(size_t pid) {
         evaluate_sequential_blocks();
         commit_nba_updates();
         dump_vcd_sample();
+        check_monitor();
 
         for (auto& n : netlist) n.modified = false;
-
         bp.pc++;
     }
 
@@ -591,9 +700,9 @@ void Engine::step_process(size_t pid) {
 void Engine::run() {
     std::cout << "CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel] Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
-    std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
+    std::cout << "Slice Interconnects Bound: " << slice_bindings.size() << "\n";
+    std::cout << "Gate Primitives Instantiated: " << gates.size() << "\n";
     std::cout << "Continuous Assigns Bound: " << continuous_assigns.size() << "\n";
-    std::cout << "Memory Arrays Allocated: " << memory_map.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
 
     propagate_comb();
