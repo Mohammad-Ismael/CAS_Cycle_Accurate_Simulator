@@ -162,7 +162,9 @@ private:
 
 public:
     ~Engine();
-    void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, std::ostream* debug_out = nullptr);
+    void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 
+                   const std::string& top_module_name = "", 
+                   std::ostream* debug_out = nullptr);
     void run(std::ostream* debug_out = nullptr);
 
     void set_vcd_allowed(bool allowed) { vcd_allowed = allowed; }

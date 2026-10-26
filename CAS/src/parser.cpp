@@ -20,7 +20,8 @@ bool Parser::match(TokenType t) {
 
 void Parser::expect(TokenType t, const std::string& err) {
     if (current.type != t) {
-        throw std::runtime_error(err + " on line " + std::to_string(current.line) + " (found: '" + current.text + "')");
+        std::string loc = current.filename.empty() ? ("line " + std::to_string(current.line)) : (current.filename + ":" + std::to_string(current.line));
+        throw std::runtime_error(loc + ": error: " + err + " (found: '" + current.text + "')");
     }
     advance();
 }
@@ -60,7 +61,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing expression");
         return expr;
     }
-    throw std::runtime_error("Unexpected token in expression evaluation on line " + std::to_string(current.line) + " (token: '" + current.text + "')");
+    throw std::runtime_error((current.filename.empty() ? ("line " + std::to_string(current.line)) : (current.filename + ":" + std::to_string(current.line))) + ": error: Unexpected token '" + current.text + "' in expression");
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_unary() {
@@ -185,7 +186,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
 std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (match(TokenType::TOKEN_HASH)) {
         if (current.type != TokenType::TOKEN_NUMBER) {
-            throw std::runtime_error("Expected numeric delay value after '#' on line " + std::to_string(current.line));
+            throw std::runtime_error((current.filename.empty() ? ("line " + std::to_string(current.line)) : (current.filename + ":" + std::to_string(current.line))) + ": error: Unexpected statement beginning with '" + current.text + "'");
         }
         uint64_t delay_val = current.num_val;
         advance();

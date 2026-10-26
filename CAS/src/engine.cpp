@@ -719,30 +719,43 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 }
 
-void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, std::ostream* debug_out) {
+void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
+                       const std::string& top_module_name,
+                       std::ostream* debug_out) {
     if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     std::unordered_map<std::string, ModuleNode*> module_defs;
     for (auto& mod : modules) {
         module_defs[mod->name] = mod.get();
     }
 
-    std::unordered_map<std::string, bool> is_instantiated;
-    for (auto& mod : modules) {
-        for (auto& inst : mod->instantiations) {
-            is_instantiated[inst->module_type] = true;
-        }
-    }
-
     ModuleNode* top = nullptr;
-    for (auto& mod : modules) {
-        if (!is_instantiated[mod->name]) {
-            top = mod.get();
-            break;
-        }
-    }
-    if (!top) top = modules.front().get();
 
-    if (debug_out) *debug_out << "  -> Selected top-level root module: '" << top->name << "'\n";
+    // 1. If explicit top module specified, look it up directly
+    if (!top_module_name.empty()) {
+        if (module_defs.find(top_module_name) != module_defs.end()) {
+            top = module_defs.at(top_module_name);
+            if (debug_out) *debug_out << "  -> Using explicit top module: '" << top->name << "'\n";
+        } else {
+            throw std::runtime_error("Elaboration error: Top module '" + top_module_name + "' was not found in parsed sources.");
+        }
+    } else {
+        // 2. Otherwise auto-detect uninstantiated module root
+        std::unordered_map<std::string, bool> is_instantiated;
+        for (auto& mod : modules) {
+            for (auto& inst : mod->instantiations) {
+                is_instantiated[inst->module_type] = true;
+            }
+        }
+        for (auto& mod : modules) {
+            if (!is_instantiated[mod->name]) {
+                top = mod.get();
+                break;
+            }
+        }
+        if (!top) top = modules.front().get();
+        if (debug_out) *debug_out << "  -> Auto-detected top-level root module: '" << top->name << "'\n";
+    }
+
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
 }
 

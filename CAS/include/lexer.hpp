@@ -2,6 +2,7 @@
 #include <string>
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 
 enum class TokenType {
     TOKEN_EOF,
@@ -87,20 +88,29 @@ struct Token {
     std::string text;
     uint64_t num_val;
     uint32_t bit_width;
+    std::string filename;
     size_t line;
+};
+
+struct SourceBuffer {
+    std::string filename;
+    std::string src;
+    size_t cursor = 0;
+    size_t line = 1;
 };
 
 class Lexer {
 private:
-    std::string src;
-    size_t cursor = 0;
-    size_t line = 1;
+    std::vector<SourceBuffer> file_stack;
+    std::string current_dir = ".";
 
     char peek() const;
     char advance();
-    void skip_whitespace();
+    void skip_whitespace_and_comments();
+    void handle_include();
 
 public:
-    explicit Lexer(std::string source);
+    explicit Lexer(const std::string& filename, const std::string& source, const std::string& base_dir = ".");
     Token next_token();
+    std::string get_current_location() const;
 };

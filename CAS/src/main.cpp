@@ -45,8 +45,6 @@ int main(int argc, char* argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    std::string combined_src;
-    size_t total_bytes = 0;
     std::stringstream debug_ss;
     std::ostream* debug_ptr = verbose ? &debug_ss : nullptr;
 
@@ -57,34 +55,40 @@ int main(int argc, char* argv[]) {
         debug_ss << "[PHASE 1: Ingestion] Reading source files...\n";
     }
 
-    for (const auto& file : source_files) {
-        std::ifstream f(file);
-        if (!f.is_open()) {
-            std::cerr << "[CAS ERROR] Cannot open source file: " << file << "\n";
-            return 1;
-        }
-        std::stringstream ss;
-        ss << f.rdbuf();
-        std::string content = ss.str();
-        total_bytes += content.size();
-        combined_src += content + "\n";
-        if (verbose) {
-            debug_ss << "  -> Loaded '" << file << "' (" << content.size() << " bytes)\n";
-        }
-    }
+    std::vector<std::unique_ptr<ModuleNode>> all_modules;
+    size_t total_bytes = 0;
 
     try {
-        if (verbose) {
-            debug_ss << "[PHASE 2: Frontend] Parsing AST & Module Definitions...\n";
+        // Parse each file independently so file names and line counts remain exact
+        for (const auto& file : source_files) {
+            std::ifstream f(file);
+            if (!f.is_open()) {
+                std::cerr << "[CAS ERROR] Cannot open source file: " << file << "\n";
+                return 1;
+            }
+            std::stringstream ss;
+            ss << f.rdbuf();
+            std::string content = ss.str();
+            total_bytes += content.size();
+
+            size_t slash = file.find_last_of("/\\");
+            std::string base_dir = (slash == std::string::npos) ? "." : file.substr(0, slash);
+
+            if (verbose) {
+                debug_ss << "  -> Loaded '" << file << "' (" << content.size() << " bytes)\n";
+            }
+
+            Lexer lexer(file, content, base_dir);
+            Parser parser(lexer);
+            auto mods = parser.parse_all();
+            for (auto& m : mods) {
+                all_modules.push_back(std::move(m));
+            }
         }
 
-        Lexer lexer(combined_src);
-        Parser parser(lexer);
-        auto modules = parser.parse_all();
-
         if (verbose) {
-            debug_ss << "  -> Parsed " << modules.size() << " module declaration(s):\n";
-            for (const auto& mod : modules) {
+            debug_ss << "[PHASE 2: Frontend] Parsed " << all_modules.size() << " module declaration(s):\n";
+            for (const auto& mod : all_modules) {
                 debug_ss << "     * module " << mod->name 
                          << " (ports: " << mod->ports.size()
                          << ", params: " << mod->parameters.size()
@@ -95,9 +99,12 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // ----------------------------------------------------
+        // PHASE 3 & 4: Elaboration & Simulation Execution
+        // ----------------------------------------------------
         Engine engine;
         engine.set_vcd_allowed(enable_vcd);
-        engine.elaborate(modules, debug_ptr);
+        engine.elaborate(all_modules, top_override, debug_ptr);
         engine.run(debug_ptr);
 
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -122,7 +129,6 @@ int main(int argc, char* argv[]) {
 
         EngineStats st = engine.get_stats();
 
-        // Emit telemetry block
         std::cout << "\n---BEGIN_CAS_TELEMETRY---\n";
         std::cout << "{\n";
         std::cout << "  \"profiling_enabled\": " << (enable_profiling ? "true" : "false") << ",\n";
@@ -134,7 +140,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  \"cpu_util_pct\": " << cpu_util << ",\n";
         std::cout << "  \"peak_rss_kb\": " << max_rss_kb << ",\n";
         std::cout << "  \"source_bytes\": " << total_bytes << ",\n";
-        std::cout << "  \"modules_count\": " << modules.size() << ",\n";
+        std::cout << "  \"modules_count\": " << all_modules.size() << ",\n";
         std::cout << "  \"nets_count\": " << st.net_count << ",\n";
         std::cout << "  \"nets_cap\": " << st.net_cap << ",\n";
         std::cout << "  \"procs_count\": " << st.proc_count << ",\n";
@@ -154,7 +160,7 @@ int main(int argc, char* argv[]) {
         std::cout << "---END_CAS_DEBUG_LOG---\n";
 
     } catch (const std::exception& e) {
-        std::cerr << "\n[CAS FATAL ERROR] " << e.what() << "\n";
+        std::cerr << "\n" << e.what() << "\n";
         return 2;
     }
 
