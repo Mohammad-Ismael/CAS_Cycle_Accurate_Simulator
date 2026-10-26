@@ -8,18 +8,19 @@ All notable architectural enhancements, language grammar additions, and runtime 
 ## [v0.7.0] - 2026-10-26
 
 ### Added
-* **Extended Operator Grammar & Tokenizer:**
-  * Added tokens for bitwise AND (`&`), bitwise OR (`|`), XOR (`^`), bitwise invert (`~`).
-  * Added shift tokens (`<<`, `>>`).
-  * Added relational and equality tokens (`==`, `!=`, `<`, `<=`, `>`, `>=`).
-  * Added ternary conditional tokens (`?`, `:`).
-* **Precedence-Climbing Recursive Descent Parser:**
-  * Implemented stratified expression parser climbing from primary to unary (`!`, `~`), shift, additive (`+`, `-`), relational, equality, bitwise (`&`, `^`, `|`), and ternary conditional (`cond ? true_expr : false_expr`).
-  * Added `TernaryOpNode` to AST structure.
-* **Dual-Rail 4-State Operator Semantics:**
-  * Implemented bitwise 4-state truth tables in `LogicVal` (`0 & X = 0`, `1 | X = 1`, `X ^ X = X`).
-  * Implemented 4-state bitwise inversion (`~`), logical shift left/right (`<<`, `>>`), and equality checking returning `X` on unknown inputs.
-  * Added ternary evaluation in `Engine::eval_expr()` returning `X` if the condition is unknown.
+* **Recursive Multi-Level Elaboration Engine:**
+  * Replaced flat single-level instance walker with recursive `Engine::elaborate_module()` capable of resolving arbitrary-depth module hierarchies (`top -> dut -> submod -> ...`).
+  * Hierarchical net mapping correctly handles deeply nested instance scopes and links cross-boundary port driver/receiver bindings.
+* **Extended Operator Grammar & Precedence Climbing:**
+  * Added tokenization and stratified parsing for bitwise operators (`&`, `|`, `^`, `~`), logical shifts (`<<`, `>>`), relational/equality (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical short-circuit gates (`&&`, `||`), and ternary conditionals (`?:`).
+  * Stratified expression precedence climbing eliminates parsing ambiguities in complex ALU operations.
+* **Dual-Rail 4-State Bitwise Operations:**
+  * Implemented exact per-bit truth tables in `LogicVal` for bitwise AND, OR, XOR, NOT, and shifts.
+  * Added 4-state logical equality and relational comparison operators returning `X` on unknown inputs.
+* **Procedural Conditionals in Initial Processes:**
+  * Updated `Engine::execute_statement()` and `step_process()` to support procedural `if-else` branching inside testbench processes with nested `$display` and `$finish` calls.
+* **Comprehensive Automated Regression Suite:**
+  * Added `projects/regression/` with automated self-checking assertions covering all language features and architectural milestones from `v0.1.0` through `v0.7.0`.
 
 ---
 

@@ -1,6 +1,6 @@
 CMakeFiles/cas.dir/src/lexer.cpp.o: /app/CAS/src/lexer.cpp \
  /usr/include/stdc-predef.h /app/CAS/src/../include/lexer.hpp \
- /app/CAS/src/../include/ast.hpp /usr/include/c++/13.2.1/string \
+ /usr/include/c++/13.2.1/string \
  /usr/include/c++/13.2.1/bits/requires_hosted.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++config.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h \
@@ -68,34 +68,10 @@ CMakeFiles/cas.dir/src/lexer.cpp.o: /app/CAS/src/lexer.cpp \
  /usr/include/c++/13.2.1/cstddef /usr/include/stddef.h \
  /usr/include/c++/13.2.1/bits/uses_allocator.h \
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
- /usr/include/c++/13.2.1/tuple /usr/include/c++/13.2.1/vector \
- /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
- /usr/include/c++/13.2.1/bits/stl_vector.h \
- /usr/include/c++/13.2.1/bits/stl_bvector.h \
- /usr/include/c++/13.2.1/bits/vector.tcc /usr/include/c++/13.2.1/memory \
- /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
- /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
- /usr/include/c++/13.2.1/bits/align.h /usr/include/stdint.h \
- /usr/include/bits/stdint.h /usr/include/c++/13.2.1/bits/unique_ptr.h \
- /usr/include/c++/13.2.1/bits/shared_ptr.h \
- /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
- /usr/include/c++/13.2.1/typeinfo \
- /usr/include/c++/13.2.1/bits/allocated_ptr.h \
- /usr/include/c++/13.2.1/ext/aligned_buffer.h \
- /usr/include/c++/13.2.1/ext/atomicity.h \
- /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/gthr.h \
- /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/gthr-default.h \
- /usr/include/pthread.h /usr/include/sched.h /usr/include/time.h \
- /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h \
- /usr/include/c++/13.2.1/ext/concurrence.h \
- /usr/include/c++/13.2.1/exception \
+ /usr/include/c++/13.2.1/tuple /usr/include/c++/13.2.1/cstdint \
+ /usr/include/stdint.h /usr/include/bits/stdint.h \
+ /usr/include/c++/13.2.1/stdexcept /usr/include/c++/13.2.1/exception \
  /usr/include/c++/13.2.1/bits/exception_ptr.h \
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
- /usr/include/c++/13.2.1/bits/nested_exception.h \
- /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
- /usr/include/c++/13.2.1/bits/atomic_base.h \
- /usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h \
- /usr/include/c++/13.2.1/backward/auto_ptr.h \
- /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
- /usr/include/c++/13.2.1/pstl/execution_defs.h \
- /usr/include/c++/13.2.1/stdexcept
+ /usr/include/c++/13.2.1/typeinfo \
+ /usr/include/c++/13.2.1/bits/nested_exception.h

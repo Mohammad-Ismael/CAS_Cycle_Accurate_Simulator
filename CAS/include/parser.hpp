@@ -1,5 +1,5 @@
 #pragma once
-#include "lexer.hpp"
+#include "ast.hpp"
 #include <memory>
 
 class Parser {
@@ -20,6 +20,8 @@ private:
     std::unique_ptr<ExpressionNode> parse_bitwise_and();
     std::unique_ptr<ExpressionNode> parse_bitwise_xor();
     std::unique_ptr<ExpressionNode> parse_bitwise_or();
+    std::unique_ptr<ExpressionNode> parse_logical_and();
+    std::unique_ptr<ExpressionNode> parse_logical_or();
     std::unique_ptr<ExpressionNode> parse_ternary();
     std::unique_ptr<ExpressionNode> parse_expression();
 

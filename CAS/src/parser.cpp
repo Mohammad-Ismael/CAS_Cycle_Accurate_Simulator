@@ -25,7 +25,6 @@ void Parser::expect(TokenType t, const std::string& err) {
     advance();
 }
 
-// 1. Primary: Number, Identifier, or parenthesized (expr)
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (current.type == TokenType::TOKEN_NUMBER) {
         auto node = std::make_unique<NumberNode>(current.num_val, current.bit_width);
@@ -45,7 +44,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     throw std::runtime_error("Unexpected token in expression evaluation on line " + std::to_string(current.line) + " (token: '" + current.text + "')");
 }
 
-// 2. Unary: !, ~
 std::unique_ptr<ExpressionNode> Parser::parse_unary() {
     if (match(TokenType::TOKEN_NOT)) {
         return std::make_unique<UnaryOpNode>('!', parse_unary());
@@ -56,7 +54,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
     return parse_primary();
 }
 
-// 3. Shift: <<, >>
 std::unique_ptr<ExpressionNode> Parser::parse_shift() {
     auto lhs = parse_unary();
     while (current.type == TokenType::TOKEN_SHL || current.type == TokenType::TOKEN_SHR) {
@@ -68,7 +65,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_shift() {
     return lhs;
 }
 
-// 4. Additive: +, -
 std::unique_ptr<ExpressionNode> Parser::parse_additive() {
     auto lhs = parse_shift();
     while (current.type == TokenType::TOKEN_PLUS || current.type == TokenType::TOKEN_MINUS) {
@@ -80,7 +76,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_additive() {
     return lhs;
 }
 
-// 5. Relational: <, <=, >, >=
 std::unique_ptr<ExpressionNode> Parser::parse_relational() {
     auto lhs = parse_additive();
     while (current.type == TokenType::TOKEN_LT || current.type == TokenType::TOKEN_LE ||
@@ -97,7 +92,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
     return lhs;
 }
 
-// 6. Equality: ==, !=
 std::unique_ptr<ExpressionNode> Parser::parse_equality() {
     auto lhs = parse_relational();
     while (current.type == TokenType::TOKEN_EQ || current.type == TokenType::TOKEN_NEQ) {
@@ -109,7 +103,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_equality() {
     return lhs;
 }
 
-// 7. Bitwise AND: &
 std::unique_ptr<ExpressionNode> Parser::parse_bitwise_and() {
     auto lhs = parse_equality();
     while (match(TokenType::TOKEN_AND)) {
@@ -119,7 +112,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_bitwise_and() {
     return lhs;
 }
 
-// 8. Bitwise XOR: ^
 std::unique_ptr<ExpressionNode> Parser::parse_bitwise_xor() {
     auto lhs = parse_bitwise_and();
     while (match(TokenType::TOKEN_XOR)) {
@@ -129,7 +121,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_bitwise_xor() {
     return lhs;
 }
 
-// 9. Bitwise OR: |
 std::unique_ptr<ExpressionNode> Parser::parse_bitwise_or() {
     auto lhs = parse_bitwise_xor();
     while (match(TokenType::TOKEN_OR_BIT)) {
@@ -139,9 +130,28 @@ std::unique_ptr<ExpressionNode> Parser::parse_bitwise_or() {
     return lhs;
 }
 
-// 10. Ternary Conditional: cond ? true_expr : false_expr
+// Logical AND (&&)
+std::unique_ptr<ExpressionNode> Parser::parse_logical_and() {
+    auto lhs = parse_bitwise_or();
+    while (match(TokenType::TOKEN_LOGICAL_AND)) {
+        auto rhs = parse_bitwise_or();
+        lhs = std::make_unique<BinaryOpNode>("&&", std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// Logical OR (||)
+std::unique_ptr<ExpressionNode> Parser::parse_logical_or() {
+    auto lhs = parse_logical_and();
+    while (match(TokenType::TOKEN_LOGICAL_OR)) {
+        auto rhs = parse_logical_and();
+        lhs = std::make_unique<BinaryOpNode>("||", std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_ternary() {
-    auto cond = parse_bitwise_or();
+    auto cond = parse_logical_or();
     if (match(TokenType::TOKEN_QUESTION)) {
         auto true_expr = parse_expression();
         expect(TokenType::TOKEN_COLON, "Expected ':' in ternary conditional operator");

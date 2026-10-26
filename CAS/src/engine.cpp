@@ -78,6 +78,28 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "<=") return LogicVal::rel_le(l, r);
         if (bin->op == ">")  return LogicVal::rel_gt(l, r);
         if (bin->op == ">=") return LogicVal::rel_ge(l, r);
+
+        // Logical AND (&&)
+        if (bin->op == "&&") {
+            if ((!l.is_unknown() && l.aval == 0) || (!r.is_unknown() && r.aval == 0)) {
+                return LogicVal::make_known(1, 0);
+            }
+            if (l.is_unknown() || r.is_unknown()) {
+                return LogicVal::make_x(1);
+            }
+            return LogicVal::make_known(1, (l.aval != 0 && r.aval != 0) ? 1 : 0);
+        }
+
+        // Logical OR (||)
+        if (bin->op == "||") {
+            if ((!l.is_unknown() && l.aval != 0) || (!r.is_unknown() && r.aval != 0)) {
+                return LogicVal::make_known(1, 1);
+            }
+            if (l.is_unknown() || r.is_unknown()) {
+                return LogicVal::make_x(1);
+            }
+            return LogicVal::make_known(1, (l.aval != 0 || r.aval != 0) ? 1 : 0);
+        }
     }
     if (auto tern = dynamic_cast<TernaryOpNode*>(expr)) {
         LogicVal cond = eval_expr(tern->condition.get(), scope);
@@ -109,7 +131,7 @@ void Engine::init_vcd_header() {
     std::time_t now = std::time(nullptr);
     vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
     vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.7.0 [Extended ALU Engine]\n$end\n";
-    vcd_file << "$timescale 1ns $end\n";
+    vcd_file << "$timescale 1ns$end\n";
 
     std::unordered_map<std::string, std::vector<size_t>> scopes;
     for (size_t i = 0; i < netlist.size(); ++i) {
@@ -127,10 +149,10 @@ void Engine::init_vcd_header() {
             std::string leaf_name = (dot_pos == std::string::npos) ? net.name : net.name.substr(dot_pos + 1);
             vcd_file << "$var wire " << net.width << " " << net.vcd_id << " " << leaf_name << " $end\n";
         }
-        vcd_file << "$upscope $end\n";
+        vcd_file << "$upscope$end\n";
     }
 
-    vcd_file << "$enddefinitions $end\n";
+    vcd_file << "$enddefinitions$end\n";
     vcd_file << "$dumpvars\n";
     dump_vcd_sample(true);
     vcd_file << "$end\n";
@@ -215,17 +237,78 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
         }
     }
+    else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
+        std::cout << "[CAS $display] ";
+        size_t arg_idx = 0;
+        for (size_t i = 0; i < disp->format_string.size(); ++i) {
+            if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {
+                char spec = disp->format_string[++i];
+                if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
+                    spec = 't';
+                    i++;
+                }
+
+                if (arg_idx < disp->args.size()) {
+                    std::string arg_name = disp->args[arg_idx++];
+                    if (arg_name == "$time") {
+                        std::cout << sim_time;
+                    } else {
+                        std::string scoped_arg = bp.scope + "." + arg_name;
+                        size_t net_id = net_map.at(scoped_arg);
+                        const auto& net = netlist[net_id];
+
+                        if (net.value.is_unknown()) {
+                            std::cout << "x";
+                        } else {
+                            if (spec == 'd' || spec == 't') std::cout << net.value.aval;
+                            else if (spec == 'b') std::cout << net.value.to_bin_string();
+                            else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
+                        }
+                    }
+                }
+            } else {
+                std::cout << disp->format_string[i];
+            }
+        }
+        std::cout << "\n";
+    }
+    else if (dynamic_cast<FinishStatementNode*>(stmt)) {
+        std::cout << "[CAS $finish] Simulation Terminated at time " << sim_time << ".\n";
+        simulation_active = false;
+        bp.completed = true;
+    }
     else if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = net_map.at(scoped_target);
         nba_queue.push_back({net_id, rhs_val});
     }
-    else if (auto bassign = dynamic_cast<BlockingAssignNode*>(stmt)) {
-        LogicVal rhs_val = eval_expr(bassign->rhs.get(), bp.scope);
-        std::string scoped_target = bp.scope + "." + bassign->lhs_targets[0];
-        size_t net_id = net_map.at(scoped_target);
-        netlist[net_id].set(rhs_val);
+    else if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+
+        if (assign->lhs_targets.size() > 1) {
+            int shift = 0;
+            for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
+                std::string scoped_target = bp.scope + "." + assign->lhs_targets[i];
+                size_t net_id = net_map.at(scoped_target);
+                uint32_t width = netlist[net_id].width;
+                uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                LogicVal slice(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
+                netlist[net_id].set(slice);
+                shift += width;
+            }
+        } else {
+            std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
+            size_t net_id = net_map.at(scoped_target);
+            netlist[net_id].set(rhs_val);
+        }
+
+        propagate_comb();
+        evaluate_sequential_blocks();
+        commit_nba_updates();
+        dump_vcd_sample();
+
+        for (auto& n : netlist) n.modified = false;
     }
 }
 
@@ -267,6 +350,58 @@ void Engine::commit_nba_updates() {
     propagate_comb();
 }
 
+void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
+                              const std::unordered_map<std::string, ModuleNode*>& module_defs) {
+    // 1. Elaborate ports
+    for (auto& p : mod->ports) {
+        uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
+        get_or_create_net(scope + "." + p.name, w);
+    }
+    // 2. Elaborate internal signals
+    for (auto& s : mod->signals) {
+        uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
+        get_or_create_net(scope + "." + s.name, w);
+    }
+    // 3. Bind procedural processes
+    for (auto& proc : mod->processes) {
+        processes.push_back({scope, proc.get(), 0, false});
+    }
+
+    // 4. Recursively elaborate nested submodules
+    for (auto& inst : mod->instantiations) {
+        std::string child_scope = scope + "." + inst->instance_name;
+        if (module_defs.find(inst->module_type) == module_defs.end()) {
+            throw std::runtime_error("Undefined module type instantiated: " + inst->module_type);
+        }
+        ModuleNode* submod = module_defs.at(inst->module_type);
+
+        elaborate_module(submod, child_scope, module_defs);
+
+        // Bind Port Interconnects across parent <-> child boundaries
+        for (auto& conn : inst->connections) {
+            std::string parent_net_name = scope + "." + conn.connected_net;
+            std::string child_net_name = child_scope + "." + conn.port_name;
+
+            size_t parent_id = net_map.at(parent_net_name);
+            size_t child_id = net_map.at(child_net_name);
+
+            std::string dir = "input";
+            for (auto& p : submod->ports) {
+                if (p.name == conn.port_name) {
+                    dir = p.direction;
+                    break;
+                }
+            }
+
+            if (dir == "input") {
+                port_bindings.push_back({parent_id, child_id});
+            } else {
+                port_bindings.push_back({child_id, parent_id});
+            }
+        }
+    }
+}
+
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
     std::unordered_map<std::string, ModuleNode*> module_defs;
     for (auto& mod : modules) {
@@ -289,63 +424,7 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
     }
     if (!top) top = modules.front().get();
 
-    // 1. Elaborate Root Nets & Processes
-    std::string root_scope = top->name;
-    for (auto& s : top->signals) {
-        uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
-        get_or_create_net(root_scope + "." + s.name, w);
-    }
-    for (auto& p : top->ports) {
-        uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
-        get_or_create_net(root_scope + "." + p.name, w);
-    }
-    for (auto& proc : top->processes) {
-        processes.push_back({root_scope, proc.get(), 0, false});
-    }
-
-    // 2. Elaborate Submodules
-    for (auto& inst : top->instantiations) {
-        std::string inst_scope = root_scope + "." + inst->instance_name;
-        if (module_defs.find(inst->module_type) == module_defs.end()) {
-            throw std::runtime_error("Undefined module type instantiated: " + inst->module_type);
-        }
-        ModuleNode* submod = module_defs[inst->module_type];
-
-        for (auto& p : submod->ports) {
-            uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
-            get_or_create_net(inst_scope + "." + p.name, w);
-        }
-        for (auto& s : submod->signals) {
-            uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
-            get_or_create_net(inst_scope + "." + s.name, w);
-        }
-        for (auto& proc : submod->processes) {
-            processes.push_back({inst_scope, proc.get(), 0, false});
-        }
-
-        // Bind Port Interconnects
-        for (auto& conn : inst->connections) {
-            std::string parent_net_name = root_scope + "." + conn.connected_net;
-            std::string child_net_name = inst_scope + "." + conn.port_name;
-
-            size_t parent_id = net_map.at(parent_net_name);
-            size_t child_id = net_map.at(child_net_name);
-
-            std::string dir = "input";
-            for (auto& p : submod->ports) {
-                if (p.name == conn.port_name) {
-                    dir = p.direction;
-                    break;
-                }
-            }
-
-            if (dir == "input") {
-                port_bindings.push_back({parent_id, child_id});
-            } else {
-                port_bindings.push_back({child_id, parent_id});
-            }
-        }
-    }
+    elaborate_module(top, top->name, module_defs);
 }
 
 void Engine::step_process(size_t pid) {
@@ -355,7 +434,7 @@ void Engine::step_process(size_t pid) {
     while (bp.pc < bp.proc->body.size()) {
         auto stmt = bp.proc->body[bp.pc].get();
 
-        // Delay
+        // Delay Statement
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t wake_time = sim_time + delay->delay;
@@ -378,82 +457,18 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        // Blocking Assignment
-        if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
-            LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
-
-            if (assign->lhs_targets.size() > 1) {
-                int shift = 0;
-                for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
-                    std::string scoped_target = bp.scope + "." + assign->lhs_targets[i];
-                    size_t net_id = net_map.at(scoped_target);
-                    uint32_t width = netlist[net_id].width;
-                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                    LogicVal slice(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
-                    netlist[net_id].set(slice);
-                    shift += width;
-                }
-            } else {
-                std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
-                size_t net_id = net_map.at(scoped_target);
-                netlist[net_id].set(rhs_val);
-            }
-
-            propagate_comb();
-            evaluate_sequential_blocks();
-            commit_nba_updates();
-            dump_vcd_sample();
-
-            for (auto& n : netlist) n.modified = false;
+        // Procedural If-Else Block
+        if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
+            execute_statement(if_stmt, bp);
+            if (!simulation_active) return;
             bp.pc++;
+            continue;
         }
-        // $display
-        else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
-            std::cout << "[CAS $display] ";
-            size_t arg_idx = 0;
-            for (size_t i = 0; i < disp->format_string.size(); ++i) {
-                if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {
-                    char spec = disp->format_string[++i];
-                    if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
-                        spec = 't';
-                        i++;
-                    }
 
-                    if (arg_idx < disp->args.size()) {
-                        std::string arg_name = disp->args[arg_idx++];
-                        if (arg_name == "$time") {
-                            std::cout << sim_time;
-                        } else {
-                            std::string scoped_arg = bp.scope + "." + arg_name;
-                            size_t net_id = net_map.at(scoped_arg);
-                            const auto& net = netlist[net_id];
-
-                            if (net.value.is_unknown()) {
-                                std::cout << "x";
-                            } else {
-                                if (spec == 'd' || spec == 't') std::cout << net.value.aval;
-                                else if (spec == 'b') std::cout << net.value.to_bin_string();
-                                else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
-                            }
-                        }
-                    }
-                } else {
-                    std::cout << disp->format_string[i];
-                }
-            }
-            std::cout << "\n";
-            bp.pc++;
-        }
-        // $finish
-        else if (dynamic_cast<FinishStatementNode*>(stmt)) {
-            std::cout << "[CAS $finish] Simulation Terminated at time " << sim_time << ".\n";
-            simulation_active = false;
-            bp.completed = true;
-            return;
-        }
-        else {
-            bp.pc++;
-        }
+        // All other statements (Assignments, $display,$finish)
+        execute_statement(stmt, bp);
+        if (!simulation_active) return;
+        bp.pc++;
     }
 
     bp.completed = true;

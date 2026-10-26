@@ -64,6 +64,10 @@ private:
     void commit_nba_updates();
     void step_process(size_t pid);
 
+    // Hierarchical Elaboration
+    void elaborate_module(ModuleNode* mod, const std::string& scope,
+                          const std::unordered_map<std::string, ModuleNode*>& module_defs);
+
     // VCD Subroutines
     std::string generate_vcd_id(size_t id);
     void init_vcd_header();

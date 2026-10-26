@@ -64,11 +64,19 @@ Token Lexer::next_token() {
     // Multi-character checks
     if (c == '&') {
         advance();
+        if (peek() == '&') {
+            advance();
+            return {TokenType::TOKEN_LOGICAL_AND, "&&", 0, 0, line};
+        }
         return {TokenType::TOKEN_AND, "&", 0, 0, line};
     }
 
     if (c == '|') {
         advance();
+        if (peek() == '|') {
+            advance();
+            return {TokenType::TOKEN_LOGICAL_OR, "||", 0, 0, line};
+        }
         return {TokenType::TOKEN_OR_BIT, "|", 0, 0, line};
     }
 
@@ -123,7 +131,7 @@ Token Lexer::next_token() {
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance(); // consume '
+            advance();
             char base = advance();
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {
