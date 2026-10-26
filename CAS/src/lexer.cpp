@@ -124,7 +124,7 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_GT, ">", 0, 0, line};
     }
 
-    // Sized/Unsized Numeric Literals
+    // Literals
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
@@ -156,7 +156,7 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_STRING, s, 0, 0, line};
     }
 
-    // Identifiers and Keywords
+    // Keywords and Identifiers
     if (std::isalpha(c) || c == '_' || c == '$') {
         std::string ident;
         while (std::isalnum(peek()) || peek() == '_' || peek() == '$') {
@@ -175,6 +175,9 @@ Token Lexer::next_token() {
         if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};
         if (ident == "if") return {TokenType::TOKEN_IF, ident, 0, 0, line};
         if (ident == "else") return {TokenType::TOKEN_ELSE, ident, 0, 0, line};
+        if (ident == "case") return {TokenType::TOKEN_CASE, ident, 0, 0, line};
+        if (ident == "endcase") return {TokenType::TOKEN_ENDCASE, ident, 0, 0, line};
+        if (ident == "default") return {TokenType::TOKEN_DEFAULT, ident, 0, 0, line};
         if (ident == "begin") return {TokenType::TOKEN_BEGIN, ident, 0, 0, line};
         if (ident == "end") return {TokenType::TOKEN_END, ident, 0, 0, line};
         if (ident == "initial") return {TokenType::TOKEN_INITIAL, ident, 0, 0, line};

@@ -18,6 +18,9 @@ enum class TokenType {
     TOKEN_OR,          // 'or' keyword in sensitivity lists
     TOKEN_IF,
     TOKEN_ELSE,
+    TOKEN_CASE,        // case
+    TOKEN_ENDCASE,     // endcase
+    TOKEN_DEFAULT,     // default
     TOKEN_NOT,         // !
     TOKEN_TILDE,       // ~
     TOKEN_BEGIN,

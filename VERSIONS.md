@@ -5,6 +5,25 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.8.0] - 2026-10-26
+
+### Added
+* **Case Statement Branch Selection:**
+  * Added tokens: `TOKEN_CASE` (`case`), `TOKEN_ENDCASE` (`endcase`), and `TOKEN_DEFAULT` (`default`).
+  * Implemented `CaseStatementNode` and `CaseItem` supporting sequential branch testing and fallback defaults.
+  * Supported single statements and multi-statement `begin ... end` compound blocks inside case branches.
+* **Vector Bit-Select & Part-Select Indexing:**
+  * Added `IndexSelectNode` to AST.
+  * Parser handles bracketed indices during primary expression parsing (`ident[idx]` and `ident[msb:lsb]`).
+  * `Engine::eval_expr()` extracts scalar bits and sub-slices with exact dual-rail `aval` / `bval` alignment, returning `X` on out-of-bounds or unknown indices.
+* **Procedural Pipeline Fixes:**
+  * Fixed combinational modified-flag reset order in `Engine::propagate_comb()`, preventing missed sequential edge transitions during reset assertion.
+  * Updated procedural execution in `step_process()` so blocking updates trigger combinational propagation and sequential edge evaluation immediately.
+* **Regression Test Suite Expansion:**
+  * Expanded `projects/regression/` to 27 nets and 15 port bindings, verifying `case` branching and bit/part-select slicing with automated pass/fail verification.
+
+---
+
 ## [v0.7.0] - 2026-10-26
 
 ### Added
@@ -138,3 +157,31 @@ All notable architectural enhancements, language grammar additions, and runtime 
 * **Dockerized Web Playground:**
   * Monaco editor frontend with split testbench/RTL panes and dynamic resizers.
   * FastAPI server executing native simulation runs inside an isolated container.
+
+```
+
+---
+
+## Next Milestone: `v0.9.0` (Memory Arrays & Continuous `assign`)
+
+To simulate a true RISC-V CPU core (such as an RV32I 5-stage pipeline or CVA6 subset), two structural constructs are essential:
+
+1. **Continuous `assign` statements:**
+```systemverilog
+assign result = alu_enable ? (a + b) : 32'd0;
+
+```
+
+
+Currently, all combinational assignments require an enclosing `always_comb begin ... end` process. Adding `assign` at module scope allows clean dataflow modeling.
+2. **Multi-element 1D unpacked memory arrays:**
+```systemverilog
+logic [31:0] regfile [0:31];  // 32-entry x 32-bit RISC-V register file
+logic [31:0] imem [0:255];     // Instruction memory RAM
+
+```
+
+
+* Declarations: parsing unpacked dimensions `[0:depth-1]` or `[depth]`.
+* Array element access: reading `regfile[rs1]` and writing via non-blocking assignments (`regfile[rd] <= write_data`).
+* 4-state memory initialization: every entry initializes to `X` until explicitly written or cleared.

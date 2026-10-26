@@ -34,6 +34,19 @@ struct NumberNode : public ExpressionNode {
     NumberNode(uint64_t val, uint32_t w) : value(val), width(w) {}
 };
 
+struct IndexSelectNode : public ExpressionNode {
+    std::string name;
+    std::unique_ptr<ExpressionNode> msb_expr;
+    std::unique_ptr<ExpressionNode> lsb_expr; // nullptr if single-bit select
+    bool is_part_select;
+
+    IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
+        : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) {}
+
+    IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> msb, std::unique_ptr<ExpressionNode> lsb)
+        : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) {}
+};
+
 struct UnaryOpNode : public ExpressionNode {
     char op; // '!', '~'
     std::unique_ptr<ExpressionNode> operand;
@@ -42,7 +55,7 @@ struct UnaryOpNode : public ExpressionNode {
 };
 
 struct BinaryOpNode : public ExpressionNode {
-    std::string op; // "+", "-", "&", "|", "^", "<<", ">>", "==", "!=", "<", "<=", ">", ">=", "&&", "||"
+    std::string op;
     std::unique_ptr<ExpressionNode> lhs;
     std::unique_ptr<ExpressionNode> rhs;
     BinaryOpNode(std::string o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
@@ -82,6 +95,18 @@ struct IfStatementNode : public StatementNode {
     std::vector<std::unique_ptr<StatementNode>> then_branch;
     std::vector<std::unique_ptr<StatementNode>> else_branch;
     IfStatementNode(std::unique_ptr<ExpressionNode> cond) : condition(std::move(cond)) {}
+};
+
+struct CaseItem {
+    bool is_default;
+    std::unique_ptr<ExpressionNode> match_expr;
+    std::vector<std::unique_ptr<StatementNode>> statements;
+};
+
+struct CaseStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> selector;
+    std::vector<CaseItem> items;
+    explicit CaseStatementNode(std::unique_ptr<ExpressionNode> sel) : selector(std::move(sel)) {}
 };
 
 struct DelayStatementNode : public StatementNode {

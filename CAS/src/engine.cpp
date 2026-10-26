@@ -41,12 +41,39 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         return netlist[net_map.at(scoped_ident)].value;
     }
+    if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
+        std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
+        const auto& target_val = netlist[net_map.at(scoped_ident)].value;
+
+        if (!idx_node->is_part_select) {
+            LogicVal idx_val = eval_expr(idx_node->msb_expr.get(), scope);
+            if (idx_val.is_unknown() || idx_val.aval >= target_val.width) {
+                return LogicVal::make_x(1);
+            }
+            uint32_t sh = idx_val.aval;
+            uint64_t a = (target_val.aval >> sh) & 1;
+            uint64_t b = (target_val.bval >> sh) & 1;
+            return LogicVal(1, a, b);
+        } else {
+            LogicVal msb_v = eval_expr(idx_node->msb_expr.get(), scope);
+            LogicVal lsb_v = eval_expr(idx_node->lsb_expr.get(), scope);
+            if (msb_v.is_unknown() || lsb_v.is_unknown() || msb_v.aval < lsb_v.aval) {
+                uint32_t w = (msb_v.aval >= lsb_v.aval) ? (msb_v.aval - lsb_v.aval + 1) : 1;
+                return LogicVal::make_x(w);
+            }
+            uint32_t msb = msb_v.aval;
+            uint32_t lsb = lsb_v.aval;
+            uint32_t slice_w = msb - lsb + 1;
+            uint64_t mask = (slice_w >= 64) ? ~0ULL : ((1ULL << slice_w) - 1);
+            uint64_t a = (target_val.aval >> lsb) & mask;
+            uint64_t b = (target_val.bval >> lsb) & mask;
+            return LogicVal(slice_w, a, b);
+        }
+    }
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
         LogicVal val = eval_expr(un->operand.get(), scope);
         if (un->op == '!') {
-            if (val.is_unknown()) {
-                return LogicVal::make_x(1);
-            }
+            if (val.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
         if (un->op == '~') {
@@ -79,25 +106,19 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == ">")  return LogicVal::rel_gt(l, r);
         if (bin->op == ">=") return LogicVal::rel_ge(l, r);
 
-        // Logical AND (&&)
         if (bin->op == "&&") {
             if ((!l.is_unknown() && l.aval == 0) || (!r.is_unknown() && r.aval == 0)) {
                 return LogicVal::make_known(1, 0);
             }
-            if (l.is_unknown() || r.is_unknown()) {
-                return LogicVal::make_x(1);
-            }
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.aval != 0 && r.aval != 0) ? 1 : 0);
         }
 
-        // Logical OR (||)
         if (bin->op == "||") {
             if ((!l.is_unknown() && l.aval != 0) || (!r.is_unknown() && r.aval != 0)) {
                 return LogicVal::make_known(1, 1);
             }
-            if (l.is_unknown() || r.is_unknown()) {
-                return LogicVal::make_x(1);
-            }
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.aval != 0 || r.aval != 0) ? 1 : 0);
         }
     }
@@ -130,8 +151,8 @@ void Engine::init_vcd_header() {
 
     std::time_t now = std::time(nullptr);
     vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
-    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.7.0 [Extended ALU Engine]\n$end\n";
-    vcd_file << "$timescale 1ns$end\n";
+    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.8.0 [Control Flow Kernel]\n$end\n";
+    vcd_file << "$timescale 1ns $end\n";
 
     std::unordered_map<std::string, std::vector<size_t>> scopes;
     for (size_t i = 0; i < netlist.size(); ++i) {
@@ -149,10 +170,10 @@ void Engine::init_vcd_header() {
             std::string leaf_name = (dot_pos == std::string::npos) ? net.name : net.name.substr(dot_pos + 1);
             vcd_file << "$var wire " << net.width << " " << net.vcd_id << " " << leaf_name << " $end\n";
         }
-        vcd_file << "$upscope$end\n";
+        vcd_file << "$upscope $end\n";
     }
 
-    vcd_file << "$enddefinitions$end\n";
+    vcd_file << "$enddefinitions $end\n";
     vcd_file << "$dumpvars\n";
     dump_vcd_sample(true);
     vcd_file << "$end\n";
@@ -196,32 +217,14 @@ void Engine::propagate_comb() {
         for (auto& bp : processes) {
             if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
             for (auto& stmt : bp.proc->body) {
-                if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt.get())) {
-                    LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
-                    if (assign->lhs_targets.size() > 1) {
-                        int shift = 0;
-                        for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
-                            std::string scoped_target = bp.scope + "." + assign->lhs_targets[i];
-                            size_t net_id = net_map.at(scoped_target);
-                            uint32_t width = netlist[net_id].width;
-                            uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                execute_statement(stmt.get(), bp);
+            }
+        }
 
-                            LogicVal slice(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
-                            if (netlist[net_id].value != slice) {
-                                netlist[net_id].set(slice);
-                                changed = true;
-                            }
-                            shift += width;
-                        }
-                    } else {
-                        std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
-                        size_t net_id = net_map.at(scoped_target);
-                        if (netlist[net_id].value != rhs_val) {
-                            netlist[net_id].set(rhs_val);
-                            changed = true;
-                        }
-                    }
-                }
+        for (const auto& n : netlist) {
+            if (n.modified) {
+                changed = true;
+                break;
             }
         }
         iters++;
@@ -235,6 +238,29 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (auto& s : if_stmt->then_branch) execute_statement(s.get(), bp);
         } else {
             for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
+        }
+    }
+    else if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
+        LogicVal sel_val = eval_expr(case_stmt->selector.get(), bp.scope);
+        bool branch_taken = false;
+        const CaseItem* default_item = nullptr;
+
+        for (const auto& item : case_stmt->items) {
+            if (item.is_default) {
+                default_item = &item;
+                continue;
+            }
+            LogicVal item_val = eval_expr(item.match_expr.get(), bp.scope);
+            LogicVal eq_check = LogicVal::logical_eq(sel_val, item_val);
+            if (eq_check.to_bool()) {
+                for (auto& s : item.statements) execute_statement(s.get(), bp);
+                branch_taken = true;
+                break;
+            }
+        }
+
+        if (!branch_taken && default_item) {
+            for (auto& s : default_item->statements) execute_statement(s.get(), bp);
         }
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
@@ -302,13 +328,6 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             size_t net_id = net_map.at(scoped_target);
             netlist[net_id].set(rhs_val);
         }
-
-        propagate_comb();
-        evaluate_sequential_blocks();
-        commit_nba_updates();
-        dump_vcd_sample();
-
-        for (auto& n : netlist) n.modified = false;
     }
 }
 
@@ -352,22 +371,18 @@ void Engine::commit_nba_updates() {
 
 void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
                               const std::unordered_map<std::string, ModuleNode*>& module_defs) {
-    // 1. Elaborate ports
     for (auto& p : mod->ports) {
         uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
         get_or_create_net(scope + "." + p.name, w);
     }
-    // 2. Elaborate internal signals
     for (auto& s : mod->signals) {
         uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
         get_or_create_net(scope + "." + s.name, w);
     }
-    // 3. Bind procedural processes
     for (auto& proc : mod->processes) {
         processes.push_back({scope, proc.get(), 0, false});
     }
 
-    // 4. Recursively elaborate nested submodules
     for (auto& inst : mod->instantiations) {
         std::string child_scope = scope + "." + inst->instance_name;
         if (module_defs.find(inst->module_type) == module_defs.end()) {
@@ -377,7 +392,6 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
 
         elaborate_module(submod, child_scope, module_defs);
 
-        // Bind Port Interconnects across parent <-> child boundaries
         for (auto& conn : inst->connections) {
             std::string parent_net_name = scope + "." + conn.connected_net;
             std::string child_net_name = child_scope + "." + conn.port_name;
@@ -434,7 +448,6 @@ void Engine::step_process(size_t pid) {
     while (bp.pc < bp.proc->body.size()) {
         auto stmt = bp.proc->body[bp.pc].get();
 
-        // Delay Statement
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t wake_time = sim_time + delay->delay;
@@ -442,7 +455,6 @@ void Engine::step_process(size_t pid) {
             return;
         }
 
-        // $dumpfile
         if (auto df = dynamic_cast<DumpFileStatementNode*>(stmt)) {
             vcd_filename = df->filename;
             vcd_enabled = true;
@@ -450,14 +462,12 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        // $dumpvars
         if (dynamic_cast<DumpVarsStatementNode*>(stmt)) {
             init_vcd_header();
             bp.pc++;
             continue;
         }
 
-        // Procedural If-Else Block
         if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
             execute_statement(if_stmt, bp);
             if (!simulation_active) return;
@@ -465,9 +475,25 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        // All other statements (Assignments, $display,$finish)
+        if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
+            execute_statement(case_stmt, bp);
+            if (!simulation_active) return;
+            bp.pc++;
+            continue;
+        }
+
+        // Procedural assignment or task
         execute_statement(stmt, bp);
         if (!simulation_active) return;
+
+        // Propagate signals and check for sequential edge updates
+        propagate_comb();
+        evaluate_sequential_blocks();
+        commit_nba_updates();
+        dump_vcd_sample();
+
+        for (auto& n : netlist) n.modified = false;
+
         bp.pc++;
     }
 
@@ -475,7 +501,7 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.7.0 [Extended ALU Kernel] Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v0.8.0 [Control Flow Kernel] Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
     std::cout << "--------------------------------------------------------\n";

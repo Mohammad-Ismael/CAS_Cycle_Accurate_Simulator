@@ -32,9 +32,22 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return node;
     }
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
-        auto node = std::make_unique<IdentifierNode>(current.text);
+        std::string ident_name = current.text;
         advance();
-        return node;
+
+        // Check for bit-select or part-select: ident[msb] or ident[msb:lsb]
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto first_expr = parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                auto second_expr = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after part-select slice");
+                return std::make_unique<IndexSelectNode>(ident_name, std::move(first_expr), std::move(second_expr));
+            } else {
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after bit index");
+                return std::make_unique<IndexSelectNode>(ident_name, std::move(first_expr));
+            }
+        }
+        return std::make_unique<IdentifierNode>(ident_name);
     }
     if (match(TokenType::TOKEN_LPAREN)) {
         auto expr = parse_expression();
@@ -130,7 +143,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_bitwise_or() {
     return lhs;
 }
 
-// Logical AND (&&)
 std::unique_ptr<ExpressionNode> Parser::parse_logical_and() {
     auto lhs = parse_bitwise_or();
     while (match(TokenType::TOKEN_LOGICAL_AND)) {
@@ -140,7 +152,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_logical_and() {
     return lhs;
 }
 
-// Logical OR (||)
 std::unique_ptr<ExpressionNode> Parser::parse_logical_or() {
     auto lhs = parse_logical_and();
     while (match(TokenType::TOKEN_LOGICAL_OR)) {
@@ -166,7 +177,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
 }
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
-    // 1. Delay: #10;
+    // 1. Delay
     if (match(TokenType::TOKEN_HASH)) {
         if (current.type != TokenType::TOKEN_NUMBER) {
             throw std::runtime_error("Expected numeric delay value after '#' on line " + std::to_string(current.line));
@@ -207,7 +218,43 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return if_stmt;
     }
 
-    // 3. $display
+    // 3. Case Statement: case (expr) ... endcase
+    if (match(TokenType::TOKEN_CASE)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
+        auto selector = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' after case selector");
+
+        auto case_stmt = std::make_unique<CaseStatementNode>(std::move(selector));
+
+        while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+            CaseItem item;
+            if (match(TokenType::TOKEN_DEFAULT)) {
+                item.is_default = true;
+                item.match_expr = nullptr;
+                match(TokenType::TOKEN_COLON); // optional or required colon
+            } else {
+                item.is_default = false;
+                item.match_expr = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' after case item value");
+            }
+
+            if (match(TokenType::TOKEN_BEGIN)) {
+                while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                    item.statements.push_back(parse_statement());
+                }
+                expect(TokenType::TOKEN_END, "Expected 'end' closing case branch block");
+            } else {
+                item.statements.push_back(parse_statement());
+            }
+
+            case_stmt->items.push_back(std::move(item));
+        }
+
+        expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase'");
+        return case_stmt;
+    }
+
+    // 4. $display
     if (match(TokenType::TOKEN_DISPLAY)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $display");
         std::string fmt = current.text;
@@ -223,14 +270,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisplayStatementNode>(fmt, args);
     }
 
-    // 4. $finish
+    // 5. $finish
     if (match(TokenType::TOKEN_FINISH)) {
         if (match(TokenType::TOKEN_LPAREN)) expect(TokenType::TOKEN_RPAREN, "Expected ')'");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $finish");
         return std::make_unique<FinishStatementNode>();
     }
 
-    // 5. $dumpfile
+    // 6. $dumpfile
     if (match(TokenType::TOKEN_DUMPFILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");
         std::string fname = current.text;
@@ -240,7 +287,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpFileStatementNode>(fname);
     }
 
-    // 6. $dumpvars
+    // 7. $dumpvars
     if (match(TokenType::TOKEN_DUMPVARS)) {
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -252,7 +299,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpVarsStatementNode>();
     }
 
-    // 7. Assignments: Blocking (=) vs Non-blocking (<=)
+    // 8. Assignments
     std::vector<std::string> targets;
     if (match(TokenType::TOKEN_LBRACE)) {
         while (true) {
