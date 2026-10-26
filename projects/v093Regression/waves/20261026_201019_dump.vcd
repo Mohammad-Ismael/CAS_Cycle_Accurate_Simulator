@@ -1,0 +1,133 @@
+$date
+   Mon Oct 26 20:10:19 2026
+$end
+$version
+   CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel]
+$end
+$timescale 1ns $end
+$scope module test.uut $end
+$var wire 1 & Cin $end
+$var wire 1 ' x $end
+$var wire 1 ( y $end
+$var wire 1 ) s $end
+$var wire 1 * Cout $end
+$var wire 1 + z1 $end
+$var wire 1 , z2 $end
+$var wire 1 - z3 $end
+$upscope $end
+$scope module test $end
+$var wire 1 ! Cin $end
+$var wire 1 " x $end
+$var wire 1 # y $end
+$var wire 1 $ s $end
+$var wire 1 % Cout $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+x!
+x"
+x#
+x$
+x%
+x&
+x'
+x(
+x)
+x*
+x+
+x,
+x-
+$end
+#0
+x$
+x)
+0!
+0&
+0,
+0-
+0"
+0%
+0'
+0*
+0+
+0#
+0$
+0(
+0)
+#1
+1#
+1$
+1(
+1)
+#2
+1"
+0$
+1%
+1'
+0)
+1*
+1+
+0#
+1$
+0%
+0(
+1)
+0*
+0+
+#3
+1#
+0$
+1%
+1(
+0)
+1*
+1+
+#4
+1!
+1$
+1&
+1)
+1,
+1-
+0"
+0$
+0'
+0)
+0+
+0,
+0#
+1$
+0%
+0(
+1)
+0*
+0-
+#5
+1#
+0$
+1%
+1(
+0)
+1*
+1-
+#6
+1"
+1$
+1'
+1)
+1+
+1,
+0#
+0$
+0(
+0)
+0+
+0-
+#7
+1#
+1$
+1(
+1)
+1+
+1-
+#8

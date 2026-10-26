@@ -372,21 +372,23 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         mod->name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
 
-        // Ports List
+        // Ports List: Handles ANSI (input Cin, x, y, output s, Cout) and Non-ANSI
         if (match(TokenType::TOKEN_LPAREN)) {
-            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-                PortNode port;
-                port.direction = "unspecified";
-                port.msb = 0; port.lsb = 0;
+            std::string current_dir = "unspecified";
+            uint32_t current_msb = 0, current_lsb = 0;
 
+            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 if (current.type == TokenType::TOKEN_INPUT) {
-                    port.direction = "input";
+                    current_dir = "input";
+                    current_msb = 0; current_lsb = 0;
                     advance();
                 } else if (current.type == TokenType::TOKEN_OUTPUT) {
-                    port.direction = "output";
+                    current_dir = "output";
+                    current_msb = 0; current_lsb = 0;
                     advance();
                 } else if (current.type == TokenType::TOKEN_INOUT) {
-                    port.direction = "inout";
+                    current_dir = "inout";
+                    current_msb = 0; current_lsb = 0;
                     advance();
                 }
 
@@ -397,12 +399,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
 
                 if (match(TokenType::TOKEN_LBRACKET)) {
-                    port.msb = current.num_val; advance();
+                    current_msb = current.num_val; advance();
                     expect(TokenType::TOKEN_COLON, "Expected ':' in bus width");
-                    port.lsb = current.num_val; advance();
+                    current_lsb = current.num_val; advance();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bus width");
                 }
 
+                PortNode port;
+                port.direction = current_dir;
+                port.msb = current_msb;
+                port.lsb = current_lsb;
                 port.name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                 mod->ports.push_back(port);
@@ -520,7 +526,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
             }
-            // 3. Built-in Gate Primitives (Handles and, or, xor, etc.)
+            // 3. Built-in Gate Primitives
             else if (current.type == TokenType::TOKEN_GATE_AND  ||
                      current.type == TokenType::TOKEN_GATE_OR   ||
                      current.type == TokenType::TOKEN_OR        ||
@@ -599,7 +605,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                 bool has_edge = false;
                 while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-                    // Skip any leading separator ('or', '|', or ',')
                     while (current.type == TokenType::TOKEN_OR ||
                            current.type == TokenType::TOKEN_GATE_OR ||
                            current.type == TokenType::TOKEN_OR_BIT ||
@@ -622,7 +627,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                     proc->sensitivity_list.push_back({edge, sig});
 
-                    // Skip any trailing separator
                     while (current.type == TokenType::TOKEN_OR ||
                            current.type == TokenType::TOKEN_GATE_OR ||
                            current.type == TokenType::TOKEN_OR_BIT ||
