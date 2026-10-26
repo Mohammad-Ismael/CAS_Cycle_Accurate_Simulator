@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>EDA Simulator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/editor/editor.main.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: monospace; height: 100vh; display: flex; flex-direction: column; background: #1e1e1e; color: #ccc; overflow: hidden; }
+
+        header { height: 40px; background: #252526; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid #333; }
+        .btn-run { background: #0e639c; color: white; border: none; padding: 6px 16px; border-radius: 3px; cursor: pointer; font-weight: bold; }
+        .btn-run:hover { background: #1177bb; }
+
+        #workspace { display: flex; flex: 1; height: calc(100vh - 40px); width: 100vw; }
+        
+        #sidebar { width: 220px; min-width: 150px; max-width: 500px; background: #252526; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+        .opt-group { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+        .opt-group label { color: #888; text-transform: uppercase; font-size: 11px; }
+        .opt-group input { background: #3c3c3c; border: 1px solid #555; color: #fff; padding: 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+
+        #center-container { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        
+        #editor-container { flex: 1; display: flex; min-height: 100px; }
+        .editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 100px; }
+        .editor-header { height: 26px; background: #2d2d2d; color: #aaa; font-size: 12px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #1e1e1e; }
+        .editor-body { flex: 1; min-height: 0; }
+
+        #terminal-pane { height: 200px; min-height: 60px; max-height: 80vh; background: #141414; display: flex; flex-direction: column; border-top: 1px solid #333; }
+        .term-header { height: 24px; background: #222; font-size: 11px; text-transform: uppercase; display: flex; align-items: center; padding: 0 10px; color: #777; }
+        #terminal-output { flex: 1; padding: 8px; font-family: monospace; font-size: 12px; color: #4af626; white-space: pre-wrap; overflow-y: auto; }
+
+        .resizer-h { width: 4px; background: #2d2d2d; cursor: col-resize; z-index: 10; }
+        .resizer-h:hover, .resizer-h.resizing { background: #007acc; }
+        .resizer-v { height: 4px; background: #2d2d2d; cursor: row-resize; z-index: 10; }
+        .resizer-v:hover, .resizer-v.resizing { background: #007acc; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>SIMULATOR</div>
+        <button class="btn-run" onclick="runSimulation()">Run</button>
+    </header>
+
+    <div id="workspace">
+        <!-- Left Panel: Options -->
+        <div id="sidebar">
+            <div class="opt-group">
+                <label>Top Module</label>
+                <input type="text" id="top-module" placeholder="(Auto-detected if empty)" />
+            </div>
+        </div>
+
+        <div class="resizer-h" id="resizer-sidebar"></div>
+
+        <div id="center-container">
+            <div id="editor-container">
+                <!-- Left Editor: Testbench -->
+                <div class="editor-pane" id="pane-tb">
+                    <div class="editor-header">Testbench</div>
+                    <div class="editor-body" id="monaco-tb"></div>
+                </div>
+
+                <div class="resizer-h" id="resizer-editors"></div>
+
+                <!-- Right Editor: RTL Design -->
+                <div class="editor-pane" id="pane-dut">
+                    <div class="editor-header">RTL Design</div>
+                    <div class="editor-body" id="monaco-dut"></div>
+                </div>
+            </div>
+
+            <div class="resizer-v" id="resizer-terminal"></div>
+
+            <!-- Bottom Panel: Terminal -->
+            <div id="terminal-pane">
+                <div class="term-header">Terminal</div>
+                <div id="terminal-output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <script>
+        let tbEditor, dutEditor;
+
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            // Empty editors - zero default/hardcoded code
+            tbEditor = monaco.editor.create(document.getElementById('monaco-tb'), {
+                value: '',
+                language: 'systemverilog',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                fontSize: 13
+            });
+
+            dutEditor = monaco.editor.create(document.getElementById('monaco-dut'), {
+                value: '',
+                language: 'systemverilog',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                fontSize: 13
+            });
+        });
+
+        // Dynamic Resizing Logic
+        function attachResizer(resizer, target, prop, isVertical, isPrev) {
+            resizer.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                resizer.classList.add('resizing');
+                const startPos = isVertical ? e.clientY : e.clientX;
+                const startSize = isVertical ? target.offsetHeight : target.offsetWidth;
+
+                function onMouseMove(e) {
+                    const currentPos = isVertical ? e.clientY : e.clientX;
+                    const diff = isPrev ? (startPos - currentPos) : (currentPos - startPos);
+                    const newSize = Math.max(50, startSize + diff);
+                    target.style[prop] = newSize + 'px';
+                }
+
+                function onMouseUp() {
+                    resizer.classList.remove('resizing');
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                }
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+            });
+        }
+
+        attachResizer(document.getElementById('resizer-sidebar'), document.getElementById('sidebar'), 'width', false, false);
+        attachResizer(document.getElementById('resizer-editors'), document.getElementById('pane-tb'), 'width', false, false);
+        attachResizer(document.getElementById('resizer-terminal'), document.getElementById('terminal-pane'), 'height', true, true);
+
+        async function runSimulation() {
+            const out = document.getElementById('terminal-output');
+            out.textContent = "Running...\n";
+
+            try {
+                const res = await fetch('/api/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        design_code: dutEditor.getValue(),
+                        tb_code: tbEditor.getValue(),
+                        top_module: document.getElementById('top-module').value
+                    })
+                });
+
+                const data = await res.json();
+                out.textContent = data.output;
+            } catch (err) {
+                out.textContent = "[ERROR] Could not reach backend: " + err;
+            }
+        }
+    </script>
+</body>
+</html> 
