@@ -54,7 +54,6 @@ def save_project(req: SaveProjectRequest):
     if not pname:
         raise HTTPException(status_code=400, detail="Project name cannot be empty.")
     
-    # Sanitize name
     pname = "".join(c for c in pname if c.isalnum() or c in ('_', '-'))
     pdir = os.path.join(PROJECTS_DIR, pname)
     waves_dir = os.path.join(pdir, "waves")
@@ -147,7 +146,8 @@ def simulate(req: SimRequest):
             "status": "error",
             "output": "[ERROR] Both RTL and Testbench are empty.",
             "vcd": None,
-            "vcd_filename": None
+            "vcd_filename": None,
+            "telemetry": None
         }
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -170,7 +170,21 @@ def simulate(req: SimRequest):
 
         try:
             res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=15)
-            output_msg = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
+            raw_output = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
+            
+            telemetry_data = None
+            clean_output = raw_output
+
+            # Extract structured telemetry JSON block
+            if "---BEGIN_CAS_TELEMETRY---" in raw_output and "---END_CAS_TELEMETRY---" in raw_output:
+                before, part = raw_output.split("---BEGIN_CAS_TELEMETRY---", 1)
+                json_str, after = part.split("---END_CAS_TELEMETRY---", 1)
+                clean_output = before + after
+                try:
+                    telemetry_data = json.loads(json_str.strip())
+                except Exception:
+                    telemetry_data = None
+
             vcd_content = None
             vcd_filename = None
 
@@ -180,7 +194,6 @@ def simulate(req: SimRequest):
                     with open(os.path.join(tmpdir, fname), "r") as vf:
                         vcd_content = vf.read()
 
-                    # If project is active, persist to project's waves/ folder with a timestamped prefix
                     if req.project_name:
                         pdir = os.path.join(PROJECTS_DIR, req.project_name)
                         if os.path.exists(pdir):
@@ -194,9 +207,10 @@ def simulate(req: SimRequest):
 
             return {
                 "status": "success" if res.returncode == 0 else "error",
-                "output": output_msg,
+                "output": clean_output.strip(),
                 "vcd": vcd_content,
-                "vcd_filename": vcd_filename
+                "vcd_filename": vcd_filename,
+                "telemetry": telemetry_data
             }
         except subprocess.TimeoutExpired as e:
             partial_out = (e.stdout or "") + "\n" + (e.stderr or "")
@@ -204,14 +218,16 @@ def simulate(req: SimRequest):
                 "status": "error",
                 "output": f"[CAS TIMEOUT (15s)] Partial log before hang:\n{partial_out}",
                 "vcd": None,
-                "vcd_filename": None
+                "vcd_filename": None,
+                "telemetry": None
             }
         except Exception as e:
             return {
                 "status": "error",
                 "output": f"[CAS INVOCATION ERROR] {str(e)}",
                 "vcd": None,
-                "vcd_filename": None
+                "vcd_filename": None,
+                "telemetry": None
             }
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

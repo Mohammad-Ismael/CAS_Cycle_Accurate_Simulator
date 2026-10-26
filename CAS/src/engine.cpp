@@ -344,6 +344,7 @@ void Engine::check_monitor() {
 }
 
 void Engine::propagate_comb() {
+    delta_cycles_count++;
     bool changed = true;
     size_t iters = 0;
     while (changed && iters < 100) {
@@ -580,6 +581,7 @@ void Engine::evaluate_sequential_blocks() {
 void Engine::commit_nba_updates() {
     if (nba_queue.empty() && nba_mem_queue.empty()) return;
 
+    nba_commits_count++;
     for (const auto& update : nba_queue) netlist[update.net_id].set(update.val);
     nba_queue.clear();
 
@@ -817,6 +819,7 @@ void Engine::run() {
     }
 
     while (simulation_active && !time_wheel.empty()) {
+        events_dispatched++;
         SimEvent ev = time_wheel.top();
         time_wheel.pop();
 
@@ -831,4 +834,52 @@ void Engine::run() {
 
     std::cout << "--------------------------------------------------------\n";
     std::cout << "[CAS SUMMARY] Simulation completed cleanly at T = " << sim_time << " ns.\n" << std::flush;
+}
+
+void Engine::print_profile_report() {
+    std::cout << "\n========================================================\n";
+    std::cout << "          CAS ENGINE PROFILER & DATA TOPOLOGY           \n";
+    std::cout << "========================================================\n";
+
+    // 1. Data Structure Sizing & Capacities
+    size_t net_mem = netlist.capacity() * sizeof(Net);
+    size_t proc_mem = processes.capacity() * sizeof(BoundProcess);
+    size_t slice_mem = slice_bindings.capacity() * sizeof(SliceBinding);
+    size_t gate_mem = gates.capacity() * sizeof(GateInstance);
+    size_t ca_mem = continuous_assigns.capacity() * sizeof(ContinuousAssignBinding);
+
+    size_t ram_words_total = 0;
+    for (const auto& kv : memory_map) {
+        ram_words_total += kv.second.words.capacity();
+    }
+    size_t ram_mem = ram_words_total * sizeof(LogicVal);
+
+    std::cout << "[DATA STRUCTURE METRICS]\n";
+    std::cout << "  * Netlist Vector         : " << netlist.size() << " / " << netlist.capacity()
+              << " capacity (" << (net_mem / 1024.0) << " KB)\n";
+    std::cout << "  * Processes Vector       : " << processes.size() << " / " << processes.capacity()
+              << " capacity (" << (proc_mem / 1024.0) << " KB)\n";
+    std::cout << "  * Interconnect Slices    : " << slice_bindings.size() << " / " << slice_bindings.capacity()
+              << " capacity (" << (slice_mem / 1024.0) << " KB)\n";
+    std::cout << "  * Gate Primitives        : " << gates.size() << " / " << gates.capacity()
+              << " capacity (" << (gate_mem / 1024.0) << " KB)\n";
+    std::cout << "  * Continuous Assigns     : " << continuous_assigns.size() << " / " << continuous_assigns.capacity()
+              << " capacity (" << (ca_mem / 1024.0) << " KB)\n";
+    std::cout << "  * Memory Array Storage   : " << memory_map.size() << " arrays ("
+              << ram_words_total << " words, " << (ram_mem / 1024.0) << " KB)\n";
+
+    std::cout << "\n[HASH TABLE METRICS]\n";
+    std::cout << "  * Net Identifier Table   : " << net_map.size() << " keys, "
+              << net_map.bucket_count() << " buckets, load factor: "
+              << std::fixed << std::setprecision(2) << net_map.load_factor() << "\n";
+    std::cout << "  * Parameter Table        : " << param_map.size() << " keys, "
+              << param_map.bucket_count() << " buckets, load factor: "
+              << std::fixed << std::setprecision(2) << param_map.load_factor() << "\n";
+    std::cout << "  * Task Symbol Table      : " << task_map.size() << " keys, "
+              << task_map.bucket_count() << " buckets\n";
+
+    std::cout << "\n[DISCRETE-EVENT SCHEDULER STATISTICS]\n";
+    std::cout << "  * Time Wheel Events Run  : " << events_dispatched << " events\n";
+    std::cout << "  * Combinational Passes   : " << delta_cycles_count << " delta cycles\n";
+    std::cout << "  * NBA Commit Iterations  : " << nba_commits_count << " sync rounds\n";
 }

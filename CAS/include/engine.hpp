@@ -104,6 +104,11 @@ private:
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
 
+    // Execution & Data Structure Profiling Counters
+    size_t delta_cycles_count = 0;
+    size_t events_dispatched = 0;
+    size_t nba_commits_count = 0;
+
     bool vcd_enabled = false;
     std::string vcd_filename;
     std::ofstream vcd_file;
@@ -136,4 +141,7 @@ public:
     ~Engine();
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules);
     void run();
+
+    // Data Structure Profiler
+    void print_profile_report();
 };

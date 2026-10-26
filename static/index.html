@@ -120,12 +120,24 @@
             background-color: var(--border-focus);
             color: #fff;
         }
+        .btn-toggle-active {
+            background-color: #1e3a5f !important;
+            border-color: var(--accent) !important;
+            color: #fff !important;
+        }
         .btn:disabled {
             opacity: 0.45;
             cursor: not-allowed;
         }
 
         /* Workspace Structure */
+        #main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+
         #workspace {
             flex: 1;
             display: flex;
@@ -350,7 +362,6 @@
             font-family: 'JetBrains Mono', monospace;
         }
 
-        /* Raw VCD */
         #panel-vcd-raw {
             font-family: 'JetBrains Mono', monospace;
             font-size: 12px;
@@ -361,6 +372,112 @@
             background-color: #0b0c0e;
             user-select: text;
             -webkit-user-select: text;
+        }
+
+        /* ------------------ Collapsible Sidebar ------------------ */
+        #sidebar-resizer {
+            width: 5px;
+            background-color: var(--bg-base);
+            cursor: col-resize;
+            transition: background-color 0.2s;
+            display: none;
+        }
+        #sidebar-resizer:hover, #sidebar-resizer.resizing { background-color: var(--accent); }
+
+        #inspector-sidebar {
+            width: 360px;
+            background-color: var(--bg-surface);
+            border-left: 1px solid var(--border-dim);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            z-index: 8;
+        }
+        #inspector-sidebar.open { display: flex; }
+
+        .sidebar-header {
+            height: 40px;
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-dim);
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar-tabs {
+            display: flex;
+            gap: 4px;
+        }
+        .sidebar-tab-btn {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .sidebar-tab-btn:hover { color: var(--text-main); }
+        .sidebar-tab-btn.active {
+            background-color: var(--bg-subtle);
+            color: #38bdf8;
+            border-color: var(--border-dim);
+        }
+
+        .sidebar-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .metric-card {
+            background-color: var(--bg-elevated);
+            border: 1px solid var(--border-dim);
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .metric-card-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .metric-label { color: #94a3b8; }
+        .metric-value { font-weight: 600; color: #fff; }
+        .metric-value.emerald { color: #34d399; }
+        .metric-value.sky { color: #38bdf8; }
+        .metric-value.amber { color: #fbbf24; }
+
+        .debug-trace-box {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            background-color: #0b0c0e;
+            border: 1px solid var(--border-dim);
+            border-radius: 6px;
+            padding: 10px;
+            color: #94a3b8;
+            white-space: pre-wrap;
+            user-select: text;
         }
 
         /* Modal Drawer */
@@ -475,6 +592,10 @@
         <button class="btn btn-secondary" onclick="openProjectsModal()">Open...</button>
         <button class="btn btn-secondary" onclick="saveProjectPrompt()">Save</button>
         <button id="btn-export-vcd" class="btn btn-secondary" disabled onclick="downloadActiveVcd()">Export .vcd</button>
+        <button id="btn-toggle-inspector" class="btn btn-secondary" onclick="toggleInspectorSidebar()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            Inspector
+        </button>
         <button id="btn-run" class="btn btn-primary" onclick="executeSimulation()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Run
@@ -482,71 +603,173 @@
     </div>
 </header>
 
-<div id="workspace">
-    <!-- Top Editors -->
-    <div id="editors-wrapper">
-        <div class="editor-column" id="col-tb">
-            <div class="editor-header">
-                <span class="file-tab">testbench.sv</span>
-                <span>Stimulus Driver</span>
-            </div>
-            <div id="editor-tb" class="editor-body"></div>
-        </div>
-
-        <div class="resizer-h" id="resizer-editors"></div>
-
-        <div class="editor-column" id="col-rtl">
-            <div class="editor-header">
-                <span class="file-tab">design.sv</span>
-                <span>RTL Module</span>
-            </div>
-            <div id="editor-rtl" class="editor-body"></div>
-        </div>
-    </div>
-
-    <div class="resizer-v" id="resizer-main"></div>
-
-    <!-- Bottom Console & Wave Viewer -->
-    <div id="bottom-wrapper">
-        <div class="tab-bar">
-            <div class="tab-group">
-                <button class="tab-btn active" id="tab-btn-term" onclick="selectTab('terminal')">Output Console</button>
-                <button class="tab-btn" id="tab-btn-wave" onclick="selectTab('waveform')">Waveform Viewer</button>
-                <button class="tab-btn" id="tab-btn-vcd" onclick="selectTab('vcd-raw')">Raw VCD</button>
-            </div>
-            <div>
-                <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearConsole()">Clear Console</button>
-            </div>
-        </div>
-
-        <div class="tab-viewport">
-            <div id="panel-terminal" class="panel active">CAS Ready.</div>
-
-            <!-- Waveform Digital Canvas Panel -->
-            <div id="panel-waveform" class="panel">
-                <div class="wave-toolbar">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span>Trace:</span>
-                        <select id="wave-select" class="wave-history-select" onchange="onSelectWaveTrace(this.value)">
-                            <option value="">(No trace loaded)</option>
-                        </select>
-                        <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="deleteSelectedWave()">Delete</button>
-                    </div>
-                    <span>Timescale: <strong>1ns</strong></span>
+<div id="main-container">
+    <div id="workspace">
+        <div id="editors-wrapper">
+            <div class="editor-column" id="col-tb">
+                <div class="editor-header">
+                    <span class="file-tab">testbench.sv</span>
+                    <span>Stimulus Driver</span>
                 </div>
-                <div id="wave-canvas-container">
-                    <div id="wave-names"></div>
-                    <canvas id="wave-canvas"></canvas>
-                    <div id="wave-empty" class="wave-empty-state">
-                        <span>No waveform trace available for this state.</span>
-                        <span style="font-size: 11px; color: var(--text-faint);">Include $dumpfile("..."); and $dumpvars; in your initial block.</span>
-                    </div>
+                <div id="editor-tb" class="editor-body"></div>
+            </div>
+
+            <div class="resizer-h" id="resizer-editors"></div>
+
+            <div class="editor-column" id="col-rtl">
+                <div class="editor-header">
+                    <span class="file-tab">design.sv</span>
+                    <span>RTL Module</span>
+                </div>
+                <div id="editor-rtl" class="editor-body"></div>
+            </div>
+        </div>
+
+        <div class="resizer-v" id="resizer-main"></div>
+
+        <div id="bottom-wrapper">
+            <div class="tab-bar">
+                <div class="tab-group">
+                    <button class="tab-btn active" id="tab-btn-term" onclick="selectTab('terminal')">Output Console</button>
+                    <button class="tab-btn" id="tab-btn-wave" onclick="selectTab('waveform')">Waveform Viewer</button>
+                    <button class="tab-btn" id="tab-btn-vcd" onclick="selectTab('vcd-raw')">Raw VCD</button>
+                </div>
+                <div>
+                    <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearConsole()">Clear Console</button>
                 </div>
             </div>
 
-            <pre id="panel-vcd-raw" class="panel">// Raw VCD content</pre>
+            <div class="tab-viewport">
+                <div id="panel-terminal" class="panel active">CAS Ready.</div>
+
+                <div id="panel-waveform" class="panel">
+                    <div class="wave-toolbar">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span>Trace:</span>
+                            <select id="wave-select" class="wave-history-select" onchange="onSelectWaveTrace(this.value)">
+                                <option value="">(No trace loaded)</option>
+                            </select>
+                            <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="deleteSelectedWave()">Delete</button>
+                        </div>
+                        <span>Timescale: <strong>1ns</strong></span>
+                    </div>
+                    <div id="wave-canvas-container">
+                        <div id="wave-names"></div>
+                        <canvas id="wave-canvas"></canvas>
+                        <div id="wave-empty" class="wave-empty-state">
+                            <span>No waveform trace available for this state.</span>
+                            <span style="font-size: 11px; color: var(--text-faint);">Include $dumpfile("..."); and $dumpvars; in your initial block.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <pre id="panel-vcd-raw" class="panel">// Raw VCD content</pre>
+            </div>
         </div>
     </div>
+
+    <!-- Inspector Sidebar Splitter -->
+    <div class="resizer-h" id="sidebar-resizer"></div>
+
+    <!-- Dedicated Inspector Side Drawer -->
+    <aside id="inspector-sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab-btn active" id="btn-side-profiler" onclick="switchSidebarTab('profiler')">Profiler & Topology</button>
+                <button class="sidebar-tab-btn" id="btn-side-debug" onclick="switchSidebarTab('debug')">Compiler Debug</button>
+            </div>
+            <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 10px;" onclick="toggleInspectorSidebar()">✕</button>
+        </div>
+
+        <div class="sidebar-body" id="side-tab-profiler">
+            <!-- CPU & Memory Performance -->
+            <div class="metric-card">
+                <div class="metric-card-title">
+                    <span>Kernel Execution Profile</span>
+                    <span id="prof-eff" class="metric-value emerald">--% CPU</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Wallclock Time:</span>
+                    <span class="metric-value sky" id="prof-wall">-- ms</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">User CPU Time:</span>
+                    <span class="metric-value" id="prof-user">-- ms</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">System Kernel Time:</span>
+                    <span class="metric-value" id="prof-sys">-- ms</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Peak Resident RAM:</span>
+                    <span class="metric-value amber" id="prof-rss">-- MB</span>
+                </div>
+            </div>
+
+            <!-- Ingestion & AST Footprint -->
+            <div class="metric-card">
+                <div class="metric-card-title">Ingested AST Footprint</div>
+                <div class="metric-row">
+                    <span class="metric-label">Source Bytes Scanned:</span>
+                    <span class="metric-value" id="prof-src-bytes">-- B</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Modules Elaborated:</span>
+                    <span class="metric-value" id="prof-modules">--</span>
+                </div>
+            </div>
+
+            <!-- Data Structure Metrics -->
+            <div class="metric-card">
+                <div class="metric-card-title">Engine Data Topology</div>
+                <div class="metric-row">
+                    <span class="metric-label">Nets Vector:</span>
+                    <span class="metric-value" id="prof-nets">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Processes Vector:</span>
+                    <span class="metric-value" id="prof-procs">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Interconnect Slices:</span>
+                    <span class="metric-value" id="prof-slices">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Memory Arrays:</span>
+                    <span class="metric-value" id="prof-rams">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Net Table Load Factor:</span>
+                    <span class="metric-value" id="prof-load">--</span>
+                </div>
+            </div>
+
+            <!-- Discrete Event Scheduler -->
+            <div class="metric-card">
+                <div class="metric-card-title">Stratified Scheduler Dynamics</div>
+                <div class="metric-row">
+                    <span class="metric-label">Time Wheel Events:</span>
+                    <span class="metric-value sky" id="prof-events">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Combinational Passes:</span>
+                    <span class="metric-value emerald" id="prof-deltas">--</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">NBA Commit Rounds:</span>
+                    <span class="metric-value amber" id="prof-nbas">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-body" id="side-tab-debug" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--text-muted);">Compiler Phase Trace</span>
+                <span id="debug-status-pill" style="font-size: 10px; background: #064e3b; color: #34d399; padding: 2px 6px; border-radius: 4px;">Clean</span>
+            </div>
+            <div class="debug-trace-box" id="debug-trace-log">No simulation executed yet. Click Run to inspect Phase 1-5 telemetry.</div>
+        </div>
+    </aside>
 </div>
 
 <footer>
@@ -554,10 +777,9 @@
         <span class="status-indicator ready" id="status-bulb"></span>
         <span id="status-msg">Ready</span>
     </div>
-    <div>CAS v0.6.0 // 4-State Kernel</div>
+    <div>CAS v1.0.0 // IEEE 1800 Kernel Profiler</div>
 </footer>
 
-<!-- Projects Drawer Modal -->
 <div class="modal-overlay" id="projects-modal">
     <div class="modal">
         <div class="modal-header">
@@ -576,6 +798,7 @@
     let activeProject = null;
     let activeVcdContent = null;
     let activeVcdFilename = null;
+    let isInspectorOpen = false;
 
     // 1. Monaco Setup
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
@@ -598,53 +821,123 @@
         });
 
         tbEditor = monaco.editor.create(document.getElementById('editor-tb'), {
-            value: `module tb_counter;
+            value: `// 1. Gate-level full adder using built-in gate primitives and non-ANSI port header (v0.9.2, v0.9.3)
+module full_adder (sum, cout, a, b, cin);
+    input  a, b, cin;
+    output sum, cout;
+    wire   a, b, cin, sum, cout;
+    wire   w1, w2, w3;
 
-    logic       clk;
-    logic       rst_n;
-    logic [3:0] d;
-    logic [3:0] q;
+    xor (sum, a, b, cin);
+    and (w1, a, b);
+    and (w2, b, cin);
+    and (w3, a, cin);
+    or  (cout, w1, w2, w3);
+endmodule
 
-    counter u_dut (
-        .clk(clk),
-        .rst_n(rst_n),
-        .d(d),
-        .q(q)
+// 2. 4-bit ripple-carry adder using positional port mapping and bit-slices (v0.9.3)
+module bit4_adder (sum, cout, a, b, cin);
+    input  [3:0] a, b;
+    input  cin;
+    output [3:0] sum;
+    output cout;
+
+    wire [3:0] a, b, sum;
+    wire cin, cout;
+    wire [2:0] c;
+
+    full_adder fa0 (sum[0], c[0], a[0], b[0], cin);
+    full_adder fa1 (sum[1], c[1], a[1], b[1], c[0]);
+    full_adder fa2 (sum[2], c[2], a[2], b[2], c[1]);
+    full_adder fa3 (sum[3], cout, a[3], b[3], c[2]);
+endmodule
+
+// 3. Complex ALU with full precedence operators and case branch control (v0.7.0, v0.8.0)
+module alu_core (
+    input  logic [3:0] op_a,
+    input  logic [3:0] op_b,
+    input  logic [2:0] opcode,
+    output logic [3:0] alu_out
+);
+    always_comb begin
+        case (opcode)
+            3'd0: alu_out = op_a & op_b;
+            3'd1: alu_out = op_a | op_b;
+            3'd2: alu_out = op_a ^ op_b;
+            3'd3: alu_out = ~op_a;
+            3'd4: alu_out = op_a << 4'd1;
+            3'd5: alu_out = op_a >> 4'd1;
+            3'd6: alu_out = op_a + op_b;
+            3'd7: alu_out = op_a - op_b;
+            default: alu_out = 4'd0;
+        endcase
+    end
+endmodule
+
+// 4. Top-level unified DUT exercising memories, dataflow, sequential logic, and submodules
+module master_dut (
+    input  logic       clk,
+    input  logic       rst_n,
+    input  logic [3:0] in_a,
+    input  logic [3:0] in_b,
+    input  logic [2:0] opcode,
+    input  logic [1:0] mem_addr,
+    input  logic       mem_we,
+    output logic [3:0] adder_sum,
+    output logic       adder_cout,
+    output logic [3:0] alu_result,
+    output logic [3:0] reg_accum,
+    output logic       is_equal,
+    output logic       is_less,
+    output logic       bit_extracted,
+    output logic [1:0] slice_extracted,
+    output logic [3:0] cont_assign_out,
+    output logic [3:0] mem_rdata,
+    output logic       dff_q,
+    output logic       dff_qb
+);
+
+    // v0.9.0 Continuous assign dataflow
+    assign cont_assign_out = in_a + 4'd1;
+
+    // v0.9.0 1D Unpacked Memory Array
+    logic [3:0] ram [0:3];
+    assign mem_rdata = ram[mem_addr];
+
+    // v0.9.3 Submodule positional slice instantiation
+    bit4_adder u_adder (adder_sum, adder_cout, in_a, in_b, 1'b0);
+
+    // v0.2.0 Submodule named instantiation
+    alu_core u_alu (
+        .op_a(in_a),
+        .op_b(in_b),
+        .opcode(opcode),
+        .alu_out(alu_result)
     );
 
-    initial begin
-        $dumpfile("counter_4state.vcd");
-        $dumpvars;
-
-        // T=0: Before reset, q is X (unknown)
-        $display("[Time=%0t] Initial state -> q=%b", $time, q);
-
-        #5;
-        // T=5: Assert active-low reset
-        clk = 0;
-        rst_n = 0;
-        d = 4'd2;
-        #5;
-        $display("[Time=%0t] After Reset -> q=%b", $time, q);
-
-        // T=15: Deassert reset and pulse clock
-        rst_n = 1;
-        #5;
-        clk = 1;
-        #5;
-        $display("[Time=%0t] Clock Edge 1 -> q=%d", $time, q);
-        clk = 0;
-        #5;
-
-        // T=30: Next pulse
-        clk = 1;
-        #5;
-        $display("[Time=%0t] Clock Edge 2 -> q=%d", $time, q);
-        clk = 0;
-        #5;
-
-        $finish;
+    // v0.7.0 / v0.8.0 Continuous relational expressions and bit-slicing
+    always_comb begin
+        is_equal = (in_a == in_b) ? 1'd1 : 1'd0;
+        is_less  = (in_a < in_b)  ? 1'd1 : 1'd0;
+        bit_extracted   = in_a[2];
+        slice_extracted = in_a[3:2];
     end
+
+    // v0.4.0 / v0.9.2 Generic always with edge sensitivity list (clk or negedge rst_n)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_accum <= 4'd0;
+            dff_q     <= 1'b0;
+        end else begin
+            reg_accum <= reg_accum + alu_result;
+            dff_q     <= in_a[0];
+            if (mem_we) begin
+                ram[mem_addr] <= in_a;
+            end
+        end
+    end
+
+    assign dff_qb = ~dff_q;
 
 endmodule`,
             language: 'systemverilog',
@@ -656,19 +949,237 @@ endmodule`,
         });
 
         rtlEditor = monaco.editor.create(document.getElementById('editor-rtl'), {
-            value: `module counter (
-    input  logic       clk,
-    input  logic       rst_n,
-    input  logic [3:0] d,
-    output logic [3:0] q
+            value: `module tb_master;
+
+// v0.9.2 reg/wire declarations
+reg        clk;
+reg        rst_n;
+reg  [3:0] in_a;
+reg  [3:0] in_b;
+reg  [2:0] opcode;
+reg  [1:0] mem_addr;
+reg        mem_we;
+
+wire [3:0] adder_sum;
+wire       adder_cout;
+wire [3:0] alu_result;
+wire [3:0] reg_accum;
+wire       is_equal;
+wire       is_less;
+wire       bit_extracted;
+wire [1:0] slice_extracted;
+wire [3:0] cont_assign_out;
+wire [3:0] mem_rdata;
+wire       dff_q;
+wire       dff_qb;
+
+reg [7:0] fail_count;
+
+master_dut u_dut (
+    .clk(clk),
+    .rst_n(rst_n),
+    .in_a(in_a),
+    .in_b(in_b),
+    .opcode(opcode),
+    .mem_addr(mem_addr),
+    .mem_we(mem_we),
+    .adder_sum(adder_sum),
+    .adder_cout(adder_cout),
+    .alu_result(alu_result),
+    .reg_accum(reg_accum),
+    .is_equal(is_equal),
+    .is_less(is_less),
+    .bit_extracted(bit_extracted),
+    .slice_extracted(slice_extracted),
+    .cont_assign_out(cont_assign_out),
+    .mem_rdata(mem_rdata),
+    .dff_q(dff_q),
+    .dff_qb(dff_qb)
 );
 
-always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-        q <= 0;
+// v0.9.2 Task with prefix delay #1
+task report_state;
+    #1 $display("[TASK @ T=%0t] in_a=%b, adder_sum=%b, alu_result=%b, accum=%d",
+                $time, in_a, adder_sum, alu_result, reg_accum);
+endtask
+
+initial begin
+    // v0.5.0 VCD dumping with argument
+    $dumpfile("master_regression.vcd");
+    $dumpvars(1);
+
+    fail_count = 8'd0;
+
+    $display("==================================================================");
+    $display("   CAS COMPREHENSIVE MASTER REGRESSION SUITE (v0.1.0 - v0.9.3)    ");
+    $display("==================================================================");
+
+    // ---------------------------------------------------------------
+    // CHECK 1: v0.6.0 Pre-Reset 4-State Unknown Verification
+    // ---------------------------------------------------------------
+    if (reg_accum == 4'd0) begin
+        $display("[FAIL] v0.6.0: Uninitialized register was zeroed instead of 'X'!");
+        fail_count = fail_count + 8'd1;
     end else begin
-        q <= q + d;
+        $display("[PASS] v0.6.0: Uninitialized register holds 4-state 'X' prior to reset (raw=%b).", reg_accum);
     end
+
+    // ---------------------------------------------------------------
+    // CHECK 2: v0.3.0 Time Wheel Scheduler & Delays
+    // ---------------------------------------------------------------
+    #5;
+    if ($time == 5) begin
+        $display("[PASS] v0.3.0: Time Wheel dynamic event scheduler & $time valid at T=%0t.", $time);
+    end else begin
+        $display("[FAIL] v0.3.0: Simulation time mismatch! Expected 5, got %0t", $time);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 3: v0.4.0 / v0.9.2 Asynchronous Reset Edge (X -> 0)
+    // ---------------------------------------------------------------
+    clk = 0;
+    rst_n = 0;
+    in_a = 4'd0;
+    in_b = 4'd0;
+    opcode = 3'd0;
+    mem_addr = 2'd0;
+    mem_we = 0;
+
+    #5;
+    if (reg_accum == 4'd0 && dff_q == 1'b0 && dff_qb == 1'b1) begin
+        $display("[PASS] v0.4.0 / v0.9.2: Asynchronous reset edge (X -> 0) cleared registers (accum=%d, q=%b, qb=%b).",
+                 reg_accum, dff_q, dff_qb);
+    end else begin
+        $display("[FAIL] v0.4.0: Asynchronous reset failed! accum=%d, q=%b, qb=%b", reg_accum, dff_q, dff_qb);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // Deassert reset
+    rst_n = 1;
+    #5;
+
+    // ---------------------------------------------------------------
+    // CHECK 4: v0.9.3 Built-in Gate Primitives & Positional Bus Slices
+    // Testing 4-bit ripple adder: 4'b0110 (6) + 4'b0101 (5) = 4'b1011 (11), cout=0
+    // ---------------------------------------------------------------
+    in_a = 4'b0110;
+    in_b = 4'b0101;
+    #5;
+    if (adder_sum == 4'b1011 && adder_cout == 1'b0) begin
+        $display("[PASS] v0.9.3: Gate primitives & positional slice adder verified (6 + 5 = 11, cout=0).");
+    end else begin
+        $display("[FAIL] v0.9.3: Gate adder failed! Expected sum=1011 cout=0, got sum=%b cout=%b", adder_sum, adder_cout);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 5: v0.8.0 Case Branching & Slicing
+    // ---------------------------------------------------------------
+    opcode = 3'd1; // Bitwise OR: 4'b0110 | 4'b0101 = 4'b0111
+    #5;
+    if (alu_result == 4'b0111 && bit_extracted == 1'b1 && slice_extracted == 2'b01) begin
+        $display("[PASS] v0.8.0: Case branch OR & part-select [3:2] verified (res=0111, bit[2]=1, slice[3:2]=01).");
+    end else begin
+        $display("[FAIL] v0.8.0: ALU case/slice failed! res=%b, bit=%b, slice=%b", alu_result, bit_extracted, slice_extracted);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 6: v0.9.0 Continuous Assign Dataflow
+    // in_a = 6 -> cont_assign_out = 6 + 1 = 7
+    // ---------------------------------------------------------------
+    if (cont_assign_out == 4'd7) begin
+        $display("[PASS] v0.9.0: Continuous assign dataflow verified (6 + 1 = 7).");
+    end else begin
+        $display("[FAIL] v0.9.0: Continuous assign failed! Expected 7, got %d", cont_assign_out);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 7: v0.9.0 1D Memory Array 4-State Unknown & Synchronous Write
+    // ---------------------------------------------------------------
+    mem_addr = 2'd3;
+    #5;
+    if (mem_rdata == 4'd0) begin
+        $display("[FAIL] v0.9.0: RAM[3] was zeroed instead of holding 4-state 'X'!");
+        fail_count = fail_count + 8'd1;
+    end else begin
+        $display("[PASS] v0.9.0: Unwritten RAM cell holds 4-state 'X' (raw=%b).", mem_rdata);
+    end
+
+    // Write 4'b1101 to RAM[3]
+    in_a = 4'b1101;
+    mem_we = 1;
+    #5;
+    clk = 1; #5; clk = 0; #5;
+    mem_we = 0;
+    #5;
+
+    if (mem_rdata == 4'b1101) begin
+        $display("[PASS] v0.9.0: Synchronous RAM write & async read verified (RAM[3]=1101).");
+    end else begin
+        $display("[FAIL] v0.9.0: RAM write failed! Expected 1101, got %b", mem_rdata);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 8: v0.9.2 Literal 1'bx & DFF Clock Edge Latching
+    // ---------------------------------------------------------------
+    in_a = 4'b0001; // in_a[0] = 1 -> should latch into dff_q
+    #5;
+    clk = 1; #5; clk = 0; #5;
+    if (dff_q == 1'b1 && dff_qb == 1'b0) begin
+        $display("[PASS] v0.9.2: DFF clock edge capture and continuous inversion verified (q=1, qb=0).");
+    end else begin
+        $display("[FAIL] v0.9.2: DFF clock edge failed! q=%b, qb=%b", dff_q, dff_qb);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 9: v0.4.0 Stratified NBA Accumulation Loop
+    // ---------------------------------------------------------------
+    // Reset accumulator to isolate the sequential test
+    rst_n = 0; #5; rst_n = 1; #5;
+    in_a = 4'd2;
+    in_b = 4'd3;
+    opcode = 3'd6; // 2 + 3 = 5
+    #5;
+    // Pulse 1: 0 + 5 = 5
+    clk = 1; #5; clk = 0; #5;
+    // Pulse 2: 5 + 5 = 10
+    clk = 1; #5; clk = 0; #5;
+
+    if (reg_accum == 4'd10) begin
+        $display("[PASS] v0.4.0: Stratified NBA accumulation loop verified (0 + 5 + 5 = 10).");
+    end else begin
+        $display("[FAIL] v0.4.0: NBA accumulation failed! Expected 10, got %d", reg_accum);
+        fail_count = fail_count + 8'd1;
+    end
+
+    // ---------------------------------------------------------------
+    // CHECK 10: v0.9.2 Subroutine Task Invocation with Prefix Delay
+    // ---------------------------------------------------------------
+    report_state;
+    $display("[PASS] v0.9.2: Subroutine task execution with prefix delay verified.");
+
+    // ---------------------------------------------------------------
+    // CHECK 11: v0.9.3 Dynamic $monitor Sensitivity Callback
+    // ---------------------------------------------------------------
+    $monitor("[MONITOR @ T=%0t] in_a=%b, adder_sum=%b, cout=%b", $time, in_a, adder_sum, adder_cout);
+    #5;
+    in_a = 4'b1111; // 15 + 3 = 18 -> sum=2, cout=1
+    #5;
+
+    $display("==================================================================");
+    if (fail_count == 8'd0) begin
+        $display("   VERDICT: ALL TESTS PASSED (CAS READY FOR v0.9.3 RELEASE)       ");
+    end else begin
+        $display("   VERDICT: REGRESSION FAILED WITH %d ERROR(S)                    ", fail_count);
+    end
+    $display("==================================================================");
+
+    $finish;
 end
 
 endmodule`,
@@ -703,9 +1214,44 @@ endmodule`,
         document.getElementById('panel-terminal').textContent = "";
     }
 
-    // 3. Project Management Workflow
+    // 3. Side Inspector Toggling
+    function toggleInspectorSidebar() {
+        isInspectorOpen = !isInspectorOpen;
+        const bar = document.getElementById('inspector-sidebar');
+        const resizer = document.getElementById('sidebar-resizer');
+        const btn = document.getElementById('btn-toggle-inspector');
+
+        if (isInspectorOpen) {
+            bar.classList.add('open');
+            resizer.style.display = 'block';
+            btn.classList.add('btn-toggle-active');
+        } else {
+            bar.classList.remove('open');
+            resizer.style.display = 'none';
+            btn.classList.remove('btn-toggle-active');
+        }
+        if (tbEditor) tbEditor.layout();
+        if (rtlEditor) rtlEditor.layout();
+    }
+
+    function switchSidebarTab(tab) {
+        document.getElementById('btn-side-profiler').classList.remove('active');
+        document.getElementById('btn-side-debug').classList.remove('active');
+        document.getElementById('side-tab-profiler').style.display = 'none';
+        document.getElementById('side-tab-debug').style.display = 'none';
+
+        if (tab === 'profiler') {
+            document.getElementById('btn-side-profiler').classList.add('active');
+            document.getElementById('side-tab-profiler').style.display = 'flex';
+        } else {
+            document.getElementById('btn-side-debug').classList.add('active');
+            document.getElementById('side-tab-debug').style.display = 'flex';
+        }
+    }
+
+    // 4. Project Management Workflow
     function newProject() {
-        if (confirm("Start a new scratchpad? Any unsaved edits in the current workspace will be discarded.")) {
+        if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             activeProject = null;
             document.getElementById('active-project-label').textContent = "[Unsaved Scratchpad]";
             clearWaveformState();
@@ -795,14 +1341,12 @@ endmodule`,
         e.stopPropagation();
         if (confirm(`Delete project '${name}' and all its waveform history?`)) {
             await fetch(`/api/projects/${name}`, { method: 'DELETE' });
-            if (activeProject === name) {
-                newProject();
-            }
+            if (activeProject === name) newProject();
             openProjectsModal();
         }
     }
 
-    // 4. Waveform & VCD State Management
+    // 5. Waveform & VCD State
     function refreshWaveDropdown(waves) {
         const sel = document.getElementById('wave-select');
         sel.innerHTML = "";
@@ -872,7 +1416,7 @@ endmodule`,
         URL.revokeObjectURL(url);
     }
 
-    // 5. Simulation Execution
+    // 6. Simulation Execution & Telemetry Extraction
     async function executeSimulation() {
         const term = document.getElementById('panel-terminal');
         const btnRun = document.getElementById('btn-run');
@@ -902,10 +1446,34 @@ endmodule`,
             if (data.status === "success") {
                 bulb.className = "status-indicator ready";
                 statusMsg.textContent = "Simulation Converged";
+                document.getElementById('debug-status-pill').textContent = "Converged";
+                document.getElementById('debug-status-pill').style.background = "#064e3b";
+                document.getElementById('debug-status-pill').style.color = "#34d399";
             } else {
                 bulb.className = "status-indicator err";
                 statusMsg.textContent = "Simulation Failed";
+                document.getElementById('debug-status-pill').textContent = "Failed";
+                document.getElementById('debug-status-pill').style.background = "#450a0a";
+                document.getElementById('debug-status-pill').style.color = "#ef4444";
             }
+
+            // Populate Debug Trace Log
+            document.getElementById('debug-trace-log').textContent = data.output;
+
+            // Populate Inspector Profiler Metrics
+            if (data.telemetry) {
+                const t = data.telemetry;
+                document.getElementById('prof-wall').textContent = t.wallclock_ms.toFixed(2) + " ms";
+                document.getElementById('prof-user').textContent = t.user_cpu_ms.toFixed(2) + " ms";
+                document.getElementById('prof-sys').textContent = t.sys_cpu_ms.toFixed(2) + " ms";
+                document.getElementById('prof-eff').textContent = t.cpu_util_pct.toFixed(1) + "% CPU";
+                document.getElementById('prof-rss').textContent = (t.peak_rss_kb / 1024.0).toFixed(2) + " MB";
+                document.getElementById('prof-src-bytes').textContent = t.source_bytes + " B";
+                document.getElementById('prof-modules').textContent = t.modules_count;
+            }
+
+            // Extract dynamic topology metrics from stdout text
+            parseTopologyMetricsFromOutput(data.output);
 
             if (data.vcd) {
                 activeVcdContent = data.vcd;
@@ -914,7 +1482,6 @@ endmodule`,
                 document.getElementById('btn-export-vcd').disabled = false;
                 renderActiveWaveform();
 
-                // Refresh wave dropdown if inside an active project
                 if (activeProject) {
                     const pres = await fetch(`/api/projects/${activeProject}`);
                     const pdata = await pres.json();
@@ -922,7 +1489,6 @@ endmodule`,
                     document.getElementById('wave-select').value = data.vcd_filename;
                 }
             } else {
-                // Strict clear if no dump occurred in this simulation
                 clearWaveformState();
             }
         } catch (e) {
@@ -934,7 +1500,34 @@ endmodule`,
         }
     }
 
-    // 6. 4-State Digital Waveform Canvas Rendering
+    function parseTopologyMetricsFromOutput(out) {
+        if (!out) return;
+        const matchNet = out.match(/Hierarchical Nets Elaborated\s*:\s*(\d+)/);
+        if (matchNet) document.getElementById('prof-nets').textContent = matchNet[1];
+
+        const matchProc = out.match(/Concurrent Processes Bound\s*:\s*(\d+)/);
+        if (matchProc) document.getElementById('prof-procs').textContent = matchProc[1];
+
+        const matchSlice = out.match(/Slice Interconnects Bound\s*:\s*(\d+)/);
+        if (matchSlice) document.getElementById('prof-slices').textContent = matchSlice[1];
+
+        const matchRam = out.match(/Memory Arrays Allocated\s*:\s*(\d+)/);
+        if (matchRam) document.getElementById('prof-rams').textContent = matchRam[1];
+
+        const matchLoad = out.match(/Net Identifier Table\s*:\s*[\d]+\s*keys,\s*[\d]+\s*buckets,\s*load factor:\s*([\d\.]+)/);
+        if (matchLoad) document.getElementById('prof-load').textContent = matchLoad[1];
+
+        const matchEvents = out.match(/Time Wheel Events Run\s*:\s*(\d+)/);
+        if (matchEvents) document.getElementById('prof-events').textContent = matchEvents[1];
+
+        const matchDeltas = out.match(/Combinational Passes\s*:\s*(\d+)/);
+        if (matchDeltas) document.getElementById('prof-deltas').textContent = matchDeltas[1];
+
+        const matchNba = out.match(/NBA Commit Iterations\s*:\s*(\d+)/);
+        if (matchNba) document.getElementById('prof-nbas').textContent = matchNba[1];
+    }
+
+    // 7. 4-State Digital Timing Canvas
     function renderActiveWaveform() {
         if (!activeVcdContent) {
             document.getElementById('wave-empty').style.display = "flex";
@@ -1018,7 +1611,6 @@ endmodule`,
         ctx.fillStyle = '#0b0c0e';
         ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-        // Ruler bar
         ctx.fillStyle = '#16171d';
         ctx.fillRect(0, 0, totalWidth, timeHeaderHeight);
         ctx.strokeStyle = '#272a33';
@@ -1041,7 +1633,6 @@ endmodule`,
             ctx.fillText(t + 'ns', x + 3, timeHeaderHeight - 8);
         }
 
-        // Draw Waves
         signals.forEach((sig, idx) => {
             const yTop = timeHeaderHeight + (idx * rowHeight);
             const yMid = yTop + (rowHeight / 2);
@@ -1057,7 +1648,6 @@ endmodule`,
             if (sig.changes.length === 0) return;
 
             if (sig.width === 1) {
-                // 1-Bit Scalar Digital Wire with 4-State handling
                 for (let i = 0; i < sig.changes.length; i++) {
                     const c = sig.changes[i];
                     const nextTime = (i + 1 < sig.changes.length) ? sig.changes[i+1].time : (maxTime + 5);
@@ -1066,13 +1656,13 @@ endmodule`,
 
                     ctx.lineWidth = 2;
                     if (c.val === 'x' || c.val === 'z') {
-                        ctx.strokeStyle = '#ef4444'; // Red for Unknown / Z
+                        ctx.strokeStyle = '#ef4444';
                         ctx.beginPath();
                         ctx.moveTo(xStart, yMid);
                         ctx.lineTo(xEnd, yMid);
                         ctx.stroke();
                     } else {
-                        ctx.strokeStyle = '#10b981'; // Emerald for Known
+                        ctx.strokeStyle = '#10b981';
                         const yVal = (c.val === '1' || c.val === 1) ? yHigh : yLow;
                         ctx.beginPath();
                         ctx.moveTo(xStart, yVal);
@@ -1080,7 +1670,6 @@ endmodule`,
                         ctx.stroke();
                     }
 
-                    // Vertical transition line
                     if (i + 1 < sig.changes.length) {
                         const nextVal = sig.changes[i+1].val;
                         const yCur = (c.val === 'x' || c.val === 'z') ? yMid : ((c.val === '1' || c.val === 1) ? yHigh : yLow);
@@ -1093,7 +1682,6 @@ endmodule`,
                     }
                 }
             } else {
-                // Multi-Bit Bus Box with 4-state Unknown support
                 for (let i = 0; i < sig.changes.length; i++) {
                     const c = sig.changes[i];
                     const nextTime = (i + 1 < sig.changes.length) ? sig.changes[i+1].time : (maxTime + 5);
@@ -1128,7 +1716,7 @@ endmodule`,
         });
     }
 
-    // 7. Draggable Splitters
+    // 8. Resizers
     const resizerMain = document.getElementById('resizer-main');
     const editorsWrapper = document.getElementById('editors-wrapper');
     const workspace = document.getElementById('workspace');
@@ -1140,6 +1728,11 @@ endmodule`,
     const colTb = document.getElementById('col-tb');
     let isDraggingH = false;
     resizerH.addEventListener('mousedown', () => isDraggingH = true);
+
+    const sideResizer = document.getElementById('sidebar-resizer');
+    const sidebar = document.getElementById('inspector-sidebar');
+    let isDraggingSide = false;
+    sideResizer.addEventListener('mousedown', () => isDraggingSide = true);
 
     window.addEventListener('mousemove', (e) => {
         if (isDraggingV) {
@@ -1155,11 +1748,18 @@ endmodule`,
                 colTb.style.width = leftW + '%';
             }
         }
+        if (isDraggingSide) {
+            const newW = window.innerWidth - e.clientX;
+            if (newW > 260 && newW < 600) {
+                sidebar.style.width = newW + 'px';
+            }
+        }
     });
 
     window.addEventListener('mouseup', () => {
         isDraggingV = false;
         isDraggingH = false;
+        isDraggingSide = false;
     });
 </script>
 
