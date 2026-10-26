@@ -5,6 +5,20 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.5.1] - 2026-10-26
+
+### Added
+* **Project Management Architecture:**
+  * Added persistent project storage under `/app/projects/<name>/` preserving `design.sv`, `testbench.sv`, `project.json`, and historical `waves/`.
+  * Added REST endpoints in `server.py`: `GET/POST /api/projects`, `GET/DELETE /api/projects/{name}`, and waveform fetching/deletion routes.
+  * Added Project Explorer drawer modal to create, open, and delete projects.
+* **Persistent Waveform History & State Invalidation:**
+  * Simulations inside an active project automatically archive timestamped `.vcd` files into that project's `waves/` directory.
+  * Added trace selector dropdown in the Waveform Viewer tab allowing instant playback of historical runs.
+  * Implemented strict waveform canvas clearing: re-running without `$dumpfile` or `$dumpvars` immediately invalidates previous canvas renders and disables export.
+
+---
+
 ## [v0.5.0] - 2026-10-26
 
 ### Added

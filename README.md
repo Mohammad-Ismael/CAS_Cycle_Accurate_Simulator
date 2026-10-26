@@ -1,17 +1,19 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v0.5.0`  
+**Current Version:** `v0.5.1`  
 **License:** MIT  
 **Target Standard:** IEEE 1800 SystemVerilog (subset)
 
 CAS is an independent, ground-up discrete-event RTL simulator implemented in C++17. It operates without external compiler chains (LLVM, intermediate C++ transpilation) or third-party frontends. CAS parses SystemVerilog sources directly into an in-memory Abstract Syntax Tree (AST), elaborates a hierarchical netlist graph, and executes simulation events using an IEEE 1800-inspired stratified scheduler (Active, NBA, Combinational Convergence, and Time Wheel).
 
---- 
+---
 
 ## Architectural Highlights
 
+* **Project-Centric Workspace Engine:** Isolated directory hierarchies (`projects/<name>/`) storing RTL designs (`design.sv`), testbenches (`testbench.sv`), metadata (`project.json`), and archived waveform traces (`waves/`).
+* **Persistent Waveform History:** Timestamped VCD trace runs stored per project with in-browser selection, deletion, and immediate canvas invalidation when dump directives are omitted.
+* **Embedded Digital Timing Canvas:** Native HTML5 Canvas timing diagram renderer displaying clocks, single-bit logic wires, and multibit transition buses with hexadecimal tags.
 * **Native VCD Waveform Generation:** Direct export of IEEE 1364/1800 Value Change Dump (`.vcd`) traces supporting `$dumpfile` and `$dumpvars` with hierarchical scope definitions and compact ASCII symbol mapping.
-* **Browser-Native Waveform Viewer:** Integrated HTML5 Canvas engine rendering digital timing diagrams (scalar square waves and multibit hex buses) directly inside the web IDE.
 * **Stratified IEEE 1800 Scheduling (Active vs. NBA):** Evaluates non-blocking assignments (`<=`) during the active region and buffers values into an NBA update queue, committing all register transitions simultaneously before triggering combinational delta passes.
 * **Edge-Triggered Sensitivity Engine:** Dynamic transition tracking (`is_posedge()`, `is_negedge()`) across hierarchical signal handles for `always_ff` blocks with asynchronous resets.
 * **Native Discrete-Event Time Wheel:** Min-heap priority queue (`std::priority_queue`) that advances simulation time dynamically across `#delay` intervals.
@@ -21,7 +23,7 @@ CAS is an independent, ground-up discrete-event RTL simulator implemented in C++
 
 ---
 
-## Verified Reference Design (`v0.5.0`)
+## Verified Reference Design (`v0.5.1`)
 
 ### RTL Design (`design.sv`)
 ```systemverilog
@@ -129,8 +131,8 @@ Simulation finished at sim_time = 40.
 ```text
 CAS/
 ├── include/
-│   ├── ast.hpp          # AST node structs, system task definitions, and edge types
-│   ├── lexer.hpp        # Lexer declarations and Token types
+│   ├── ast.hpp          # AST node structs, system tasks, and edge types
+│   ├── lexer.hpp        # Lexer declarations and token types
 │   ├── parser.hpp       # Recursive-descent grammar parser
 │   ├── netlist.hpp      # Runtime Net descriptors, transition flags, and VCD IDs
 │   └── engine.hpp       # Time wheel, NBA queues, and VCD dump subsystem
@@ -141,9 +143,10 @@ CAS/
 │   └── main.cpp         # CLI driver
 ├── CMakeLists.txt       # Build system definition
 ├── Dockerfile           # Build and execution container
-├── server.py            # Local FastAPI backend and VCD transport
-└── static/
-    └── index.html       # Studio IDE (Monaco editors + Canvas waveform engine)
+├── server.py            # FastAPI backend (Projects API & execution harness)
+├── static/
+│   └── index.html       # Studio IDE (Monaco editors + Canvas waveform engine)
+└── projects/            # Persistent local user projects (host volume)
 
 ```
 
@@ -188,6 +191,6 @@ Detailed release history is tracked in [`VERSIONS.md`](https://www.google.com/se
 | **`v0.3.0`** | Priority-queue event scheduler, `#delay` statements, cooperative process execution, and `$time`. | **Released** |
 | **`v0.4.0`** | Sequential logic, IEEE 1800 Active vs. NBA event regions, `always_ff @(posedge/negedge)`, non-blocking assignments (`<=`). | **Released** |
 | **`v0.5.0`** | Native VCD generation (`$dumpfile`, `$dumpvars`), studio IDE dark theme, and HTML5 canvas waveform engine. | **Released** |
-| **`v0.6.0`** | **Waveform Session History & Invalidation:** Persistent IndexedDB waveform run stack, trace switching, and strict state clearing. | *Next* |
-| **`v0.7.0`** | **4-State Logic Engine:** Dual-rail bit vectors (`value` + `unknown/mask`) to model uninitialized nets and `X`/`Z` states. | *Planned* |
+| **`v0.5.1`** | Project workspace architecture (`projects/`), persistent trace history stack, and strict canvas state invalidation. | **Released** |
+| **`v0.6.0`** | **4-State Logic Engine (`0, 1, X, Z`):** Dual-rail bit vectors (`value` + `unknown/mask`) to model uninitialized nets and `X`/`Z` propagation. | *Next* |
 | **`v1.0.0`** | **Benchmarking:** Cycle-accurate execution of open-source RISC-V cores with automated throughput comparisons against Synopsys VCS and Cadence Xcelium. | *Planned* |
