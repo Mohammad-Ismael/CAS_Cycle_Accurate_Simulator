@@ -5,6 +5,21 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.6.0] - 2026-10-26
+
+### Added
+* **4-State Dual-Rail Logic Engine (`0, 1, X, Z`):**
+  * Replaced native unsigned integer state with dual-rail `LogicVal` (`aval` for data, `bval` for unknown/Z control mask).
+  * All signals and registers now initialize to `X` by default upon elaboration, matching standard IEEE 1800 simulator behavior.
+  * Implemented 4-state arithmetic poisoning: arithmetic operations on vectors with any unknown bits propagate `X` to all result bits.
+  * Enhanced edge detection (`is_posedge()`, `is_negedge()`) to correctly detect transitions to and from unknown/uninitialized states (`X -> 0` triggers `negedge`, `X -> 1` triggers `posedge`).
+* **Waveform & Terminal 4-State Rendering:**
+  * Updated VCD dumper to format single-bit unknown scalars (`x<id>`) and multi-bit vectors containing unknown bits (`b...x... <id>`).
+  * Updated Canvas timing diagram renderer to display unknown single-bit wires as mid-rail red traces and unknown buses as red-shaded `X` intervals.
+  * Fixed terminal selection CSS (`user-select: text`) allowing developers to highlight and copy console simulation logs directly.
+
+---
+
 ## [v0.5.1] - 2026-10-26
 
 ### Added

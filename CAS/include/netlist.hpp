@@ -13,15 +13,13 @@ struct LogicVal {
         mask();
     }
 
-    // Default 4-state initialization: all X's
     static LogicVal make_x(uint32_t w) {
         uint64_t m = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-        return LogicVal(w, m, m); // aval=1, bval=1 -> 'X'
+        return LogicVal(w, m, m);
     }
 
-    // Known 2-state constant
     static LogicVal make_known(uint32_t w, uint64_t val) {
-        return LogicVal(w, val, 0); // bval=0
+        return LogicVal(w, val, 0);
     }
 
     void mask() {
@@ -35,8 +33,6 @@ struct LogicVal {
     }
 
     bool to_bool() const {
-        // In Verilog, if any bit is known 1 and not unknown, it's true.
-        // If unknown, branches treat it as false.
         if (is_unknown()) return false;
         return aval != 0;
     }
@@ -74,7 +70,7 @@ struct Net {
 
     Net(std::string n, uint32_t w)
         : name(std::move(n)), width(w),
-          value(LogicVal::make_x(w)),       // All nets initialize to X!
+          value(LogicVal::make_x(w)),
           prev_value(LogicVal::make_x(w)),
           modified(false), vcd_id("") {}
 
@@ -88,16 +84,14 @@ struct Net {
     }
 
     bool is_posedge() const {
-        // Posedge: transition from 0 to 1, or 0/X to 1
-        bool prev_0 = (prev_value.bval == 0 && (prev_value.aval & 1) == 0);
         bool curr_1 = (value.bval == 0 && (value.aval & 1) == 1);
-        return prev_0 && curr_1;
+        bool prev_not_1 = (prev_value.bval != 0) || ((prev_value.aval & 1) == 0);
+        return prev_not_1 && curr_1;
     }
 
     bool is_negedge() const {
-        // Negedge: transition from 1 to 0
-        bool prev_1 = (prev_value.bval == 0 && (prev_value.aval & 1) == 1);
         bool curr_0 = (value.bval == 0 && (value.aval & 1) == 0);
-        return prev_1 && curr_0;
+        bool prev_not_0 = (prev_value.bval != 0) || ((prev_value.aval & 1) == 1);
+        return prev_not_0 && curr_0;
     }
 };
