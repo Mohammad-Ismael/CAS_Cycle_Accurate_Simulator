@@ -140,7 +140,7 @@ Open `http://localhost:8080` in your browser.
 
 ## Roadmap
 
-Detailed release history is tracked in [`VERSIONS.md`](https://www.google.com/search?q=VERSIONS.md).
+Detailed release history is tracked in [`VERSIONS.md`](https://github.com/Mohammad-Ismael/CAS_Cycle_Accurate_Simulator/blob/main/VERSIONS.md).
 
 | Target Version | Milestone Feature Focus | Status |
 | --- | --- | --- |
