@@ -66,6 +66,7 @@ struct MonitorSession {
     std::string format_string;
     std::vector<std::string> args;
     std::vector<LogicVal> prev_values;
+    bool has_leading_time = false;
 };
 
 struct SimEvent {

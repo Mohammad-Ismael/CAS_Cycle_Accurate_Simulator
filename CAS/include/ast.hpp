@@ -137,8 +137,10 @@ struct DisplayStatementNode : public StatementNode {
     std::string format_string;
     std::vector<std::string> args;
     bool is_monitor = false;
-    DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false)
-        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon) {}
+    bool has_leading_time = false;
+
+    DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false, bool lead_time = false)
+        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon), has_leading_time(lead_time) {}
 };
 
 struct FinishStatementNode : public StatementNode {};

@@ -272,6 +272,10 @@ void Engine::check_monitor() {
 
     if (values_changed) {
         monitor_session.prev_values = current_values;
+        if (monitor_session.has_leading_time) {
+            std::cout << sim_time;
+        }
+
         size_t arg_idx = 0;
         for (size_t i = 0; i < monitor_session.format_string.size(); ++i) {
             if (monitor_session.format_string[i] == '%' && i + 1 < monitor_session.format_string.size()) {
@@ -296,6 +300,7 @@ void Engine::check_monitor() {
                 std::cout << monitor_session.format_string[i];
             }
         }
+        std::cout << "\n";
     }
 }
 
@@ -411,10 +416,14 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             monitor_session.scope = bp.scope;
             monitor_session.format_string = disp->format_string;
             monitor_session.args = disp->args;
+            monitor_session.has_leading_time = disp->has_leading_time;
             monitor_session.prev_values.clear();
             check_monitor();
         } else {
             std::cout << "[CAS $display] ";
+            if (disp->has_leading_time) {
+                std::cout << sim_time << " ";
+            }
             size_t arg_idx = 0;
             for (size_t i = 0; i < disp->format_string.size(); ++i) {
                 if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {

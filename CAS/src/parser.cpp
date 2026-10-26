@@ -260,22 +260,36 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return case_stmt;
     }
 
-    // 4. $display and $monitor
+    // 4. $display and $monitor (Supports both "$display(fmt, ...)" and "$monitor($time, fmt, ...)")
     if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR) {
         bool is_mon = (current.type == TokenType::TOKEN_MONITOR);
         advance();
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after display/monitor");
-        std::string fmt = current.text;
-        expect(TokenType::TOKEN_STRING, "Expected format string");
 
+        bool has_lead_time = false;
+        std::string fmt = "";
         std::vector<std::string> args;
+
+        // Check if first argument is $time or an identifier before the format string
+        if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "$time") {
+            has_lead_time = true;
+            advance();
+            expect(TokenType::TOKEN_COMMA, "Expected ',' after $time");
+        }
+
+        if (current.type == TokenType::TOKEN_STRING) {
+            fmt = current.text;
+            advance();
+        }
+
         while (match(TokenType::TOKEN_COMMA)) {
             args.push_back(current.text);
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in argument list");
         }
+
         expect(TokenType::TOKEN_RPAREN, "Expected ')'");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
-        return std::make_unique<DisplayStatementNode>(fmt, args, is_mon);
+        return std::make_unique<DisplayStatementNode>(fmt, args, is_mon, has_lead_time);
     }
 
     // 5. $finish and $stop
