@@ -35,7 +35,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         std::string ident_name = current.text;
         advance();
 
-        // Check for bit-select or part-select: ident[msb] or ident[msb:lsb]
+        // Bit-select, part-select, or array index: ident[idx] or ident[msb:lsb]
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto first_expr = parse_expression();
             if (match(TokenType::TOKEN_COLON)) {
@@ -43,7 +43,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' after part-select slice");
                 return std::make_unique<IndexSelectNode>(ident_name, std::move(first_expr), std::move(second_expr));
             } else {
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after bit index");
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after index");
                 return std::make_unique<IndexSelectNode>(ident_name, std::move(first_expr));
             }
         }
@@ -218,7 +218,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return if_stmt;
     }
 
-    // 3. Case Statement: case (expr) ... endcase
+    // 3. Case Statement
     if (match(TokenType::TOKEN_CASE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
         auto selector = parse_expression();
@@ -231,7 +231,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (match(TokenType::TOKEN_DEFAULT)) {
                 item.is_default = true;
                 item.match_expr = nullptr;
-                match(TokenType::TOKEN_COLON); // optional or required colon
+                match(TokenType::TOKEN_COLON);
             } else {
                 item.is_default = false;
                 item.match_expr = parse_expression();
@@ -299,9 +299,43 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpVarsStatementNode>();
     }
 
-    // 8. Assignments
-    std::vector<std::string> targets;
+    // 8. Array Element Assignment: mem[addr] = val; or mem[addr] <= val;
+    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        std::string lhs_name = current.text;
+        advance();
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto addr_expr = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array index on LHS");
+
+            bool is_non_blocking = false;
+            if (match(TokenType::TOKEN_LE)) {
+                is_non_blocking = true;
+            } else {
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in array assignment");
+            }
+            auto rhs_expr = parse_expression();
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating array assignment");
+            return std::make_unique<MemAssignNode>(lhs_name, std::move(addr_expr), std::move(rhs_expr), is_non_blocking);
+        }
+
+        // Standard Scalar Assignment
+        std::vector<std::string> targets = { lhs_name };
+        if (match(TokenType::TOKEN_LE)) {
+            auto expr = parse_expression();
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating non-blocking assignment");
+            return std::make_unique<NonBlockingAssignNode>(targets[0], std::move(expr));
+        } else {
+            expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in assignment");
+            auto expr = parse_expression();
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating blocking assignment");
+            return std::make_unique<BlockingAssignNode>(targets, std::move(expr));
+        }
+    }
+
+    // 9. Concatenation Assignment: {a, b} = expr;
     if (match(TokenType::TOKEN_LBRACE)) {
+        std::vector<std::string> targets;
         while (true) {
             targets.push_back(current.text);
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier inside concatenation");
@@ -309,21 +343,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             break;
         }
         expect(TokenType::TOKEN_RBRACE, "Expected '}' in concatenation assignment");
-    } else {
-        targets.push_back(current.text);
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in assignment");
-    }
-
-    if (match(TokenType::TOKEN_LE)) {
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation assignment");
         auto expr = parse_expression();
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating non-blocking assignment");
-        return std::make_unique<NonBlockingAssignNode>(targets[0], std::move(expr));
-    } else {
-        expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in assignment");
-        auto expr = parse_expression();
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating blocking assignment");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating blocking concatenation assignment");
         return std::make_unique<BlockingAssignNode>(targets, std::move(expr));
     }
+
+    throw std::runtime_error("Unexpected statement beginning with '" + current.text + "' on line " + std::to_string(current.line));
 }
 
 std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
@@ -370,6 +396,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         // Module Body
         while (current.type != TokenType::TOKEN_ENDMODULE && current.type != TokenType::TOKEN_EOF) {
+            // logic signal or unpacked memory array: logic [31:0] mem [0:255];
             if (match(TokenType::TOKEN_LOGIC)) {
                 PortNode sig;
                 sig.direction = "internal";
@@ -384,8 +411,35 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 sig.name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name");
+
+                // Check for unpacked memory dimensions: [0:depth-1] or [depth]
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    uint32_t bound1 = current.num_val;
+                    advance();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        uint32_t bound2 = current.num_val;
+                        advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
+                        sig.is_array = true;
+                        sig.array_depth = (bound2 >= bound1) ? (bound2 - bound1 + 1) : (bound1 - bound2 + 1);
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
+                        sig.is_array = true;
+                        sig.array_depth = bound1;
+                    }
+                }
+
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
                 mod->signals.push_back(sig);
+            }
+            // Continuous assign: assign target = expr;
+            else if (match(TokenType::TOKEN_ASSIGN)) {
+                std::string target = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in continuous assign");
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in continuous assign");
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after continuous assign");
+                mod->continuous_assigns.push_back(std::make_unique<ContinuousAssignNode>(target, std::move(rhs)));
             }
             // always_comb
             else if (match(TokenType::TOKEN_ALWAYS_COMB)) {

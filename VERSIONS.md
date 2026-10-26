@@ -5,6 +5,25 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.9.0] - 2026-10-26
+
+### Added
+* **Continuous `assign` Statements:**
+  * Added `TOKEN_ASSIGN` (`assign`) keyword to lexer.
+  * Added `ContinuousAssignNode` to the AST and module elaboration pass.
+  * Evaluated within `Engine::propagate_comb()`, driving signals continuously alongside port interconnects and combinational blocks.
+* **1D Unpacked Memory Arrays:**
+  * Grammar support for unpacked dimension declarations: `logic [width-1:0] name [0:depth-1];`.
+  * Implemented `MemoryArray` structure in `Engine` with per-word dual-rail 4-state storage.
+  * Dynamic array reads via `IndexSelectNode` returning `X` for unknown/out-of-bounds addresses.
+  * Added `MemAssignNode` supporting blocking (`mem[addr] = data`) and non-blocking (`mem[addr] <= data`) procedural writes.
+  * Implemented `NBAMemUpdate` queue to commit memory writes synchronously in the NBA scheduling region.
+* **Regression Suite Milestone Update:**
+  * Extended testbench to 35 hierarchical nets, 19 port bindings, 2 continuous assigns, and 1 memory array.
+  * Verified continuous assign dataflow, synchronous RAM writing, and asynchronous RAM reading.
+
+---
+
 ## [v0.8.0] - 2026-10-26
 
 ### Added
@@ -162,26 +181,12 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
-## Next Milestone: `v0.9.0` (Memory Arrays & Continuous `assign`)
+### Git Commit & Push Commands
 
-To simulate a true RISC-V CPU core (such as an RV32I 5-stage pipeline or CVA6 subset), two structural constructs are essential:
+Run these commands from your repository root (`I:\CAS_Cycle_Accurate_Simulator`):
 
-1. **Continuous `assign` statements:**
-```systemverilog
-assign result = alu_enable ? (a + b) : 32'd0;
-
-```
-
-
-Currently, all combinational assignments require an enclosing `always_comb begin ... end` process. Adding `assign` at module scope allows clean dataflow modeling.
-2. **Multi-element 1D unpacked memory arrays:**
-```systemverilog
-logic [31:0] regfile [0:31];  // 32-entry x 32-bit RISC-V register file
-logic [31:0] imem [0:255];     // Instruction memory RAM
-
-```
-
-
-* Declarations: parsing unpacked dimensions `[0:depth-1]` or `[depth]`.
-* Array element access: reading `regfile[rs1]` and writing via non-blocking assignments (`regfile[rd] <= write_data`).
-* 4-state memory initialization: every entry initializes to `X` until explicitly written or cleared.
+```bash
+git add CAS/include/ast.hpp CAS/include/lexer.hpp CAS/include/engine.hpp CAS/src/lexer.cpp CAS/src/parser.cpp CAS/src/engine.cpp projects/regression/ README.md VERSIONS.md
+git commit -m "feat(kernel): release v0.9.0 - continuous assign, 1D memory arrays, and regression suite pass"
+git tag -a v0.9.0 -m "CAS v0.9.0: Continuous Assign & Unpacked Memory Arrays"
+git push origin main --tags

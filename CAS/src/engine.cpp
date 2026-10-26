@@ -43,8 +43,19 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
     }
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
-        const auto& target_val = netlist[net_map.at(scoped_ident)].value;
 
+        // Check if target is a 1D Memory Array
+        if (memory_map.find(scoped_ident) != memory_map.end()) {
+            const auto& mem = memory_map.at(scoped_ident);
+            LogicVal addr_val = eval_expr(idx_node->msb_expr.get(), scope);
+            if (addr_val.is_unknown() || addr_val.aval >= mem.depth) {
+                return LogicVal::make_x(mem.word_width);
+            }
+            return mem.words[addr_val.aval];
+        }
+
+        // Standard Scalar Net bit-select or part-select
+        const auto& target_val = netlist[net_map.at(scoped_ident)].value;
         if (!idx_node->is_part_select) {
             LogicVal idx_val = eval_expr(idx_node->msb_expr.get(), scope);
             if (idx_val.is_unknown() || idx_val.aval >= target_val.width) {
@@ -151,7 +162,7 @@ void Engine::init_vcd_header() {
 
     std::time_t now = std::time(nullptr);
     vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
-    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.8.0 [Control Flow Kernel]\n$end\n";
+    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel]\n$end\n";
     vcd_file << "$timescale 1ns $end\n";
 
     std::unordered_map<std::string, std::vector<size_t>> scopes;
@@ -207,6 +218,8 @@ void Engine::propagate_comb() {
     size_t iters = 0;
     while (changed && iters < 100) {
         changed = false;
+
+        // 1. Module port interconnect bindings
         for (auto& bind : port_bindings) {
             if (netlist[bind.dst_net_id].value != netlist[bind.src_net_id].value) {
                 netlist[bind.dst_net_id].set(netlist[bind.src_net_id].value);
@@ -214,6 +227,16 @@ void Engine::propagate_comb() {
             }
         }
 
+        // 2. Continuous assign statements
+        for (auto& ca : continuous_assigns) {
+            LogicVal val = eval_expr(ca.rhs, ca.scope);
+            if (netlist[ca.target_net_id].value != val) {
+                netlist[ca.target_net_id].set(val);
+                changed = true;
+            }
+        }
+
+        // 3. always_comb blocks
         for (auto& bp : processes) {
             if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
             for (auto& stmt : bp.proc->body) {
@@ -221,6 +244,7 @@ void Engine::propagate_comb() {
             }
         }
 
+        // Check if any net was modified in this pass
         for (const auto& n : netlist) {
             if (n.modified) {
                 changed = true;
@@ -309,6 +333,25 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         size_t net_id = net_map.at(scoped_target);
         nba_queue.push_back({net_id, rhs_val});
     }
+    else if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
+        std::string scoped_mem = bp.scope + "." + mem_assign->mem_name;
+        LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
+        LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
+
+        if (!addr_val.is_unknown()) {
+            uint32_t addr = addr_val.aval;
+            if (mem_assign->is_non_blocking) {
+                nba_mem_queue.push_back({scoped_mem, addr, rhs_val});
+            } else {
+                if (memory_map.find(scoped_mem) != memory_map.end()) {
+                    auto& mem = memory_map.at(scoped_mem);
+                    if (addr < mem.depth) {
+                        mem.words[addr] = rhs_val;
+                    }
+                }
+            }
+        }
+    }
     else if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
 
@@ -359,12 +402,22 @@ void Engine::evaluate_sequential_blocks() {
 }
 
 void Engine::commit_nba_updates() {
-    if (nba_queue.empty()) return;
+    if (nba_queue.empty() && nba_mem_queue.empty()) return;
 
     for (const auto& update : nba_queue) {
         netlist[update.net_id].set(update.val);
     }
     nba_queue.clear();
+
+    for (const auto& mem_up : nba_mem_queue) {
+        if (memory_map.find(mem_up.mem_scoped_name) != memory_map.end()) {
+            auto& mem = memory_map.at(mem_up.mem_scoped_name);
+            if (mem_up.addr < mem.depth) {
+                mem.words[mem_up.addr] = mem_up.val;
+            }
+        }
+    }
+    nba_mem_queue.clear();
 
     propagate_comb();
 }
@@ -375,10 +428,23 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
         uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
         get_or_create_net(scope + "." + p.name, w);
     }
+
     for (auto& s : mod->signals) {
         uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
-        get_or_create_net(scope + "." + s.name, w);
+        if (s.is_array) {
+            std::string mem_scope = scope + "." + s.name;
+            memory_map[mem_scope] = MemoryArray(mem_scope, w, s.array_depth);
+        } else {
+            get_or_create_net(scope + "." + s.name, w);
+        }
     }
+
+    for (auto& ca : mod->continuous_assigns) {
+        std::string scoped_target = scope + "." + ca->target_name;
+        size_t target_id = net_map.at(scoped_target);
+        continuous_assigns.push_back({scope, target_id, ca->rhs.get()});
+    }
+
     for (auto& proc : mod->processes) {
         processes.push_back({scope, proc.get(), 0, false});
     }
@@ -482,11 +548,9 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        // Procedural assignment or task
         execute_statement(stmt, bp);
         if (!simulation_active) return;
 
-        // Propagate signals and check for sequential edge updates
         propagate_comb();
         evaluate_sequential_blocks();
         commit_nba_updates();
@@ -501,9 +565,11 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.8.0 [Control Flow Kernel] Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel] Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
+    std::cout << "Continuous Assigns Bound: " << continuous_assigns.size() << "\n";
+    std::cout << "Memory Arrays Allocated: " << memory_map.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
 
     propagate_comb();

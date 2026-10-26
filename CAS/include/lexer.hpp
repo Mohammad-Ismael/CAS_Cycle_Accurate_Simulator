@@ -10,19 +10,20 @@ enum class TokenType {
     TOKEN_INPUT,
     TOKEN_OUTPUT,
     TOKEN_LOGIC,
+    TOKEN_ASSIGN,       // assign
     TOKEN_ALWAYS_COMB,
     TOKEN_ALWAYS_FF,
-    TOKEN_AT,          // @
+    TOKEN_AT,           // @
     TOKEN_POSEDGE,
     TOKEN_NEGEDGE,
-    TOKEN_OR,          // 'or' keyword in sensitivity lists
+    TOKEN_OR,           // 'or' keyword in sensitivity lists
     TOKEN_IF,
     TOKEN_ELSE,
-    TOKEN_CASE,        // case
-    TOKEN_ENDCASE,     // endcase
-    TOKEN_DEFAULT,     // default
-    TOKEN_NOT,         // !
-    TOKEN_TILDE,       // ~
+    TOKEN_CASE,         // case
+    TOKEN_ENDCASE,      // endcase
+    TOKEN_DEFAULT,      // default
+    TOKEN_NOT,          // !
+    TOKEN_TILDE,        // ~
     TOKEN_BEGIN,
     TOKEN_END,
     TOKEN_INITIAL,
@@ -43,24 +44,24 @@ enum class TokenType {
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_HASH,
-    TOKEN_EQUAL,       // =
-    TOKEN_LE,          // <=
-    TOKEN_GE,          // >=
-    TOKEN_LT,          // <
-    TOKEN_GT,          // >
-    TOKEN_EQ,          // ==
-    TOKEN_NEQ,         // !=
-    TOKEN_PLUS,        // +
-    TOKEN_MINUS,       // -
-    TOKEN_AND,         // &
-    TOKEN_OR_BIT,      // |
-    TOKEN_XOR,         // ^
-    TOKEN_SHL,         // <<
-    TOKEN_SHR,         // >>
-    TOKEN_LOGICAL_AND, // &&
-    TOKEN_LOGICAL_OR,  // ||
-    TOKEN_QUESTION,    // ?
-    TOKEN_COLON        // :
+    TOKEN_EQUAL,        // =
+    TOKEN_LE,           // <=
+    TOKEN_GE,           // >=
+    TOKEN_LT,           // <
+    TOKEN_GT,           // >
+    TOKEN_EQ,           // ==
+    TOKEN_NEQ,          // !=
+    TOKEN_PLUS,         // +
+    TOKEN_MINUS,        // -
+    TOKEN_AND,          // &
+    TOKEN_OR_BIT,       // |
+    TOKEN_XOR,          // ^
+    TOKEN_SHL,          // <<
+    TOKEN_SHR,          // >>
+    TOKEN_LOGICAL_AND,  // &&
+    TOKEN_LOGICAL_OR,   // ||
+    TOKEN_QUESTION,     // ?
+    TOKEN_COLON         // :
 };
 
 struct Token {

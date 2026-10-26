@@ -37,7 +37,7 @@ struct NumberNode : public ExpressionNode {
 struct IndexSelectNode : public ExpressionNode {
     std::string name;
     std::unique_ptr<ExpressionNode> msb_expr;
-    std::unique_ptr<ExpressionNode> lsb_expr; // nullptr if single-bit select
+    std::unique_ptr<ExpressionNode> lsb_expr; // nullptr if single-bit select or memory read
     bool is_part_select;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
@@ -90,6 +90,18 @@ struct NonBlockingAssignNode : public StatementNode {
         : target(std::move(tgt)), rhs(std::move(r)) {}
 };
 
+struct MemAssignNode : public StatementNode {
+    std::string mem_name;
+    std::unique_ptr<ExpressionNode> addr_expr;
+    std::unique_ptr<ExpressionNode> rhs;
+    bool is_non_blocking;
+
+    MemAssignNode(std::string name, std::unique_ptr<ExpressionNode> addr,
+                  std::unique_ptr<ExpressionNode> r, bool nb)
+        : mem_name(std::move(name)), addr_expr(std::move(addr)),
+          rhs(std::move(r)), is_non_blocking(nb) {}
+};
+
 struct IfStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> condition;
     std::vector<std::unique_ptr<StatementNode>> then_branch;
@@ -130,6 +142,13 @@ struct DumpFileStatementNode : public StatementNode {
 
 struct DumpVarsStatementNode : public StatementNode {};
 
+struct ContinuousAssignNode : public ASTNode {
+    std::string target_name;
+    std::unique_ptr<ExpressionNode> rhs;
+    ContinuousAssignNode(std::string tgt, std::unique_ptr<ExpressionNode> r)
+        : target_name(std::move(tgt)), rhs(std::move(r)) {}
+};
+
 enum class ProcessType {
     COMBINATIONAL,
     SEQUENTIAL,
@@ -148,6 +167,9 @@ struct PortNode {
     std::string direction;
     uint32_t msb;
     uint32_t lsb;
+    // Memory array unpacked bounds (e.g. [0:255])
+    bool is_array = false;
+    uint32_t array_depth = 1;
 };
 
 struct PortConnection {
@@ -167,6 +189,7 @@ struct ModuleNode : public ASTNode {
     std::string name;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
+    std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
 };

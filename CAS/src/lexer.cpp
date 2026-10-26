@@ -124,7 +124,7 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_GT, ">", 0, 0, line};
     }
 
-    // Literals
+    // Numeric literals
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
@@ -168,6 +168,7 @@ Token Lexer::next_token() {
         if (ident == "input") return {TokenType::TOKEN_INPUT, ident, 0, 0, line};
         if (ident == "output") return {TokenType::TOKEN_OUTPUT, ident, 0, 0, line};
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, line};
+        if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, line};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, line};
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, line};
         if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, line};

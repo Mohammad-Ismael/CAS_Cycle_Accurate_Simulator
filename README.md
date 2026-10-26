@@ -1,6 +1,6 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v0.8.0`  
+**Current Version:** `v0.9.0`  
 **License:** MIT  
 **Target Standard:** IEEE 1800 SystemVerilog (subset)
 
@@ -10,13 +10,15 @@ CAS is an independent, ground-up discrete-event RTL simulator implemented in C++
 
 ## Architectural Highlights
 
-* **Multi-Way Control Flow Selection (`case` / `endcase`):** Native statement-level branch selection supporting value matching, `default` fallbacks, and multi-statement `begin ... end` case items.
+* **Continuous `assign` Dataflow Modeling:** Top-level module continuous assignments dynamically evaluated and converged within the delta-cycle loop without requiring procedural wrapper processes.
+* **1D Unpacked Memory Arrays:** Support for memory structures (`logic [W-1:0] mem [0:D-1]`) with dual-rail 4-state unknown initialization, dynamic asynchronous reads (`mem[addr]`), and synchronous non-blocking writes (`mem[addr] <= data`).
+* **Multi-Way Control Flow Selection (`case` / `endcase`):** Native branch selection supporting exact value matching, `default` fallbacks, and multi-statement `begin ... end` case items.
 * **Vector Bit-Select & Part-Select Slicing:** Dynamic scalar extraction (`wire[idx]`) and fixed range slicing (`wire[msb:lsb]`) with dual-rail 4-state bit alignment.
 * **Full ALU Operator Suite & Expression Precedence:** Operator precedence climbing supporting bitwise (`&`, `|`, `^`, `~`), logical shifts (`<<`, `>>`), relational/equality (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical short-circuit gates (`&&`, `||`), and ternary conditional evaluation (`cond ? true_expr : false_expr`).
 * **Recursive Multi-Level Module Elaboration:** Fully recursive elaborator traversing arbitrary submodule instantiation depths (`top -> dut -> submod -> ...`), dynamically instantiating scoped nets and binding bidirectional port interconnects.
 * **Dual-Rail 4-State Bitwise Evaluation:** Exact per-bit IEEE 1800 evaluation rules for unknown bits (`0 & X = 0`, `1 | X = 1`, `X ^ X = X`, `~X = X`), preserving hardware-accurate uninitialized propagation across wide datapath buses.
-* **Native 4-State Logic Engine (`0, 1, X, Z`):** Dual-rail bit-vector arithmetic (`aval` data, `bval` unknown mask). All un-driven nets and uninitialized registers initialize to `X` (unknown) rather than optimistic `0`, catching un-reset design bugs.
-* **Self-Checking Regression Suite:** Automated verification harness covering all milestone deliverables from `v0.1.0` through `v0.8.0` with diagnostic pass/fail accounting.
+* **Native 4-State Logic Engine (`0, 1, X, Z`):** Dual-rail bit-vector arithmetic (`aval` data, `bval` unknown mask). All un-driven nets, memory cells, and uninitialized registers initialize to `X` (unknown) rather than optimistic `0`, catching un-reset design bugs.
+* **Self-Checking Regression Suite:** Automated verification harness covering all milestone deliverables from `v0.1.0` through `v0.9.0` with diagnostic pass/fail accounting.
 * **Project-Centric Workspace Engine:** Isolated directory hierarchies (`projects/<name>/`) storing RTL designs (`design.sv`), testbenches (`testbench.sv`), metadata (`project.json`), and archived waveform traces (`waves/`).
 * **Persistent Waveform History:** Timestamped VCD trace runs stored per project with in-browser selection, deletion, and immediate canvas invalidation when dump directives are omitted.
 * **4-State Digital Timing Canvas:** Native HTML5 Canvas timing diagram renderer displaying clocks, single-bit logic wires, and multibit transition buses with distinct visual styles for known values vs. `X`/`Z` states.
@@ -37,25 +39,29 @@ The repository includes a comprehensive self-checking regression suite that eval
 ```
 
 ```text
-CAS (Cycle Accurate Simulator) v0.8.0 [Control Flow Kernel] Initiated
-Hierarchical Nets Elaborated: 27
-Port Interconnects Bound: 15
+CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel] Initiated
+Hierarchical Nets Elaborated: 35
+Port Interconnects Bound: 19
+Continuous Assigns Bound: 2
+Memory Arrays Allocated: 1
 --------------------------------------------------------
 [CAS $display] ========================================================
-[CAS $display]    CAS COMPREHENSIVE REGRESSION SUITE (v0.1.0 - v0.8.0) [CAS$display] ========================================================
+[CAS $display]    CAS COMPREHENSIVE REGRESSION SUITE (v0.1.0 - v0.9.0) [CAS$display] ========================================================
 [CAS $display] [PASS] v0.6.0: Uninitialized register holds 'X' prior to reset (raw=x).
-[CAS $display] [PASS] v0.3.0: Time Wheel dynamic event scheduler & $time valid at T=5. [CAS$display] [PASS] v0.4.0: Asynchronous reset edge (X -> 0) cleared register to 0.
-[CAS $display] [PASS] v0.2.0: Submodule port interconnect & delta comb pass verified (alu_result=8). [CAS$display] [PASS] v0.8.0: Case branch 3'd1 (|) selected correctly (res=1110).
-[CAS $display] [PASS] v0.8.0: Case branch 3'd4 (<<) selected correctly (res=0110). [CAS$display] [PASS] v0.8.0: Bit-select a[2]=1 and part-select a[3:2]=11 verified.
+[CAS $display] [PASS] v0.3.0: Time Wheel dynamic event scheduler & $time valid at T=5.
+[CAS $display] [PASS] v0.4.0: Asynchronous reset edge (X -> 0) cleared register to 0. [CAS$display] [PASS] v0.2.0: Submodule port interconnect & delta comb pass verified (alu_result=8).
+[CAS $display] [PASS] v0.8.0: Case branch 3'd1 (\vert{}) selected correctly (res=1110). [CAS$display] [PASS] v0.8.0: Bit-select a[2]=1 and part-select a[3:2]=11 verified.
+[CAS $display] [PASS] v0.9.0: Continuous assign dataflow evaluation verified (12 + 1 = 13). [CAS$display] [PASS] v0.9.0: Uninitialized RAM word holds 4-state 'X' (raw=x).
+[CAS $display] [PASS] v0.9.0: Synchronous RAM write & async read verified (RAM[2]=1011).
 [CAS $display] [PASS] v0.4.0: Stratified NBA assignment commit loop verified (accum=14). [CAS$display] [PASS] v0.5.0: Native VCD generation running without runtime faults.
 [CAS $display] [PASS] v0.1.0: AST generation, literals, and system tasks verified.
 [CAS $display] ========================================================
 [CAS $display]    VERDICT: ALL TESTS PASSED (CAS READY FOR COMMIT)     
 [CAS $display] ========================================================
-[CAS $finish] Simulation Terminated at time 60.
+[CAS $finish] Simulation Terminated at time 90.
 [CAS VCD] Trace successfully dumped to: regression_suite.vcd
 --------------------------------------------------------
-Simulation finished at sim_time = 60.
+Simulation finished at sim_time = 90.
 
 ```
 
@@ -93,6 +99,10 @@ Access `http://localhost:8080` in the browser.
 
 Detailed release history is tracked in [`VERSIONS.md`](VERSIONS.md).
 
+In the previous version of the table, `v0.7.0` **was marked as Released**, but the Markdown table formatting had a broken unescaped vertical bar (`|`) inside the code snippet (`&, |, ^...`). In Markdown, an unescaped pipe symbol split that row across extra phantom table columns, which made the status column wrap incorrectly or disappear on rendered viewers like GitHub.
+
+Here is the clean, fixed roadmap table with every symbol properly escaped (`\|`) so all columns align and render **Released** as intended:
+
 | Target Version | Milestone Feature Focus | Status |
 | --- | --- | --- |
 | **`v0.1.0`** | Standalone AST, dynamic netlist, flat delta-cycle loop, `$display`, `$finish`. | **Released** |
@@ -102,7 +112,7 @@ Detailed release history is tracked in [`VERSIONS.md`](VERSIONS.md).
 | **`v0.5.0`** | Native VCD generation (`$dumpfile`, `$dumpvars`), studio IDE dark theme, and HTML5 canvas waveform engine. | **Released** |
 | **`v0.5.1`** | Project workspace architecture (`projects/`), persistent trace history stack, and strict canvas state invalidation. | **Released** |
 | **`v0.6.0`** | 4-State Logic Engine (`0, 1, X, Z`): Dual-rail bit vectors (`aval` + `bval`), unknown poisoning, 4-state edge transitions. | **Released** |
-| **`v0.7.0`** | Extended ALU operators (`&`, `|`, `^`, `~`, `<<`, `>>`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `?:`), recursive elaboration, and regression suite. | **Released** |
-| **`v0.8.0`** | **Control Flow & Slicing:** `case`, `default` branch selection, dynamic bit-select (`wire[idx]`), and part-select slicing (`wire[msb:lsb]`). | **Released** |
-| **`v0.9.0`** | **Memory Arrays & Continuous Assignments:** Multi-element memory arrays (`logic [31:0] mem [0:255]`), dynamic array read/write, and continuous `assign` statements. | *Next* |
-| **`v1.0.0`** | **Benchmarking:** Cycle-accurate execution of open-source RISC-V cores with automated throughput comparisons against commercial simulators. | *Planned* |
+| **`v0.7.0`** | Extended ALU operators (`&.. etc`), recursive elaboration, and regression suite. | **Released** |
+| **`v0.8.0`** | Control flow selection (`case`, `default`) and vector indexing (`wire[idx]`, `wire[msb:lsb]`). | **Released** |
+| **`v0.9.0`** | Memory arrays (`logic [W-1:0] mem [0:D-1]`), dynamic array read/write, and continuous `assign` statements. | **Released** |
+| **`v1.0.0`** | RISC-V Benchmarking: Cycle-accurate execution of an RV32I core and performance comparisons against commercial simulators. | *Next* |

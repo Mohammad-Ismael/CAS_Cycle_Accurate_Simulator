@@ -23,6 +23,30 @@ struct NBAUpdate {
     LogicVal val;
 };
 
+struct NBAMemUpdate {
+    std::string mem_scoped_name;
+    uint32_t addr;
+    LogicVal val;
+};
+
+struct MemoryArray {
+    std::string name;
+    uint32_t word_width;
+    uint32_t depth;
+    std::vector<LogicVal> words;
+
+    MemoryArray() : word_width(32), depth(0) {}
+    MemoryArray(std::string n, uint32_t w, uint32_t d)
+        : name(std::move(n)), word_width(w), depth(d),
+          words(d, LogicVal::make_x(w)) {}
+};
+
+struct ContinuousAssignBinding {
+    std::string scope;
+    size_t target_net_id;
+    ExpressionNode* rhs;
+};
+
 struct SimEvent {
     uint64_t time;
     uint32_t process_id;
@@ -41,8 +65,13 @@ private:
     std::vector<BoundProcess> processes;
     std::vector<NetBinding> port_bindings;
 
+    // Memory arrays & continuous assigns
+    std::unordered_map<std::string, MemoryArray> memory_map;
+    std::vector<ContinuousAssignBinding> continuous_assigns;
+
     // Stratified IEEE 1800 Regions
     std::vector<NBAUpdate> nba_queue;
+    std::vector<NBAMemUpdate> nba_mem_queue;
 
     // Simulation Time Wheel
     uint64_t sim_time = 0;
