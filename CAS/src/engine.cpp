@@ -24,6 +24,10 @@ uint64_t Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         return netlist[net_map.at(scoped_ident)].value;
     }
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        uint64_t val = eval_expr(un->operand.get(), scope);
+        if (un->op == '!') return (val == 0) ? 1 : 0;
+    }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         uint64_t l = eval_expr(bin->lhs.get(), scope);
         uint64_t r = eval_expr(bin->rhs.get(), scope);
@@ -46,7 +50,7 @@ void Engine::propagate_comb() {
         }
         // 2. Evaluate always_comb blocks
         for (auto& bp : processes) {
-            if (!bp.proc->is_combinational) continue;
+            if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
             for (auto& stmt : bp.proc->body) {
                 if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt.get())) {
                     uint64_t rhs_val = eval_expr(assign->rhs.get(), bp.scope);
@@ -77,6 +81,70 @@ void Engine::propagate_comb() {
         }
         iters++;
     }
+}
+
+void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
+    if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
+        uint64_t cond = eval_expr(if_stmt->condition.get(), bp.scope);
+        if (cond != 0) {
+            for (auto& s : if_stmt->then_branch) execute_statement(s.get(), bp);
+        } else {
+            for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
+        }
+    }
+    else if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        uint64_t rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+        std::string scoped_target = bp.scope + "." + nassign->target;
+        size_t net_id = net_map.at(scoped_target);
+        // Queue in NBA buffer (Active Region evaluates, NBA region commits)
+        nba_queue.push_back({net_id, rhs_val});
+    }
+    else if (auto bassign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        uint64_t rhs_val = eval_expr(bassign->rhs.get(), bp.scope);
+        std::string scoped_target = bp.scope + "." + bassign->lhs_targets[0];
+        size_t net_id = net_map.at(scoped_target);
+        netlist[net_id].set(rhs_val);
+    }
+}
+
+void Engine::evaluate_sequential_blocks() {
+    for (auto& bp : processes) {
+        if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
+
+        // Check if any sensitivity target triggered an edge
+        bool triggered = false;
+        for (auto& sens : bp.proc->sensitivity_list) {
+            std::string scoped_sig = bp.scope + "." + sens.signal_name;
+            size_t net_id = net_map.at(scoped_sig);
+            const auto& net = netlist[net_id];
+
+            if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) {
+                triggered = true;
+                break;
+            } else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) {
+                triggered = true;
+                break;
+            }
+        }
+
+        if (triggered) {
+            for (auto& stmt : bp.proc->body) {
+                execute_statement(stmt.get(), bp);
+            }
+        }
+    }
+}
+
+void Engine::commit_nba_updates() {
+    if (nba_queue.empty()) return;
+
+    for (const auto& update : nba_queue) {
+        netlist[update.net_id].set(update.val);
+    }
+    nba_queue.clear();
+
+    // Propagate combinational consequences of the NBA updates
+    propagate_comb();
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
@@ -167,7 +235,7 @@ void Engine::step_process(size_t pid) {
     while (bp.pc < bp.proc->body.size()) {
         auto stmt = bp.proc->body[bp.pc].get();
 
-        // 1. Delay Statement: Suspend execution and queue on Time Wheel
+        // 1. Delay
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t wake_time = sim_time + delay->delay;
@@ -195,10 +263,14 @@ void Engine::step_process(size_t pid) {
                 netlist[net_id].set(rhs_val);
             }
 
+            // Delta-cycle step: propagate ports, evaluate flip-flops, commit NBA
             propagate_comb();
+            evaluate_sequential_blocks();
+            commit_nba_updates();
+
             bp.pc++;
         }
-        // 3. $display Statement
+        // 3. $display
         else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
             std::cout << "[CAS $display] ";
             size_t arg_idx = 0;
@@ -229,7 +301,7 @@ void Engine::step_process(size_t pid) {
             std::cout << "\n";
             bp.pc++;
         }
-        // 4. $finish Statement
+        // 4. $finish
         else if (dynamic_cast<FinishStatementNode*>(stmt)) {
             std::cout << "[CAS $finish] Simulation Terminated at time " << sim_time << ".\n";
             simulation_active = false;
@@ -245,30 +317,26 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.3.0 Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v0.4.0 Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
 
-    // Initial Combinational Settling
     propagate_comb();
 
-    // Kick off all initial processes at Time = 0
+    // Start all initial processes at Time = 0
     for (size_t i = 0; i < processes.size(); ++i) {
-        if (!processes[i].proc->is_combinational) {
+        if (processes[i].proc->type == ProcessType::INITIAL) {
             step_process(i);
         }
     }
 
-    // Discrete-Event Simulation Loop (Time Wheel)
+    // Time Wheel Loop
     while (simulation_active && !time_wheel.empty()) {
         SimEvent ev = time_wheel.top();
         time_wheel.pop();
 
-        // Advance simulation time wheel directly to event timestamp
         sim_time = ev.time;
-
-        // Resume process execution
         step_process(ev.process_id);
     }
 

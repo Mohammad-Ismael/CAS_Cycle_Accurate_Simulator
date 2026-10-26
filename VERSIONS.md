@@ -5,6 +5,23 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.4.0] - 2026-10-26
+
+### Added
+* **Stratified IEEE 1800 Scheduler (Active & NBA Regions):**
+  * Implemented an NBA buffer queue (`std::vector<NBAUpdate>`) in `Engine`.
+  * Non-blocking assignments (`<=`) evaluate expressions during the active region without altering target nets immediately.
+  * `commit_nba_updates()` synchronously commits all pending non-blocking updates and triggers combinational delta passes.
+* **Sequential Logic & Edge Detection:**
+  * Added `always_ff` process handling with sensitivity lists supporting `posedge` and `negedge` transitions.
+  * Enhanced `Net` struct with `prev_value` history and transition queries (`is_posedge()`, `is_negedge()`).
+* **Control Flow & Operator Grammar:**
+  * Added `if (...) begin ... end else begin ... end` grammar constructs and `IfStatementNode`.
+  * Added logical NOT (`!`) operator support via `UnaryOpNode`.
+  * Added non-blocking assignment operator (`<=` / `TOKEN_LE`) support in `Lexer` and `Parser`.
+
+---
+
 ## [v0.3.0] - 2026-10-26
 
 ### Added

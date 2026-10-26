@@ -11,6 +11,14 @@ enum class TokenType {
     TOKEN_OUTPUT,
     TOKEN_LOGIC,
     TOKEN_ALWAYS_COMB,
+    TOKEN_ALWAYS_FF,
+    TOKEN_AT,          // @
+    TOKEN_POSEDGE,
+    TOKEN_NEGEDGE,
+    TOKEN_OR,
+    TOKEN_IF,
+    TOKEN_ELSE,
+    TOKEN_NOT,         // !
     TOKEN_BEGIN,
     TOKEN_END,
     TOKEN_INITIAL,
@@ -29,10 +37,22 @@ enum class TokenType {
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_HASH,
-    TOKEN_EQUAL,
+    TOKEN_EQUAL,       // =
+    TOKEN_LE,          // <= (Non-blocking assign)
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_COLON
+};
+
+enum class EdgeType {
+    POSEDGE,
+    NEGEDGE,
+    LEVEL
+};
+
+struct SensitivityTarget {
+    EdgeType edge;
+    std::string signal_name;
 };
 
 struct ASTNode {
@@ -54,8 +74,15 @@ struct NumberNode : public ExpressionNode {
     NumberNode(uint64_t val, uint32_t w) : value(val), width(w) {}
 };
 
+struct UnaryOpNode : public ExpressionNode {
+    char op; // '!'
+    std::unique_ptr<ExpressionNode> operand;
+    UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
+        : op(o), operand(std::move(opnd)) {}
+};
+
 struct BinaryOpNode : public ExpressionNode {
-    char op;
+    char op; // '+', '-'
     std::unique_ptr<ExpressionNode> lhs;
     std::unique_ptr<ExpressionNode> rhs;
     BinaryOpNode(char o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
@@ -73,6 +100,20 @@ struct BlockingAssignNode : public StatementNode {
         : lhs_targets(std::move(targets)), rhs(std::move(r)) {}
 };
 
+struct NonBlockingAssignNode : public StatementNode {
+    std::string target;
+    std::unique_ptr<ExpressionNode> rhs;
+    NonBlockingAssignNode(std::string tgt, std::unique_ptr<ExpressionNode> r)
+        : target(std::move(tgt)), rhs(std::move(r)) {}
+};
+
+struct IfStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> condition;
+    std::vector<std::unique_ptr<StatementNode>> then_branch;
+    std::vector<std::unique_ptr<StatementNode>> else_branch;
+    IfStatementNode(std::unique_ptr<ExpressionNode> cond) : condition(std::move(cond)) {}
+};
+
 struct DelayStatementNode : public StatementNode {
     uint64_t delay;
     explicit DelayStatementNode(uint64_t d) : delay(d) {}
@@ -87,15 +128,22 @@ struct DisplayStatementNode : public StatementNode {
 
 struct FinishStatementNode : public StatementNode {};
 
+enum class ProcessType {
+    COMBINATIONAL, // always_comb
+    SEQUENTIAL,    // always_ff
+    INITIAL        // initial
+};
+
 struct ProcessNode : public ASTNode {
-    bool is_combinational;
+    ProcessType type;
+    std::vector<SensitivityTarget> sensitivity_list;
     std::vector<std::unique_ptr<StatementNode>> body;
-    ProcessNode(bool comb) : is_combinational(comb) {}
+    ProcessNode(ProcessType t) : type(t) {}
 };
 
 struct PortNode {
     std::string name;
-    std::string direction; // "input" or "output"
+    std::string direction;
     uint32_t msb;
     uint32_t lsb;
 };

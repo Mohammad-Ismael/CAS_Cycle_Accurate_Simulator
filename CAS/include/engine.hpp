@@ -8,13 +8,18 @@
 struct BoundProcess {
     std::string scope;
     ProcessNode* proc;
-    size_t pc = 0;        // Program counter for procedural initial blocks
+    size_t pc = 0;
     bool completed = false;
 };
 
 struct NetBinding {
     size_t src_net_id;
     size_t dst_net_id;
+};
+
+struct NBAUpdate {
+    size_t net_id;
+    uint64_t val;
 };
 
 struct SimEvent {
@@ -35,6 +40,9 @@ private:
     std::vector<BoundProcess> processes;
     std::vector<NetBinding> port_bindings;
 
+    // Stratified IEEE 1800 Regions
+    std::vector<NBAUpdate> nba_queue; // NBA update buffer
+
     // Simulation Time Wheel
     uint64_t sim_time = 0;
     std::priority_queue<SimEvent, std::vector<SimEvent>, std::greater<SimEvent>> time_wheel;
@@ -43,7 +51,10 @@ private:
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
     uint64_t eval_expr(ExpressionNode* expr, const std::string& scope);
+    void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void propagate_comb();
+    void evaluate_sequential_blocks();
+    void commit_nba_updates();
     void step_process(size_t pid);
 
 public:

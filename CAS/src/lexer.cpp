@@ -52,10 +52,23 @@ Token Lexer::next_token() {
     if (c == ',') { advance(); return {TokenType::TOKEN_COMMA, ",", 0, 0, line}; }
     if (c == '.') { advance(); return {TokenType::TOKEN_DOT, ".", 0, 0, line}; }
     if (c == '#') { advance(); return {TokenType::TOKEN_HASH, "#", 0, 0, line}; }
+    if (c == '@') { advance(); return {TokenType::TOKEN_AT, "@", 0, 0, line}; }
+    if (c == '!') { advance(); return {TokenType::TOKEN_NOT, "!", 0, 0, line}; }
     if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, line}; }
-    if (c == '=') { advance(); return {TokenType::TOKEN_EQUAL, "=", 0, 0, line}; }
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, line}; }
+
+    // Check <= vs <
+    if (c == '<') {
+        advance();
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_LE, "<=", 0, 0, line};
+        }
+        throw std::runtime_error("Unexpected token '<' on line " + std::to_string(line));
+    }
+
+    if (c == '=') { advance(); return {TokenType::TOKEN_EQUAL, "=", 0, 0, line}; }
 
     // Numbers
     if (std::isdigit(c)) {
@@ -85,7 +98,7 @@ Token Lexer::next_token() {
         advance();
         std::string s;
         while (peek() != '"' && peek() != '\0') s += advance();
-        advance(); // consume closing quote
+        advance();
         return {TokenType::TOKEN_STRING, s, 0, 0, line};
     }
 
@@ -102,6 +115,12 @@ Token Lexer::next_token() {
         if (ident == "output") return {TokenType::TOKEN_OUTPUT, ident, 0, 0, line};
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, line};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, line};
+        if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, line};
+        if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, line};
+        if (ident == "negedge") return {TokenType::TOKEN_NEGEDGE, ident, 0, 0, line};
+        if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};
+        if (ident == "if") return {TokenType::TOKEN_IF, ident, 0, 0, line};
+        if (ident == "else") return {TokenType::TOKEN_ELSE, ident, 0, 0, line};
         if (ident == "begin") return {TokenType::TOKEN_BEGIN, ident, 0, 0, line};
         if (ident == "end") return {TokenType::TOKEN_END, ident, 0, 0, line};
         if (ident == "initial") return {TokenType::TOKEN_INITIAL, ident, 0, 0, line};
