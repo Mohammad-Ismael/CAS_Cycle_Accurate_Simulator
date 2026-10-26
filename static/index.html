@@ -759,15 +759,15 @@
         <div class="opt-section">
             <div class="opt-title">Simulator Flags</div>
             <label class="opt-checkbox-row">
-                <input type="checkbox" id="chk-profiler" checked>
+                <input type="checkbox" id="chk-profiler" unchecked>
                 <span>Enable Profiler & Topology</span>
             </label>
             <label class="opt-checkbox-row">
-                <input type="checkbox" id="chk-debug-trace" checked>
+                <input type="checkbox" id="chk-debug-trace" unchecked>
                 <span>Emit Compiler Phase Trace</span>
             </label>
             <label class="opt-checkbox-row">
-                <input type="checkbox" id="chk-vcd-enable" checked>
+                <input type="checkbox" id="chk-vcd-enable" unchecked>
                 <span>Enable VCD Wave Dump</span>
             </label>
         </div>
@@ -997,7 +997,6 @@
     // Multi-File Project State
     const projectFiles = {
         "testbench.sv": `module tb_counter;
-    \`include "design.sv"
 
     logic clk;
     logic rst_n;

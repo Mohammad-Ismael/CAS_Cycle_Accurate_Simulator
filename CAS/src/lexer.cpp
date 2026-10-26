@@ -4,9 +4,12 @@
 #include <fstream>
 #include <sstream>
 
-Lexer::Lexer(const std::string& filename, const std::string& source, const std::string& base_dir)
-    : current_dir(base_dir) {
+Lexer::Lexer(const std::string& filename, const std::string& source, const std::string& base_dir, std::ostream* debug_stream)
+    : current_dir(base_dir), debug_out(debug_stream) {
     file_stack.push_back({filename, source, 0, 1});
+    if (debug_out) {
+        *debug_out << "  [Source Accessed] #1: '" << filename << "' (" << source.size() << " bytes)\n";
+    }
 }
 
 char Lexer::peek() const {
@@ -31,7 +34,6 @@ std::string Lexer::get_current_location() const {
 }
 
 void Lexer::handle_include() {
-    // Consume "`include"
     skip_whitespace_and_comments();
     char q = advance();
     if (q != '"' && q != '<') {
@@ -44,25 +46,43 @@ void Lexer::handle_include() {
     }
     if (peek() == close_q) advance();
 
-    // Look for file relative to base directory
+    std::string parent_file = file_stack.back().filename;
+    size_t parent_line = file_stack.back().line;
+
     std::string full_path = current_dir.empty() ? inc_path : (current_dir + "/" + inc_path);
     std::ifstream f(full_path);
     if (!f.is_open()) {
-        // Try direct lookup
         f.open(inc_path);
         if (!f.is_open()) {
             throw std::runtime_error(get_current_location() + ": Cannot open `include file: " + inc_path);
         }
     }
+
     std::stringstream ss;
     ss << f.rdbuf();
-    file_stack.push_back({inc_path, ss.str(), 0, 1});
+    std::string content = ss.str();
+
+    include_depth++;
+    if (debug_out) {
+        std::string indent(include_depth * 2, ' ');
+        *debug_out << "  " << indent << "└── [Preprocessor `include] '" << inc_path 
+                   << "' (included by " << parent_file << ":" << parent_line 
+                   << ", " << content.size() << " bytes)\n";
+    }
+
+    file_stack.push_back({inc_path, content, 0, 1});
 }
 
 void Lexer::skip_whitespace_and_comments() {
     while (!file_stack.empty()) {
         auto& cur = file_stack.back();
         if (cur.cursor >= cur.src.size()) {
+            if (debug_out && file_stack.size() > 1) {
+                std::string indent(include_depth * 2, ' ');
+                *debug_out << "  " << indent << "└── [EOF Reached] Returning to '" 
+                           << file_stack[file_stack.size() - 2].filename << "'\n";
+            }
+            if (include_depth > 0) include_depth--;
             file_stack.pop_back();
             continue;
         }
@@ -80,7 +100,6 @@ void Lexer::skip_whitespace_and_comments() {
             }
             if (peek() != '\0') { advance(); advance(); }
         } else if (c == '`') {
-            // Check for `include
             size_t saved_cursor = cur.cursor;
             advance(); // consume '`'
             std::string directive = "";
@@ -88,7 +107,6 @@ void Lexer::skip_whitespace_and_comments() {
             if (directive == "include") {
                 handle_include();
             } else {
-                // Not `include, rollback
                 cur.cursor = saved_cursor;
                 break;
             }
@@ -166,7 +184,7 @@ Token Lexer::next_token() {
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance(); // consume '\''
+            advance();
             char base = advance();
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {

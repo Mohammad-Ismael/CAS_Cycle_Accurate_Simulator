@@ -1,4 +1,12 @@
 {
   "project_name": "v093Regression",
-  "saved_at": "2026-10-26 20:04:58"
+  "saved_at": "2026-10-26 22:57:22",
+  "files": [
+    "alu_core.sv",
+    "bit4_adder.sv",
+    "design.sv",
+    "full_adder.sv",
+    "testbench.sv",
+    "just_testing.sv"
+  ]
 }

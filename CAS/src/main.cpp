@@ -49,18 +49,20 @@ int main(int argc, char* argv[]) {
     std::ostream* debug_ptr = verbose ? &debug_ss : nullptr;
 
     if (verbose) {
-        debug_ss << "========================================================\n";
-        debug_ss << " CAS (Cycle Accurate Simulator) v1.0.0 [EDA Kernel]     \n";
-        debug_ss << "========================================================\n";
-        debug_ss << "[PHASE 1: Ingestion] Reading source files...\n";
+        debug_ss << "==================================================================\n";
+        debug_ss << " CAS COMPILER & PREPROCESSOR FILE ACCESS TRACE\n";
+        debug_ss << "==================================================================\n";
+        debug_ss << "[PHASE 1: Ingestion & Preprocessor Hierarchy]\n";
+        debug_ss << "  -> CLI Root Entry: '" << source_files[0] << "'\n";
     }
 
     std::vector<std::unique_ptr<ModuleNode>> all_modules;
     size_t total_bytes = 0;
+    std::vector<std::string> loaded_files;
 
     try {
-        // Parse each file independently so file names and line counts remain exact
-        for (const auto& file : source_files) {
+        for (size_t f_idx = 0; f_idx < source_files.size(); ++f_idx) {
+            const auto& file = source_files[f_idx];
             std::ifstream f(file);
             if (!f.is_open()) {
                 std::cerr << "[CAS ERROR] Cannot open source file: " << file << "\n";
@@ -70,15 +72,16 @@ int main(int argc, char* argv[]) {
             ss << f.rdbuf();
             std::string content = ss.str();
             total_bytes += content.size();
+            loaded_files.push_back(file);
 
             size_t slash = file.find_last_of("/\\");
             std::string base_dir = (slash == std::string::npos) ? "." : file.substr(0, slash);
 
-            if (verbose) {
-                debug_ss << "  -> Loaded '" << file << "' (" << content.size() << " bytes)\n";
+            if (verbose && f_idx > 0) {
+                debug_ss << "  [Source Accessed] #" << (f_idx + 1) << ": '" << file << "' (" << content.size() << " bytes)\n";
             }
 
-            Lexer lexer(file, content, base_dir);
+            Lexer lexer(file, content, base_dir, debug_ptr);
             Parser parser(lexer);
             auto mods = parser.parse_all();
             for (auto& m : mods) {
@@ -87,16 +90,18 @@ int main(int argc, char* argv[]) {
         }
 
         if (verbose) {
-            debug_ss << "[PHASE 2: Frontend] Parsed " << all_modules.size() << " module declaration(s):\n";
+            debug_ss << "\n[PHASE 2: Parsed AST & Module Origin Attribution]\n";
+            debug_ss << "  -> Discovered " << all_modules.size() << " module definition(s) across source files:\n";
             for (const auto& mod : all_modules) {
-                debug_ss << "     * module " << mod->name 
-                         << " (ports: " << mod->ports.size()
-                         << ", params: " << mod->parameters.size()
-                         << ", signals: " << mod->signals.size()
-                         << ", gates: " << mod->gates.size()
-                         << ", tasks: " << mod->tasks.size()
-                         << ", processes: " << mod->processes.size() << ")\n";
+                debug_ss << "     * module '" << mod->name << "'\n"
+                         << "       - Defined in : " << mod->defined_in_file << ":" << mod->defined_on_line << "\n"
+                         << "       - Interface  : " << mod->ports.size() << " port(s), " 
+                                                    << mod->parameters.size() << " parameter(s)\n"
+                         << "       - Internal   : " << mod->signals.size() << " net(s), " 
+                                                    << mod->gates.size() << " gate(s), " 
+                                                    << mod->processes.size() << " process(es)\n";
             }
+            debug_ss << "\n";
         }
 
         // ----------------------------------------------------

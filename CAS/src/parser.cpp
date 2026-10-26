@@ -375,10 +375,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
     std::vector<std::unique_ptr<ModuleNode>> modules;
 
     while (current.type != TokenType::TOKEN_EOF) {
-        expect(TokenType::TOKEN_MODULE, "Expected 'module' keyword");
-        auto mod = std::make_unique<ModuleNode>();
-        mod->name = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
+            expect(TokenType::TOKEN_MODULE, "Expected 'module' keyword");
+            auto mod = std::make_unique<ModuleNode>();
+            mod->defined_in_file = current.filename;
+            mod->defined_on_line = current.line;
+            mod->name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
 
         // Ports List
         if (match(TokenType::TOKEN_LPAREN)) {

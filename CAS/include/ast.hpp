@@ -244,6 +244,8 @@ struct InstantiationNode : public ASTNode {
 
 struct ModuleNode : public ASTNode {
     std::string name;
+    std::string defined_in_file = "";
+    size_t defined_on_line = 0;
     std::vector<ParameterDef> parameters;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;

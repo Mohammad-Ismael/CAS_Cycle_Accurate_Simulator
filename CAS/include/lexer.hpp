@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include <ostream>
 
 enum class TokenType {
     TOKEN_EOF,
@@ -103,6 +104,8 @@ class Lexer {
 private:
     std::vector<SourceBuffer> file_stack;
     std::string current_dir = ".";
+    std::ostream* debug_out = nullptr;
+    size_t include_depth = 0;
 
     char peek() const;
     char advance();
@@ -110,7 +113,8 @@ private:
     void handle_include();
 
 public:
-    explicit Lexer(const std::string& filename, const std::string& source, const std::string& base_dir = ".");
+    explicit Lexer(const std::string& filename, const std::string& source, 
+                   const std::string& base_dir = ".", std::ostream* debug_stream = nullptr);
     Token next_token();
     std::string get_current_location() const;
 };

@@ -1,3 +1,8 @@
+`include "full_adder.sv"
+`include "bit4_adder.sv"
+`include "alu_core.sv"
+
+
 module tb_master;
 
     // v0.9.2 reg/wire declarations
