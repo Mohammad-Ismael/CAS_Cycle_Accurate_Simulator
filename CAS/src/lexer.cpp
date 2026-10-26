@@ -42,6 +42,7 @@ Token Lexer::next_token() {
 
     char c = peek();
 
+    // Delimiters
     if (c == '(') { advance(); return {TokenType::TOKEN_LPAREN, "(", 0, 0, line}; }
     if (c == ')') { advance(); return {TokenType::TOKEN_RPAREN, ")", 0, 0, line}; }
     if (c == '[') { advance(); return {TokenType::TOKEN_LBRACKET, "[", 0, 0, line}; }
@@ -53,10 +54,41 @@ Token Lexer::next_token() {
     if (c == '.') { advance(); return {TokenType::TOKEN_DOT, ".", 0, 0, line}; }
     if (c == '#') { advance(); return {TokenType::TOKEN_HASH, "#", 0, 0, line}; }
     if (c == '@') { advance(); return {TokenType::TOKEN_AT, "@", 0, 0, line}; }
-    if (c == '!') { advance(); return {TokenType::TOKEN_NOT, "!", 0, 0, line}; }
+    if (c == '?') { advance(); return {TokenType::TOKEN_QUESTION, "?", 0, 0, line}; }
     if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, line}; }
+    if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, line}; }
+    if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, line}; }
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, line}; }
+
+    // Multi-character checks
+    if (c == '&') {
+        advance();
+        return {TokenType::TOKEN_AND, "&", 0, 0, line};
+    }
+
+    if (c == '|') {
+        advance();
+        return {TokenType::TOKEN_OR_BIT, "|", 0, 0, line};
+    }
+
+    if (c == '!') {
+        advance();
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_NEQ, "!=", 0, 0, line};
+        }
+        return {TokenType::TOKEN_NOT, "!", 0, 0, line};
+    }
+
+    if (c == '=') {
+        advance();
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_EQ, "==", 0, 0, line};
+        }
+        return {TokenType::TOKEN_EQUAL, "=", 0, 0, line};
+    }
 
     if (c == '<') {
         advance();
@@ -64,22 +96,37 @@ Token Lexer::next_token() {
             advance();
             return {TokenType::TOKEN_LE, "<=", 0, 0, line};
         }
-        throw std::runtime_error("Unexpected token '<' on line " + std::to_string(line));
+        if (peek() == '<') {
+            advance();
+            return {TokenType::TOKEN_SHL, "<<", 0, 0, line};
+        }
+        return {TokenType::TOKEN_LT, "<", 0, 0, line};
     }
 
-    if (c == '=') { advance(); return {TokenType::TOKEN_EQUAL, "=", 0, 0, line}; }
+    if (c == '>') {
+        advance();
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_GE, ">=", 0, 0, line};
+        }
+        if (peek() == '>') {
+            advance();
+            return {TokenType::TOKEN_SHR, ">>", 0, 0, line};
+        }
+        return {TokenType::TOKEN_GT, ">", 0, 0, line};
+    }
 
-    // Numbers
+    // Sized/Unsized Numeric Literals
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance();
+            advance(); // consume '
             char base = advance();
             std::string digits;
-            while (std::isxdigit(peek()) || peek() == '_') {
+            while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {
                 if (peek() != '_') digits += peek();
                 advance();
             }
@@ -131,5 +178,5 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, line};
     }
 
-    throw std::runtime_error(std::string("Unknown lexical token encountered: ") + advance());
+    throw std::runtime_error(std::string("Unknown lexical token encountered: '") + c + "' on line " + std::to_string(line));
 }

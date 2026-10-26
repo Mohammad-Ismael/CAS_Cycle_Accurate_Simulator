@@ -49,19 +49,49 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
             }
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
+        if (un->op == '~') {
+            return val.bitwise_not();
+        }
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         LogicVal l = eval_expr(bin->lhs.get(), scope);
         LogicVal r = eval_expr(bin->rhs.get(), scope);
-        uint32_t res_width = std::max(l.width, r.width);
 
-        // 4-state arithmetic poisoning: if either operand has X/Z, result is X
-        if (l.is_unknown() || r.is_unknown()) {
-            return LogicVal::make_x(res_width);
+        if (bin->op == "+") {
+            uint32_t w = std::max(l.width, r.width);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
+            return LogicVal::make_known(w, l.aval + r.aval);
         }
-
-        uint64_t res_val = (bin->op == '+') ? (l.aval + r.aval) : (l.aval - r.aval);
-        return LogicVal::make_known(res_width, res_val);
+        if (bin->op == "-") {
+            uint32_t w = std::max(l.width, r.width);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
+            return LogicVal::make_known(w, l.aval - r.aval);
+        }
+        if (bin->op == "&")  return LogicVal::bitwise_and(l, r);
+        if (bin->op == "|")  return LogicVal::bitwise_or(l, r);
+        if (bin->op == "^")  return LogicVal::bitwise_xor(l, r);
+        if (bin->op == "<<") return LogicVal::shift_left(l, r);
+        if (bin->op == ">>") return LogicVal::shift_right(l, r);
+        if (bin->op == "==") return LogicVal::logical_eq(l, r);
+        if (bin->op == "!=") return LogicVal::logical_neq(l, r);
+        if (bin->op == "<")  return LogicVal::rel_lt(l, r);
+        if (bin->op == "<=") return LogicVal::rel_le(l, r);
+        if (bin->op == ">")  return LogicVal::rel_gt(l, r);
+        if (bin->op == ">=") return LogicVal::rel_ge(l, r);
+    }
+    if (auto tern = dynamic_cast<TernaryOpNode*>(expr)) {
+        LogicVal cond = eval_expr(tern->condition.get(), scope);
+        if (cond.is_unknown()) {
+            LogicVal t_val = eval_expr(tern->true_expr.get(), scope);
+            LogicVal f_val = eval_expr(tern->false_expr.get(), scope);
+            uint32_t w = std::max(t_val.width, f_val.width);
+            return LogicVal::make_x(w);
+        }
+        if (cond.to_bool()) {
+            return eval_expr(tern->true_expr.get(), scope);
+        } else {
+            return eval_expr(tern->false_expr.get(), scope);
+        }
     }
     return LogicVal::make_x(1);
 }
@@ -78,7 +108,7 @@ void Engine::init_vcd_header() {
 
     std::time_t now = std::time(nullptr);
     vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
-    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.6.0 [4-State Engine]\n$end\n";
+    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.7.0 [Extended ALU Engine]\n$end\n";
     vcd_file << "$timescale 1ns $end\n";
 
     std::unordered_map<std::string, std::vector<size_t>> scopes;
@@ -430,7 +460,7 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.6.0 [4-State Kernel] Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v0.7.0 [Extended ALU Kernel] Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
@@ -453,7 +483,7 @@ void Engine::run() {
 
     if (vcd_enabled && vcd_file.is_open()) {
         vcd_file.close();
-        std::cout << "[CAS VCD] 4-State trace successfully dumped to: " << vcd_filename << "\n";
+        std::cout << "[CAS VCD] Trace successfully dumped to: " << vcd_filename << "\n";
     }
 
     std::cout << "--------------------------------------------------------\n";

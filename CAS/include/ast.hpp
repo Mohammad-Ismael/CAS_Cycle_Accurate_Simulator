@@ -15,10 +15,11 @@ enum class TokenType {
     TOKEN_AT,          // @
     TOKEN_POSEDGE,
     TOKEN_NEGEDGE,
-    TOKEN_OR,
+    TOKEN_OR,          // 'or' keyword in sensitivity lists
     TOKEN_IF,
     TOKEN_ELSE,
     TOKEN_NOT,         // !
+    TOKEN_TILDE,       // ~
     TOKEN_BEGIN,
     TOKEN_END,
     TOKEN_INITIAL,
@@ -41,9 +42,20 @@ enum class TokenType {
     TOKEN_HASH,
     TOKEN_EQUAL,       // =
     TOKEN_LE,          // <=
-    TOKEN_PLUS,
-    TOKEN_MINUS,
-    TOKEN_COLON
+    TOKEN_GE,          // >=
+    TOKEN_LT,          // <
+    TOKEN_GT,          // >
+    TOKEN_EQ,          // ==
+    TOKEN_NEQ,         // !=
+    TOKEN_PLUS,        // +
+    TOKEN_MINUS,       // -
+    TOKEN_AND,         // &
+    TOKEN_OR_BIT,      // |
+    TOKEN_XOR,         // ^
+    TOKEN_SHL,         // <<
+    TOKEN_SHR,         // >>
+    TOKEN_QUESTION,    // ?
+    TOKEN_COLON        // :
 };
 
 enum class EdgeType {
@@ -77,18 +89,28 @@ struct NumberNode : public ExpressionNode {
 };
 
 struct UnaryOpNode : public ExpressionNode {
-    char op; // '!'
+    char op; // '!', '~'
     std::unique_ptr<ExpressionNode> operand;
     UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
         : op(o), operand(std::move(opnd)) {}
 };
 
 struct BinaryOpNode : public ExpressionNode {
-    char op; // '+', '-'
+    std::string op; // "+", "-", "&", "|", "^", "<<", ">>", "==", "!=", "<", "<=", ">", ">="
     std::unique_ptr<ExpressionNode> lhs;
     std::unique_ptr<ExpressionNode> rhs;
-    BinaryOpNode(char o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
-        : op(o), lhs(std::move(l)), rhs(std::move(r)) {}
+    BinaryOpNode(std::string o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
+        : op(std::move(o)), lhs(std::move(l)), rhs(std::move(r)) {}
+};
+
+struct TernaryOpNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> condition;
+    std::unique_ptr<ExpressionNode> true_expr;
+    std::unique_ptr<ExpressionNode> false_expr;
+    TernaryOpNode(std::unique_ptr<ExpressionNode> cond,
+                  std::unique_ptr<ExpressionNode> t_expr,
+                  std::unique_ptr<ExpressionNode> f_expr)
+        : condition(std::move(cond)), true_expr(std::move(t_expr)), false_expr(std::move(f_expr)) {}
 };
 
 struct StatementNode : public ASTNode {

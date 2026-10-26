@@ -25,11 +25,8 @@ void Parser::expect(TokenType t, const std::string& err) {
     advance();
 }
 
+// 1. Primary: Number, Identifier, or parenthesized (expr)
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
-    if (match(TokenType::TOKEN_NOT)) {
-        auto operand = parse_primary();
-        return std::make_unique<UnaryOpNode>('!', std::move(operand));
-    }
     if (current.type == TokenType::TOKEN_NUMBER) {
         auto node = std::make_unique<NumberNode>(current.num_val, current.bit_width);
         advance();
@@ -48,15 +45,114 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     throw std::runtime_error("Unexpected token in expression evaluation on line " + std::to_string(current.line) + " (token: '" + current.text + "')");
 }
 
-std::unique_ptr<ExpressionNode> Parser::parse_expression() {
-    auto lhs = parse_primary();
-    if (current.type == TokenType::TOKEN_PLUS || current.type == TokenType::TOKEN_MINUS) {
-        char op = (current.type == TokenType::TOKEN_PLUS) ? '+' : '-';
+// 2. Unary: !, ~
+std::unique_ptr<ExpressionNode> Parser::parse_unary() {
+    if (match(TokenType::TOKEN_NOT)) {
+        return std::make_unique<UnaryOpNode>('!', parse_unary());
+    }
+    if (match(TokenType::TOKEN_TILDE)) {
+        return std::make_unique<UnaryOpNode>('~', parse_unary());
+    }
+    return parse_primary();
+}
+
+// 3. Shift: <<, >>
+std::unique_ptr<ExpressionNode> Parser::parse_shift() {
+    auto lhs = parse_unary();
+    while (current.type == TokenType::TOKEN_SHL || current.type == TokenType::TOKEN_SHR) {
+        std::string op = (current.type == TokenType::TOKEN_SHL) ? "<<" : ">>";
         advance();
-        auto rhs = parse_primary();
-        return std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+        auto rhs = parse_unary();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
     }
     return lhs;
+}
+
+// 4. Additive: +, -
+std::unique_ptr<ExpressionNode> Parser::parse_additive() {
+    auto lhs = parse_shift();
+    while (current.type == TokenType::TOKEN_PLUS || current.type == TokenType::TOKEN_MINUS) {
+        std::string op = (current.type == TokenType::TOKEN_PLUS) ? "+" : "-";
+        advance();
+        auto rhs = parse_shift();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 5. Relational: <, <=, >, >=
+std::unique_ptr<ExpressionNode> Parser::parse_relational() {
+    auto lhs = parse_additive();
+    while (current.type == TokenType::TOKEN_LT || current.type == TokenType::TOKEN_LE ||
+           current.type == TokenType::TOKEN_GT || current.type == TokenType::TOKEN_GE) {
+        std::string op;
+        if (current.type == TokenType::TOKEN_LT) op = "<";
+        else if (current.type == TokenType::TOKEN_LE) op = "<=";
+        else if (current.type == TokenType::TOKEN_GT) op = ">";
+        else if (current.type == TokenType::TOKEN_GE) op = ">=";
+        advance();
+        auto rhs = parse_additive();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 6. Equality: ==, !=
+std::unique_ptr<ExpressionNode> Parser::parse_equality() {
+    auto lhs = parse_relational();
+    while (current.type == TokenType::TOKEN_EQ || current.type == TokenType::TOKEN_NEQ) {
+        std::string op = (current.type == TokenType::TOKEN_EQ) ? "==" : "!=";
+        advance();
+        auto rhs = parse_relational();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 7. Bitwise AND: &
+std::unique_ptr<ExpressionNode> Parser::parse_bitwise_and() {
+    auto lhs = parse_equality();
+    while (match(TokenType::TOKEN_AND)) {
+        auto rhs = parse_equality();
+        lhs = std::make_unique<BinaryOpNode>("&", std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 8. Bitwise XOR: ^
+std::unique_ptr<ExpressionNode> Parser::parse_bitwise_xor() {
+    auto lhs = parse_bitwise_and();
+    while (match(TokenType::TOKEN_XOR)) {
+        auto rhs = parse_bitwise_and();
+        lhs = std::make_unique<BinaryOpNode>("^", std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 9. Bitwise OR: |
+std::unique_ptr<ExpressionNode> Parser::parse_bitwise_or() {
+    auto lhs = parse_bitwise_xor();
+    while (match(TokenType::TOKEN_OR_BIT)) {
+        auto rhs = parse_bitwise_xor();
+        lhs = std::make_unique<BinaryOpNode>("|", std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
+// 10. Ternary Conditional: cond ? true_expr : false_expr
+std::unique_ptr<ExpressionNode> Parser::parse_ternary() {
+    auto cond = parse_bitwise_or();
+    if (match(TokenType::TOKEN_QUESTION)) {
+        auto true_expr = parse_expression();
+        expect(TokenType::TOKEN_COLON, "Expected ':' in ternary conditional operator");
+        auto false_expr = parse_ternary();
+        return std::make_unique<TernaryOpNode>(std::move(cond), std::move(true_expr), std::move(false_expr));
+    }
+    return cond;
+}
+
+std::unique_ptr<ExpressionNode> Parser::parse_expression() {
+    return parse_ternary();
 }
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
@@ -124,7 +220,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>();
     }
 
-    // 5. $dumpfile("file.vcd");
+    // 5. $dumpfile
     if (match(TokenType::TOKEN_DUMPFILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");
         std::string fname = current.text;
@@ -134,7 +230,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpFileStatementNode>(fname);
     }
 
-    // 6. $dumpvars; or $dumpvars(0, ...);
+    // 6. $dumpvars
     if (match(TokenType::TOKEN_DUMPVARS)) {
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -281,7 +377,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // Instantiations: ModuleType InstanceName (.port(net), ...);
+            // Instantiations
             else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                 std::string mod_type = current.text;
                 advance();

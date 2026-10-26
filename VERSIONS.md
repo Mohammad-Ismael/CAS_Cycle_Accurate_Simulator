@@ -5,6 +5,24 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.7.0] - 2026-10-26
+
+### Added
+* **Extended Operator Grammar & Tokenizer:**
+  * Added tokens for bitwise AND (`&`), bitwise OR (`|`), XOR (`^`), bitwise invert (`~`).
+  * Added shift tokens (`<<`, `>>`).
+  * Added relational and equality tokens (`==`, `!=`, `<`, `<=`, `>`, `>=`).
+  * Added ternary conditional tokens (`?`, `:`).
+* **Precedence-Climbing Recursive Descent Parser:**
+  * Implemented stratified expression parser climbing from primary to unary (`!`, `~`), shift, additive (`+`, `-`), relational, equality, bitwise (`&`, `^`, `|`), and ternary conditional (`cond ? true_expr : false_expr`).
+  * Added `TernaryOpNode` to AST structure.
+* **Dual-Rail 4-State Operator Semantics:**
+  * Implemented bitwise 4-state truth tables in `LogicVal` (`0 & X = 0`, `1 | X = 1`, `X ^ X = X`).
+  * Implemented 4-state bitwise inversion (`~`), logical shift left/right (`<<`, `>>`), and equality checking returning `X` on unknown inputs.
+  * Added ternary evaluation in `Engine::eval_expr()` returning `X` if the condition is unknown.
+
+---
+
 ## [v0.6.0] - 2026-10-26
 
 ### Added
