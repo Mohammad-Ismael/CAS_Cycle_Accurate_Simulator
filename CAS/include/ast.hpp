@@ -28,6 +28,7 @@ enum class TokenType {
     TOKEN_SEMICOLON,
     TOKEN_COMMA,
     TOKEN_DOT,
+    TOKEN_HASH,
     TOKEN_EQUAL,
     TOKEN_PLUS,
     TOKEN_MINUS,
@@ -72,6 +73,11 @@ struct BlockingAssignNode : public StatementNode {
         : lhs_targets(std::move(targets)), rhs(std::move(r)) {}
 };
 
+struct DelayStatementNode : public StatementNode {
+    uint64_t delay;
+    explicit DelayStatementNode(uint64_t d) : delay(d) {}
+};
+
 struct DisplayStatementNode : public StatementNode {
     std::string format_string;
     std::vector<std::string> args;
@@ -95,13 +101,13 @@ struct PortNode {
 };
 
 struct PortConnection {
-    std::string port_name;     // The port inside the child module (e.g. .a)
-    std::string connected_net; // The wire in the parent module (e.g. (a))
+    std::string port_name;
+    std::string connected_net;
 };
 
 struct InstantiationNode : public ASTNode {
-    std::string module_type;   // e.g., adder
-    std::string instance_name; // e.g., u_dut
+    std::string module_type;
+    std::string instance_name;
     std::vector<PortConnection> connections;
     InstantiationNode(std::string type, std::string inst)
         : module_type(std::move(type)), instance_name(std::move(inst)) {}

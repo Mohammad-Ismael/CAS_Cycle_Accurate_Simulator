@@ -1,24 +1,25 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v0.2.0`  
+**Current Version:** `v0.3.0`  
 **License:** MIT  
 **Target Standard:** IEEE 1800 SystemVerilog (subset)
 
-CAS is an independent, ground-up discrete-event RTL simulator implemented in C++17. It bypasses external compilation chains (e.g., LLVM, intermediate C++ transpilation) and third-party frontends. CAS parses SystemVerilog sources directly into an in-memory Abstract Syntax Tree (AST), elaborates a hierarchical netlist graph, and resolves logic interactions via an iterative delta-cycle convergence engine.
+CAS is an independent, ground-up discrete-event RTL simulator implemented in C++17. It bypasses external compilation chains (e.g., LLVM, intermediate C++ transpilation) and third-party frontends. CAS parses SystemVerilog sources directly into an in-memory Abstract Syntax Tree (AST), elaborates a hierarchical netlist graph, and executes simulation events using an IEEE 1800-inspired discrete-event time wheel with combinational delta-cycle convergence.
 
 ---
 
 ## Architectural Highlights
 
-* **Pure Native Execution:** Compiles and runs directly from source files through a custom lexer, recursive-descent parser, and dynamic runtime engine.
-* **Hierarchical Scoping:** Supports module definitions, port directionality (`input`, `output`), and named submodule instantiations.
-* **Continuous Interconnect Engine:** Binds parent-child net boundaries dynamically and resolves combinational fanouts across instances.
-* **Dynamic Bit Slicing:** Handles arbitrary bit-width vectors and dynamic unpacking of LHS concatenation targets (`{cout, sum} = a + b`).
-* **Interactive Web Playground:** Shipped with a Dockerized IDE featuring dual Monaco editors (RTL and Testbench), resizable splitters, and a FastAPI-driven execution backend.
+* **Native Discrete-Event Engine:** Features a min-heap priority queue time wheel (`std::priority_queue`) that coordinates event execution across discrete simulation time steps.
+* **Cooperative Coroutine Scheduling:** Procedural processes (`initial` blocks) maintain an execution program counter (`PC`), cleanly yielding on `#delay` and resuming when scheduled by the time wheel.
+* **Hierarchical Scoping & Port Interconnects:** Resolves top-level root modules and submodule instantiations (`.port(net)`), continuously propagating driver and receiver nets across hierarchy boundaries.
+* **Immediate Combinational Convergence:** Procedural blocking assignments (`=`) trigger immediate delta-cycle propagation passes (`propagate_comb()`) before subsequent evaluation points.
+* **Dynamic Bit Slicing:** Arbitrary bit-width vectors and dynamic unpacking of LHS concatenation targets (`{cout, sum} = a + b`).
+* **Dockerized Web Playground:** Integrated Monaco editor IDE featuring resizable RTL/Testbench panes and a FastAPI backend streaming simulation logs to a live terminal.
 
 ---
 
-## Verified Reference Design (`v0.2.0`)
+## Verified Reference Design (`v0.3.0`)
 
 ### RTL Design (`design.sv`)
 ```systemverilog
@@ -55,13 +56,20 @@ module tb_adder;
     );
 
     initial begin
-        a = 4'd4;
-        b = 4'd5;
-        $display("Input drive -> a: %d, b: %d | DUT Output -> sum: %d, cout: %d", a, b, sum, cout);
-
-        a = 4'd14;
+        a = 4'd2;
         b = 4'd3;
-        $display("Input drive -> a: %d, b: %d | DUT Output -> sum: %d, cout: %d", a, b, sum, cout);
+        #10;
+        $display("[Time=%0t] a=%d, b=%d -> sum=%d, cout=%d", $time, a, b, sum, cout);
+
+        a = 4'd7;
+        b = 4'd8;
+        #15;
+        $display("[Time=%0t] a=%d, b=%d -> sum=%d, cout=%d", $time, a, b, sum, cout);
+
+        a = 4'd15;
+        b = 4'd1;
+        #20;
+        $display("[Time=%0t] a=%d, b=%d -> sum=%d, cout=%d", $time, a, b, sum, cout);
 
         $finish;
     end
@@ -73,13 +81,16 @@ endmodule
 ### Simulation Output
 
 ```text
-CAS (Cycle Accurate Simulator) v0.2.0 Initiated
+CAS (Cycle Accurate Simulator) v0.3.0 Initiated
 Hierarchical Nets Elaborated: 8
 Port Interconnects Bound: 4
 --------------------------------------------------------
-[CAS $display] Input drive -> a: 4, b: 5 | DUT Output -> sum: 9, cout: 0
-[CAS $display] Input drive -> a: 14, b: 3 | DUT Output -> sum: 1, cout: 1
-[CAS $finish] Simulation Terminated Gracefully.
+[CAS $display] [Time=10] a=2, b=3 -> sum=5, cout=0
+[CAS $display] [Time=25] a=7, b=8 -> sum=15, cout=0
+[CAS $display] [Time=45] a=15, b=1 -> sum=0, cout=1
+[CAS $finish] Simulation Terminated at time 45.
+--------------------------------------------------------
+Simulation finished at sim_time = 45.
 
 ```
 
@@ -90,11 +101,11 @@ Port Interconnects Bound: 4
 ```text
 CAS/
 ├── include/
-│   ├── ast.hpp          # Typed AST representation
+│   ├── ast.hpp          # Typed AST definitions (Module, Ports, Processes, Exprs)
 │   ├── lexer.hpp        # Lexer interface and Token declarations
 │   ├── parser.hpp       # Recursive-descent grammar parser
 │   ├── netlist.hpp      # Runtime Net descriptors and dynamic bit-masks
-│   └── engine.hpp       # Elaboration, delta convergence, and execution kernel
+│   └── engine.hpp       # Time wheel, event queues, and delta execution kernel
 ├── src/
 │   ├── lexer.cpp
 │   ├── parser.cpp
@@ -140,14 +151,16 @@ Open `http://localhost:8080` in your browser.
 
 ## Roadmap
 
-Detailed release history is tracked in [`VERSIONS.md`](https://github.com/Mohammad-Ismael/CAS_Cycle_Accurate_Simulator/blob/main/VERSIONS.md).
+Detailed release history is tracked in [`VERSIONS.md`](https://www.google.com/search?q=VERSIONS.md).
 
 | Target Version | Milestone Feature Focus | Status |
 | --- | --- | --- |
 | **`v0.1.0`** | Standalone AST, dynamic netlist, flat delta-cycle loop, `$display`, `$finish`. | **Released** |
 | **`v0.2.0`** | Hierarchical module instantiation, named port mapping (`.port(wire)`), cross-boundary net propagation. | **Released** |
-| **`v0.3.0`** | **Time Wheel & Delays:** Priority-queue event scheduler, `#delay` statements, and `$time`. | *Next* |
-| **`v0.4.0`** | **Sequential Logic:** Active vs. NBA event regions, `always_ff @(posedge clk)`, and non-blocking assignments (`<=`). | *Planned* |
+| **`v0.3.0`** | **Time Wheel & Delays:** Priority-queue event scheduler, `#delay` statements, and `$time`. | **Released** |
+| **`v0.4.0`** | **Sequential Logic:** IEEE 1800 Active vs. NBA event regions, `always_ff @(posedge clk)`, and non-blocking assignments (`<=`). | *Next* |
 | **`v0.5.0`** | **4-State Logic Engine:** Dual-rail bit vectors (`value` + `unknown/mask`) to model uninitialized nets and `X`/`Z` states. | *Planned* |
 | **`v0.6.0`** | **Waveform Tracing:** Native VCD (Value Change Dump) file generation for GTKWave / Surfer. | *Planned* |
 | **`v1.0.0`** | **Benchmarking:** Cycle-accurate execution of open-source RISC-V cores with automated throughput comparisons against Synopsys VCS and Cadence Xcelium. | *Planned* |
+
+```

@@ -51,6 +51,18 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
 }
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
+    // Delay Statement: #10;
+    if (match(TokenType::TOKEN_HASH)) {
+        if (current.type != TokenType::TOKEN_NUMBER) {
+            throw std::runtime_error("Expected numeric delay value after '#' on line " + std::to_string(current.line));
+        }
+        uint64_t delay_val = current.num_val;
+        advance();
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after delay statement");
+        return std::make_unique<DelayStatementNode>(delay_val);
+    }
+
+    // $display statement
     if (match(TokenType::TOKEN_DISPLAY)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $display");
         std::string fmt = current.text;
@@ -59,13 +71,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::vector<std::string> args;
         while (match(TokenType::TOKEN_COMMA)) {
             args.push_back(current.text);
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in $display argument list");
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in $display argument list");
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' after $display parameters");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $display statement");
         return std::make_unique<DisplayStatementNode>(fmt, args);
     }
 
+    // $finish statement
     if (match(TokenType::TOKEN_FINISH)) {
         if (match(TokenType::TOKEN_LPAREN)) expect(TokenType::TOKEN_RPAREN, "Expected ')'");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $finish");
@@ -102,7 +115,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         mod->name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
 
-        // Ports List (Optional: e.g. tb has no port list)
+        // Ports List
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 PortNode port;
@@ -156,7 +169,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
             else if (current.type == TokenType::TOKEN_ALWAYS_COMB || current.type == TokenType::TOKEN_INITIAL) {
                 bool is_comb = (current.type == TokenType::TOKEN_ALWAYS_COMB);
-                advance(); // consume always_comb or initial
+                advance();
                 auto proc = std::make_unique<ProcessNode>(is_comb);
                 expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
                 while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
@@ -165,7 +178,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // Module Instantiation: Type Name (.Port(Wire), ...);
+            // Module Instantiation: ModuleType InstanceName (.Port(Net), ...);
             else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                 std::string mod_type = current.text;
                 advance();

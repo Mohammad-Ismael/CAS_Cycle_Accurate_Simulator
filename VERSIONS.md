@@ -1,6 +1,25 @@
+
 # Release History & Version Log
 
 All notable architectural enhancements, language grammar additions, and runtime changes for CAS are documented here in reverse chronological order.
+
+---
+
+## [v0.3.0] - 2026-10-26
+
+### Added
+* **Discrete-Event Time Wheel:**
+  * Implemented an ordered min-heap priority queue (`std::priority_queue<SimEvent>`) in `Engine`.
+  * Simulation time (`sim_time`) advances dynamically to scheduled timestamps rather than executing exclusively at $T=0$.
+* **Cooperative Process Scheduling:**
+  * Procedural processes (`initial` blocks) track execution progress using an internal Program Counter (`size_t pc`).
+  * Yields execution upon reaching `#delay`, inserting a wake-up event into the time wheel at `sim_time + delay`.
+* **Delay Syntax & Language Extensions:**
+  * Added tokenization for the `#` operator (`TOKEN_HASH`) in `Lexer`.
+  * Implemented `DelayStatementNode` in `include/ast.hpp` and integrated parsing into `Parser::parse_statement()`.
+* **System Task `$time`:**
+  * Added `$time` token and expression evaluation resolving directly to current simulation time.
+  * Supported `%0t` and `%t` format specifiers in `$display`.
 
 ---
 
