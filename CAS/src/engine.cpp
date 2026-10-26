@@ -32,6 +32,9 @@ size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width)
 
 LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_unknown) {
+            return LogicVal::make_x(num->width);
+        }
         return LogicVal::make_known(num->width, num->value);
     }
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
@@ -162,7 +165,7 @@ void Engine::init_vcd_header() {
 
     std::time_t now = std::time(nullptr);
     vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
-    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel]\n$end\n";
+    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel]\n$end\n";
     vcd_file << "$timescale 1ns $end\n";
 
     std::unordered_map<std::string, std::vector<size_t>> scopes;
@@ -219,7 +222,7 @@ void Engine::propagate_comb() {
     while (changed && iters < 100) {
         changed = false;
 
-        // 1. Module port interconnect bindings
+        // 1. Port interconnect bindings
         for (auto& bind : port_bindings) {
             if (netlist[bind.dst_net_id].value != netlist[bind.src_net_id].value) {
                 netlist[bind.dst_net_id].set(netlist[bind.src_net_id].value);
@@ -244,7 +247,7 @@ void Engine::propagate_comb() {
             }
         }
 
-        // Check if any net was modified in this pass
+        // Check if any net was modified
         for (const auto& n : netlist) {
             if (n.modified) {
                 changed = true;
@@ -287,6 +290,21 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (auto& s : default_item->statements) execute_statement(s.get(), bp);
         }
     }
+    else if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+        std::string scoped_tname = bp.scope + "." + tcall->task_name;
+        if (task_map.find(scoped_tname) != task_map.end()) {
+            TaskNode* target_task = task_map.at(scoped_tname);
+            for (auto& s : target_task->body) {
+                execute_statement(s.get(), bp);
+                if (!simulation_active) return;
+            }
+        }
+    }
+    else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
+        // Delay inside sequential execution or task body
+        sim_time += delay->delay;
+        dump_vcd_sample();
+    }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         std::cout << "[CAS $display] ";
         size_t arg_idx = 0;
@@ -296,6 +314,8 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
                     spec = 't';
                     i++;
+                } else if (spec == '0' && i + 1 < disp->format_string.size() && (disp->format_string[i + 1] == 'h' || disp->format_string[i + 1] == 'd' || disp->format_string[i + 1] == 'b')) {
+                    spec = disp->format_string[++i];
                 }
 
                 if (arg_idx < disp->args.size()) {
@@ -445,6 +465,10 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
         continuous_assigns.push_back({scope, target_id, ca->rhs.get()});
     }
 
+    for (auto& t : mod->tasks) {
+        task_map[scope + "." + t->name] = t.get();
+    }
+
     for (auto& proc : mod->processes) {
         processes.push_back({scope, proc.get(), 0, false});
     }
@@ -565,7 +589,7 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel] Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel] Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
     std::cout << "Continuous Assigns Bound: " << continuous_assigns.size() << "\n";

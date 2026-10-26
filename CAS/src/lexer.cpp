@@ -131,17 +131,33 @@ Token Lexer::next_token() {
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance();
+            advance(); // consume '\''
             char base = advance();
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {
                 if (peek() != '_') digits += peek();
                 advance();
             }
+
             uint64_t val = 0;
-            if (base == 'd' || base == 'D') val = std::stoull(digits);
-            else if (base == 'h' || base == 'H') val = std::stoull(digits, nullptr, 16);
-            else if (base == 'b' || base == 'B') val = std::stoull(digits, nullptr, 2);
+            bool is_x_or_z = false;
+            for (char ch : digits) {
+                if (ch == 'x' || ch == 'X' || ch == 'z' || ch == 'Z') {
+                    is_x_or_z = true;
+                    break;
+                }
+            }
+
+            if (!is_x_or_z) {
+                try {
+                    if (base == 'd' || base == 'D') val = std::stoull(digits);
+                    else if (base == 'h' || base == 'H') val = std::stoull(digits, nullptr, 16);
+                    else if (base == 'b' || base == 'B') val = std::stoull(digits, nullptr, 2);
+                } catch (...) {
+                    val = 0;
+                }
+            }
+
             return {TokenType::TOKEN_NUMBER, digits, val, width, line};
         }
         return {TokenType::TOKEN_NUMBER, num_str, std::stoull(num_str), 32, line};
@@ -175,6 +191,8 @@ Token Lexer::next_token() {
         if (ident == "always") return {TokenType::TOKEN_ALWAYS, ident, 0, 0, line};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, line};
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, line};
+        if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, line};
+        if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, line};
         if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, line};
         if (ident == "negedge") return {TokenType::TOKEN_NEGEDGE, ident, 0, 0, line};
         if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};

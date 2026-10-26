@@ -31,13 +31,15 @@ struct IdentifierNode : public ExpressionNode {
 struct NumberNode : public ExpressionNode {
     uint64_t value;
     uint32_t width;
-    NumberNode(uint64_t val, uint32_t w) : value(val), width(w) {}
+    bool is_unknown;
+    NumberNode(uint64_t val, uint32_t w, bool unk = false)
+        : value(val), width(w), is_unknown(unk) {}
 };
 
 struct IndexSelectNode : public ExpressionNode {
     std::string name;
     std::unique_ptr<ExpressionNode> msb_expr;
-    std::unique_ptr<ExpressionNode> lsb_expr; // nullptr if single-bit select or memory read
+    std::unique_ptr<ExpressionNode> lsb_expr;
     bool is_part_select;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
@@ -48,7 +50,7 @@ struct IndexSelectNode : public ExpressionNode {
 };
 
 struct UnaryOpNode : public ExpressionNode {
-    char op; // '!', '~'
+    char op;
     std::unique_ptr<ExpressionNode> operand;
     UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
         : op(o), operand(std::move(opnd)) {}
@@ -100,6 +102,11 @@ struct MemAssignNode : public StatementNode {
                   std::unique_ptr<ExpressionNode> r, bool nb)
         : mem_name(std::move(name)), addr_expr(std::move(addr)),
           rhs(std::move(r)), is_non_blocking(nb) {}
+};
+
+struct TaskCallNode : public StatementNode {
+    std::string task_name;
+    explicit TaskCallNode(std::string name) : task_name(std::move(name)) {}
 };
 
 struct IfStatementNode : public StatementNode {
@@ -162,12 +169,16 @@ struct ProcessNode : public ASTNode {
     ProcessNode(ProcessType t) : type(t) {}
 };
 
+struct TaskNode : public ASTNode {
+    std::string name;
+    std::vector<std::unique_ptr<StatementNode>> body;
+};
+
 struct PortNode {
     std::string name;
     std::string direction;
     uint32_t msb;
     uint32_t lsb;
-    // Memory array unpacked bounds (e.g. [0:255])
     bool is_array = false;
     uint32_t array_depth = 1;
 };
@@ -191,5 +202,6 @@ struct ModuleNode : public ASTNode {
     std::vector<PortNode> signals;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<ProcessNode>> processes;
+    std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
 };

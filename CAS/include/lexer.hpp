@@ -9,25 +9,27 @@ enum class TokenType {
     TOKEN_ENDMODULE,
     TOKEN_INPUT,
     TOKEN_OUTPUT,
-    TOKEN_INOUT,        // inout
-    TOKEN_LOGIC,        // logic
-    TOKEN_WIRE,         // wire
-    TOKEN_REG,          // reg
-    TOKEN_ASSIGN,       // assign
-    TOKEN_ALWAYS,       // always
-    TOKEN_ALWAYS_COMB,  // always_comb
-    TOKEN_ALWAYS_FF,    // always_ff
-    TOKEN_AT,           // @
+    TOKEN_INOUT,
+    TOKEN_LOGIC,
+    TOKEN_WIRE,
+    TOKEN_REG,
+    TOKEN_ASSIGN,
+    TOKEN_ALWAYS,
+    TOKEN_ALWAYS_COMB,
+    TOKEN_ALWAYS_FF,
+    TOKEN_TASK,        // task
+    TOKEN_ENDTASK,     // endtask
+    TOKEN_AT,
     TOKEN_POSEDGE,
     TOKEN_NEGEDGE,
-    TOKEN_OR,           // 'or' keyword in sensitivity lists
+    TOKEN_OR,
     TOKEN_IF,
     TOKEN_ELSE,
-    TOKEN_CASE,         // case
-    TOKEN_ENDCASE,      // endcase
-    TOKEN_DEFAULT,      // default
-    TOKEN_NOT,          // !
-    TOKEN_TILDE,        // ~
+    TOKEN_CASE,
+    TOKEN_ENDCASE,
+    TOKEN_DEFAULT,
+    TOKEN_NOT,
+    TOKEN_TILDE,
     TOKEN_BEGIN,
     TOKEN_END,
     TOKEN_INITIAL,
@@ -48,24 +50,24 @@ enum class TokenType {
     TOKEN_COMMA,
     TOKEN_DOT,
     TOKEN_HASH,
-    TOKEN_EQUAL,        // =
-    TOKEN_LE,           // <=
-    TOKEN_GE,           // >=
-    TOKEN_LT,           // <
-    TOKEN_GT,           // >
-    TOKEN_EQ,           // ==
-    TOKEN_NEQ,          // !=
-    TOKEN_PLUS,         // +
-    TOKEN_MINUS,        // -
-    TOKEN_AND,          // &
-    TOKEN_OR_BIT,       // |
-    TOKEN_XOR,          // ^
-    TOKEN_SHL,          // <<
-    TOKEN_SHR,          // >>
-    TOKEN_LOGICAL_AND,  // &&
-    TOKEN_LOGICAL_OR,   // ||
-    TOKEN_QUESTION,     // ?
-    TOKEN_COLON         // :
+    TOKEN_EQUAL,
+    TOKEN_LE,
+    TOKEN_GE,
+    TOKEN_LT,
+    TOKEN_GT,
+    TOKEN_EQ,
+    TOKEN_NEQ,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+    TOKEN_AND,
+    TOKEN_OR_BIT,
+    TOKEN_XOR,
+    TOKEN_SHL,
+    TOKEN_SHR,
+    TOKEN_LOGICAL_AND,
+    TOKEN_LOGICAL_OR,
+    TOKEN_QUESTION,
+    TOKEN_COLON
 };
 
 struct Token {

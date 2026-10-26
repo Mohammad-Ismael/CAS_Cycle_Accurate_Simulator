@@ -27,7 +27,14 @@ void Parser::expect(TokenType t, const std::string& err) {
 
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (current.type == TokenType::TOKEN_NUMBER) {
-        auto node = std::make_unique<NumberNode>(current.num_val, current.bit_width);
+        bool is_unk = false;
+        for (char ch : current.text) {
+            if (ch == 'x' || ch == 'X' || ch == 'z' || ch == 'Z') {
+                is_unk = true;
+                break;
+            }
+        }
+        auto node = std::make_unique<NumberNode>(current.num_val, current.bit_width, is_unk);
         advance();
         return node;
     }
@@ -177,14 +184,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
 }
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
-    // 1. Delay
+    // 1. Delay: handles both standalone "#10;" and prefixed "#1 $display(...)"
     if (match(TokenType::TOKEN_HASH)) {
         if (current.type != TokenType::TOKEN_NUMBER) {
             throw std::runtime_error("Expected numeric delay value after '#' on line " + std::to_string(current.line));
         }
         uint64_t delay_val = current.num_val;
         advance();
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after delay statement");
+        // Optional semicolon: consumes ';' if present, leaves next statement intact if omitted
+        match(TokenType::TOKEN_SEMICOLON);
         return std::make_unique<DelayStatementNode>(delay_val);
     }
 
@@ -287,7 +295,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpFileStatementNode>(fname);
     }
 
-    // 7. $dumpvars
+    // 7. $dumpvars (supports $dumpvars, $dumpvars(), and $dumpvars(1, ...))
     if (match(TokenType::TOKEN_DUMPVARS)) {
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -299,11 +307,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpVarsStatementNode>();
     }
 
-    // 8. Array Element Assignment: mem[addr] = val; or mem[addr] <= val;
+    // 8. Statements beginning with an identifier: Task Call OR Assignment OR Array Assignment
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string lhs_name = current.text;
         advance();
 
+        // 8a. Bare Task Call: display;
+        if (match(TokenType::TOKEN_SEMICOLON)) {
+            return std::make_unique<TaskCallNode>(lhs_name);
+        }
+
+        // 8b. Array Element Assignment: mem[addr] = val; or mem[addr] <= val;
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto addr_expr = parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array index on LHS");
@@ -319,7 +333,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             return std::make_unique<MemAssignNode>(lhs_name, std::move(addr_expr), std::move(rhs_expr), is_non_blocking);
         }
 
-        // Standard Scalar Assignment
+        // 8c. Standard Scalar Assignment
         std::vector<std::string> targets = { lhs_name };
         if (match(TokenType::TOKEN_LE)) {
             auto expr = parse_expression();
@@ -365,7 +379,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 PortNode port;
-                port.direction = "unspecified"; // Default until declared in body if non-ANSI
+                port.direction = "unspecified";
                 port.msb = 0; port.lsb = 0;
 
                 if (current.type == TokenType::TOKEN_INPUT) {
@@ -379,7 +393,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     advance();
                 }
 
-                // Optional data type: logic, wire, reg
                 if (current.type == TokenType::TOKEN_LOGIC ||
                     current.type == TokenType::TOKEN_WIRE  ||
                     current.type == TokenType::TOKEN_REG) {
@@ -407,7 +420,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         // Module Body
         while (current.type != TokenType::TOKEN_ENDMODULE && current.type != TokenType::TOKEN_EOF) {
-            // 1. Non-ANSI / body port declarations: input, output, inout
+            // 1. Non-ANSI port declarations in module body: input, output, inout
             if (current.type == TokenType::TOKEN_INPUT ||
                 current.type == TokenType::TOKEN_OUTPUT ||
                 current.type == TokenType::TOKEN_INOUT) {
@@ -416,7 +429,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                   (current.type == TokenType::TOKEN_OUTPUT) ? "output" : "inout";
                 advance();
 
-                // Optional wire, reg, logic specifier (e.g. output reg [3:0] q;)
                 if (current.type == TokenType::TOKEN_WIRE ||
                     current.type == TokenType::TOKEN_REG ||
                     current.type == TokenType::TOKEN_LOGIC) {
@@ -435,7 +447,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::string sig_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port name in body declaration");
 
-                    // Check if already in mod->ports from non-ANSI header
                     bool found = false;
                     for (auto& p : mod->ports) {
                         if (p.name == sig_name) {
@@ -460,7 +471,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after port declaration");
             }
-            // 2. Internal signals & memory arrays: logic, wire, reg
+            // 2. Signals & memory arrays: logic, wire, reg
             else if (current.type == TokenType::TOKEN_LOGIC ||
                      current.type == TokenType::TOKEN_WIRE  ||
                      current.type == TokenType::TOKEN_REG) {
@@ -482,7 +493,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig.name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name");
 
-                    // Check if variable is already a port (e.g. output q; reg q;)
                     bool already_port = false;
                     for (auto& p : mod->ports) {
                         if (p.name == sig.name) {
@@ -525,7 +535,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after continuous assign");
                 mod->continuous_assigns.push_back(std::make_unique<ContinuousAssignNode>(target, std::move(rhs)));
             }
-            // 4. always_comb
+            // 4. Tasks: task name; ... endtask
+            else if (match(TokenType::TOKEN_TASK)) {
+                auto task = std::make_unique<TaskNode>();
+                task->name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected task name");
+                match(TokenType::TOKEN_SEMICOLON); // optional ';'
+
+                while (current.type != TokenType::TOKEN_ENDTASK && current.type != TokenType::TOKEN_EOF) {
+                    task->body.push_back(parse_statement());
+                }
+                expect(TokenType::TOKEN_ENDTASK, "Expected 'endtask'");
+                mod->tasks.push_back(std::move(task));
+            }
+            // 5. always_comb
             else if (match(TokenType::TOKEN_ALWAYS_COMB)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
                 expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
@@ -535,7 +558,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // 5. always_ff @(...) or generic Verilog always @(...)
+            // 6. always_ff @(...) or generic always @(...)
             else if (match(TokenType::TOKEN_ALWAYS_FF) || match(TokenType::TOKEN_ALWAYS)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
                 expect(TokenType::TOKEN_AT, "Expected '@' in always block sensitivity list");
@@ -562,7 +585,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
 
-                // Infer process type: edge-triggered -> SEQUENTIAL, level/wildcard -> COMBINATIONAL
                 if (!has_edge) {
                     proc->type = ProcessType::COMBINATIONAL;
                 }
@@ -577,7 +599,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 mod->processes.push_back(std::move(proc));
             }
-            // 6. initial
+            // 7. initial
             else if (match(TokenType::TOKEN_INITIAL)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                 if (match(TokenType::TOKEN_BEGIN)) {
@@ -590,7 +612,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 mod->processes.push_back(std::move(proc));
             }
-            // 7. Submodule Instantiations
+            // 8. Submodule Instantiations
             else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                 std::string mod_type = current.text;
                 advance();

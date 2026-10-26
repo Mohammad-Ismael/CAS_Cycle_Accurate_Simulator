@@ -69,6 +69,9 @@ private:
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::vector<ContinuousAssignBinding> continuous_assigns;
 
+    // Task table: scoped_name -> TaskNode*
+    std::unordered_map<std::string, TaskNode*> task_map;
+
     // Stratified IEEE 1800 Regions
     std::vector<NBAUpdate> nba_queue;
     std::vector<NBAMemUpdate> nba_mem_queue;
