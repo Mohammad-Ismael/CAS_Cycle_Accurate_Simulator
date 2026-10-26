@@ -136,7 +136,7 @@
             position: relative;
         }
 
-        /* ------------------ Left Settings Sidebar ------------------ */
+        /* Left Settings Sidebar */
         #options-sidebar {
             width: 270px;
             min-width: 200px;
@@ -248,34 +248,84 @@
             overflow: hidden;
             background-color: var(--bg-surface);
         }
-        .editor-header {
-            height: 32px;
+
+        /* Dynamic Multi-File Tab Header */
+        .editor-header-bar {
+            height: 34px;
             background-color: var(--bg-surface);
             border-bottom: 1px solid var(--border-dim);
-            padding: 0 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            font-size: 11.5px;
-            font-weight: 600;
-            color: var(--text-muted);
+            padding: 0 4px 0 8px;
+            overflow-x: auto;
+            overflow-y: hidden;
         }
-        .editor-header .file-tab {
-            color: var(--text-main);
+        .file-tabs-container {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            height: 100%;
+        }
+        .editor-tab {
+            height: 28px;
+            padding: 0 8px 0 10px;
+            background-color: transparent;
+            border-radius: 4px 4px 0 0;
             display: flex;
             align-items: center;
             gap: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            white-space: nowrap;
         }
-        .editor-header .file-tab::before {
-            content: "SV";
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            font-weight: 700;
-            background-color: #0284c7;
-            color: #fff;
-            padding: 1px 4px;
+        .editor-tab:hover {
+            color: var(--text-main);
+            background-color: var(--bg-elevated);
+        }
+        .editor-tab.active {
+            background-color: var(--bg-base);
+            color: #38bdf8;
+            font-weight: 600;
+            border-color: var(--border-dim);
+        }
+        .tab-close-btn {
+            font-size: 13px;
+            line-height: 1;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px;
             border-radius: 3px;
         }
+        .tab-close-btn:hover {
+            color: var(--accent-red);
+            background-color: var(--bg-subtle);
+        }
+        .btn-add-tab {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: 1px dashed var(--border-dim);
+            border-radius: 4px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            margin-left: 4px;
+            transition: all 0.15s;
+        }
+        .btn-add-tab:hover {
+            color: #fff;
+            border-color: var(--accent);
+            background-color: var(--bg-subtle);
+        }
+
         .editor-body {
             flex: 1;
             position: relative;
@@ -461,7 +511,7 @@
             -webkit-user-select: text;
         }
 
-        /* ------------------ Right Inspector Side Drawer ------------------ */
+        /* Right Inspector Side Drawer */
         #inspector-sidebar {
             width: 360px;
             min-width: 250px;
@@ -687,7 +737,7 @@
 </header>
 
 <div id="main-container">
-    <!-- 1. DYNAMIC LEFT SETTINGS SIDEBAR -->
+    <!-- 1. LEFT SETTINGS SIDEBAR -->
     <aside id="options-sidebar">
         <div class="opt-section">
             <div class="opt-title">Elaboration Target</div>
@@ -733,36 +783,41 @@
                 <span class="roadmap-status done">v0.9.4</span>
             </div>
             <div class="roadmap-item">
-                <span>Combinational Functions</span>
-                <span class="roadmap-status next">In Progress</span>
+                <span>Multi-File & `include</span>
+                <span class="roadmap-status done">v1.0.0</span>
             </div>
             <div class="roadmap-item">
                 <span>RV32I Core Execution</span>
-                <span class="roadmap-status plan">v1.0.0</span>
+                <span class="roadmap-status plan">Next</span>
             </div>
         </div>
     </aside>
 
-    <!-- LEFT SIDEBAR RESIZER -->
     <div class="resizer-h" id="left-resizer"></div>
 
-    <!-- 2. CENTER WORKSPACE -->
+    <!-- 2. CENTER WORKSPACE WITH MULTI-FILE TABS -->
     <div id="workspace">
         <div id="editors-wrapper">
+            <!-- Left Pane: Testbenches -->
             <div class="editor-column" id="col-tb">
-                <div class="editor-header">
-                    <span class="file-tab">testbench.sv</span>
-                    <span>Stimulus Driver</span>
+                <div class="editor-header-bar">
+                    <div class="file-tabs-container" id="tb-tabs-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                    <button class="btn-add-tab" onclick="promptNewFile('tb')" title="Add Testbench / Helper File">+</button>
                 </div>
                 <div id="editor-tb" class="editor-body"></div>
             </div>
 
             <div class="resizer-h" id="resizer-editors"></div>
 
+            <!-- Right Pane: Design RTL -->
             <div class="editor-column" id="col-rtl">
-                <div class="editor-header">
-                    <span class="file-tab">design.sv</span>
-                    <span>RTL Module</span>
+                <div class="editor-header-bar">
+                    <div class="file-tabs-container" id="rtl-tabs-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                    <button class="btn-add-tab" onclick="promptNewFile('rtl')" title="Add Design / Header File">+</button>
                 </div>
                 <div id="editor-rtl" class="editor-body"></div>
             </div>
@@ -811,10 +866,9 @@
         </div>
     </div>
 
-    <!-- RIGHT INSPECTOR RESIZER -->
     <div class="resizer-h" id="right-resizer" style="display: none;"></div>
 
-    <!-- 3. DYNAMIC RIGHT INSPECTOR DRAWER -->
+    <!-- 3. RIGHT INSPECTOR DRAWER -->
     <aside id="inspector-sidebar">
         <div class="sidebar-header">
             <div class="sidebar-tabs">
@@ -916,7 +970,7 @@
         <span class="status-indicator ready" id="status-bulb"></span>
         <span id="status-msg">Ready</span>
     </div>
-    <div>CAS v1.0.0 // Dynamic EDA Architecture</div>
+    <div>CAS v1.0.0 // Multi-File Workspace</div>
 </footer>
 
 <div class="modal-overlay" id="projects-modal">
@@ -940,6 +994,49 @@
     let isInspectorOpen = false;
     let isOptionsOpen = true;
 
+    // Multi-File Project State
+    const projectFiles = {
+        "testbench.sv": `module tb_counter;
+    \`include "design.sv"
+
+    logic clk;
+    logic rst_n;
+    logic [3:0] d;
+    logic [3:0] q;
+
+    counter u_dut (.clk(clk), .rst_n(rst_n), .d(d), .q(q));
+
+    initial begin
+        $dumpfile("counter.vcd");
+        $dumpvars;
+        clk = 0; rst_n = 0; d = 4'd2;
+        #5 rst_n = 1;
+        #5 clk = 1; #5 clk = 0;
+        #5 clk = 1; #5 clk = 0;
+        #5 $finish;
+    end
+endmodule`,
+        "design.sv": `module counter (
+    input  logic       clk,
+    input  logic       rst_n,
+    input  logic [3:0] d,
+    output logic [3:0] q
+);
+
+always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        q <= 0;
+    end else begin
+        q <= q + d;
+    end
+end
+
+endmodule`
+    };
+
+    let activeTbFile = "testbench.sv";
+    let activeRtlFile = "design.sv";
+
     // 1. Monaco Setup
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
     require(['vs/editor/editor.main'], function() {
@@ -961,240 +1058,7 @@
         });
 
         tbEditor = monaco.editor.create(document.getElementById('editor-tb'), {
-            value: `module tb_master;
-
-// v0.9.2 reg/wire declarations
-reg        clk;
-reg        rst_n;
-reg  [3:0] in_a;
-reg  [3:0] in_b;
-reg  [2:0] opcode;
-reg  [1:0] mem_addr;
-reg        mem_we;
-
-wire [3:0] adder_sum;
-wire       adder_cout;
-wire [3:0] alu_result;
-wire [3:0] reg_accum;
-wire       is_equal;
-wire       is_less;
-wire       bit_extracted;
-wire [1:0] slice_extracted;
-wire [3:0] cont_assign_out;
-wire [3:0] mem_rdata;
-wire       dff_q;
-wire       dff_qb;
-
-reg [7:0] fail_count;
-
-master_dut u_dut (
-    .clk(clk),
-    .rst_n(rst_n),
-    .in_a(in_a),
-    .in_b(in_b),
-    .opcode(opcode),
-    .mem_addr(mem_addr),
-    .mem_we(mem_we),
-    .adder_sum(adder_sum),
-    .adder_cout(adder_cout),
-    .alu_result(alu_result),
-    .reg_accum(reg_accum),
-    .is_equal(is_equal),
-    .is_less(is_less),
-    .bit_extracted(bit_extracted),
-    .slice_extracted(slice_extracted),
-    .cont_assign_out(cont_assign_out),
-    .mem_rdata(mem_rdata),
-    .dff_q(dff_q),
-    .dff_qb(dff_qb)
-);
-
-// v0.9.2 Task with prefix delay #1
-task report_state;
-    #1 $display("[TASK @ T=%0t] in_a=%b, adder_sum=%b, alu_result=%b, accum=%d",
-                $time, in_a, adder_sum, alu_result, reg_accum);
-endtask
-
-initial begin
-    // v0.5.0 VCD dumping with argument
-    $dumpfile("master_regression1.vcd");
-    $dumpvars(1);
-
-    fail_count = 8'd0;
-
-    $display("==================================================================");
-    $display("   CAS COMPREHENSIVE MASTER REGRESSION SUITE (v0.1.0 - v0.9.3)    ");
-    $display("==================================================================");
-
-    // ---------------------------------------------------------------
-    // CHECK 1: v0.6.0 Pre-Reset 4-State Unknown Verification
-    // ---------------------------------------------------------------
-    if (reg_accum == 4'd0) begin
-        $display("[FAIL] v0.6.0: Uninitialized register was zeroed instead of 'X'!");
-        fail_count = fail_count + 8'd1;
-    end else begin
-        $display("[PASS] v0.6.0: Uninitialized register holds 4-state 'X' prior to reset (raw=%b).", reg_accum);
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 2: v0.3.0 Time Wheel Scheduler & Delays
-    // ---------------------------------------------------------------
-    #5;
-    if ($time == 5) begin
-        $display("[PASS] v0.3.0: Time Wheel dynamic event scheduler & $time valid at T=%0t.", $time);
-    end else begin
-        $display("[FAIL] v0.3.0: Simulation time mismatch! Expected 5, got %0t", $time);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 3: v0.4.0 / v0.9.2 Asynchronous Reset Edge (X -> 0)
-    // ---------------------------------------------------------------
-    clk = 0;
-    rst_n = 0;
-    in_a = 4'd0;
-    in_b = 4'd0;
-    opcode = 3'd0;
-    mem_addr = 2'd0;
-    mem_we = 0;
-
-    #5;
-    if (reg_accum == 4'd0 && dff_q == 1'b0 && dff_qb == 1'b1) begin
-        $display("[PASS] v0.4.0 / v0.9.2: Asynchronous reset edge (X -> 0) cleared registers (accum=%d, q=%b, qb=%b).",
-                 reg_accum, dff_q, dff_qb);
-    end else begin
-        $display("[FAIL] v0.4.0: Asynchronous reset failed! accum=%d, q=%b, qb=%b", reg_accum, dff_q, dff_qb);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // Deassert reset
-    rst_n = 1;
-    #5;
-
-    // ---------------------------------------------------------------
-    // CHECK 4: v0.9.3 Built-in Gate Primitives & Positional Bus Slices
-    // Testing 4-bit ripple adder: 4'b0110 (6) + 4'b0101 (5) = 4'b1011 (11), cout=0
-    // ---------------------------------------------------------------
-    in_a = 4'b0110;
-    in_b = 4'b0101;
-    #5;
-    if (adder_sum == 4'b1011 && adder_cout == 1'b0) begin
-        $display("[PASS] v0.9.3: Gate primitives & positional slice adder verified (6 + 5 = 11, cout=0).");
-    end else begin
-        $display("[FAIL] v0.9.3: Gate adder failed! Expected sum=1011 cout=0, got sum=%b cout=%b", adder_sum, adder_cout);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 5: v0.8.0 Case Branching & Slicing
-    // ---------------------------------------------------------------
-    opcode = 3'd1; // Bitwise OR: 4'b0110 | 4'b0101 = 4'b0111
-    #5;
-    if (alu_result == 4'b0111 && bit_extracted == 1'b1 && slice_extracted == 2'b01) begin
-        $display("[PASS] v0.8.0: Case branch OR & part-select [3:2] verified (res=0111, bit[2]=1, slice[3:2]=01).");
-    end else begin
-        $display("[FAIL] v0.8.0: ALU case/slice failed! res=%b, bit=%b, slice=%b", alu_result, bit_extracted, slice_extracted);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 6: v0.9.0 Continuous Assign Dataflow
-    // in_a = 6 -> cont_assign_out = 6 + 1 = 7
-    // ---------------------------------------------------------------
-    if (cont_assign_out == 4'd7) begin
-        $display("[PASS] v0.9.0: Continuous assign dataflow verified (6 + 1 = 7).");
-    end else begin
-        $display("[FAIL] v0.9.0: Continuous assign failed! Expected 7, got %d", cont_assign_out);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 7: v0.9.0 1D Memory Array 4-State Unknown & Synchronous Write
-    // ---------------------------------------------------------------
-    mem_addr = 2'd3;
-    #5;
-    if (mem_rdata == 4'd0) begin
-        $display("[FAIL] v0.9.0: RAM[3] was zeroed instead of holding 4-state 'X'!");
-        fail_count = fail_count + 8'd1;
-    end else begin
-        $display("[PASS] v0.9.0: Unwritten RAM cell holds 4-state 'X' (raw=%b).", mem_rdata);
-    end
-
-    // Write 4'b1101 to RAM[3]
-    in_a = 4'b1101;
-    mem_we = 1;
-    #5;
-    clk = 1; #5; clk = 0; #5;
-    mem_we = 0;
-    #5;
-
-    if (mem_rdata == 4'b1101) begin
-        $display("[PASS] v0.9.0: Synchronous RAM write & async read verified (RAM[3]=1101).");
-    end else begin
-        $display("[FAIL] v0.9.0: RAM write failed! Expected 1101, got %b", mem_rdata);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 8: v0.9.2 Literal 1'bx & DFF Clock Edge Latching
-    // ---------------------------------------------------------------
-    in_a = 4'b0001; // in_a[0] = 1 -> should latch into dff_q
-    #5;
-    clk = 1; #5; clk = 0; #5;
-    if (dff_q == 1'b1 && dff_qb == 1'b0) begin
-        $display("[PASS] v0.9.2: DFF clock edge capture and continuous inversion verified (q=1, qb=0).");
-    end else begin
-        $display("[FAIL] v0.9.2: DFF clock edge failed! q=%b, qb=%b", dff_q, dff_qb);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 9: v0.4.0 Stratified NBA Accumulation Loop
-    // ---------------------------------------------------------------
-    // Reset accumulator to isolate the sequential test
-    rst_n = 0; #5; rst_n = 1; #5;
-    in_a = 4'd2;
-    in_b = 4'd3;
-    opcode = 3'd6; // 2 + 3 = 5
-    #5;
-    // Pulse 1: 0 + 5 = 5
-    clk = 1; #5; clk = 0; #5;
-    // Pulse 2: 5 + 5 = 10
-    clk = 1; #5; clk = 0; #5;
-
-    if (reg_accum == 4'd10) begin
-        $display("[PASS] v0.4.0: Stratified NBA accumulation loop verified (0 + 5 + 5 = 10).");
-    end else begin
-        $display("[FAIL] v0.4.0: NBA accumulation failed! Expected 10, got %d", reg_accum);
-        fail_count = fail_count + 8'd1;
-    end
-
-    // ---------------------------------------------------------------
-    // CHECK 10: v0.9.2 Subroutine Task Invocation with Prefix Delay
-    // ---------------------------------------------------------------
-    report_state;
-    $display("[PASS] v0.9.2: Subroutine task execution with prefix delay verified.");
-
-    // ---------------------------------------------------------------
-    // CHECK 11: v0.9.3 Dynamic $monitor Sensitivity Callback
-    // ---------------------------------------------------------------
-    $monitor("[MONITOR @ T=%0t] in_a=%b, adder_sum=%b, cout=%b", $time, in_a, adder_sum, adder_cout);
-    #5;
-    in_a = 4'b1111; // 15 + 3 = 18 -> sum=2, cout=1
-    #5;
-
-    $display("==================================================================");
-    if (fail_count == 8'd0) begin
-        $display("   VERDICT: ALL TESTS PASSED (CAS READY FOR v0.9.3 RELEASE)       ");
-    end else begin
-        $display("   VERDICT: REGRESSION FAILED WITH %d ERROR(S)                    ", fail_count);
-    end
-    $display("==================================================================");
-
-    $finish;
-end
-
-endmodule`,
+            value: projectFiles[activeTbFile],
             language: 'systemverilog',
             theme: 'cas-dark',
             fontSize: 13,
@@ -1204,125 +1068,7 @@ endmodule`,
         });
 
         rtlEditor = monaco.editor.create(document.getElementById('editor-rtl'), {
-            value: `// 1. Gate-level full adder using built-in gate primitives and non-ANSI port header (v0.9.2, v0.9.3)
-module full_adder (sum, cout, a, b, cin);
-    input  a, b, cin;
-    output sum, cout;
-    wire   a, b, cin, sum, cout;
-    wire   w1, w2, w3;
-
-    xor (sum, a, b, cin);
-    and (w1, a, b);
-    and (w2, b, cin);
-    and (w3, a, cin);
-    or  (cout, w1, w2, w3);
-endmodule
-
-// 2. 4-bit ripple-carry adder using positional port mapping and bit-slices (v0.9.3)
-module bit4_adder (sum, cout, a, b, cin);
-    input  [3:0] a, b;
-    input  cin;
-    output [3:0] sum;
-    output cout;
-
-    wire [3:0] a, b, sum;
-    wire cin, cout;
-    wire [2:0] c;
-
-    full_adder fa0 (sum[0], c[0], a[0], b[0], cin);
-    full_adder fa1 (sum[1], c[1], a[1], b[1], c[0]);
-    full_adder fa2 (sum[2], c[2], a[2], b[2], c[1]);
-    full_adder fa3 (sum[3], cout, a[3], b[3], c[2]);
-endmodule
-
-// 3. Complex ALU with full precedence operators and case branch control (v0.7.0, v0.8.0)
-module alu_core (
-    input  logic [3:0] op_a,
-    input  logic [3:0] op_b,
-    input  logic [2:0] opcode,
-    output logic [3:0] alu_out
-);
-    always_comb begin
-        case (opcode)
-            3'd0: alu_out = op_a & op_b;
-            3'd1: alu_out = op_a | op_b;
-            3'd2: alu_out = op_a ^ op_b;
-            3'd3: alu_out = ~op_a;
-            3'd4: alu_out = op_a << 4'd1;
-            3'd5: alu_out = op_a >> 4'd1;
-            3'd6: alu_out = op_a + op_b;
-            3'd7: alu_out = op_a - op_b;
-            default: alu_out = 4'd0;
-        endcase
-    end
-endmodule
-
-// 4. Top-level unified DUT exercising memories, dataflow, sequential logic, and submodules
-module master_dut (
-    input  logic       clk,
-    input  logic       rst_n,
-    input  logic [3:0] in_a,
-    input  logic [3:0] in_b,
-    input  logic [2:0] opcode,
-    input  logic [1:0] mem_addr,
-    input  logic       mem_we,
-    output logic [3:0] adder_sum,
-    output logic       adder_cout,
-    output logic [3:0] alu_result,
-    output logic [3:0] reg_accum,
-    output logic       is_equal,
-    output logic       is_less,
-    output logic       bit_extracted,
-    output logic [1:0] slice_extracted,
-    output logic [3:0] cont_assign_out,
-    output logic [3:0] mem_rdata,
-    output logic       dff_q,
-    output logic       dff_qb
-);
-
-    // v0.9.0 Continuous assign dataflow
-    assign cont_assign_out = in_a + 4'd1;
-
-    // v0.9.0 1D Unpacked Memory Array
-    logic [3:0] ram [0:3];
-    assign mem_rdata = ram[mem_addr];
-
-    // v0.9.3 Submodule positional slice instantiation
-    bit4_adder u_adder (adder_sum, adder_cout, in_a, in_b, 1'b0);
-
-    // v0.2.0 Submodule named instantiation
-    alu_core u_alu (
-        .op_a(in_a),
-        .op_b(in_b),
-        .opcode(opcode),
-        .alu_out(alu_result)
-    );
-
-    // v0.7.0 / v0.8.0 Continuous relational expressions and bit-slicing
-    always_comb begin
-        is_equal = (in_a == in_b) ? 1'd1 : 1'd0;
-        is_less  = (in_a < in_b)  ? 1'd1 : 1'd0;
-        bit_extracted   = in_a[2];
-        slice_extracted = in_a[3:2];
-    end
-
-    // v0.4.0 / v0.9.2 Generic always with edge sensitivity list (clk or negedge rst_n)
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            reg_accum <= 4'd0;
-            dff_q     <= 1'b0;
-        end else begin
-            reg_accum <= reg_accum + alu_result;
-            dff_q     <= in_a[0];
-            if (mem_we) begin
-                ram[mem_addr] <= in_a;
-            end
-        end
-    end
-
-    assign dff_qb = ~dff_q;
-
-endmodule`,
+            value: projectFiles[activeRtlFile],
             language: 'systemverilog',
             theme: 'cas-dark',
             fontSize: 13,
@@ -1330,9 +1076,106 @@ endmodule`,
             automaticLayout: true,
             minimap: { enabled: false }
         });
+
+        tbEditor.onDidChangeModelContent(() => {
+            projectFiles[activeTbFile] = tbEditor.getValue();
+        });
+
+        rtlEditor.onDidChangeModelContent(() => {
+            projectFiles[activeRtlFile] = rtlEditor.getValue();
+        });
+
+        renderFileTabs();
     });
 
-    // 2. Tabs
+    // 2. Multi-File Tab Management
+    function renderFileTabs() {
+        const tbContainer = document.getElementById('tb-tabs-list');
+        const rtlContainer = document.getElementById('rtl-tabs-list');
+        tbContainer.innerHTML = '';
+        rtlContainer.innerHTML = '';
+
+        for (const fname in projectFiles) {
+            const isTbActive = (fname === activeTbFile);
+            const isRtlActive = (fname === activeRtlFile);
+
+            // Group into TB or RTL pane
+            const isTbFile = fname.startsWith("tb_") || fname.startsWith("testbench");
+            const targetContainer = isTbFile ? tbContainer : rtlContainer;
+            const isActive = isTbFile ? isTbActive : isRtlActive;
+
+            const tab = document.createElement('div');
+            tab.className = 'editor-tab' + (isActive ? ' active' : '');
+            
+            const titleSpan = document.createElement('span');
+            titleSpan.textContent = fname;
+            titleSpan.onclick = () => switchFileTab(fname, isTbFile ? 'tb' : 'rtl');
+            tab.appendChild(titleSpan);
+
+            // Prevent deleting the primary files
+            if (fname !== "testbench.sv" && fname !== "design.sv") {
+                const closeBtn = document.createElement('span');
+                closeBtn.className = 'tab-close-btn';
+                closeBtn.textContent = '×';
+                closeBtn.title = "Delete file";
+                closeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteFile(fname, isTbFile ? 'tb' : 'rtl');
+                };
+                tab.appendChild(closeBtn);
+            }
+
+            targetContainer.appendChild(tab);
+        }
+    }
+
+    function switchFileTab(fname, pane) {
+        if (pane === 'tb') {
+            projectFiles[activeTbFile] = tbEditor.getValue();
+            activeTbFile = fname;
+            tbEditor.setValue(projectFiles[fname]);
+        } else {
+            projectFiles[activeRtlFile] = rtlEditor.getValue();
+            activeRtlFile = fname;
+            rtlEditor.setValue(projectFiles[fname]);
+        }
+        renderFileTabs();
+    }
+
+    function promptNewFile(pane) {
+        const defaultName = (pane === 'tb') ? "tb_helper.sv" : "module.sv";
+        const fname = prompt(`Enter new ${pane === 'tb' ? 'testbench' : 'design'} file name:`, defaultName);
+        if (!fname || !fname.trim()) return;
+
+        const cleanName = fname.trim();
+        if (projectFiles[cleanName]) {
+            alert(`File '${cleanName}' already exists!`);
+            return;
+        }
+
+        projectFiles[cleanName] = `// ${cleanName}\n`;
+        if (pane === 'tb') {
+            switchFileTab(cleanName, 'tb');
+        } else {
+            switchFileTab(cleanName, 'rtl');
+        }
+    }
+
+    function deleteFile(fname, pane) {
+        if (!confirm(`Delete file '${fname}'?`)) return;
+
+        delete projectFiles[fname];
+        if (pane === 'tb') {
+            if (activeTbFile === fname) activeTbFile = "testbench.sv";
+            tbEditor.setValue(projectFiles[activeTbFile]);
+        } else {
+            if (activeRtlFile === fname) activeRtlFile = "design.sv";
+            rtlEditor.setValue(projectFiles[activeRtlFile]);
+        }
+        renderFileTabs();
+    }
+
+    // 3. Bottom Tabs
     function selectTab(t) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -1354,7 +1197,7 @@ endmodule`,
         document.getElementById('panel-terminal').textContent = "";
     }
 
-    // 3. Sidebars Toggling & Tabs
+    // 4. Sidebars Toggling & Tabs
     function toggleOptionsSidebar() {
         isOptionsOpen = !isOptionsOpen;
         const side = document.getElementById('options-sidebar');
@@ -1409,14 +1252,22 @@ endmodule`,
         }, 50);
     }
 
-    // 4. Project Management
+    // 5. Project Management
     function newProject() {
         if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             activeProject = null;
             document.getElementById('active-project-label').textContent = "[Unsaved Scratchpad]";
             clearWaveformState();
+
+            // Reset projectFiles to default pair
+            for (const key in projectFiles) delete projectFiles[key];
+            projectFiles["testbench.sv"] = "";
+            projectFiles["design.sv"] = "";
+            activeTbFile = "testbench.sv";
+            activeRtlFile = "design.sv";
             tbEditor.setValue("");
             rtlEditor.setValue("");
+            renderFileTabs();
             refreshWaveDropdown([]);
         }
     }
@@ -1428,20 +1279,23 @@ endmodule`,
             if (!name) return;
         }
 
+        // Commit active editor text
+        projectFiles[activeTbFile] = tbEditor.getValue();
+        projectFiles[activeRtlFile] = rtlEditor.getValue();
+
         const res = await fetch('/api/projects/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 project_name: name,
-                design_code: rtlEditor.getValue(),
-                tb_code: tbEditor.getValue()
+                files: projectFiles
             })
         });
         const data = await res.json();
         if (data.status === "success") {
             activeProject = data.project_name;
             document.getElementById('active-project-label').textContent = activeProject;
-            alert(`Project '${activeProject}' saved.`);
+            alert(`Project '${activeProject}' (${Object.keys(projectFiles).length} file(s)) saved.`);
         }
     }
 
@@ -1486,8 +1340,16 @@ endmodule`,
 
         activeProject = data.project_name;
         document.getElementById('active-project-label').textContent = activeProject;
-        rtlEditor.setValue(data.design_code);
-        tbEditor.setValue(data.tb_code);
+
+        for (const key in projectFiles) delete projectFiles[key];
+        Object.assign(projectFiles, data.files);
+
+        activeTbFile = projectFiles["testbench.sv"] ? "testbench.sv" : Object.keys(projectFiles)[0];
+        activeRtlFile = projectFiles["design.sv"] ? "design.sv" : Object.keys(projectFiles)[0];
+
+        tbEditor.setValue(projectFiles[activeTbFile]);
+        rtlEditor.setValue(projectFiles[activeRtlFile]);
+        renderFileTabs();
 
         refreshWaveDropdown(data.waves);
         clearWaveformState();
@@ -1506,7 +1368,7 @@ endmodule`,
         }
     }
 
-    // 5. Waveform & VCD State
+    // 6. Waveform & VCD State
     function refreshWaveDropdown(waves) {
         const sel = document.getElementById('wave-select');
         sel.innerHTML = "";
@@ -1576,7 +1438,7 @@ endmodule`,
         URL.revokeObjectURL(url);
     }
 
-    // 6. Simulation Execution & Robust Telemetry Mapping
+    // 7. Simulation Execution with Multi-File Payload
     async function executeSimulation() {
         const term = document.getElementById('panel-terminal');
         const btnRun = document.getElementById('btn-run');
@@ -1591,6 +1453,10 @@ endmodule`,
 
         document.getElementById('lbl-timescale').textContent = timescale;
 
+        // Ensure active editors persist changes to dictionary
+        projectFiles[activeTbFile] = tbEditor.getValue();
+        projectFiles[activeRtlFile] = rtlEditor.getValue();
+
         btnRun.disabled = true;
         bulb.className = "status-indicator busy";
         statusMsg.textContent = "Simulating...";
@@ -1601,8 +1467,8 @@ endmodule`,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    design_code: rtlEditor.getValue(),
-                    tb_code: tbEditor.getValue(),
+                    files: projectFiles,
+                    entry_tb: activeTbFile,
                     top_module: topModule,
                     project_name: activeProject,
                     enable_profiler: enableProfiler,
@@ -1629,24 +1495,12 @@ endmodule`,
                 document.getElementById('debug-status-pill').style.color = "#ef4444";
             }
 
-            // Populate Compiler Debug
-            // Route Compiler Phase Debug to Right Inspector
-            const debugBox = document.getElementById('debug-trace-log');
-            const debugPill = document.getElementById('debug-status-pill');
-
             if (enableDebug && data.debug_log && data.debug_log.trim().length > 0) {
-                debugBox.textContent = data.debug_log;
-                debugPill.textContent = "Verbose Phase Trace";
-                debugPill.style.background = "#064e3b";
-                debugPill.style.color = "#34d399";
+                document.getElementById('debug-trace-log').textContent = data.debug_log;
             } else {
-                debugBox.textContent = "// Compiler Phase Trace disabled.\n// Toggle 'Emit Compiler Phase Trace' in the left sidebar to capture Ingestion, AST parsing, and Elaboration hierarchy.";
-                debugPill.textContent = "Disabled (Quiet Mode)";
-                debugPill.style.background = "#1e293b";
-                debugPill.style.color = "#94a3b8";
+                document.getElementById('debug-trace-log').textContent = "// Compiler Phase Trace disabled in Settings sidebar.";
             }
 
-            // Populate Profiler Metric Cards directly from structured JSON
             if (enableProfiler && data.telemetry && data.telemetry.profiling_enabled) {
                 const t = data.telemetry;
                 document.getElementById('prof-wall').textContent = t.wallclock_ms.toFixed(2) + " ms";
@@ -1697,6 +1551,19 @@ endmodule`,
                     refreshWaveDropdown(pdata.waves);
                     document.getElementById('wave-select').value = data.vcd_filename;
                 }
+            } else if (!enableVcd) {
+                const sel = document.getElementById('wave-select');
+                if (sel.value && sel.value !== "") {
+                    loadVcdTrace(sel.value);
+                } else if (activeProject) {
+                    const pres = await fetch(`/api/projects/${activeProject}`);
+                    const pdata = await pres.json();
+                    refreshWaveDropdown(pdata.waves);
+                    if (pdata.waves.length > 0) loadVcdTrace(pdata.waves[0].filename);
+                    else clearWaveformState();
+                } else {
+                    clearWaveformState();
+                }
             } else {
                 clearWaveformState();
             }
@@ -1709,7 +1576,7 @@ endmodule`,
         }
     }
 
-    // 7. 4-State Digital Timing Canvas
+    // 8. 4-State Digital Timing Canvas
     function renderActiveWaveform() {
         if (!activeVcdContent) {
             document.getElementById('wave-empty').style.display = "flex";
@@ -1898,7 +1765,7 @@ endmodule`,
         });
     }
 
-    // 8. Fully Dynamic Resizers (Left, Editors, Splitter, Right)
+    // 9. Fully Responsive Resizers
     const resizerMain = document.getElementById('resizer-main');
     const editorsWrapper = document.getElementById('editors-wrapper');
     const workspace = document.getElementById('workspace');

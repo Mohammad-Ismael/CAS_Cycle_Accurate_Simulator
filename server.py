@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 import subprocess
 import tempfile
 import shutil
@@ -16,8 +16,8 @@ PROJECTS_DIR = "/app/projects"
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 
 class SimRequest(BaseModel):
-    design_code: str
-    tb_code: str
+    files: Dict[str, str]  # filename -> file content
+    entry_tb: Optional[str] = "testbench.sv"
     top_module: Optional[str] = ""
     project_name: Optional[str] = None
     enable_profiler: Optional[bool] = True
@@ -27,8 +27,7 @@ class SimRequest(BaseModel):
 
 class SaveProjectRequest(BaseModel):
     project_name: str
-    design_code: str
-    tb_code: str
+    files: Dict[str, str]
 
 # ----------------- Project Management APIs ----------------- #
 
@@ -63,15 +62,21 @@ def save_project(req: SaveProjectRequest):
     waves_dir = os.path.join(pdir, "waves")
     os.makedirs(waves_dir, exist_ok=True)
 
-    with open(os.path.join(pdir, "design.sv"), "w") as f:
-        f.write(req.design_code)
+    # Clean existing non-wave source files and write updated multi-file project
+    for f in os.listdir(pdir):
+        if f != "waves" and f != "project.json":
+            fpath = os.path.join(pdir, f)
+            if os.path.isfile(fpath):
+                os.remove(fpath)
 
-    with open(os.path.join(pdir, "testbench.sv"), "w") as f:
-        f.write(req.tb_code)
+    for fname, content in req.files.items():
+        with open(os.path.join(pdir, fname), "w") as f:
+            f.write(content)
 
     meta = {
         "project_name": pname,
-        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "files": list(req.files.keys())
     }
     with open(os.path.join(pdir, "project.json"), "w") as f:
         json.dump(meta, f, indent=2)
@@ -84,18 +89,18 @@ def load_project(name: str):
     if not os.path.exists(pdir):
         raise HTTPException(status_code=404, detail="Project not found.")
 
-    design_code = ""
-    tb_code = ""
-    d_path = os.path.join(pdir, "design.sv")
-    t_path = os.path.join(pdir, "testbench.sv")
+    files = {}
+    for fname in os.listdir(pdir):
+        fpath = os.path.join(pdir, fname)
+        if os.path.isfile(fpath) and fname != "project.json":
+            with open(fpath, "r") as f:
+                files[fname] = f.read()
 
-    if os.path.exists(d_path):
-        with open(d_path, "r") as f:
-            design_code = f.read()
-
-    if os.path.exists(t_path):
-        with open(t_path, "r") as f:
-            tb_code = f.read()
+    # Fallbacks if legacy project
+    if "testbench.sv" not in files:
+        files["testbench.sv"] = ""
+    if "design.sv" not in files:
+        files["design.sv"] = ""
 
     waves = []
     waves_dir = os.path.join(pdir, "waves")
@@ -111,8 +116,7 @@ def load_project(name: str):
 
     return {
         "project_name": name,
-        "design_code": design_code,
-        "tb_code": tb_code,
+        "files": files,
         "waves": waves
     }
 
@@ -145,10 +149,10 @@ def delete_vcd_file(name: str, filename: str):
 
 @app.post("/api/simulate")
 def simulate(req: SimRequest):
-    if not req.design_code.strip() and not req.tb_code.strip():
+    if not req.files:
         return {
             "status": "error",
-            "output": "[ERROR] Both RTL and Testbench are empty.",
+            "output": "[ERROR] No source files provided.",
             "vcd": None,
             "vcd_filename": None,
             "telemetry": None,
@@ -156,19 +160,26 @@ def simulate(req: SimRequest):
         }
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        files_to_run = []
+        # Write ALL created files into sandbox directory so `include can resolve any of them
+        for fname, content in req.files.items():
+            fpath = os.path.join(tmpdir, fname)
+            os.makedirs(os.path.dirname(fpath), exist_ok=True)
+            with open(fpath, "w") as f:
+                f.write(content)
 
-        if req.tb_code.strip():
-            tb_path = os.path.join(tmpdir, "testbench.sv")
-            with open(tb_path, "w") as f:
-                f.write(req.tb_code)
-            files_to_run.append(tb_path)
+        # Decide CLI entry files:
+        # Standard Verilog practice:
+        # 1. Primary entry testbench file is passed.
+        # 2. If design.sv is present and NOT `included in testbench, pass it too.
+        # 3. All other helper files (+ added tabs) are included via `include.
+        entry_tb = req.entry_tb if (req.entry_tb in req.files) else "testbench.sv"
+        files_to_run = [os.path.join(tmpdir, entry_tb)]
 
-        if req.design_code.strip():
-            dut_path = os.path.join(tmpdir, "design.sv")
-            with open(dut_path, "w") as f:
-                f.write(req.design_code)
-            files_to_run.append(dut_path)
+        tb_text = req.files.get(entry_tb, "")
+        if "design.sv" in req.files:
+            # If testbench already has `include "design.sv", don't pass design.sv on CLI (avoids duplicate module definitions)
+            if '`include "design.sv"' not in tb_text and "`include 'design.sv'" not in tb_text:
+                files_to_run.append(os.path.join(tmpdir, "design.sv"))
 
         cas_bin = "/app/CAS/build/cas"
         options = []
