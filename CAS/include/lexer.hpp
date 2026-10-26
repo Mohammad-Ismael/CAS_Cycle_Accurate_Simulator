@@ -9,10 +9,14 @@ enum class TokenType {
     TOKEN_ENDMODULE,
     TOKEN_INPUT,
     TOKEN_OUTPUT,
-    TOKEN_LOGIC,
+    TOKEN_INOUT,        // inout
+    TOKEN_LOGIC,        // logic
+    TOKEN_WIRE,         // wire
+    TOKEN_REG,          // reg
     TOKEN_ASSIGN,       // assign
-    TOKEN_ALWAYS_COMB,
-    TOKEN_ALWAYS_FF,
+    TOKEN_ALWAYS,       // always
+    TOKEN_ALWAYS_COMB,  // always_comb
+    TOKEN_ALWAYS_FF,    // always_ff
     TOKEN_AT,           // @
     TOKEN_POSEDGE,
     TOKEN_NEGEDGE,

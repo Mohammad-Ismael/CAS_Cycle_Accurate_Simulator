@@ -35,7 +35,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         std::string ident_name = current.text;
         advance();
 
-        // Bit-select, part-select, or array index: ident[idx] or ident[msb:lsb]
+        // Bit-select, part-select, or array index
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto first_expr = parse_expression();
             if (match(TokenType::TOKEN_COLON)) {
@@ -361,20 +361,31 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         mod->name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
 
-        // Ports List
+        // Ports List: Handles both ANSI (input logic a) and Non-ANSI (clk, reset, d, q)
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 PortNode port;
+                port.direction = "unspecified"; // Default until declared in body if non-ANSI
+                port.msb = 0; port.lsb = 0;
+
                 if (current.type == TokenType::TOKEN_INPUT) {
                     port.direction = "input";
                     advance();
                 } else if (current.type == TokenType::TOKEN_OUTPUT) {
                     port.direction = "output";
                     advance();
+                } else if (current.type == TokenType::TOKEN_INOUT) {
+                    port.direction = "inout";
+                    advance();
                 }
-                match(TokenType::TOKEN_LOGIC);
 
-                port.msb = 0; port.lsb = 0;
+                // Optional data type: logic, wire, reg
+                if (current.type == TokenType::TOKEN_LOGIC ||
+                    current.type == TokenType::TOKEN_WIRE  ||
+                    current.type == TokenType::TOKEN_REG) {
+                    advance();
+                }
+
                 if (match(TokenType::TOKEN_LBRACKET)) {
                     port.msb = current.num_val;
                     advance();
@@ -385,7 +396,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
 
                 port.name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected port name");
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                 mod->ports.push_back(port);
 
                 if (!match(TokenType::TOKEN_COMMA)) break;
@@ -396,43 +407,116 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         // Module Body
         while (current.type != TokenType::TOKEN_ENDMODULE && current.type != TokenType::TOKEN_EOF) {
-            // logic signal or unpacked memory array: logic [31:0] mem [0:255];
-            if (match(TokenType::TOKEN_LOGIC)) {
-                PortNode sig;
-                sig.direction = "internal";
-                sig.msb = 0; sig.lsb = 0;
+            // 1. Non-ANSI / body port declarations: input, output, inout
+            if (current.type == TokenType::TOKEN_INPUT ||
+                current.type == TokenType::TOKEN_OUTPUT ||
+                current.type == TokenType::TOKEN_INOUT) {
+
+                std::string dir = (current.type == TokenType::TOKEN_INPUT) ? "input" :
+                                  (current.type == TokenType::TOKEN_OUTPUT) ? "output" : "inout";
+                advance();
+
+                // Optional wire, reg, logic specifier (e.g. output reg [3:0] q;)
+                if (current.type == TokenType::TOKEN_WIRE ||
+                    current.type == TokenType::TOKEN_REG ||
+                    current.type == TokenType::TOKEN_LOGIC) {
+                    advance();
+                }
+
+                uint32_t msb = 0, lsb = 0;
                 if (match(TokenType::TOKEN_LBRACKET)) {
-                    sig.msb = current.num_val;
-                    advance();
+                    msb = current.num_val; advance();
                     expect(TokenType::TOKEN_COLON, "Expected ':' in bus width");
-                    sig.lsb = current.num_val;
-                    advance();
+                    lsb = current.num_val; advance();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bus width");
                 }
-                sig.name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name");
 
-                // Check for unpacked memory dimensions: [0:depth-1] or [depth]
-                if (match(TokenType::TOKEN_LBRACKET)) {
-                    uint32_t bound1 = current.num_val;
-                    advance();
-                    if (match(TokenType::TOKEN_COLON)) {
-                        uint32_t bound2 = current.num_val;
-                        advance();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
-                        sig.is_array = true;
-                        sig.array_depth = (bound2 >= bound1) ? (bound2 - bound1 + 1) : (bound1 - bound2 + 1);
-                    } else {
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
-                        sig.is_array = true;
-                        sig.array_depth = bound1;
+                while (true) {
+                    std::string sig_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected port name in body declaration");
+
+                    // Check if already in mod->ports from non-ANSI header
+                    bool found = false;
+                    for (auto& p : mod->ports) {
+                        if (p.name == sig_name) {
+                            p.direction = dir;
+                            p.msb = msb;
+                            p.lsb = lsb;
+                            found = true;
+                            break;
+                        }
                     }
+                    if (!found) {
+                        PortNode p;
+                        p.name = sig_name;
+                        p.direction = dir;
+                        p.msb = msb;
+                        p.lsb = lsb;
+                        mod->ports.push_back(p);
+                    }
+
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after port declaration");
+            }
+            // 2. Internal signals & memory arrays: logic, wire, reg
+            else if (current.type == TokenType::TOKEN_LOGIC ||
+                     current.type == TokenType::TOKEN_WIRE  ||
+                     current.type == TokenType::TOKEN_REG) {
+                advance();
+
+                uint32_t msb = 0, lsb = 0;
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    msb = current.num_val; advance();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in bus width");
+                    lsb = current.num_val; advance();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bus width");
                 }
 
-                expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
-                mod->signals.push_back(sig);
+                while (true) {
+                    PortNode sig;
+                    sig.direction = "internal";
+                    sig.msb = msb;
+                    sig.lsb = lsb;
+                    sig.name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name");
+
+                    // Check if variable is already a port (e.g. output q; reg q;)
+                    bool already_port = false;
+                    for (auto& p : mod->ports) {
+                        if (p.name == sig.name) {
+                            already_port = true;
+                            if (msb > 0) { p.msb = msb; p.lsb = lsb; }
+                            break;
+                        }
+                    }
+
+                    // Check for unpacked memory dimensions: [0:depth-1]
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        uint32_t bound1 = current.num_val; advance();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            uint32_t bound2 = current.num_val; advance();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
+                            sig.is_array = true;
+                            sig.array_depth = (bound2 >= bound1) ? (bound2 - bound1 + 1) : (bound1 - bound2 + 1);
+                        } else {
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing array dimension");
+                            sig.is_array = true;
+                            sig.array_depth = bound1;
+                        }
+                    }
+
+                    if (!already_port) {
+                        mod->signals.push_back(sig);
+                    }
+
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
             }
-            // Continuous assign: assign target = expr;
+            // 3. Continuous assign: assign target = expr;
             else if (match(TokenType::TOKEN_ASSIGN)) {
                 std::string target = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in continuous assign");
@@ -441,7 +525,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after continuous assign");
                 mod->continuous_assigns.push_back(std::make_unique<ContinuousAssignNode>(target, std::move(rhs)));
             }
-            // always_comb
+            // 4. always_comb
             else if (match(TokenType::TOKEN_ALWAYS_COMB)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
                 expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
@@ -451,18 +535,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // always_ff @(...)
-            else if (match(TokenType::TOKEN_ALWAYS_FF)) {
+            // 5. always_ff @(...) or generic Verilog always @(...)
+            else if (match(TokenType::TOKEN_ALWAYS_FF) || match(TokenType::TOKEN_ALWAYS)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
-                expect(TokenType::TOKEN_AT, "Expected '@' in always_ff");
+                expect(TokenType::TOKEN_AT, "Expected '@' in always block sensitivity list");
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in sensitivity list");
 
+                bool has_edge = false;
                 while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-                    EdgeType edge = EdgeType::POSEDGE;
+                    if (match(TokenType::TOKEN_OR_BIT) || match(TokenType::TOKEN_COMMA)) {
+                        continue;
+                    }
+                    EdgeType edge = EdgeType::LEVEL;
                     if (match(TokenType::TOKEN_POSEDGE)) {
                         edge = EdgeType::POSEDGE;
+                        has_edge = true;
                     } else if (match(TokenType::TOKEN_NEGEDGE)) {
                         edge = EdgeType::NEGEDGE;
+                        has_edge = true;
                     }
                     std::string sig = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
@@ -471,24 +561,36 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     match(TokenType::TOKEN_OR);
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
-                expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
-                while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+
+                // Infer process type: edge-triggered -> SEQUENTIAL, level/wildcard -> COMBINATIONAL
+                if (!has_edge) {
+                    proc->type = ProcessType::COMBINATIONAL;
+                }
+
+                if (match(TokenType::TOKEN_BEGIN)) {
+                    while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                        proc->body.push_back(parse_statement());
+                    }
+                    expect(TokenType::TOKEN_END, "Expected 'end'");
+                } else {
                     proc->body.push_back(parse_statement());
                 }
-                expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // initial
+            // 6. initial
             else if (match(TokenType::TOKEN_INITIAL)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");
-                while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                if (match(TokenType::TOKEN_BEGIN)) {
+                    while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                        proc->body.push_back(parse_statement());
+                    }
+                    expect(TokenType::TOKEN_END, "Expected 'end'");
+                } else {
                     proc->body.push_back(parse_statement());
                 }
-                expect(TokenType::TOKEN_END, "Expected 'end'");
                 mod->processes.push_back(std::move(proc));
             }
-            // Instantiations
+            // 7. Submodule Instantiations
             else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                 std::string mod_type = current.text;
                 advance();

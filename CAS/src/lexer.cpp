@@ -156,7 +156,7 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_STRING, s, 0, 0, line};
     }
 
-    // Keywords and Identifiers
+    // Identifiers and Keywords
     if (std::isalpha(c) || c == '_' || c == '$') {
         std::string ident;
         while (std::isalnum(peek()) || peek() == '_' || peek() == '$') {
@@ -167,8 +167,12 @@ Token Lexer::next_token() {
         if (ident == "endmodule") return {TokenType::TOKEN_ENDMODULE, ident, 0, 0, line};
         if (ident == "input") return {TokenType::TOKEN_INPUT, ident, 0, 0, line};
         if (ident == "output") return {TokenType::TOKEN_OUTPUT, ident, 0, 0, line};
+        if (ident == "inout") return {TokenType::TOKEN_INOUT, ident, 0, 0, line};
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, line};
+        if (ident == "wire") return {TokenType::TOKEN_WIRE, ident, 0, 0, line};
+        if (ident == "reg") return {TokenType::TOKEN_REG, ident, 0, 0, line};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, line};
+        if (ident == "always") return {TokenType::TOKEN_ALWAYS, ident, 0, 0, line};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, line};
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, line};
         if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, line};
