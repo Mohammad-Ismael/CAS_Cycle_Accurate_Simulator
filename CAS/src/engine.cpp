@@ -598,18 +598,21 @@ void Engine::commit_nba_updates() {
 void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
                               const std::unordered_map<std::string, ModuleNode*>& module_defs,
                               const std::vector<std::unique_ptr<ExpressionNode>>* overrides,
-                              const std::string& parent_scope) {
-    std::cout << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
+                              const std::string& parent_scope,
+                              std::ostream* debug_out) {
+    if (debug_out) {
+        *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
+    }
 
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
         if (overrides && i < overrides->size()) {
             val = eval_const_expr((*overrides)[i].get(), parent_scope);
-            std::cout << "     * Parameter override: " << p.name << " = " << val << "\n";
+            if (debug_out) *debug_out << "     * Parameter override: " << p.name << " = " << val << "\n";
         } else {
             val = eval_const_expr(p.default_expr.get(), scope);
-            std::cout << "     * Parameter default: " << p.name << " = " << val << "\n";
+            if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << val << "\n";
         }
         param_map[scope + "." + p.name] = val;
     }
@@ -642,8 +645,10 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             std::string mem_scope = scope + "." + s.name;
             memory_map[mem_scope] = MemoryArray(mem_scope, w, depth);
-            std::cout << "     * Memory allocated: " << mem_scope 
-                      << " [" << w << "-bit x " << depth << " words]\n";
+            if (debug_out) {
+                *debug_out << "     * Memory allocated: " << mem_scope 
+                           << " [" << w << "-bit x " << depth << " words]\n";
+            }
         } else {
             get_or_create_net(scope + "." + s.name, w);
         }
@@ -679,7 +684,7 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         ModuleNode* submod = module_defs.at(inst->module_type);
 
-        elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope);
+        elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope, debug_out);
 
         for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
             auto& conn = inst->connections[conn_idx];
@@ -714,8 +719,8 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 }
 
-void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
-    std::cout << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
+void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, std::ostream* debug_out) {
+    if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     std::unordered_map<std::string, ModuleNode*> module_defs;
     for (auto& mod : modules) {
         module_defs[mod->name] = mod.get();
@@ -737,8 +742,8 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules) {
     }
     if (!top) top = modules.front().get();
 
-    std::cout << "  -> Selected top-level root module: '" << top->name << "'\n";
-    elaborate_module(top, top->name, module_defs);
+    if (debug_out) *debug_out << "  -> Selected top-level root module: '" << top->name << "'\n";
+    elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
 }
 
 void Engine::step_process(size_t pid) {
@@ -756,14 +761,18 @@ void Engine::step_process(size_t pid) {
         }
 
         if (auto df = dynamic_cast<DumpFileStatementNode*>(stmt)) {
-            vcd_filename = df->filename;
-            vcd_enabled = true;
+            if (vcd_allowed) {
+                vcd_filename = df->filename;
+                vcd_enabled = true;
+            }
             bp.pc++;
             continue;
         }
 
         if (dynamic_cast<DumpVarsStatementNode*>(stmt)) {
-            init_vcd_header();
+            if (vcd_allowed && vcd_enabled) {
+                init_vcd_header();
+            }
             bp.pc++;
             continue;
         }
@@ -798,17 +807,18 @@ void Engine::step_process(size_t pid) {
     bp.completed = true;
 }
 
-void Engine::run() {
-    std::cout << "[PHASE 4: Scheduler Initialization]\n";
-    std::cout << "  -> Hierarchical Nets Elaborated : " << netlist.size() << "\n";
-    std::cout << "  -> Slice Interconnects Bound    : " << slice_bindings.size() << "\n";
-    std::cout << "  -> Built-in Gates Instantiated  : " << gates.size() << "\n";
-    std::cout << "  -> Continuous Assigns Bound     : " << continuous_assigns.size() << "\n";
-    std::cout << "  -> Memory Arrays Allocated      : " << memory_map.size() << "\n";
-    std::cout << "  -> Concurrent Processes Bound   : " << processes.size() << "\n";
-
-    std::cout << "[PHASE 5: Simulation Runtime (Discrete-Event Scheduler)]\n";
-    std::cout << "--------------------------------------------------------\n" << std::flush;
+void Engine::run(std::ostream* debug_out) {
+    if (debug_out) {
+        *debug_out << "[PHASE 4: Scheduler Initialization]\n";
+        *debug_out << "  -> Hierarchical Nets Elaborated : " << netlist.size() << "\n";
+        *debug_out << "  -> Slice Interconnects Bound    : " << slice_bindings.size() << "\n";
+        *debug_out << "  -> Built-in Gates Instantiated  : " << gates.size() << "\n";
+        *debug_out << "  -> Continuous Assigns Bound     : " << continuous_assigns.size() << "\n";
+        *debug_out << "  -> Memory Arrays Allocated      : " << memory_map.size() << "\n";
+        *debug_out << "  -> Concurrent Processes Bound   : " << processes.size() << "\n";
+        *debug_out << "[PHASE 5: Simulation Runtime (Discrete-Event Scheduler)]\n";
+        *debug_out << "--------------------------------------------------------\n";
+    }
 
     propagate_comb();
 
@@ -836,50 +846,51 @@ void Engine::run() {
     std::cout << "[CAS SUMMARY] Simulation completed cleanly at T = " << sim_time << " ns.\n" << std::flush;
 }
 
+EngineStats Engine::get_stats() {
+    EngineStats s;
+    s.net_count = netlist.size();
+    s.net_cap = netlist.capacity();
+    s.proc_count = processes.size();
+    s.proc_cap = processes.capacity();
+    s.slice_count = slice_bindings.size();
+    s.slice_cap = slice_bindings.capacity();
+    s.gate_count = gates.size();
+    s.gate_cap = gates.capacity();
+    s.ca_count = continuous_assigns.size();
+    s.ca_cap = continuous_assigns.capacity();
+    s.ram_count = memory_map.size();
+
+    size_t words = 0;
+    for (const auto& kv : memory_map) {
+        words += kv.second.words.capacity();
+    }
+    s.ram_total_words = words;
+    s.net_map_keys = net_map.size();
+    s.net_map_buckets = net_map.bucket_count();
+    s.net_map_load = net_map.load_factor();
+    s.events_dispatched = events_dispatched;
+    s.delta_cycles = delta_cycles_count;
+    s.nba_commits = nba_commits_count;
+    return s;
+}
+
 void Engine::print_profile_report() {
+    auto s = get_stats();
     std::cout << "\n========================================================\n";
     std::cout << "          CAS ENGINE PROFILER & DATA TOPOLOGY           \n";
     std::cout << "========================================================\n";
-
-    // 1. Data Structure Sizing & Capacities
-    size_t net_mem = netlist.capacity() * sizeof(Net);
-    size_t proc_mem = processes.capacity() * sizeof(BoundProcess);
-    size_t slice_mem = slice_bindings.capacity() * sizeof(SliceBinding);
-    size_t gate_mem = gates.capacity() * sizeof(GateInstance);
-    size_t ca_mem = continuous_assigns.capacity() * sizeof(ContinuousAssignBinding);
-
-    size_t ram_words_total = 0;
-    for (const auto& kv : memory_map) {
-        ram_words_total += kv.second.words.capacity();
-    }
-    size_t ram_mem = ram_words_total * sizeof(LogicVal);
-
     std::cout << "[DATA STRUCTURE METRICS]\n";
-    std::cout << "  * Netlist Vector         : " << netlist.size() << " / " << netlist.capacity()
-              << " capacity (" << (net_mem / 1024.0) << " KB)\n";
-    std::cout << "  * Processes Vector       : " << processes.size() << " / " << processes.capacity()
-              << " capacity (" << (proc_mem / 1024.0) << " KB)\n";
-    std::cout << "  * Interconnect Slices    : " << slice_bindings.size() << " / " << slice_bindings.capacity()
-              << " capacity (" << (slice_mem / 1024.0) << " KB)\n";
-    std::cout << "  * Gate Primitives        : " << gates.size() << " / " << gates.capacity()
-              << " capacity (" << (gate_mem / 1024.0) << " KB)\n";
-    std::cout << "  * Continuous Assigns     : " << continuous_assigns.size() << " / " << continuous_assigns.capacity()
-              << " capacity (" << (ca_mem / 1024.0) << " KB)\n";
-    std::cout << "  * Memory Array Storage   : " << memory_map.size() << " arrays ("
-              << ram_words_total << " words, " << (ram_mem / 1024.0) << " KB)\n";
-
+    std::cout << "  * Netlist Vector         : " << s.net_count << " / " << s.net_cap << " capacity\n";
+    std::cout << "  * Processes Vector       : " << s.proc_count << " / " << s.proc_cap << " capacity\n";
+    std::cout << "  * Interconnect Slices    : " << s.slice_count << " / " << s.slice_cap << " capacity\n";
+    std::cout << "  * Gate Primitives        : " << s.gate_count << " / " << s.gate_cap << " capacity\n";
+    std::cout << "  * Continuous Assigns     : " << s.ca_count << " / " << s.ca_cap << " capacity\n";
+    std::cout << "  * Memory Array Storage   : " << s.ram_count << " arrays (" << s.ram_total_words << " words)\n";
     std::cout << "\n[HASH TABLE METRICS]\n";
-    std::cout << "  * Net Identifier Table   : " << net_map.size() << " keys, "
-              << net_map.bucket_count() << " buckets, load factor: "
-              << std::fixed << std::setprecision(2) << net_map.load_factor() << "\n";
-    std::cout << "  * Parameter Table        : " << param_map.size() << " keys, "
-              << param_map.bucket_count() << " buckets, load factor: "
-              << std::fixed << std::setprecision(2) << param_map.load_factor() << "\n";
-    std::cout << "  * Task Symbol Table      : " << task_map.size() << " keys, "
-              << task_map.bucket_count() << " buckets\n";
-
+    std::cout << "  * Net Identifier Table   : " << s.net_map_keys << " keys, " << s.net_map_buckets << " buckets, load factor: "
+              << std::fixed << std::setprecision(2) << s.net_map_load << "\n";
     std::cout << "\n[DISCRETE-EVENT SCHEDULER STATISTICS]\n";
-    std::cout << "  * Time Wheel Events Run  : " << events_dispatched << " events\n";
-    std::cout << "  * Combinational Passes   : " << delta_cycles_count << " delta cycles\n";
-    std::cout << "  * NBA Commit Iterations  : " << nba_commits_count << " sync rounds\n";
+    std::cout << "  * Time Wheel Events Run  : " << s.events_dispatched << " events\n";
+    std::cout << "  * Combinational Passes   : " << s.delta_cycles << " delta cycles\n";
+    std::cout << "  * NBA Commit Iterations  : " << s.nba_commits << " sync rounds\n";
 }

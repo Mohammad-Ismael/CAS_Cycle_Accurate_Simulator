@@ -80,6 +80,27 @@ struct SimEvent {
     }
 };
 
+struct EngineStats {
+    size_t net_count;
+    size_t net_cap;
+    size_t proc_count;
+    size_t proc_cap;
+    size_t slice_count;
+    size_t slice_cap;
+    size_t gate_count;
+    size_t gate_cap;
+    size_t ca_count;
+    size_t ca_cap;
+    size_t ram_count;
+    size_t ram_total_words;
+    size_t net_map_keys;
+    size_t net_map_buckets;
+    float  net_map_load;
+    size_t events_dispatched;
+    size_t delta_cycles;
+    size_t nba_commits;
+};
+
 class Engine {
 private:
     std::vector<Net> netlist;
@@ -104,7 +125,8 @@ private:
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
 
-    // Execution & Data Structure Profiling Counters
+    bool vcd_allowed = true;
+
     size_t delta_cycles_count = 0;
     size_t events_dispatched = 0;
     size_t nba_commits_count = 0;
@@ -131,7 +153,8 @@ private:
     void elaborate_module(ModuleNode* mod, const std::string& scope,
                           const std::unordered_map<std::string, ModuleNode*>& module_defs,
                           const std::vector<std::unique_ptr<ExpressionNode>>* overrides = nullptr,
-                          const std::string& parent_scope = "");
+                          const std::string& parent_scope = "",
+                          std::ostream* debug_out = nullptr);
 
     std::string generate_vcd_id(size_t id);
     void init_vcd_header();
@@ -139,9 +162,11 @@ private:
 
 public:
     ~Engine();
-    void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules);
-    void run();
+    void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, std::ostream* debug_out = nullptr);
+    void run(std::ostream* debug_out = nullptr);
 
-    // Data Structure Profiler
+    void set_vcd_allowed(bool allowed) { vcd_allowed = allowed; }
+
+    EngineStats get_stats();
     void print_profile_report();
 };

@@ -18,8 +18,12 @@ os.makedirs(PROJECTS_DIR, exist_ok=True)
 class SimRequest(BaseModel):
     design_code: str
     tb_code: str
-    top_module: str
+    top_module: Optional[str] = ""
     project_name: Optional[str] = None
+    enable_profiler: Optional[bool] = True
+    enable_debug: Optional[bool] = True
+    enable_vcd: Optional[bool] = True
+    timescale: Optional[str] = "1ns"
 
 class SaveProjectRequest(BaseModel):
     project_name: str
@@ -147,7 +151,8 @@ def simulate(req: SimRequest):
             "output": "[ERROR] Both RTL and Testbench are empty.",
             "vcd": None,
             "vcd_filename": None,
-            "telemetry": None
+            "telemetry": None,
+            "debug_log": None
         }
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -166,24 +171,44 @@ def simulate(req: SimRequest):
             files_to_run.append(dut_path)
 
         cas_bin = "/app/CAS/build/cas"
-        run_cmd = [cas_bin] + files_to_run
+        options = []
+        if not req.enable_profiler:
+            options.append("--no-profile")
+        if not req.enable_debug:
+            options.append("--quiet")
+        if not req.enable_vcd:
+            options.append("--no-vcd")
+        if req.top_module and req.top_module.strip():
+            options += ["--top", req.top_module.strip()]
+        if req.timescale and req.timescale.strip():
+            options += ["--timescale", req.timescale.strip()]
+
+        run_cmd = [cas_bin] + options + files_to_run
 
         try:
             res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=15)
             raw_output = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
-            
+
             telemetry_data = None
+            debug_log = ""
             clean_output = raw_output
 
-            # Extract structured telemetry JSON block
-            if "---BEGIN_CAS_TELEMETRY---" in raw_output and "---END_CAS_TELEMETRY---" in raw_output:
-                before, part = raw_output.split("---BEGIN_CAS_TELEMETRY---", 1)
+            if "---BEGIN_CAS_DEBUG_LOG---" in clean_output and "---END_CAS_DEBUG_LOG---" in clean_output:
+                b1, p1 = clean_output.split("---BEGIN_CAS_DEBUG_LOG---", 1)
+                debug_log, b2 = p1.split("---END_CAS_DEBUG_LOG---", 1)
+                clean_output = b1 + b2
+                debug_log = debug_log.strip()
+
+            if "---BEGIN_CAS_TELEMETRY---" in clean_output and "---END_CAS_TELEMETRY---" in clean_output:
+                before, part = clean_output.split("---BEGIN_CAS_TELEMETRY---", 1)
                 json_str, after = part.split("---END_CAS_TELEMETRY---", 1)
                 clean_output = before + after
                 try:
                     telemetry_data = json.loads(json_str.strip())
                 except Exception:
                     telemetry_data = None
+
+            console_output = clean_output.strip()
 
             vcd_content = None
             vcd_filename = None
@@ -207,19 +232,21 @@ def simulate(req: SimRequest):
 
             return {
                 "status": "success" if res.returncode == 0 else "error",
-                "output": clean_output.strip(),
+                "output": console_output,
                 "vcd": vcd_content,
                 "vcd_filename": vcd_filename,
-                "telemetry": telemetry_data
+                "telemetry": telemetry_data,
+                "debug_log": debug_log
             }
         except subprocess.TimeoutExpired as e:
             partial_out = (e.stdout or "") + "\n" + (e.stderr or "")
             return {
                 "status": "error",
-                "output": f"[CAS TIMEOUT (15s)] Partial log before hang:\n{partial_out}",
+                "output": f"[CAS TIMEOUT (15s)]\n{partial_out}",
                 "vcd": None,
                 "vcd_filename": None,
-                "telemetry": None
+                "telemetry": None,
+                "debug_log": None
             }
         except Exception as e:
             return {
@@ -227,7 +254,8 @@ def simulate(req: SimRequest):
                 "output": f"[CAS INVOCATION ERROR] {str(e)}",
                 "vcd": None,
                 "vcd_filename": None,
-                "telemetry": None
+                "telemetry": None,
+                "debug_log": None
             }
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

@@ -38,9 +38,8 @@
             user-select: none;
         }
 
-        /* Top Header */
         header {
-            height: 50px;
+            height: 48px;
             background-color: var(--bg-surface);
             border-bottom: 1px solid var(--border-dim);
             display: flex;
@@ -52,12 +51,12 @@
         .header-left {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
         .brand-logo {
             font-family: 'JetBrains Mono', monospace;
             font-weight: 700;
-            font-size: 14.5px;
+            font-size: 14px;
             letter-spacing: 0.5px;
             color: #fff;
             display: flex;
@@ -87,13 +86,13 @@
         .header-actions {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         .btn {
             font-family: 'Inter', sans-serif;
             font-size: 12px;
             font-weight: 600;
-            padding: 6px 12px;
+            padding: 5px 12px;
             border-radius: 5px;
             border: 1px solid transparent;
             cursor: pointer;
@@ -120,7 +119,7 @@
             background-color: var(--border-focus);
             color: #fff;
         }
-        .btn-toggle-active {
+        .btn-active {
             background-color: #1e3a5f !important;
             border-color: var(--accent) !important;
             color: #fff !important;
@@ -130,7 +129,6 @@
             cursor: not-allowed;
         }
 
-        /* Workspace Structure */
         #main-container {
             flex: 1;
             display: flex;
@@ -138,6 +136,96 @@
             position: relative;
         }
 
+        /* ------------------ Left Settings Sidebar ------------------ */
+        #options-sidebar {
+            width: 270px;
+            min-width: 200px;
+            max-width: 450px;
+            background-color: var(--bg-surface);
+            border-right: 1px solid var(--border-dim);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            z-index: 5;
+        }
+        #options-sidebar.collapsed { display: none; }
+
+        .opt-section {
+            padding: 14px;
+            border-bottom: 1px solid var(--border-dim);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .opt-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .opt-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .opt-field label {
+            font-size: 11.5px;
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+        .opt-input, .opt-select {
+            background-color: var(--bg-base);
+            border: 1px solid var(--border-dim);
+            border-radius: 4px;
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            padding: 5px 8px;
+            outline: none;
+        }
+        .opt-input:focus, .opt-select:focus {
+            border-color: var(--accent);
+        }
+
+        .opt-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #e2e8f0;
+        }
+        .opt-checkbox-row input[type="checkbox"] {
+            cursor: pointer;
+            accent-color: var(--accent);
+            width: 14px;
+            height: 14px;
+        }
+
+        .roadmap-item {
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 6px;
+            border-radius: 4px;
+            background-color: var(--bg-elevated);
+        }
+        .roadmap-status {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .roadmap-status.done { background-color: #064e3b; color: #34d399; }
+        .roadmap-status.next { background-color: #78350f; color: #fde047; }
+        .roadmap-status.plan { background-color: #1e293b; color: #94a3b8; }
+
+        /* Center Workspace */
         #workspace {
             flex: 1;
             display: flex;
@@ -156,7 +244,7 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            min-width: 250px;
+            min-width: 200px;
             overflow: hidden;
             background-color: var(--bg-surface);
         }
@@ -211,7 +299,6 @@
         }
         .resizer-v:hover, .resizer-v.resizing { background-color: var(--accent); }
 
-        /* Bottom Tabbed Console / Wave Pane */
         #bottom-wrapper {
             flex: 1;
             min-height: 140px;
@@ -275,7 +362,7 @@
         }
         .panel.active { display: flex; }
 
-        /* Console */
+        /* Output Console */
         #panel-terminal {
             font-family: 'JetBrains Mono', monospace;
             font-size: 12.5px;
@@ -374,18 +461,11 @@
             -webkit-user-select: text;
         }
 
-        /* ------------------ Collapsible Sidebar ------------------ */
-        #sidebar-resizer {
-            width: 5px;
-            background-color: var(--bg-base);
-            cursor: col-resize;
-            transition: background-color 0.2s;
-            display: none;
-        }
-        #sidebar-resizer:hover, #sidebar-resizer.resizing { background-color: var(--accent); }
-
+        /* ------------------ Right Inspector Side Drawer ------------------ */
         #inspector-sidebar {
             width: 360px;
+            min-width: 250px;
+            max-width: 600px;
             background-color: var(--bg-surface);
             border-left: 1px solid var(--border-dim);
             display: none;
@@ -577,6 +657,9 @@
 
 <header>
     <div class="header-left">
+        <button class="btn btn-secondary" style="padding: 4px 8px;" onclick="toggleOptionsSidebar()" title="Toggle Compiler & Engine Settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <div class="brand-logo">
             <span class="dot"></span>
             CAS STUDIO
@@ -604,6 +687,66 @@
 </header>
 
 <div id="main-container">
+    <!-- 1. DYNAMIC LEFT SETTINGS SIDEBAR -->
+    <aside id="options-sidebar">
+        <div class="opt-section">
+            <div class="opt-title">Elaboration Target</div>
+            <div class="opt-field">
+                <label for="cfg-top-module">Top-Level Module</label>
+                <input type="text" id="cfg-top-module" class="opt-input" placeholder="(Auto-detect root)">
+            </div>
+            <div class="opt-field">
+                <label for="cfg-timescale">Timescale Precision</label>
+                <select id="cfg-timescale" class="opt-select">
+                    <option value="1ns" selected>1ns</option>
+                    <option value="100ps">100ps</option>
+                    <option value="10ps">10ps</option>
+                    <option value="1ps">1ps</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="opt-section">
+            <div class="opt-title">Simulator Flags</div>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-profiler" checked>
+                <span>Enable Profiler & Topology</span>
+            </label>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-debug-trace" checked>
+                <span>Emit Compiler Phase Trace</span>
+            </label>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-vcd-enable" checked>
+                <span>Enable VCD Wave Dump</span>
+            </label>
+        </div>
+
+        <div class="opt-section" style="border-bottom: none;">
+            <div class="opt-title">Simulator Roadmap</div>
+            <div class="roadmap-item">
+                <span>Gate & Slicing Kernel</span>
+                <span class="roadmap-status done">v0.9.3</span>
+            </div>
+            <div class="roadmap-item">
+                <span>Parameterized Memory</span>
+                <span class="roadmap-status done">v0.9.4</span>
+            </div>
+            <div class="roadmap-item">
+                <span>Combinational Functions</span>
+                <span class="roadmap-status next">In Progress</span>
+            </div>
+            <div class="roadmap-item">
+                <span>RV32I Core Execution</span>
+                <span class="roadmap-status plan">v1.0.0</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- LEFT SIDEBAR RESIZER -->
+    <div class="resizer-h" id="left-resizer"></div>
+
+    <!-- 2. CENTER WORKSPACE -->
     <div id="workspace">
         <div id="editors-wrapper">
             <div class="editor-column" id="col-tb">
@@ -651,7 +794,7 @@
                             </select>
                             <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="deleteSelectedWave()">Delete</button>
                         </div>
-                        <span>Timescale: <strong>1ns</strong></span>
+                        <span>Timescale: <strong id="lbl-timescale">1ns</strong></span>
                     </div>
                     <div id="wave-canvas-container">
                         <div id="wave-names"></div>
@@ -668,10 +811,10 @@
         </div>
     </div>
 
-    <!-- Inspector Sidebar Splitter -->
-    <div class="resizer-h" id="sidebar-resizer"></div>
+    <!-- RIGHT INSPECTOR RESIZER -->
+    <div class="resizer-h" id="right-resizer" style="display: none;"></div>
 
-    <!-- Dedicated Inspector Side Drawer -->
+    <!-- 3. DYNAMIC RIGHT INSPECTOR DRAWER -->
     <aside id="inspector-sidebar">
         <div class="sidebar-header">
             <div class="sidebar-tabs">
@@ -682,7 +825,6 @@
         </div>
 
         <div class="sidebar-body" id="side-tab-profiler">
-            <!-- CPU & Memory Performance -->
             <div class="metric-card">
                 <div class="metric-card-title">
                     <span>Kernel Execution Profile</span>
@@ -706,7 +848,6 @@
                 </div>
             </div>
 
-            <!-- Ingestion & AST Footprint -->
             <div class="metric-card">
                 <div class="metric-card-title">Ingested AST Footprint</div>
                 <div class="metric-row">
@@ -719,7 +860,6 @@
                 </div>
             </div>
 
-            <!-- Data Structure Metrics -->
             <div class="metric-card">
                 <div class="metric-card-title">Engine Data Topology</div>
                 <div class="metric-row">
@@ -744,7 +884,6 @@
                 </div>
             </div>
 
-            <!-- Discrete Event Scheduler -->
             <div class="metric-card">
                 <div class="metric-card-title">Stratified Scheduler Dynamics</div>
                 <div class="metric-row">
@@ -777,7 +916,7 @@
         <span class="status-indicator ready" id="status-bulb"></span>
         <span id="status-msg">Ready</span>
     </div>
-    <div>CAS v1.0.0 // IEEE 1800 Kernel Profiler</div>
+    <div>CAS v1.0.0 // Dynamic EDA Architecture</div>
 </footer>
 
 <div class="modal-overlay" id="projects-modal">
@@ -799,6 +938,7 @@
     let activeVcdContent = null;
     let activeVcdFilename = null;
     let isInspectorOpen = false;
+    let isOptionsOpen = true;
 
     // 1. Monaco Setup
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
@@ -821,134 +961,6 @@
         });
 
         tbEditor = monaco.editor.create(document.getElementById('editor-tb'), {
-            value: `// 1. Gate-level full adder using built-in gate primitives and non-ANSI port header (v0.9.2, v0.9.3)
-module full_adder (sum, cout, a, b, cin);
-    input  a, b, cin;
-    output sum, cout;
-    wire   a, b, cin, sum, cout;
-    wire   w1, w2, w3;
-
-    xor (sum, a, b, cin);
-    and (w1, a, b);
-    and (w2, b, cin);
-    and (w3, a, cin);
-    or  (cout, w1, w2, w3);
-endmodule
-
-// 2. 4-bit ripple-carry adder using positional port mapping and bit-slices (v0.9.3)
-module bit4_adder (sum, cout, a, b, cin);
-    input  [3:0] a, b;
-    input  cin;
-    output [3:0] sum;
-    output cout;
-
-    wire [3:0] a, b, sum;
-    wire cin, cout;
-    wire [2:0] c;
-
-    full_adder fa0 (sum[0], c[0], a[0], b[0], cin);
-    full_adder fa1 (sum[1], c[1], a[1], b[1], c[0]);
-    full_adder fa2 (sum[2], c[2], a[2], b[2], c[1]);
-    full_adder fa3 (sum[3], cout, a[3], b[3], c[2]);
-endmodule
-
-// 3. Complex ALU with full precedence operators and case branch control (v0.7.0, v0.8.0)
-module alu_core (
-    input  logic [3:0] op_a,
-    input  logic [3:0] op_b,
-    input  logic [2:0] opcode,
-    output logic [3:0] alu_out
-);
-    always_comb begin
-        case (opcode)
-            3'd0: alu_out = op_a & op_b;
-            3'd1: alu_out = op_a | op_b;
-            3'd2: alu_out = op_a ^ op_b;
-            3'd3: alu_out = ~op_a;
-            3'd4: alu_out = op_a << 4'd1;
-            3'd5: alu_out = op_a >> 4'd1;
-            3'd6: alu_out = op_a + op_b;
-            3'd7: alu_out = op_a - op_b;
-            default: alu_out = 4'd0;
-        endcase
-    end
-endmodule
-
-// 4. Top-level unified DUT exercising memories, dataflow, sequential logic, and submodules
-module master_dut (
-    input  logic       clk,
-    input  logic       rst_n,
-    input  logic [3:0] in_a,
-    input  logic [3:0] in_b,
-    input  logic [2:0] opcode,
-    input  logic [1:0] mem_addr,
-    input  logic       mem_we,
-    output logic [3:0] adder_sum,
-    output logic       adder_cout,
-    output logic [3:0] alu_result,
-    output logic [3:0] reg_accum,
-    output logic       is_equal,
-    output logic       is_less,
-    output logic       bit_extracted,
-    output logic [1:0] slice_extracted,
-    output logic [3:0] cont_assign_out,
-    output logic [3:0] mem_rdata,
-    output logic       dff_q,
-    output logic       dff_qb
-);
-
-    // v0.9.0 Continuous assign dataflow
-    assign cont_assign_out = in_a + 4'd1;
-
-    // v0.9.0 1D Unpacked Memory Array
-    logic [3:0] ram [0:3];
-    assign mem_rdata = ram[mem_addr];
-
-    // v0.9.3 Submodule positional slice instantiation
-    bit4_adder u_adder (adder_sum, adder_cout, in_a, in_b, 1'b0);
-
-    // v0.2.0 Submodule named instantiation
-    alu_core u_alu (
-        .op_a(in_a),
-        .op_b(in_b),
-        .opcode(opcode),
-        .alu_out(alu_result)
-    );
-
-    // v0.7.0 / v0.8.0 Continuous relational expressions and bit-slicing
-    always_comb begin
-        is_equal = (in_a == in_b) ? 1'd1 : 1'd0;
-        is_less  = (in_a < in_b)  ? 1'd1 : 1'd0;
-        bit_extracted   = in_a[2];
-        slice_extracted = in_a[3:2];
-    end
-
-    // v0.4.0 / v0.9.2 Generic always with edge sensitivity list (clk or negedge rst_n)
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            reg_accum <= 4'd0;
-            dff_q     <= 1'b0;
-        end else begin
-            reg_accum <= reg_accum + alu_result;
-            dff_q     <= in_a[0];
-            if (mem_we) begin
-                ram[mem_addr] <= in_a;
-            end
-        end
-    end
-
-    assign dff_qb = ~dff_q;
-
-endmodule`,
-            language: 'systemverilog',
-            theme: 'cas-dark',
-            fontSize: 13,
-            fontFamily: 'JetBrains Mono',
-            automaticLayout: true,
-            minimap: { enabled: false }
-        });
-
-        rtlEditor = monaco.editor.create(document.getElementById('editor-rtl'), {
             value: `module tb_master;
 
 // v0.9.2 reg/wire declarations
@@ -1005,7 +1017,7 @@ endtask
 
 initial begin
     // v0.5.0 VCD dumping with argument
-    $dumpfile("master_regression.vcd");
+    $dumpfile("master_regression1.vcd");
     $dumpvars(1);
 
     fail_count = 8'd0;
@@ -1190,6 +1202,134 @@ endmodule`,
             automaticLayout: true,
             minimap: { enabled: false }
         });
+
+        rtlEditor = monaco.editor.create(document.getElementById('editor-rtl'), {
+            value: `// 1. Gate-level full adder using built-in gate primitives and non-ANSI port header (v0.9.2, v0.9.3)
+module full_adder (sum, cout, a, b, cin);
+    input  a, b, cin;
+    output sum, cout;
+    wire   a, b, cin, sum, cout;
+    wire   w1, w2, w3;
+
+    xor (sum, a, b, cin);
+    and (w1, a, b);
+    and (w2, b, cin);
+    and (w3, a, cin);
+    or  (cout, w1, w2, w3);
+endmodule
+
+// 2. 4-bit ripple-carry adder using positional port mapping and bit-slices (v0.9.3)
+module bit4_adder (sum, cout, a, b, cin);
+    input  [3:0] a, b;
+    input  cin;
+    output [3:0] sum;
+    output cout;
+
+    wire [3:0] a, b, sum;
+    wire cin, cout;
+    wire [2:0] c;
+
+    full_adder fa0 (sum[0], c[0], a[0], b[0], cin);
+    full_adder fa1 (sum[1], c[1], a[1], b[1], c[0]);
+    full_adder fa2 (sum[2], c[2], a[2], b[2], c[1]);
+    full_adder fa3 (sum[3], cout, a[3], b[3], c[2]);
+endmodule
+
+// 3. Complex ALU with full precedence operators and case branch control (v0.7.0, v0.8.0)
+module alu_core (
+    input  logic [3:0] op_a,
+    input  logic [3:0] op_b,
+    input  logic [2:0] opcode,
+    output logic [3:0] alu_out
+);
+    always_comb begin
+        case (opcode)
+            3'd0: alu_out = op_a & op_b;
+            3'd1: alu_out = op_a | op_b;
+            3'd2: alu_out = op_a ^ op_b;
+            3'd3: alu_out = ~op_a;
+            3'd4: alu_out = op_a << 4'd1;
+            3'd5: alu_out = op_a >> 4'd1;
+            3'd6: alu_out = op_a + op_b;
+            3'd7: alu_out = op_a - op_b;
+            default: alu_out = 4'd0;
+        endcase
+    end
+endmodule
+
+// 4. Top-level unified DUT exercising memories, dataflow, sequential logic, and submodules
+module master_dut (
+    input  logic       clk,
+    input  logic       rst_n,
+    input  logic [3:0] in_a,
+    input  logic [3:0] in_b,
+    input  logic [2:0] opcode,
+    input  logic [1:0] mem_addr,
+    input  logic       mem_we,
+    output logic [3:0] adder_sum,
+    output logic       adder_cout,
+    output logic [3:0] alu_result,
+    output logic [3:0] reg_accum,
+    output logic       is_equal,
+    output logic       is_less,
+    output logic       bit_extracted,
+    output logic [1:0] slice_extracted,
+    output logic [3:0] cont_assign_out,
+    output logic [3:0] mem_rdata,
+    output logic       dff_q,
+    output logic       dff_qb
+);
+
+    // v0.9.0 Continuous assign dataflow
+    assign cont_assign_out = in_a + 4'd1;
+
+    // v0.9.0 1D Unpacked Memory Array
+    logic [3:0] ram [0:3];
+    assign mem_rdata = ram[mem_addr];
+
+    // v0.9.3 Submodule positional slice instantiation
+    bit4_adder u_adder (adder_sum, adder_cout, in_a, in_b, 1'b0);
+
+    // v0.2.0 Submodule named instantiation
+    alu_core u_alu (
+        .op_a(in_a),
+        .op_b(in_b),
+        .opcode(opcode),
+        .alu_out(alu_result)
+    );
+
+    // v0.7.0 / v0.8.0 Continuous relational expressions and bit-slicing
+    always_comb begin
+        is_equal = (in_a == in_b) ? 1'd1 : 1'd0;
+        is_less  = (in_a < in_b)  ? 1'd1 : 1'd0;
+        bit_extracted   = in_a[2];
+        slice_extracted = in_a[3:2];
+    end
+
+    // v0.4.0 / v0.9.2 Generic always with edge sensitivity list (clk or negedge rst_n)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_accum <= 4'd0;
+            dff_q     <= 1'b0;
+        end else begin
+            reg_accum <= reg_accum + alu_result;
+            dff_q     <= in_a[0];
+            if (mem_we) begin
+                ram[mem_addr] <= in_a;
+            end
+        end
+    end
+
+    assign dff_qb = ~dff_q;
+
+endmodule`,
+            language: 'systemverilog',
+            theme: 'cas-dark',
+            fontSize: 13,
+            fontFamily: 'JetBrains Mono',
+            automaticLayout: true,
+            minimap: { enabled: false }
+        });
     });
 
     // 2. Tabs
@@ -1214,24 +1354,37 @@ endmodule`,
         document.getElementById('panel-terminal').textContent = "";
     }
 
-    // 3. Side Inspector Toggling
+    // 3. Sidebars Toggling & Tabs
+    function toggleOptionsSidebar() {
+        isOptionsOpen = !isOptionsOpen;
+        const side = document.getElementById('options-sidebar');
+        const resizer = document.getElementById('left-resizer');
+        if (isOptionsOpen) {
+            side.classList.remove('collapsed');
+            resizer.style.display = 'block';
+        } else {
+            side.classList.add('collapsed');
+            resizer.style.display = 'none';
+        }
+        relayoutMonaco();
+    }
+
     function toggleInspectorSidebar() {
         isInspectorOpen = !isInspectorOpen;
         const bar = document.getElementById('inspector-sidebar');
-        const resizer = document.getElementById('sidebar-resizer');
+        const resizer = document.getElementById('right-resizer');
         const btn = document.getElementById('btn-toggle-inspector');
 
         if (isInspectorOpen) {
             bar.classList.add('open');
             resizer.style.display = 'block';
-            btn.classList.add('btn-toggle-active');
+            btn.classList.add('btn-active');
         } else {
             bar.classList.remove('open');
             resizer.style.display = 'none';
-            btn.classList.remove('btn-toggle-active');
+            btn.classList.remove('btn-active');
         }
-        if (tbEditor) tbEditor.layout();
-        if (rtlEditor) rtlEditor.layout();
+        relayoutMonaco();
     }
 
     function switchSidebarTab(tab) {
@@ -1249,7 +1402,14 @@ endmodule`,
         }
     }
 
-    // 4. Project Management Workflow
+    function relayoutMonaco() {
+        setTimeout(() => {
+            if (tbEditor) tbEditor.layout();
+            if (rtlEditor) rtlEditor.layout();
+        }, 50);
+    }
+
+    // 4. Project Management
     function newProject() {
         if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             activeProject = null;
@@ -1416,12 +1576,20 @@ endmodule`,
         URL.revokeObjectURL(url);
     }
 
-    // 6. Simulation Execution & Telemetry Extraction
+    // 6. Simulation Execution & Robust Telemetry Mapping
     async function executeSimulation() {
         const term = document.getElementById('panel-terminal');
         const btnRun = document.getElementById('btn-run');
         const bulb = document.getElementById('status-bulb');
         const statusMsg = document.getElementById('status-msg');
+
+        const topModule = document.getElementById('cfg-top-module').value;
+        const timescale = document.getElementById('cfg-timescale').value;
+        const enableProfiler = document.getElementById('chk-profiler').checked;
+        const enableDebug = document.getElementById('chk-debug-trace').checked;
+        const enableVcd = document.getElementById('chk-vcd-enable').checked;
+
+        document.getElementById('lbl-timescale').textContent = timescale;
 
         btnRun.disabled = true;
         bulb.className = "status-indicator busy";
@@ -1435,8 +1603,12 @@ endmodule`,
                 body: JSON.stringify({
                     design_code: rtlEditor.getValue(),
                     tb_code: tbEditor.getValue(),
-                    top_module: "tb_counter",
-                    project_name: activeProject
+                    top_module: topModule,
+                    project_name: activeProject,
+                    enable_profiler: enableProfiler,
+                    enable_debug: enableDebug,
+                    enable_vcd: enableVcd,
+                    timescale: timescale
                 })
             });
 
@@ -1457,11 +1629,25 @@ endmodule`,
                 document.getElementById('debug-status-pill').style.color = "#ef4444";
             }
 
-            // Populate Debug Trace Log
-            document.getElementById('debug-trace-log').textContent = data.output;
+            // Populate Compiler Debug
+            // Route Compiler Phase Debug to Right Inspector
+            const debugBox = document.getElementById('debug-trace-log');
+            const debugPill = document.getElementById('debug-status-pill');
 
-            // Populate Inspector Profiler Metrics
-            if (data.telemetry) {
+            if (enableDebug && data.debug_log && data.debug_log.trim().length > 0) {
+                debugBox.textContent = data.debug_log;
+                debugPill.textContent = "Verbose Phase Trace";
+                debugPill.style.background = "#064e3b";
+                debugPill.style.color = "#34d399";
+            } else {
+                debugBox.textContent = "// Compiler Phase Trace disabled.\n// Toggle 'Emit Compiler Phase Trace' in the left sidebar to capture Ingestion, AST parsing, and Elaboration hierarchy.";
+                debugPill.textContent = "Disabled (Quiet Mode)";
+                debugPill.style.background = "#1e293b";
+                debugPill.style.color = "#94a3b8";
+            }
+
+            // Populate Profiler Metric Cards directly from structured JSON
+            if (enableProfiler && data.telemetry && data.telemetry.profiling_enabled) {
                 const t = data.telemetry;
                 document.getElementById('prof-wall').textContent = t.wallclock_ms.toFixed(2) + " ms";
                 document.getElementById('prof-user').textContent = t.user_cpu_ms.toFixed(2) + " ms";
@@ -1470,12 +1656,35 @@ endmodule`,
                 document.getElementById('prof-rss').textContent = (t.peak_rss_kb / 1024.0).toFixed(2) + " MB";
                 document.getElementById('prof-src-bytes').textContent = t.source_bytes + " B";
                 document.getElementById('prof-modules').textContent = t.modules_count;
+
+                document.getElementById('prof-nets').textContent = t.nets_count + " / " + t.nets_cap;
+                document.getElementById('prof-procs').textContent = t.procs_count;
+                document.getElementById('prof-slices').textContent = t.slices_count;
+                document.getElementById('prof-rams').textContent = t.rams_count;
+                document.getElementById('prof-load').textContent = t.net_map_load.toFixed(2);
+
+                document.getElementById('prof-events').textContent = t.events_dispatched;
+                document.getElementById('prof-deltas').textContent = t.delta_cycles;
+                document.getElementById('prof-nbas').textContent = t.nba_commits;
+            } else {
+                document.getElementById('prof-wall').textContent = "Bypassed";
+                document.getElementById('prof-user').textContent = "--";
+                document.getElementById('prof-sys').textContent = "--";
+                document.getElementById('prof-eff').textContent = "Disabled";
+                document.getElementById('prof-rss').textContent = "--";
+                document.getElementById('prof-src-bytes').textContent = "--";
+                document.getElementById('prof-modules').textContent = "--";
+                document.getElementById('prof-nets').textContent = "--";
+                document.getElementById('prof-procs').textContent = "--";
+                document.getElementById('prof-slices').textContent = "--";
+                document.getElementById('prof-rams').textContent = "--";
+                document.getElementById('prof-load').textContent = "--";
+                document.getElementById('prof-events').textContent = "--";
+                document.getElementById('prof-deltas').textContent = "--";
+                document.getElementById('prof-nbas').textContent = "--";
             }
 
-            // Extract dynamic topology metrics from stdout text
-            parseTopologyMetricsFromOutput(data.output);
-
-            if (data.vcd) {
+            if (data.vcd && enableVcd) {
                 activeVcdContent = data.vcd;
                 activeVcdFilename = data.vcd_filename;
                 document.getElementById('panel-vcd-raw').textContent = data.vcd;
@@ -1498,33 +1707,6 @@ endmodule`,
         } finally {
             btnRun.disabled = false;
         }
-    }
-
-    function parseTopologyMetricsFromOutput(out) {
-        if (!out) return;
-        const matchNet = out.match(/Hierarchical Nets Elaborated\s*:\s*(\d+)/);
-        if (matchNet) document.getElementById('prof-nets').textContent = matchNet[1];
-
-        const matchProc = out.match(/Concurrent Processes Bound\s*:\s*(\d+)/);
-        if (matchProc) document.getElementById('prof-procs').textContent = matchProc[1];
-
-        const matchSlice = out.match(/Slice Interconnects Bound\s*:\s*(\d+)/);
-        if (matchSlice) document.getElementById('prof-slices').textContent = matchSlice[1];
-
-        const matchRam = out.match(/Memory Arrays Allocated\s*:\s*(\d+)/);
-        if (matchRam) document.getElementById('prof-rams').textContent = matchRam[1];
-
-        const matchLoad = out.match(/Net Identifier Table\s*:\s*[\d]+\s*keys,\s*[\d]+\s*buckets,\s*load factor:\s*([\d\.]+)/);
-        if (matchLoad) document.getElementById('prof-load').textContent = matchLoad[1];
-
-        const matchEvents = out.match(/Time Wheel Events Run\s*:\s*(\d+)/);
-        if (matchEvents) document.getElementById('prof-events').textContent = matchEvents[1];
-
-        const matchDeltas = out.match(/Combinational Passes\s*:\s*(\d+)/);
-        if (matchDeltas) document.getElementById('prof-deltas').textContent = matchDeltas[1];
-
-        const matchNba = out.match(/NBA Commit Iterations\s*:\s*(\d+)/);
-        if (matchNba) document.getElementById('prof-nbas').textContent = matchNba[1];
     }
 
     // 7. 4-State Digital Timing Canvas
@@ -1716,7 +1898,7 @@ endmodule`,
         });
     }
 
-    // 8. Resizers
+    // 8. Fully Dynamic Resizers (Left, Editors, Splitter, Right)
     const resizerMain = document.getElementById('resizer-main');
     const editorsWrapper = document.getElementById('editors-wrapper');
     const workspace = document.getElementById('workspace');
@@ -1729,16 +1911,24 @@ endmodule`,
     let isDraggingH = false;
     resizerH.addEventListener('mousedown', () => isDraggingH = true);
 
-    const sideResizer = document.getElementById('sidebar-resizer');
-    const sidebar = document.getElementById('inspector-sidebar');
-    let isDraggingSide = false;
-    sideResizer.addEventListener('mousedown', () => isDraggingSide = true);
+    const leftResizer = document.getElementById('left-resizer');
+    const leftSidebar = document.getElementById('options-sidebar');
+    let isDraggingLeft = false;
+    leftResizer.addEventListener('mousedown', () => isDraggingLeft = true);
+
+    const rightResizer = document.getElementById('right-resizer');
+    const rightSidebar = document.getElementById('inspector-sidebar');
+    let isDraggingRight = false;
+    rightResizer.addEventListener('mousedown', () => isDraggingRight = true);
 
     window.addEventListener('mousemove', (e) => {
         if (isDraggingV) {
             const h = workspace.offsetHeight;
             const topH = ((e.clientY - workspace.offsetTop) / h) * 100;
-            if (topH > 20 && topH < 85) editorsWrapper.style.height = topH + '%';
+            if (topH > 20 && topH < 85) {
+                editorsWrapper.style.height = topH + '%';
+                relayoutMonaco();
+            }
         }
         if (isDraggingH) {
             const w = editorsWrapper.offsetWidth;
@@ -1746,20 +1936,33 @@ endmodule`,
             if (leftW > 20 && leftW < 80) {
                 colTb.style.flex = "none";
                 colTb.style.width = leftW + '%';
+                relayoutMonaco();
             }
         }
-        if (isDraggingSide) {
+        if (isDraggingLeft) {
+            const newW = e.clientX;
+            if (newW > 180 && newW < 450) {
+                leftSidebar.style.width = newW + 'px';
+                relayoutMonaco();
+            }
+        }
+        if (isDraggingRight) {
             const newW = window.innerWidth - e.clientX;
-            if (newW > 260 && newW < 600) {
-                sidebar.style.width = newW + 'px';
+            if (newW > 240 && newW < 600) {
+                rightSidebar.style.width = newW + 'px';
+                relayoutMonaco();
             }
         }
     });
 
     window.addEventListener('mouseup', () => {
+        if (isDraggingV || isDraggingH || isDraggingLeft || isDraggingRight) {
+            relayoutMonaco();
+        }
         isDraggingV = false;
         isDraggingH = false;
-        isDraggingSide = false;
+        isDraggingLeft = false;
+        isDraggingRight = false;
     });
 </script>
 

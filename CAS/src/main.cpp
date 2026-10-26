@@ -6,30 +6,61 @@
 #include <iostream>
 #include <chrono>
 #include <iomanip>
+#include <cstring>
 #include <sys/resource.h>
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: cas <source_files...>\n";
+        std::cerr << "Usage: cas [options] <source_files...>\n";
         return 1;
     }
 
-    std::cout << "========================================================\n";
-    std::cout << " CAS (Cycle Accurate Simulator) v1.0.0 [EDA Kernel]     \n";
-    std::cout << "========================================================\n";
+    bool enable_profiling = true;
+    bool verbose = true;
+    bool enable_vcd = true;
+    std::string top_override = "";
+    std::string timescale_unit = "1ns";
+    std::vector<std::string> source_files;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--no-profile") == 0) {
+            enable_profiling = false;
+        } else if (std::strcmp(argv[i], "--quiet") == 0) {
+            verbose = false;
+        } else if (std::strcmp(argv[i], "--no-vcd") == 0) {
+            enable_vcd = false;
+        } else if (std::strcmp(argv[i], "--top") == 0 && i + 1 < argc) {
+            top_override = argv[++i];
+        } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
+            timescale_unit = argv[++i];
+        } else {
+            source_files.push_back(argv[i]);
+        }
+    }
+
+    if (source_files.empty()) {
+        std::cerr << "[CAS ERROR] No source files provided.\n";
+        return 1;
+    }
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // ----------------------------------------------------
-    // PHASE 1: Source Ingestion
-    // ----------------------------------------------------
-    std::cout << "[PHASE 1: Ingestion] Reading source files...\n";
     std::string combined_src;
     size_t total_bytes = 0;
-    for (int i = 1; i < argc; ++i) {
-        std::ifstream f(argv[i]);
+    std::stringstream debug_ss;
+    std::ostream* debug_ptr = verbose ? &debug_ss : nullptr;
+
+    if (verbose) {
+        debug_ss << "========================================================\n";
+        debug_ss << " CAS (Cycle Accurate Simulator) v1.0.0 [EDA Kernel]     \n";
+        debug_ss << "========================================================\n";
+        debug_ss << "[PHASE 1: Ingestion] Reading source files...\n";
+    }
+
+    for (const auto& file : source_files) {
+        std::ifstream f(file);
         if (!f.is_open()) {
-            std::cerr << "[CAS ERROR] Cannot open source file: " << argv[i] << "\n";
+            std::cerr << "[CAS ERROR] Cannot open source file: " << file << "\n";
             return 1;
         }
         std::stringstream ss;
@@ -37,74 +68,90 @@ int main(int argc, char* argv[]) {
         std::string content = ss.str();
         total_bytes += content.size();
         combined_src += content + "\n";
-        std::cout << "  -> Loaded '" << argv[i] << "' (" << content.size() << " bytes)\n";
+        if (verbose) {
+            debug_ss << "  -> Loaded '" << file << "' (" << content.size() << " bytes)\n";
+        }
     }
 
     try {
-        // ----------------------------------------------------
-        // PHASE 2: Lexical Analysis & AST Parsing
-        // ----------------------------------------------------
-        std::cout << "[PHASE 2: Frontend] Parsing AST & Module Definitions...\n";
+        if (verbose) {
+            debug_ss << "[PHASE 2: Frontend] Parsing AST & Module Definitions...\n";
+        }
+
         Lexer lexer(combined_src);
         Parser parser(lexer);
         auto modules = parser.parse_all();
 
-        std::cout << "  -> Parsed " << modules.size() << " module declaration(s):\n";
-        for (const auto& mod : modules) {
-            std::cout << "     * module " << mod->name 
-                      << " (ports: " << mod->ports.size()
-                      << ", params: " << mod->parameters.size()
-                      << ", signals: " << mod->signals.size()
-                      << ", gates: " << mod->gates.size()
-                      << ", tasks: " << mod->tasks.size()
-                      << ", processes: " << mod->processes.size() << ")\n";
+        if (verbose) {
+            debug_ss << "  -> Parsed " << modules.size() << " module declaration(s):\n";
+            for (const auto& mod : modules) {
+                debug_ss << "     * module " << mod->name 
+                         << " (ports: " << mod->ports.size()
+                         << ", params: " << mod->parameters.size()
+                         << ", signals: " << mod->signals.size()
+                         << ", gates: " << mod->gates.size()
+                         << ", tasks: " << mod->tasks.size()
+                         << ", processes: " << mod->processes.size() << ")\n";
+            }
         }
 
-        // ----------------------------------------------------
-        // PHASE 3 & 4: Elaboration & Simulation Execution
-        // ----------------------------------------------------
         Engine engine;
-        engine.elaborate(modules);
-        engine.run();
+        engine.set_vcd_allowed(enable_vcd);
+        engine.elaborate(modules, debug_ptr);
+        engine.run(debug_ptr);
 
-        // ----------------------------------------------------
-        // PERFORMANCE & RESOURCE PROFILER
-        // ----------------------------------------------------
         auto t1 = std::chrono::high_resolution_clock::now();
         double elapsed_wall_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        struct rusage usage;
-        getrusage(RUSAGE_SELF, &usage);
+        double user_cpu_ms = 0.0;
+        double sys_cpu_ms = 0.0;
+        double total_cpu_ms = 0.0;
+        double cpu_util = 0.0;
+        long max_rss_kb = 0;
 
-        double user_cpu_ms = (usage.ru_utime.tv_sec * 1000.0) + (usage.ru_utime.tv_usec / 1000.0);
-        double sys_cpu_ms  = (usage.ru_stime.tv_sec * 1000.0) + (usage.ru_stime.tv_usec / 1000.0);
-        double total_cpu_ms = user_cpu_ms + sys_cpu_ms;
-        double cpu_util = (elapsed_wall_ms > 0) ? (total_cpu_ms / elapsed_wall_ms) * 100.0 : 0.0;
-        long max_rss_kb = usage.ru_maxrss;
+        if (enable_profiling) {
+            struct rusage usage;
+            getrusage(RUSAGE_SELF, &usage);
 
-        engine.print_profile_report();
+            user_cpu_ms = (usage.ru_utime.tv_sec * 1000.0) + (usage.ru_utime.tv_usec / 1000.0);
+            sys_cpu_ms  = (usage.ru_stime.tv_sec * 1000.0) + (usage.ru_stime.tv_usec / 1000.0);
+            total_cpu_ms = user_cpu_ms + sys_cpu_ms;
+            cpu_util = (elapsed_wall_ms > 0) ? (total_cpu_ms / elapsed_wall_ms) * 100.0 : 0.0;
+            max_rss_kb = usage.ru_maxrss;
+        }
 
-        std::cout << "\n[RESOURCE USAGE & EXECUTION METRICS]\n";
-        std::cout << "  * Wallclock Real Time    : " << std::fixed << std::setprecision(2) << elapsed_wall_ms << " ms\n";
-        std::cout << "  * User CPU Time          : " << user_cpu_ms << " ms\n";
-        std::cout << "  * System Kernel CPU Time : " << sys_cpu_ms << " ms\n";
-        std::cout << "  * Total CPU Core Time    : " << total_cpu_ms << " ms ("
-                  << std::setprecision(1) << cpu_util << "% CPU efficiency)\n";
-        std::cout << "  * Peak Resident RAM (RSS): " << (max_rss_kb / 1024.0) << " MB (" << max_rss_kb << " KB)\n";
-        std::cout << "========================================================\n";
+        EngineStats st = engine.get_stats();
 
-        // Structured JSON payload for CAS Studio UI
+        // Emit telemetry block
         std::cout << "\n---BEGIN_CAS_TELEMETRY---\n";
         std::cout << "{\n";
+        std::cout << "  \"profiling_enabled\": " << (enable_profiling ? "true" : "false") << ",\n";
+        std::cout << "  \"debug_enabled\": " << (verbose ? "true" : "false") << ",\n";
+        std::cout << "  \"vcd_enabled\": " << (enable_vcd ? "true" : "false") << ",\n";
         std::cout << "  \"wallclock_ms\": " << elapsed_wall_ms << ",\n";
         std::cout << "  \"user_cpu_ms\": " << user_cpu_ms << ",\n";
         std::cout << "  \"sys_cpu_ms\": " << sys_cpu_ms << ",\n";
         std::cout << "  \"cpu_util_pct\": " << cpu_util << ",\n";
         std::cout << "  \"peak_rss_kb\": " << max_rss_kb << ",\n";
         std::cout << "  \"source_bytes\": " << total_bytes << ",\n";
-        std::cout << "  \"modules_count\": " << modules.size() << "\n";
+        std::cout << "  \"modules_count\": " << modules.size() << ",\n";
+        std::cout << "  \"nets_count\": " << st.net_count << ",\n";
+        std::cout << "  \"nets_cap\": " << st.net_cap << ",\n";
+        std::cout << "  \"procs_count\": " << st.proc_count << ",\n";
+        std::cout << "  \"slices_count\": " << st.slice_count << ",\n";
+        std::cout << "  \"rams_count\": " << st.ram_count << ",\n";
+        std::cout << "  \"net_map_load\": " << st.net_map_load << ",\n";
+        std::cout << "  \"events_dispatched\": " << st.events_dispatched << ",\n";
+        std::cout << "  \"delta_cycles\": " << st.delta_cycles << ",\n";
+        std::cout << "  \"nba_commits\": " << st.nba_commits << "\n";
         std::cout << "}\n";
         std::cout << "---END_CAS_TELEMETRY---\n";
+
+        std::cout << "\n---BEGIN_CAS_DEBUG_LOG---\n";
+        if (verbose) {
+            std::cout << debug_ss.str();
+        }
+        std::cout << "---END_CAS_DEBUG_LOG---\n";
 
     } catch (const std::exception& e) {
         std::cerr << "\n[CAS FATAL ERROR] " << e.what() << "\n";
