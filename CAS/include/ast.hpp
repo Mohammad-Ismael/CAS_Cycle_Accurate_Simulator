@@ -21,11 +21,15 @@ struct ASTNode {
 
 struct ExpressionNode : public ASTNode {
     virtual ~ExpressionNode() = default;
+    virtual std::unique_ptr<ExpressionNode> clone() const = 0;
 };
 
 struct IdentifierNode : public ExpressionNode {
     std::string name;
     IdentifierNode(std::string n) : name(std::move(n)) {}
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<IdentifierNode>(name);
+    }
 };
 
 struct NumberNode : public ExpressionNode {
@@ -34,6 +38,9 @@ struct NumberNode : public ExpressionNode {
     bool is_unknown;
     NumberNode(uint64_t val, uint32_t w, bool unk = false)
         : value(val), width(w), is_unknown(unk) {}
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<NumberNode>(value, width, is_unknown);
+    }
 };
 
 struct IndexSelectNode : public ExpressionNode {
@@ -47,6 +54,13 @@ struct IndexSelectNode : public ExpressionNode {
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> msb, std::unique_ptr<ExpressionNode> lsb)
         : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        if (!is_part_select) {
+            return std::make_unique<IndexSelectNode>(name, msb_expr ? msb_expr->clone() : nullptr);
+        }
+        return std::make_unique<IndexSelectNode>(name, msb_expr ? msb_expr->clone() : nullptr, lsb_expr ? lsb_expr->clone() : nullptr);
+    }
 };
 
 struct UnaryOpNode : public ExpressionNode {
@@ -54,6 +68,9 @@ struct UnaryOpNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> operand;
     UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
         : op(o), operand(std::move(opnd)) {}
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<UnaryOpNode>(op, operand ? operand->clone() : nullptr);
+    }
 };
 
 struct BinaryOpNode : public ExpressionNode {
@@ -62,6 +79,9 @@ struct BinaryOpNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> rhs;
     BinaryOpNode(std::string o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
         : op(std::move(o)), lhs(std::move(l)), rhs(std::move(r)) {}
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<BinaryOpNode>(op, lhs ? lhs->clone() : nullptr, rhs ? rhs->clone() : nullptr);
+    }
 };
 
 struct TernaryOpNode : public ExpressionNode {
@@ -72,6 +92,11 @@ struct TernaryOpNode : public ExpressionNode {
                   std::unique_ptr<ExpressionNode> t_expr,
                   std::unique_ptr<ExpressionNode> f_expr)
         : condition(std::move(cond)), true_expr(std::move(t_expr)), false_expr(std::move(f_expr)) {}
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<TernaryOpNode>(condition ? condition->clone() : nullptr,
+                                               true_expr ? true_expr->clone() : nullptr,
+                                               false_expr ? false_expr->clone() : nullptr);
+    }
 };
 
 struct StatementNode : public ASTNode {
@@ -159,7 +184,6 @@ struct ContinuousAssignNode : public ASTNode {
         : target_name(std::move(tgt)), rhs(std::move(r)) {}
 };
 
-// Gate primitives: and, or, xor, etc.
 enum class GateType { AND, OR, XOR, NAND, NOR, XNOR, NOT, BUF };
 
 struct GatePrimitiveNode : public ASTNode {
@@ -187,17 +211,23 @@ struct TaskNode : public ASTNode {
     std::vector<std::unique_ptr<StatementNode>> body;
 };
 
+struct ParameterDef {
+    std::string name;
+    std::unique_ptr<ExpressionNode> default_expr;
+};
+
 struct PortNode {
     std::string name;
     std::string direction;
-    uint32_t msb;
-    uint32_t lsb;
+    std::unique_ptr<ExpressionNode> msb_expr;
+    std::unique_ptr<ExpressionNode> lsb_expr;
     bool is_array = false;
-    uint32_t array_depth = 1;
+    std::unique_ptr<ExpressionNode> bound1_expr;
+    std::unique_ptr<ExpressionNode> bound2_expr;
 };
 
 struct PortConnection {
-    std::string port_name; // Empty if positional
+    std::string port_name;
     std::unique_ptr<ExpressionNode> expr;
 };
 
@@ -205,13 +235,16 @@ struct InstantiationNode : public ASTNode {
     std::string module_type;
     std::string instance_name;
     bool is_positional = false;
+    std::vector<std::unique_ptr<ExpressionNode>> param_overrides;
     std::vector<PortConnection> connections;
+
     InstantiationNode(std::string type, std::string inst, bool pos = false)
         : module_type(std::move(type)), instance_name(std::move(inst)), is_positional(pos) {}
 };
 
 struct ModuleNode : public ASTNode {
     std::string name;
+    std::vector<ParameterDef> parameters;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;

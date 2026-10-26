@@ -30,6 +30,33 @@ size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width)
     return id;
 }
 
+uint64_t Engine::eval_const_expr(ExpressionNode* expr, const std::string& scope) {
+    if (!expr) return 0;
+    if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        return num->value;
+    }
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
+        if (param_map.find(scoped_id) != param_map.end()) {
+            return param_map.at(scoped_id);
+        }
+        if (param_map.find(id->name) != param_map.end()) {
+            return param_map.at(id->name);
+        }
+        return 0;
+    }
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        uint64_t l = eval_const_expr(bin->lhs.get(), scope);
+        uint64_t r = eval_const_expr(bin->rhs.get(), scope);
+        if (bin->op == "+") return l + r;
+        if (bin->op == "-") return (l >= r) ? (l - r) : 0;
+        if (bin->op == "*") return l * r;
+        if (bin->op == "<<") return l << r;
+        if (bin->op == ">>") return l >> r;
+    }
+    return 0;
+}
+
 NetSliceRef Engine::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
@@ -52,7 +79,6 @@ NetSliceRef Engine::resolve_slice_ref(ExpressionNode* expr, const std::string& s
             return {id, lsb, w};
         }
     }
-    // Support constant literals (e.g. 1'b0, 1'b1, 0) tied to module input ports
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         static size_t const_counter = 0;
         std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
@@ -91,7 +117,16 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, sim_time);
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
-        return netlist[net_map.at(scoped_ident)].value;
+        if (param_map.find(scoped_ident) != param_map.end()) {
+            return LogicVal::make_known(32, param_map.at(scoped_ident));
+        }
+        if (net_map.find(scoped_ident) != net_map.end()) {
+            return netlist[net_map.at(scoped_ident)].value;
+        }
+        if (param_map.find(ident->name) != param_map.end()) {
+            return LogicVal::make_known(32, param_map.at(ident->name));
+        }
+        return LogicVal::make_x(1);
     }
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
@@ -277,13 +312,17 @@ void Engine::check_monitor() {
         }
 
         size_t arg_idx = 0;
-        for (size_t i = 0; i < monitor_session.format_string.size(); ++i) {
-            if (monitor_session.format_string[i] == '%' && i + 1 < monitor_session.format_string.size()) {
-                char spec = monitor_session.format_string[++i];
-                if (spec == '0' && i + 1 < monitor_session.format_string.size() && monitor_session.format_string[i + 1] == 't') {
-                    spec = 't'; i++;
-                } else if (spec == '0' && i + 1 < monitor_session.format_string.size() && (monitor_session.format_string[i + 1] == 'h' || monitor_session.format_string[i + 1] == 'd' || monitor_session.format_string[i + 1] == 'b')) {
-                    spec = monitor_session.format_string[++i];
+        size_t fmt_len = monitor_session.format_string.size();
+        for (size_t i = 0; i < fmt_len; ++i) {
+            if (monitor_session.format_string[i] == '%' && i + 1 < fmt_len) {
+                i++;
+                char spec = monitor_session.format_string[i];
+                if (spec == '0' && i + 1 < fmt_len) {
+                    char next_spec = monitor_session.format_string[i + 1];
+                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
+                        spec = next_spec;
+                        i++;
+                    }
                 }
 
                 if (arg_idx < current_values.size()) {
@@ -407,8 +446,16 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (auto& s : target_task->body) {
                 execute_statement(s.get(), bp);
                 if (!simulation_active) return;
+                propagate_comb();
+                evaluate_sequential_blocks();
+                commit_nba_updates();
             }
         }
+    }
+    else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
+        sim_time += delay->delay;
+        dump_vcd_sample();
+        check_monitor();
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
@@ -425,13 +472,17 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 std::cout << sim_time << " ";
             }
             size_t arg_idx = 0;
-            for (size_t i = 0; i < disp->format_string.size(); ++i) {
-                if (disp->format_string[i] == '%' && i + 1 < disp->format_string.size()) {
-                    char spec = disp->format_string[++i];
-                    if (spec == '0' && i + 1 < disp->format_string.size() && disp->format_string[i + 1] == 't') {
-                        spec = 't'; i++;
-                    } else if (spec == '0' && i + 1 < disp->format_string.size() && (disp->format_string[i + 1] == 'h' || disp->format_string[i + 1] == 'd' || disp->format_string[i + 1] == 'b')) {
-                        spec = disp->format_string[++i];
+            size_t fmt_len = disp->format_string.size();
+            for (size_t i = 0; i < fmt_len; ++i) {
+                if (disp->format_string[i] == '%' && i + 1 < fmt_len) {
+                    i++;
+                    char spec = disp->format_string[i];
+                    if (spec == '0' && i + 1 < fmt_len) {
+                        char next_spec = disp->format_string[i + 1];
+                        if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
+                            spec = next_spec;
+                            i++;
+                        }
                     }
 
                     if (arg_idx < disp->args.size()) {
@@ -543,17 +594,48 @@ void Engine::commit_nba_updates() {
 }
 
 void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
-                              const std::unordered_map<std::string, ModuleNode*>& module_defs) {
+                              const std::unordered_map<std::string, ModuleNode*>& module_defs,
+                              const std::vector<std::unique_ptr<ExpressionNode>>* overrides,
+                              const std::string& parent_scope) {
+    for (size_t i = 0; i < mod->parameters.size(); ++i) {
+        const auto& p = mod->parameters[i];
+        uint64_t val = 0;
+        if (overrides && i < overrides->size()) {
+            val = eval_const_expr((*overrides)[i].get(), parent_scope);
+        } else {
+            val = eval_const_expr(p.default_expr.get(), scope);
+        }
+        param_map[scope + "." + p.name] = val;
+    }
+
     for (auto& p : mod->ports) {
-        uint32_t w = (p.msb >= p.lsb) ? (p.msb - p.lsb + 1) : 1;
+        uint32_t w = 1;
+        if (p.msb_expr && p.lsb_expr) {
+            uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
+            uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
+            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+        }
         get_or_create_net(scope + "." + p.name, w);
     }
 
     for (auto& s : mod->signals) {
-        uint32_t w = (s.msb >= s.lsb) ? (s.msb - s.lsb + 1) : 1;
+        uint32_t w = 1;
+        if (s.msb_expr && s.lsb_expr) {
+            uint64_t msb = eval_const_expr(s.msb_expr.get(), scope);
+            uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
+            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+        }
         if (s.is_array) {
+            uint32_t depth = 1;
+            if (s.bound1_expr && s.bound2_expr) {
+                uint64_t b1 = eval_const_expr(s.bound1_expr.get(), scope);
+                uint64_t b2 = eval_const_expr(s.bound2_expr.get(), scope);
+                depth = (b1 >= b2) ? (uint32_t)(b1 - b2 + 1) : (uint32_t)(b2 - b1 + 1);
+            } else if (s.bound1_expr) {
+                depth = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
+            }
             std::string mem_scope = scope + "." + s.name;
-            memory_map[mem_scope] = MemoryArray(mem_scope, w, s.array_depth);
+            memory_map[mem_scope] = MemoryArray(mem_scope, w, depth);
         } else {
             get_or_create_net(scope + "." + s.name, w);
         }
@@ -589,7 +671,7 @@ void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         ModuleNode* submod = module_defs.at(inst->module_type);
 
-        elaborate_module(submod, child_scope, module_defs);
+        elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope);
 
         for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
             auto& conn = inst->connections[conn_idx];
@@ -712,6 +794,7 @@ void Engine::run() {
     std::cout << "Slice Interconnects Bound: " << slice_bindings.size() << "\n";
     std::cout << "Gate Primitives Instantiated: " << gates.size() << "\n";
     std::cout << "Continuous Assigns Bound: " << continuous_assigns.size() << "\n";
+    std::cout << "Memory Arrays Allocated: " << memory_map.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
 
     propagate_comb();

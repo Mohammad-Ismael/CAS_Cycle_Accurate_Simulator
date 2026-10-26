@@ -1,0 +1,49 @@
+$date
+   Mon Oct 26 21:06:46 2026
+$end
+$version
+   CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel]
+$end
+$timescale 1ns $end
+$scope module test.RAM $end
+$var wire 1 ( clk_write $end
+$var wire 5 ) address_write $end
+$var wire 8 * data_write $end
+$var wire 1 + write_enable $end
+$var wire 1 , clk_read $end
+$var wire 5 - address_read $end
+$var wire 8 . data_read $end
+$upscope $end
+$scope module test $end
+$var wire 1 ! clk_write $end
+$var wire 5 " address_write $end
+$var wire 8 # data_write $end
+$var wire 1 $ write_enable $end
+$var wire 1 % clk_read $end
+$var wire 5 & address_read $end
+$var wire 8 ' data_read $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+x!
+bxxxxx "
+bxxxxxxxx #
+x$
+x%
+bxxxxx &
+bxxxxxxxx '
+x(
+bxxxxx )
+bxxxxxxxx *
+x+
+x,
+bxxxxx -
+bxxxxxxxx .
+$end
+#0
+#10
+#20
+#30
+#40
+#50
+#60

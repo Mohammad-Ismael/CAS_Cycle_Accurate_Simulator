@@ -166,6 +166,8 @@ Token Lexer::next_token() {
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, line};
         if (ident == "wire") return {TokenType::TOKEN_WIRE, ident, 0, 0, line};
         if (ident == "reg") return {TokenType::TOKEN_REG, ident, 0, 0, line};
+        if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, line};
+        if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, line};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, line};
         if (ident == "always") return {TokenType::TOKEN_ALWAYS, ident, 0, 0, line};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, line};
@@ -173,10 +175,7 @@ Token Lexer::next_token() {
         if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, line};
         if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, line};
 
-        // Sensitivity 'or' keyword (also acts as gate 'or')
         if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, line};
-
-        // Gate Primitives
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, line};
         if (ident == "xor") return {TokenType::TOKEN_GATE_XOR, ident, 0, 0, line};
         if (ident == "nand") return {TokenType::TOKEN_GATE_NAND, ident, 0, 0, line};

@@ -143,7 +143,12 @@ def delete_vcd_file(name: str, filename: str):
 @app.post("/api/simulate")
 def simulate(req: SimRequest):
     if not req.design_code.strip() and not req.tb_code.strip():
-        return {"status": "error", "output": "[ERROR] Both RTL and Testbench are empty.", "vcd": None, "vcd_filename": None}
+        return {
+            "status": "error",
+            "output": "[ERROR] Both RTL and Testbench are empty.",
+            "vcd": None,
+            "vcd_filename": None
+        }
 
     with tempfile.TemporaryDirectory() as tmpdir:
         files_to_run = []
@@ -164,7 +169,7 @@ def simulate(req: SimRequest):
         run_cmd = [cas_bin] + files_to_run
 
         try:
-            res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=10)
+            res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=15)
             output_msg = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
             vcd_content = None
             vcd_filename = None
@@ -193,7 +198,20 @@ def simulate(req: SimRequest):
                 "vcd": vcd_content,
                 "vcd_filename": vcd_filename
             }
+        except subprocess.TimeoutExpired as e:
+            partial_out = (e.stdout or "") + "\n" + (e.stderr or "")
+            return {
+                "status": "error",
+                "output": f"[CAS TIMEOUT (15s)] Partial log before hang:\n{partial_out}",
+                "vcd": None,
+                "vcd_filename": None
+            }
         except Exception as e:
-            return {"status": "error", "output": f"[CAS INVOCATION ERROR] {str(e)}", "vcd": None, "vcd_filename": None}
+            return {
+                "status": "error",
+                "output": f"[CAS INVOCATION ERROR] {str(e)}",
+                "vcd": None,
+                "vcd_filename": None
+            }
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

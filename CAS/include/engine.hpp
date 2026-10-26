@@ -92,7 +92,8 @@ private:
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, TaskNode*> task_map;
 
-    // Active Monitor Session
+    std::unordered_map<std::string, uint64_t> param_map;
+
     MonitorSession monitor_session;
 
     std::vector<NBAUpdate> nba_queue;
@@ -114,6 +115,7 @@ private:
     void write_slice(const NetSliceRef& ref, const LogicVal& val);
 
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
+    uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void propagate_comb();
     void evaluate_sequential_blocks();
@@ -122,7 +124,9 @@ private:
     void check_monitor();
 
     void elaborate_module(ModuleNode* mod, const std::string& scope,
-                          const std::unordered_map<std::string, ModuleNode*>& module_defs);
+                          const std::unordered_map<std::string, ModuleNode*>& module_defs,
+                          const std::vector<std::unique_ptr<ExpressionNode>>* overrides = nullptr,
+                          const std::string& parent_scope = "");
 
     std::string generate_vcd_id(size_t id);
     void init_vcd_header();
