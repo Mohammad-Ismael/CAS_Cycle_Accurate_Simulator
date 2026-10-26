@@ -3,20 +3,83 @@
 #include <cstdint>
 #include <vector>
 
+struct LogicVal {
+    uint64_t aval; // Data word
+    uint64_t bval; // 4-state control word: 0=known, 1=unknown/Z
+    uint32_t width;
+
+    LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0)
+        : aval(a), bval(b), width(w) {
+        mask();
+    }
+
+    // Default 4-state initialization: all X's
+    static LogicVal make_x(uint32_t w) {
+        uint64_t m = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        return LogicVal(w, m, m); // aval=1, bval=1 -> 'X'
+    }
+
+    // Known 2-state constant
+    static LogicVal make_known(uint32_t w, uint64_t val) {
+        return LogicVal(w, val, 0); // bval=0
+    }
+
+    void mask() {
+        uint64_t m = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+        aval &= m;
+        bval &= m;
+    }
+
+    bool is_unknown() const {
+        return bval != 0;
+    }
+
+    bool to_bool() const {
+        // In Verilog, if any bit is known 1 and not unknown, it's true.
+        // If unknown, branches treat it as false.
+        if (is_unknown()) return false;
+        return aval != 0;
+    }
+
+    bool operator==(const LogicVal& o) const {
+        return (aval == o.aval) && (bval == o.bval) && (width == o.width);
+    }
+
+    bool operator!=(const LogicVal& o) const {
+        return !(*this == o);
+    }
+
+    std::string to_bin_string() const {
+        std::string s;
+        for (int i = (int)width - 1; i >= 0; --i) {
+            bool a = (aval >> i) & 1;
+            bool b = (bval >> i) & 1;
+            if (!b) {
+                s += (a ? '1' : '0');
+            } else {
+                s += (a ? 'x' : 'z');
+            }
+        }
+        return s;
+    }
+};
+
 struct Net {
     std::string name;
     uint32_t width;
-    uint64_t value;
-    uint64_t prev_value;
+    LogicVal value;
+    LogicVal prev_value;
     bool modified;
-    std::string vcd_id; // ASCII character identifier for VCD dumping
+    std::string vcd_id;
 
     Net(std::string n, uint32_t w)
-        : name(std::move(n)), width(w), value(0), prev_value(0), modified(false), vcd_id("") {}
+        : name(std::move(n)), width(w),
+          value(LogicVal::make_x(w)),       // All nets initialize to X!
+          prev_value(LogicVal::make_x(w)),
+          modified(false), vcd_id("") {}
 
-    void set(uint64_t val) {
-        uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-        uint64_t clamped = val & mask;
+    void set(const LogicVal& val) {
+        LogicVal clamped(width, val.aval, val.bval);
         if (value != clamped) {
             prev_value = value;
             value = clamped;
@@ -25,18 +88,16 @@ struct Net {
     }
 
     bool is_posedge() const {
-        return (prev_value == 0 && value != 0);
+        // Posedge: transition from 0 to 1, or 0/X to 1
+        bool prev_0 = (prev_value.bval == 0 && (prev_value.aval & 1) == 0);
+        bool curr_1 = (value.bval == 0 && (value.aval & 1) == 1);
+        return prev_0 && curr_1;
     }
 
     bool is_negedge() const {
-        return (prev_value != 0 && value == 0);
-    }
-
-    std::string to_bin_string() const {
-        std::string s;
-        for (int i = (int)width - 1; i >= 0; --i) {
-            s += ((value >> i) & 1) ? '1' : '0';
-        }
-        return s;
+        // Negedge: transition from 1 to 0
+        bool prev_1 = (prev_value.bval == 0 && (prev_value.aval & 1) == 1);
+        bool curr_0 = (value.bval == 0 && (value.aval & 1) == 0);
+        return prev_1 && curr_0;
     }
 };

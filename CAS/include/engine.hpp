@@ -20,7 +20,7 @@ struct NetBinding {
 
 struct NBAUpdate {
     size_t net_id;
-    uint64_t val;
+    LogicVal val;
 };
 
 struct SimEvent {
@@ -57,7 +57,7 @@ private:
     uint64_t last_dump_time = ~0ULL;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
-    uint64_t eval_expr(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void propagate_comb();
     void evaluate_sequential_blocks();

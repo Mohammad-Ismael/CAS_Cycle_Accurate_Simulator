@@ -965,7 +965,8 @@ endmodule`,
 
         if (maxTime === 0) maxTime = 50;
 
-        let curTime = 0;
+// Parse values (now supporting 'x' and 'z')
+let curTime = 0;
         for (let line of lines) {
             line = line.trim();
             if (!line || line.startsWith('$')) continue;
@@ -978,13 +979,104 @@ endmodule`,
                 const parts = line.substring(1).split(/\s+/);
                 const val = parts[0];
                 const id = parts[1];
-                if (idToVar[id]) idToVar[id].changes.push({ time: curTime, val: parseInt(val, 2) });
+                if (idToVar[id]) {
+                    const isX = val.includes('x') || val.includes('z');
+                    idToVar[id].changes.push({ time: curTime, val: isX ? 'x' : parseInt(val, 2), raw: val });
+                }
             } else {
-                const val = parseInt(line[0]);
+                const charVal = line[0].toLowerCase();
                 const id = line.substring(1);
-                if (idToVar[id]) idToVar[id].changes.push({ time: curTime, val: val });
+                if (idToVar[id]) {
+                    idToVar[id].changes.push({ time: curTime, val: charVal });
+                }
             }
         }
+
+        // Draw Waves
+        signals.forEach((sig, idx) => {
+            const yTop = timeHeaderHeight + (idx * rowHeight);
+            const yMid = yTop + (rowHeight / 2);
+            const yHigh = yTop + 7;
+            const yLow = yTop + rowHeight - 7;
+
+            ctx.strokeStyle = '#181920';
+            ctx.beginPath();
+            ctx.moveTo(0, yTop + rowHeight);
+            ctx.lineTo(totalWidth, yTop + rowHeight);
+            ctx.stroke();
+
+            if (sig.changes.length === 0) return;
+
+            if (sig.width === 1) {
+                // 1-Bit Scalar Digital Wire with 4-State handling
+                for (let i = 0; i < sig.changes.length; i++) {
+                    const c = sig.changes[i];
+                    const nextTime = (i + 1 < sig.changes.length) ? sig.changes[i+1].time : (maxTime + 5);
+                    const xStart = c.time * timeStepPx;
+                    const xEnd = nextTime * timeStepPx;
+
+                    ctx.lineWidth = 2;
+                    if (c.val === 'x' || c.val === 'z') {
+                        ctx.strokeStyle = '#ef4444'; // Red for Unknown
+                        ctx.beginPath();
+                        ctx.moveTo(xStart, yMid);
+                        ctx.lineTo(xEnd, yMid);
+                        ctx.stroke();
+                    } else {
+                        ctx.strokeStyle = '#10b981'; // Emerald for Known
+                        const yVal = (c.val === '1' || c.val === 1) ? yHigh : yLow;
+                        ctx.beginPath();
+                        ctx.moveTo(xStart, yVal);
+                        ctx.lineTo(xEnd, yVal);
+                        ctx.stroke();
+                    }
+
+                    // Vertical transition line
+                    if (i + 1 < sig.changes.length) {
+                        const nextVal = sig.changes[i+1].val;
+                        const yCur = (c.val === 'x' || c.val === 'z') ? yMid : ((c.val === '1' || c.val === 1) ? yHigh : yLow);
+                        const yNext = (nextVal === 'x' || nextVal === 'z') ? yMid : ((nextVal === '1' || nextVal === 1) ? yHigh : yLow);
+                        ctx.strokeStyle = (nextVal === 'x' || c.val === 'x') ? '#ef4444' : '#10b981';
+                        ctx.beginPath();
+                        ctx.moveTo(xEnd, yCur);
+                        ctx.lineTo(xEnd, yNext);
+                        ctx.stroke();
+                    }
+                }
+            } else {
+                // Multi-Bit Bus Box with 4-state Unknown support
+                for (let i = 0; i < sig.changes.length; i++) {
+                    const c = sig.changes[i];
+                    const nextTime = (i + 1 < sig.changes.length) ? sig.changes[i+1].time : (maxTime + 5);
+                    const xStart = c.time * timeStepPx;
+                    const xEnd = nextTime * timeStepPx;
+                    const boxW = xEnd - xStart;
+
+                    if (boxW <= 0) continue;
+
+                    const isX = (c.val === 'x');
+                    ctx.strokeStyle = isX ? '#ef4444' : '#38bdf8';
+                    ctx.fillStyle = isX ? '#450a0a' : '#1e293b';
+                    ctx.lineWidth = 1.5;
+
+                    ctx.beginPath();
+                    ctx.moveTo(xStart + 3, yHigh);
+                    ctx.lineTo(xEnd - 3, yHigh);
+                    ctx.lineTo(xEnd, yMid);
+                    ctx.lineTo(xEnd - 3, yLow);
+                    ctx.lineTo(xStart + 3, yLow);
+                    ctx.lineTo(xStart, yMid);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = isX ? '#fca5a5' : '#e2e8f0';
+                    ctx.font = '11px JetBrains Mono';
+                    const label = isX ? "X" : ("0x" + c.val.toString(16).toUpperCase());
+                    if (boxW > 25) ctx.fillText(label, xStart + 8, yMid + 4);
+                }
+            }
+        });
 
         const rowHeight = 36;
         const timeHeaderHeight = 28;
