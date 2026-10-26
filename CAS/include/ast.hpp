@@ -24,6 +24,8 @@ enum class TokenType {
     TOKEN_INITIAL,
     TOKEN_DISPLAY,
     TOKEN_FINISH,
+    TOKEN_DUMPFILE,
+    TOKEN_DUMPVARS,
     TOKEN_IDENTIFIER,
     TOKEN_NUMBER,
     TOKEN_STRING,
@@ -38,7 +40,7 @@ enum class TokenType {
     TOKEN_DOT,
     TOKEN_HASH,
     TOKEN_EQUAL,       // =
-    TOKEN_LE,          // <= (Non-blocking assign)
+    TOKEN_LE,          // <=
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_COLON
@@ -128,10 +130,17 @@ struct DisplayStatementNode : public StatementNode {
 
 struct FinishStatementNode : public StatementNode {};
 
+struct DumpFileStatementNode : public StatementNode {
+    std::string filename;
+    explicit DumpFileStatementNode(std::string file) : filename(std::move(file)) {}
+};
+
+struct DumpVarsStatementNode : public StatementNode {};
+
 enum class ProcessType {
-    COMBINATIONAL, // always_comb
-    SEQUENTIAL,    // always_ff
-    INITIAL        // initial
+    COMBINATIONAL,
+    SEQUENTIAL,
+    INITIAL
 };
 
 struct ProcessNode : public ASTNode {

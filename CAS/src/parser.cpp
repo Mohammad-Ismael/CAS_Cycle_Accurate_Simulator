@@ -124,7 +124,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>();
     }
 
-    // 5. Assignments: Blocking (=) vs Non-blocking (<=)
+    // 5. $dumpfile("file.vcd");
+    if (match(TokenType::TOKEN_DUMPFILE)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");
+        std::string fname = current.text;
+        expect(TokenType::TOKEN_STRING, "Expected filename string for $dumpfile");
+        expect(TokenType::TOKEN_RPAREN, "Expected ')'");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        return std::make_unique<DumpFileStatementNode>(fname);
+    }
+
+    // 6. $dumpvars; or $dumpvars(0, ...);
+    if (match(TokenType::TOKEN_DUMPVARS)) {
+        if (match(TokenType::TOKEN_LPAREN)) {
+            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')'");
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        return std::make_unique<DumpVarsStatementNode>();
+    }
+
+    // 7. Assignments: Blocking (=) vs Non-blocking (<=)
     std::vector<std::string> targets;
     if (match(TokenType::TOKEN_LBRACE)) {
         while (true) {
@@ -140,12 +162,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (match(TokenType::TOKEN_LE)) {
-        // Non-blocking assignment <=
         auto expr = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating non-blocking assignment");
         return std::make_unique<NonBlockingAssignNode>(targets[0], std::move(expr));
     } else {
-        // Blocking assignment =
         expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in assignment");
         auto expr = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' terminating blocking assignment");
@@ -241,7 +261,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                     proc->sensitivity_list.push_back({edge, sig});
 
-                    match(TokenType::TOKEN_OR); // optional 'or' or comma
+                    match(TokenType::TOKEN_OR);
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
                 expect(TokenType::TOKEN_BEGIN, "Expected 'begin' block");

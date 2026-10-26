@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <queue>
 #include <iostream>
+#include <fstream>
 
 struct BoundProcess {
     std::string scope;
@@ -41,13 +42,19 @@ private:
     std::vector<NetBinding> port_bindings;
 
     // Stratified IEEE 1800 Regions
-    std::vector<NBAUpdate> nba_queue; // NBA update buffer
+    std::vector<NBAUpdate> nba_queue;
 
     // Simulation Time Wheel
     uint64_t sim_time = 0;
     std::priority_queue<SimEvent, std::vector<SimEvent>, std::greater<SimEvent>> time_wheel;
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
+
+    // VCD Dumper State
+    bool vcd_enabled = false;
+    std::string vcd_filename;
+    std::ofstream vcd_file;
+    uint64_t last_dump_time = ~0ULL;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
     uint64_t eval_expr(ExpressionNode* expr, const std::string& scope);
@@ -57,7 +64,13 @@ private:
     void commit_nba_updates();
     void step_process(size_t pid);
 
+    // VCD Subroutines
+    std::string generate_vcd_id(size_t id);
+    void init_vcd_header();
+    void dump_vcd_sample(bool initial_dump = false);
+
 public:
+    ~Engine();
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules);
     void run();
 };

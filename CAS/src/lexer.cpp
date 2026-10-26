@@ -58,7 +58,6 @@ Token Lexer::next_token() {
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, line}; }
 
-    // Check <= vs <
     if (c == '<') {
         advance();
         if (peek() == '=') {
@@ -77,7 +76,7 @@ Token Lexer::next_token() {
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance(); // consume '
+            advance();
             char base = advance();
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_') {
@@ -126,6 +125,8 @@ Token Lexer::next_token() {
         if (ident == "initial") return {TokenType::TOKEN_INITIAL, ident, 0, 0, line};
         if (ident == "$display") return {TokenType::TOKEN_DISPLAY, ident, 0, 0, line};
         if (ident == "$finish") return {TokenType::TOKEN_FINISH, ident, 0, 0, line};
+        if (ident == "$dumpfile") return {TokenType::TOKEN_DUMPFILE, ident, 0, 0, line};
+        if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, line};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, line};
     }

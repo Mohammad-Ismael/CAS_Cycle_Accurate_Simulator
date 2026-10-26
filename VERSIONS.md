@@ -5,6 +5,22 @@ All notable architectural enhancements, language grammar additions, and runtime 
 
 ---
 
+## [v0.5.0] - 2026-10-26
+
+### Added
+* **Native VCD (Value Change Dump) Generation:**
+  * Added `$dumpfile("...")` and `$dumpvars` language support to `Lexer`, `Parser`, and `AST`.
+  * Implemented IEEE 1364/1800 compliant VCD header generation in `Engine`: `$date`, `$version`, `$timescale 1ns`, and hierarchical `$scope ... $var ... $upscope`.
+  * Added compact ASCII identifier generation mapping unique runtime net IDs to printable ASCII tokens (`!` to `~`).
+  * Real-time signal change dumper tracking delta transitions across simulation time steps (`#0`, `#5`, `#15`, etc.).
+* **Studio UI Overhaul & HTML5 Canvas Waveform Viewer:**
+  * Replaced static terminal with a multi-pane Studio workspace featuring draggable horizontal and vertical splitters.
+  * Added an in-browser digital timing diagram engine rendering clocks, single-bit logic wires, and multibit transition buses with hexadecimal tags.
+  * Added one-click `.vcd` file export directly from the browser navigation bar.
+  * Integrated raw VCD text source inspection tab.
+
+---
+
 ## [v0.4.0] - 2026-10-26
 
 ### Added
@@ -53,10 +69,6 @@ All notable architectural enhancements, language grammar additions, and runtime 
   * Continuous port-binding table (`NetBinding`) links driving parent nets to receiving child input ports, and driving child output ports back to parent nets.
 * **Immediate Combinational Delta Propagation:**
   * Implemented `propagate_comb()` in the evaluation kernel to guarantee that procedural blocking assignments (`=`) immediately trigger iterative combinational convergence across module boundaries before sequential calls (such as `$display`) execute.
-
-### Fixed
-* Fixed parser cursor misalignment where invoking the lexer directly inside `parse_statement` swallowed `begin` tokens.
-* Fixed zero-value readouts in testbench `$display` by resolving inter-module delta latency.
 
 ---
 

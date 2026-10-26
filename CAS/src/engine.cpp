@@ -2,6 +2,23 @@
 #include <iomanip>
 #include <bitset>
 #include <stdexcept>
+#include <ctime>
+
+Engine::~Engine() {
+    if (vcd_file.is_open()) {
+        vcd_file.close();
+    }
+}
+
+std::string Engine::generate_vcd_id(size_t id) {
+    std::string res;
+    size_t base = 94; // Printable ASCII range 33 ('!') through 126 ('~')
+    do {
+        res += (char)(33 + (id % base));
+        id /= base;
+    } while (id > 0);
+    return res;
+}
 
 size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width) {
     if (net_map.find(scoped_name) != net_map.end()) {
@@ -9,6 +26,7 @@ size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width)
     }
     size_t id = netlist.size();
     netlist.emplace_back(scoped_name, width);
+    netlist.back().vcd_id = generate_vcd_id(id);
     net_map[scoped_name] = id;
     return id;
 }
@@ -34,6 +52,67 @@ uint64_t Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
         return (bin->op == '+') ? (l + r) : (l - r);
     }
     return 0;
+}
+
+void Engine::init_vcd_header() {
+    if (!vcd_enabled || vcd_file.is_open()) return;
+
+    vcd_file.open(vcd_filename);
+    if (!vcd_file.is_open()) {
+        std::cerr << "[CAS ERROR] Unable to create VCD file: " << vcd_filename << "\n";
+        vcd_enabled = false;
+        return;
+    }
+
+    std::time_t now = std::time(nullptr);
+    vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
+    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v0.5.0\n$end\n";
+    vcd_file << "$timescale 1ns $end\n";
+
+    // Split netnames into module scopes
+    // We group nets by scope hierarchy (e.g. "tb_counter" -> "u_dut")
+    std::unordered_map<std::string, std::vector<size_t>> scopes;
+    for (size_t i = 0; i < netlist.size(); ++i) {
+        std::string full_name = netlist[i].name;
+        size_t dot_pos = full_name.rfind('.');
+        std::string scope_name = (dot_pos == std::string::npos) ? "top" : full_name.substr(0, dot_pos);
+        scopes[scope_name].push_back(i);
+    }
+
+    for (const auto& kv : scopes) {
+        vcd_file << "$scope module " << kv.first << " $end\n";
+        for (size_t net_id : kv.second) {
+            const auto& net = netlist[net_id];
+            size_t dot_pos = net.name.rfind('.');
+            std::string leaf_name = (dot_pos == std::string::npos) ? net.name : net.name.substr(dot_pos + 1);
+            vcd_file << "$var wire " << net.width << " " << net.vcd_id << " " << leaf_name << " $end\n";
+        }
+        vcd_file << "$upscope $end\n";
+    }
+
+    vcd_file << "$enddefinitions $end\n";
+    vcd_file << "$dumpvars\n";
+    dump_vcd_sample(true);
+    vcd_file << "$end\n";
+}
+
+void Engine::dump_vcd_sample(bool initial_dump) {
+    if (!vcd_enabled || !vcd_file.is_open()) return;
+
+    if (!initial_dump && sim_time != last_dump_time) {
+        vcd_file << "#" << sim_time << "\n";
+        last_dump_time = sim_time;
+    }
+
+    for (auto& net : netlist) {
+        if (initial_dump || net.modified) {
+            if (net.width == 1) {
+                vcd_file << (net.value & 1) << net.vcd_id << "\n";
+            } else {
+                vcd_file << "b" << net.to_bin_string() << " " << net.vcd_id << "\n";
+            }
+        }
+    }
 }
 
 void Engine::propagate_comb() {
@@ -96,7 +175,6 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         uint64_t rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = net_map.at(scoped_target);
-        // Queue in NBA buffer (Active Region evaluates, NBA region commits)
         nba_queue.push_back({net_id, rhs_val});
     }
     else if (auto bassign = dynamic_cast<BlockingAssignNode*>(stmt)) {
@@ -111,7 +189,6 @@ void Engine::evaluate_sequential_blocks() {
     for (auto& bp : processes) {
         if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
 
-        // Check if any sensitivity target triggered an edge
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
             std::string scoped_sig = bp.scope + "." + sens.signal_name;
@@ -143,7 +220,6 @@ void Engine::commit_nba_updates() {
     }
     nba_queue.clear();
 
-    // Propagate combinational consequences of the NBA updates
     propagate_comb();
 }
 
@@ -235,7 +311,7 @@ void Engine::step_process(size_t pid) {
     while (bp.pc < bp.proc->body.size()) {
         auto stmt = bp.proc->body[bp.pc].get();
 
-        // 1. Delay
+        // Delay: Yield execution and schedule on Time Wheel
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t wake_time = sim_time + delay->delay;
@@ -243,7 +319,22 @@ void Engine::step_process(size_t pid) {
             return;
         }
 
-        // 2. Blocking Assignment
+        // $dumpfile
+        if (auto df = dynamic_cast<DumpFileStatementNode*>(stmt)) {
+            vcd_filename = df->filename;
+            vcd_enabled = true;
+            bp.pc++;
+            continue;
+        }
+
+        // $dumpvars
+        if (dynamic_cast<DumpVarsStatementNode*>(stmt)) {
+            init_vcd_header();
+            bp.pc++;
+            continue;
+        }
+
+        // Blocking Assignment
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             uint64_t rhs_val = eval_expr(assign->rhs.get(), bp.scope);
 
@@ -263,14 +354,20 @@ void Engine::step_process(size_t pid) {
                 netlist[net_id].set(rhs_val);
             }
 
-            // Delta-cycle step: propagate ports, evaluate flip-flops, commit NBA
+            // Delta-cycle step
             propagate_comb();
             evaluate_sequential_blocks();
             commit_nba_updates();
 
+            // Dump value changes to VCD
+            dump_vcd_sample();
+
+            // Reset modification flags
+            for (auto& n : netlist) n.modified = false;
+
             bp.pc++;
         }
-        // 3. $display
+        // $display
         else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
             std::cout << "[CAS $display] ";
             size_t arg_idx = 0;
@@ -301,7 +398,7 @@ void Engine::step_process(size_t pid) {
             std::cout << "\n";
             bp.pc++;
         }
-        // 4. $finish
+        // $finish
         else if (dynamic_cast<FinishStatementNode*>(stmt)) {
             std::cout << "[CAS $finish] Simulation Terminated at time " << sim_time << ".\n";
             simulation_active = false;
@@ -317,7 +414,7 @@ void Engine::step_process(size_t pid) {
 }
 
 void Engine::run() {
-    std::cout << "CAS (Cycle Accurate Simulator) v0.4.0 Initiated\n";
+    std::cout << "CAS (Cycle Accurate Simulator) v0.5.0 Initiated\n";
     std::cout << "Hierarchical Nets Elaborated: " << netlist.size() << "\n";
     std::cout << "Port Interconnects Bound: " << port_bindings.size() << "\n";
     std::cout << "--------------------------------------------------------\n";
@@ -338,6 +435,11 @@ void Engine::run() {
 
         sim_time = ev.time;
         step_process(ev.process_id);
+    }
+
+    if (vcd_enabled && vcd_file.is_open()) {
+        vcd_file.close();
+        std::cout << "[CAS VCD] Waveform trace successfully dumped to: " << vcd_filename << "\n";
     }
 
     std::cout << "--------------------------------------------------------\n";
