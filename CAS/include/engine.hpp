@@ -1,6 +1,6 @@
 #pragma once
 #include "ast.hpp"
-#include "netlist.hpp"
+#include "kernel/netlist.hpp"
 #include <unordered_map>
 #include <queue>
 #include <iostream>
@@ -11,17 +11,6 @@ struct BoundProcess {
     ProcessNode* proc;
     size_t pc = 0;
     bool completed = false;
-};
-
-struct NetSliceRef {
-    size_t net_id;
-    uint32_t offset;
-    uint32_t width;
-};
-
-struct SliceBinding {
-    NetSliceRef src;
-    NetSliceRef dst;
 };
 
 struct NBAUpdate {

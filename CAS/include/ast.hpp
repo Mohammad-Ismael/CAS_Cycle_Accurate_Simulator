@@ -1,14 +1,9 @@
 #pragma once
 #include "lexer.hpp"
+#include "common/types.hpp"
 #include <string>
 #include <vector>
 #include <memory>
-
-enum class EdgeType {
-    POSEDGE,
-    NEGEDGE,
-    LEVEL
-};
 
 struct SensitivityTarget {
     EdgeType edge;
@@ -183,8 +178,6 @@ struct ContinuousAssignNode : public ASTNode {
     ContinuousAssignNode(std::string tgt, std::unique_ptr<ExpressionNode> r)
         : target_name(std::move(tgt)), rhs(std::move(r)) {}
 };
-
-enum class GateType { AND, OR, XOR, NAND, NOR, XNOR, NOT, BUF };
 
 struct GatePrimitiveNode : public ASTNode {
     GateType type;

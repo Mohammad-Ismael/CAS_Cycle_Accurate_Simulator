@@ -1,4 +1,6 @@
 #pragma once
+#include "common/types.hpp"
+#include "kernel/netlist.hpp"
 #include <string>
 #include <cstdint>
 #include <vector>
