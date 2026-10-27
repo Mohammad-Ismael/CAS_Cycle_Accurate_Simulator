@@ -194,6 +194,23 @@ header {
     height: 14px;
 }
 
+/* Collapsible Subdrawer for VCD options */
+.opt-subdrawer {
+    margin-top: 4px;
+    margin-left: 20px;
+    padding: 10px;
+    background-color: var(--bg-base);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+.opt-subdrawer.collapsed {
+    display: none;
+}
+
 .roadmap-item {
     font-size: 11px;
     display: flex;
@@ -415,7 +432,6 @@ header {
     display: block;
 }
 
-/* Base clickable chip */
 .cas-code-link {
     color: #38bdf8;
     background-color: rgba(56, 189, 248, 0.12);
@@ -436,8 +452,6 @@ header {
     color: #fff;
     box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
 }
-
-/* Red for Errors */
 .cas-code-link.error-link {
     color: #f87171;
     background-color: rgba(239, 68, 68, 0.14);
@@ -449,8 +463,6 @@ header {
     color: #fff;
     box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }
-
-/* Orange for Warnings */
 .cas-code-link.warning-link {
     color: #fb923c;
     background-color: rgba(249, 115, 22, 0.14);
@@ -462,8 +474,6 @@ header {
     color: #fff;
     box-shadow: 0 0 8px rgba(249, 115, 22, 0.4);
 }
-
-/* Green for all prints ($display, $monitor, $finish) */
 .cas-code-link.print-link {
     color: #34d399;
     background-color: rgba(16, 185, 129, 0.12);
@@ -547,18 +557,6 @@ header {
     color: var(--text-muted);
     font-size: 13px;
     font-family: 'JetBrains Mono', monospace;
-}
-
-#panel-vcd-raw {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: #94a3b8;
-    padding: 12px 18px;
-    white-space: pre;
-    background-color: #0b0c0e;
-    user-select: text;
-    -webkit-user-select: text;
 }
 
 #inspector-sidebar {

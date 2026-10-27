@@ -93,4 +93,7 @@ struct DumpFileStatementNode : public StatementNode {
     explicit DumpFileStatementNode(std::string f) : filename(std::move(f)) {}
 };
 
-struct DumpVarsStatementNode : public StatementNode {};
+struct DumpVarsStatementNode : public StatementNode {
+    uint32_t levels = 0;
+    explicit DumpVarsStatementNode(uint32_t lvl = 0) : levels(lvl) {}
+};

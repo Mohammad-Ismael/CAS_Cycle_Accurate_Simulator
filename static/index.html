@@ -73,9 +73,26 @@
                 <span>Emit Compiler Phase Trace</span>
             </label>
             <label class="opt-checkbox-row">
-                <input type="checkbox" id="chk-vcd-enable" checked>
+                <input type="checkbox" id="chk-vcd-enable" checked onchange="toggleVcdSettingsDrawer(this.checked)">
                 <span>Enable VCD Wave Dump</span>
             </label>
+
+            <!-- Collapsible VCD Options Drawer -->
+            <div id="vcd-settings-drawer" class="opt-subdrawer">
+                <div class="opt-field">
+                    <label for="cfg-vcd-filename">VCD File Name</label>
+                    <input type="text" id="cfg-vcd-filename" class="opt-input" value="trace.vcd" placeholder="trace.vcd">
+                </div>
+                <div class="opt-field">
+                    <label for="cfg-vcd-levels">Hierarchy Depth ($dumpvars)</label>
+                    <select id="cfg-vcd-levels" class="opt-select">
+                        <option value="0" selected>0 (Entire Design Hierarchy)</option>
+                        <option value="1">1 (Root Testbench Only)</option>
+                        <option value="2">2 (Testbench + DUT)</option>
+                        <option value="3">3 (Up to Submodule Depth 3)</option>
+                    </select>
+                </div>
+            </div>
         </div>
 
         <div class="opt-section">
@@ -170,7 +187,7 @@
                         <canvas id="wave-canvas"></canvas>
                         <div id="wave-empty" class="wave-empty-state">
                             <span>No waveform trace available for this state.</span>
-                            <span style="font-size: 11px; color: var(--text-faint);">Include $dumpfile("..."); and $dumpvars; in your initial block.</span>
+                            <span style="font-size: 11px; color: var(--text-faint);">Check 'Enable VCD Wave Dump' in the left settings drawer.</span>
                         </div>
                     </div>
                 </div>

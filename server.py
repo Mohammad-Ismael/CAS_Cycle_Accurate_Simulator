@@ -8,6 +8,7 @@ import shutil
 import json
 import os
 import glob
+import re
 from datetime import datetime
 
 app = FastAPI()
@@ -23,6 +24,8 @@ class SimRequest(BaseModel):
     enable_profiler: Optional[bool] = True
     enable_debug: Optional[bool] = True
     enable_vcd: Optional[bool] = True
+    vcd_filename: Optional[str] = "trace.vcd"
+    vcd_levels: Optional[int] = 0
     enable_display: Optional[bool] = True
     enable_monitor: Optional[bool] = True
     enable_finish_msg: Optional[bool] = True
@@ -160,18 +163,73 @@ def simulate(req: SimRequest):
             "debug_log": None
         }
 
+    entry_tb = req.entry_tb if (req.entry_tb in req.files) else "testbench.sv"
+    processed_files = dict(req.files)
+
+    # Inspect source files for manual $dumpfile / $dumpvars
+    dump_regex = re.compile(r'\$(dumpfile|dumpvars)\b')
+    hardcoded_locations = []
+
+    for fname, content in req.files.items():
+        lines = content.split('\n')
+        for idx, line in enumerate(lines, 1):
+            clean_line = line.strip()
+            if clean_line.startswith('//') or clean_line.startswith('/*'):
+                continue
+            if dump_regex.search(clean_line):
+                hardcoded_locations.append(f"{fname}:{idx}")
+
+    has_hardcoded_vcd = len(hardcoded_locations) > 0
+
+    # Rule 1: If UI toggle is checked AND hardcoded lines exist -> abort
+    if req.enable_vcd and has_hardcoded_vcd:
+        locs_str = ", ".join(hardcoded_locations)
+        abort_msg = (
+            f"[CAS VCD CONFLICT ERROR] Hardcoded waveform dump routine detected at {locs_str}.\n"
+            f"Action Required:\n"
+            f"  1. Delete or comment out the manual $dumpfile/$dumpvars lines from your testbench, OR\n"
+            f"  2. Uncheck 'Enable VCD Wave Dump' in the left sidebar to allow manual dumping."
+        )
+        return {
+            "status": "error",
+            "output": abort_msg,
+            "vcd": None,
+            "vcd_filename": None,
+            "telemetry": None,
+            "debug_log": None
+        }
+
+    # Rule 2: If UI toggle is checked AND NO hardcoded lines exist -> auto-inject VCD block
+    if req.enable_vcd and not has_hardcoded_vcd and entry_tb in processed_files:
+        tb_src = processed_files[entry_tb]
+        endmod_pos = tb_src.rfind("endmodule")
+        if endmod_pos != -1:
+            raw_vcd_name = (req.vcd_filename or "trace.vcd").strip()
+            if not raw_vcd_name.endswith(".vcd"):
+                raw_vcd_name += ".vcd"
+            
+            levels = req.vcd_levels if (req.vcd_levels is not None and req.vcd_levels >= 0) else 0
+
+            injected_block = (
+                f"\n// [CAS Auto-Generated VCD Waveform Injection]\n"
+                f"initial begin\n"
+                f"    $dumpfile(\"{raw_vcd_name}\");\n"
+                f"    $dumpvars({levels});\n"
+                f"end\n\n"
+            )
+            processed_files[entry_tb] = tb_src[:endmod_pos] + injected_block + tb_src[endmod_pos:]
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        for fname, content in req.files.items():
+        for fname, content in processed_files.items():
             fpath = os.path.join(tmpdir, fname)
             os.makedirs(os.path.dirname(fpath), exist_ok=True)
             with open(fpath, "w") as f:
                 f.write(content)
 
-        entry_tb = req.entry_tb if (req.entry_tb in req.files) else "testbench.sv"
         files_to_run = [os.path.join(tmpdir, entry_tb)]
 
-        tb_text = req.files.get(entry_tb, "")
-        if "design.sv" in req.files:
+        tb_text = processed_files.get(entry_tb, "")
+        if "design.sv" in processed_files:
             if '`include "design.sv"' not in tb_text and "`include 'design.sv'" not in tb_text:
                 files_to_run.append(os.path.join(tmpdir, "design.sv"))
 
@@ -181,8 +239,11 @@ def simulate(req: SimRequest):
             options.append("--no-profile")
         if not req.enable_debug:
             options.append("--quiet")
-        if not req.enable_vcd:
+
+        # Disable VCD only if user explicitly unchecked the toggle AND didn't provide hardcoded VCD code
+        if not req.enable_vcd and not has_hardcoded_vcd:
             options.append("--no-vcd")
+
         if not req.enable_display:
             options.append("--no-display")
         if not req.enable_monitor:

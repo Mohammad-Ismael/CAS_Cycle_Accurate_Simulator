@@ -55,14 +55,19 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (match(TokenType::TOKEN_DUMPVARS)) {
+        uint32_t levels = 0;
         if (match(TokenType::TOKEN_LPAREN)) {
+            if (current.type == TokenType::TOKEN_NUMBER) {
+                levels = (uint32_t)current.num_val;
+                advance();
+            }
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 advance();
             }
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $dumpvars");
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $dumpvars");
-        return std::make_unique<DumpVarsStatementNode>();
+        return std::make_unique<DumpVarsStatementNode>(levels);
     }
 
     if (match(TokenType::TOKEN_FINISH) || match(TokenType::TOKEN_STOP)) {

@@ -13,7 +13,6 @@ window.StudioApp = {
         const panelTerm = document.getElementById('panel-terminal');
         const panelWave = document.getElementById('panel-waveform');
 
-        // Remove active class from all bottom tabs and panels
         btnTerm.classList.remove('active');
         btnWave.classList.remove('active');
         panelTerm.classList.remove('active');
@@ -80,6 +79,14 @@ window.StudioApp = {
         }
     },
 
+    toggleVcdSettingsDrawer(enabled) {
+        const drawer = document.getElementById('vcd-settings-drawer');
+        if (drawer) {
+            if (enabled) drawer.classList.remove('collapsed');
+            else drawer.classList.add('collapsed');
+        }
+    },
+
     async run() {
         const btnRun = document.getElementById('btn-run');
         const bulb = document.getElementById('status-bulb');
@@ -90,6 +97,10 @@ window.StudioApp = {
         const enableProfiler = document.getElementById('chk-profiler').checked;
         const enableDebug = document.getElementById('chk-debug-trace').checked;
         const enableVcd = document.getElementById('chk-vcd-enable').checked;
+
+        // Custom VCD injection parameters
+        const vcdFilename = document.getElementById('cfg-vcd-filename').value;
+        const vcdLevels = parseInt(document.getElementById('cfg-vcd-levels').value, 10) || 0;
 
         const enableDisplay = document.getElementById('chk-opt-display').checked;
         const enableMonitor = document.getElementById('chk-opt-monitor').checked;
@@ -117,6 +128,8 @@ window.StudioApp = {
                     enable_profiler: enableProfiler,
                     enable_debug: enableDebug,
                     enable_vcd: enableVcd,
+                    vcd_filename: vcdFilename,
+                    vcd_levels: vcdLevels,
                     enable_display: enableDisplay,
                     enable_monitor: enableMonitor,
                     enable_finish_msg: enableFinish,
@@ -294,5 +307,6 @@ window.selectTab = (t) => window.StudioApp.selectTab(t);
 window.toggleOptionsSidebar = () => window.StudioApp.toggleOptionsSidebar();
 window.toggleInspectorSidebar = () => window.StudioApp.toggleInspectorSidebar();
 window.switchSidebarTab = (t) => window.StudioApp.switchSidebarTab(t);
+window.toggleVcdSettingsDrawer = (enabled) => window.StudioApp.toggleVcdSettingsDrawer(enabled);
 window.executeSimulation = () => window.StudioApp.run();
 window.promptNewFile = (p) => window.StudioEditor.promptNewFile(p);

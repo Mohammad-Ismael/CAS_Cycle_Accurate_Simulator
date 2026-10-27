@@ -143,7 +143,8 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        if (dynamic_cast<DumpVarsStatementNode*>(stmt)) {
+        if (auto dv = dynamic_cast<DumpVarsStatementNode*>(stmt)) {
+            vcd_dumper.set_levels(dv->levels);
             vcd_dumper.init_header(netlist, sim_time);
             bp.pc++;
             continue;

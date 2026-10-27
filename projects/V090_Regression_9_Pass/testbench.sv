@@ -37,9 +37,6 @@ module tb_regression;
     );
 
     initial begin
-        $dumpfile("regression_suite.vcd");
-        $dumpvars;
-
         fail_count = 8'd0;
 
         $display("========================================================");
