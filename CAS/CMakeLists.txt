@@ -9,6 +9,9 @@ include_directories(include)
 add_executable(cas
     src/frontend/lexer.cpp
     src/frontend/parser.cpp
+    src/frontend/parser_expr.cpp
+    src/frontend/parser_stmt.cpp
+    src/frontend/parser_module.cpp
     src/kernel/elaborator.cpp
     src/kernel/evaluator.cpp
     src/engine.cpp

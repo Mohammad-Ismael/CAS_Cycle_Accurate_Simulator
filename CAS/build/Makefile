@@ -201,6 +201,78 @@ src/frontend/parser.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser.cpp.s
 .PHONY : src/frontend/parser.cpp.s
 
+src/frontend/parser_expr.o: src/frontend/parser_expr.cpp.o
+.PHONY : src/frontend/parser_expr.o
+
+# target to build an object file
+src/frontend/parser_expr.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
+.PHONY : src/frontend/parser_expr.cpp.o
+
+src/frontend/parser_expr.i: src/frontend/parser_expr.cpp.i
+.PHONY : src/frontend/parser_expr.i
+
+# target to preprocess a source file
+src/frontend/parser_expr.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.i
+.PHONY : src/frontend/parser_expr.cpp.i
+
+src/frontend/parser_expr.s: src/frontend/parser_expr.cpp.s
+.PHONY : src/frontend/parser_expr.s
+
+# target to generate assembly for a file
+src/frontend/parser_expr.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.s
+.PHONY : src/frontend/parser_expr.cpp.s
+
+src/frontend/parser_module.o: src/frontend/parser_module.cpp.o
+.PHONY : src/frontend/parser_module.o
+
+# target to build an object file
+src/frontend/parser_module.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
+.PHONY : src/frontend/parser_module.cpp.o
+
+src/frontend/parser_module.i: src/frontend/parser_module.cpp.i
+.PHONY : src/frontend/parser_module.i
+
+# target to preprocess a source file
+src/frontend/parser_module.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_module.cpp.i
+.PHONY : src/frontend/parser_module.cpp.i
+
+src/frontend/parser_module.s: src/frontend/parser_module.cpp.s
+.PHONY : src/frontend/parser_module.s
+
+# target to generate assembly for a file
+src/frontend/parser_module.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_module.cpp.s
+.PHONY : src/frontend/parser_module.cpp.s
+
+src/frontend/parser_stmt.o: src/frontend/parser_stmt.cpp.o
+.PHONY : src/frontend/parser_stmt.o
+
+# target to build an object file
+src/frontend/parser_stmt.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
+.PHONY : src/frontend/parser_stmt.cpp.o
+
+src/frontend/parser_stmt.i: src/frontend/parser_stmt.cpp.i
+.PHONY : src/frontend/parser_stmt.i
+
+# target to preprocess a source file
+src/frontend/parser_stmt.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.i
+.PHONY : src/frontend/parser_stmt.cpp.i
+
+src/frontend/parser_stmt.s: src/frontend/parser_stmt.cpp.s
+.PHONY : src/frontend/parser_stmt.s
+
+# target to generate assembly for a file
+src/frontend/parser_stmt.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.s
+.PHONY : src/frontend/parser_stmt.cpp.s
+
 src/kernel/elaborator.o: src/kernel/elaborator.cpp.o
 .PHONY : src/kernel/elaborator.o
 
@@ -339,6 +411,15 @@ help:
 	@echo "... src/frontend/parser.o"
 	@echo "... src/frontend/parser.i"
 	@echo "... src/frontend/parser.s"
+	@echo "... src/frontend/parser_expr.o"
+	@echo "... src/frontend/parser_expr.i"
+	@echo "... src/frontend/parser_expr.s"
+	@echo "... src/frontend/parser_module.o"
+	@echo "... src/frontend/parser_module.i"
+	@echo "... src/frontend/parser_module.s"
+	@echo "... src/frontend/parser_stmt.o"
+	@echo "... src/frontend/parser_stmt.i"
+	@echo "... src/frontend/parser_stmt.s"
 	@echo "... src/kernel/elaborator.o"
 	@echo "... src/kernel/elaborator.i"
 	@echo "... src/kernel/elaborator.s"

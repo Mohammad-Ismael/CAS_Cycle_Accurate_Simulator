@@ -108,6 +108,8 @@ module testbench;
         end
 
         // 5. Memory Array Write & Readback
+        // 9 + 8 = 17 -> sum = 4'h1, cout = 1'b1
+        // wr_data = {cout (1'b1), 3'b000, sum (4'b0001)} = 8'b1000_0001 = 8'h81
         opcode = ALU_ADD;
         op_a = 4'd9;
         op_b = 4'd8;
@@ -119,10 +121,10 @@ module testbench;
 
         mem_write = 1'b0;
         #5;
-        if (mem_readback == 8'h11) begin
+        if (mem_readback == 8'h81) begin
             $display("[TEST 5/5] Register File RAM: Addr 0xA wrote & read back 0x%0h [PASS]", mem_readback);
         end else begin
-            $display("[FAIL] RAM mismatch: expected 0x11, got 0x%0h", mem_readback);
+            $display("[FAIL] RAM mismatch: expected 0x81, got 0x%0h", mem_readback);
             $finish;
         end
 
