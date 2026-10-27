@@ -153,6 +153,54 @@ src/engine.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/engine.cpp.s
 .PHONY : src/engine.cpp.s
 
+src/frontend/lexer.o: src/frontend/lexer.cpp.o
+.PHONY : src/frontend/lexer.o
+
+# target to build an object file
+src/frontend/lexer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/lexer.cpp.o
+.PHONY : src/frontend/lexer.cpp.o
+
+src/frontend/lexer.i: src/frontend/lexer.cpp.i
+.PHONY : src/frontend/lexer.i
+
+# target to preprocess a source file
+src/frontend/lexer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/lexer.cpp.i
+.PHONY : src/frontend/lexer.cpp.i
+
+src/frontend/lexer.s: src/frontend/lexer.cpp.s
+.PHONY : src/frontend/lexer.s
+
+# target to generate assembly for a file
+src/frontend/lexer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/lexer.cpp.s
+.PHONY : src/frontend/lexer.cpp.s
+
+src/frontend/parser.o: src/frontend/parser.cpp.o
+.PHONY : src/frontend/parser.o
+
+# target to build an object file
+src/frontend/parser.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser.cpp.o
+.PHONY : src/frontend/parser.cpp.o
+
+src/frontend/parser.i: src/frontend/parser.cpp.i
+.PHONY : src/frontend/parser.i
+
+# target to preprocess a source file
+src/frontend/parser.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser.cpp.i
+.PHONY : src/frontend/parser.cpp.i
+
+src/frontend/parser.s: src/frontend/parser.cpp.s
+.PHONY : src/frontend/parser.s
+
+# target to generate assembly for a file
+src/frontend/parser.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser.cpp.s
+.PHONY : src/frontend/parser.cpp.s
+
 src/kernel/elaborator.o: src/kernel/elaborator.cpp.o
 .PHONY : src/kernel/elaborator.o
 
@@ -177,30 +225,6 @@ src/kernel/elaborator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/elaborator.cpp.s
 .PHONY : src/kernel/elaborator.cpp.s
 
-src/lexer.o: src/lexer.cpp.o
-.PHONY : src/lexer.o
-
-# target to build an object file
-src/lexer.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/lexer.cpp.o
-.PHONY : src/lexer.cpp.o
-
-src/lexer.i: src/lexer.cpp.i
-.PHONY : src/lexer.i
-
-# target to preprocess a source file
-src/lexer.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/lexer.cpp.i
-.PHONY : src/lexer.cpp.i
-
-src/lexer.s: src/lexer.cpp.s
-.PHONY : src/lexer.s
-
-# target to generate assembly for a file
-src/lexer.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/lexer.cpp.s
-.PHONY : src/lexer.cpp.s
-
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -224,30 +248,6 @@ src/main.s: src/main.cpp.s
 src/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/main.cpp.s
 .PHONY : src/main.cpp.s
-
-src/parser.o: src/parser.cpp.o
-.PHONY : src/parser.o
-
-# target to build an object file
-src/parser.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/parser.cpp.o
-.PHONY : src/parser.cpp.o
-
-src/parser.i: src/parser.cpp.i
-.PHONY : src/parser.i
-
-# target to preprocess a source file
-src/parser.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/parser.cpp.i
-.PHONY : src/parser.cpp.i
-
-src/parser.s: src/parser.cpp.s
-.PHONY : src/parser.s
-
-# target to generate assembly for a file
-src/parser.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/parser.cpp.s
-.PHONY : src/parser.cpp.s
 
 src/profiler/profiler.o: src/profiler/profiler.cpp.o
 .PHONY : src/profiler/profiler.o
@@ -309,18 +309,18 @@ help:
 	@echo "... src/engine.o"
 	@echo "... src/engine.i"
 	@echo "... src/engine.s"
+	@echo "... src/frontend/lexer.o"
+	@echo "... src/frontend/lexer.i"
+	@echo "... src/frontend/lexer.s"
+	@echo "... src/frontend/parser.o"
+	@echo "... src/frontend/parser.i"
+	@echo "... src/frontend/parser.s"
 	@echo "... src/kernel/elaborator.o"
 	@echo "... src/kernel/elaborator.i"
 	@echo "... src/kernel/elaborator.s"
-	@echo "... src/lexer.o"
-	@echo "... src/lexer.i"
-	@echo "... src/lexer.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"
-	@echo "... src/parser.o"
-	@echo "... src/parser.i"
-	@echo "... src/parser.s"
 	@echo "... src/profiler/profiler.o"
 	@echo "... src/profiler/profiler.i"
 	@echo "... src/profiler/profiler.s"

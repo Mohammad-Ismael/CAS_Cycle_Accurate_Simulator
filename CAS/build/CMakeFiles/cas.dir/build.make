@@ -69,33 +69,33 @@ include CMakeFiles/cas.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/cas.dir/flags.make
 
-CMakeFiles/cas.dir/src/lexer.cpp.o: CMakeFiles/cas.dir/flags.make
-CMakeFiles/cas.dir/src/lexer.cpp.o: /app/CAS/src/lexer.cpp
-CMakeFiles/cas.dir/src/lexer.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/cas.dir/src/lexer.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/lexer.cpp.o -MF CMakeFiles/cas.dir/src/lexer.cpp.o.d -o CMakeFiles/cas.dir/src/lexer.cpp.o -c /app/CAS/src/lexer.cpp
+CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: CMakeFiles/cas.dir/flags.make
+CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp
+CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/cas.dir/src/frontend/lexer.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/frontend/lexer.cpp.o -MF CMakeFiles/cas.dir/src/frontend/lexer.cpp.o.d -o CMakeFiles/cas.dir/src/frontend/lexer.cpp.o -c /app/CAS/src/frontend/lexer.cpp
 
-CMakeFiles/cas.dir/src/lexer.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/cas.dir/src/lexer.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /app/CAS/src/lexer.cpp > CMakeFiles/cas.dir/src/lexer.cpp.i
+CMakeFiles/cas.dir/src/frontend/lexer.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/cas.dir/src/frontend/lexer.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /app/CAS/src/frontend/lexer.cpp > CMakeFiles/cas.dir/src/frontend/lexer.cpp.i
 
-CMakeFiles/cas.dir/src/lexer.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/lexer.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/lexer.cpp -o CMakeFiles/cas.dir/src/lexer.cpp.s
+CMakeFiles/cas.dir/src/frontend/lexer.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/frontend/lexer.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/frontend/lexer.cpp -o CMakeFiles/cas.dir/src/frontend/lexer.cpp.s
 
-CMakeFiles/cas.dir/src/parser.cpp.o: CMakeFiles/cas.dir/flags.make
-CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp
-CMakeFiles/cas.dir/src/parser.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/cas.dir/src/parser.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/parser.cpp.o -MF CMakeFiles/cas.dir/src/parser.cpp.o.d -o CMakeFiles/cas.dir/src/parser.cpp.o -c /app/CAS/src/parser.cpp
+CMakeFiles/cas.dir/src/frontend/parser.cpp.o: CMakeFiles/cas.dir/flags.make
+CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp
+CMakeFiles/cas.dir/src/frontend/parser.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/cas.dir/src/frontend/parser.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/frontend/parser.cpp.o -MF CMakeFiles/cas.dir/src/frontend/parser.cpp.o.d -o CMakeFiles/cas.dir/src/frontend/parser.cpp.o -c /app/CAS/src/frontend/parser.cpp
 
-CMakeFiles/cas.dir/src/parser.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/cas.dir/src/parser.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /app/CAS/src/parser.cpp > CMakeFiles/cas.dir/src/parser.cpp.i
+CMakeFiles/cas.dir/src/frontend/parser.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/cas.dir/src/frontend/parser.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /app/CAS/src/frontend/parser.cpp > CMakeFiles/cas.dir/src/frontend/parser.cpp.i
 
-CMakeFiles/cas.dir/src/parser.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/parser.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/parser.cpp -o CMakeFiles/cas.dir/src/parser.cpp.s
+CMakeFiles/cas.dir/src/frontend/parser.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/frontend/parser.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/frontend/parser.cpp -o CMakeFiles/cas.dir/src/frontend/parser.cpp.s
 
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.cpp
@@ -169,8 +169,8 @@ CMakeFiles/cas.dir/src/main.cpp.s: cmake_force
 
 # Object files for target cas
 cas_OBJECTS = \
-"CMakeFiles/cas.dir/src/lexer.cpp.o" \
-"CMakeFiles/cas.dir/src/parser.cpp.o" \
+"CMakeFiles/cas.dir/src/frontend/lexer.cpp.o" \
+"CMakeFiles/cas.dir/src/frontend/parser.cpp.o" \
 "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o" \
 "CMakeFiles/cas.dir/src/engine.cpp.o" \
 "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o" \
@@ -180,8 +180,8 @@ cas_OBJECTS = \
 # External object files for target cas
 cas_EXTERNAL_OBJECTS =
 
-cas: CMakeFiles/cas.dir/src/lexer.cpp.o
-cas: CMakeFiles/cas.dir/src/parser.cpp.o
+cas: CMakeFiles/cas.dir/src/frontend/lexer.cpp.o
+cas: CMakeFiles/cas.dir/src/frontend/parser.cpp.o
 cas: CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o
 cas: CMakeFiles/cas.dir/src/engine.cpp.o
 cas: CMakeFiles/cas.dir/src/profiler/profiler.cpp.o

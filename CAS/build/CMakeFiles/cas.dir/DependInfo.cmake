@@ -9,10 +9,10 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/app/CAS/src/engine.cpp" "CMakeFiles/cas.dir/src/engine.cpp.o" "gcc" "CMakeFiles/cas.dir/src/engine.cpp.o.d"
+  "/app/CAS/src/frontend/lexer.cpp" "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o.d"
+  "/app/CAS/src/frontend/parser.cpp" "CMakeFiles/cas.dir/src/frontend/parser.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/parser.cpp.o.d"
   "/app/CAS/src/kernel/elaborator.cpp" "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o" "gcc" "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o.d"
-  "/app/CAS/src/lexer.cpp" "CMakeFiles/cas.dir/src/lexer.cpp.o" "gcc" "CMakeFiles/cas.dir/src/lexer.cpp.o.d"
   "/app/CAS/src/main.cpp" "CMakeFiles/cas.dir/src/main.cpp.o" "gcc" "CMakeFiles/cas.dir/src/main.cpp.o.d"
-  "/app/CAS/src/parser.cpp" "CMakeFiles/cas.dir/src/parser.cpp.o" "gcc" "CMakeFiles/cas.dir/src/parser.cpp.o.d"
   "/app/CAS/src/profiler/profiler.cpp" "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o" "gcc" "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o.d"
   "/app/CAS/src/tracer/vcd_dumper.cpp" "CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o" "gcc" "CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o.d"
   )

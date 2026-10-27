@@ -1,5 +1,6 @@
 CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /usr/include/stdc-predef.h /app/CAS/src/../include/lexer.hpp \
+ /app/CAS/src/../include/frontend/lexer.hpp \
  /usr/include/c++/13.2.1/string \
  /usr/include/c++/13.2.1/bits/requires_hosted.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++config.h \
@@ -101,9 +102,9 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /usr/include/c++/13.2.1/bits/locale_facets.tcc \
  /usr/include/c++/13.2.1/bits/basic_ios.tcc \
  /usr/include/c++/13.2.1/bits/ostream.tcc \
- /app/CAS/src/../include/parser.hpp /app/CAS/src/../include/ast.hpp \
- /app/CAS/src/../include/frontend/ast_base.hpp \
- /usr/include/c++/13.2.1/memory \
+ /app/CAS/src/../include/parser.hpp \
+ /app/CAS/src/../include/frontend/parser.hpp /app/CAS/include/ast.hpp \
+ /app/CAS/include/frontend/ast_base.hpp /usr/include/c++/13.2.1/memory \
  /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
  /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
  /usr/include/c++/13.2.1/bits/align.h \
@@ -119,10 +120,10 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /usr/include/c++/13.2.1/backward/auto_ptr.h \
  /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
  /usr/include/c++/13.2.1/pstl/execution_defs.h \
- /app/CAS/src/../include/frontend/ast_expr.hpp \
- /app/CAS/src/../include/frontend/ast_stmt.hpp \
- /app/CAS/src/../include/frontend/ast_module.hpp \
- /app/CAS/src/../include/frontend/../common/types.hpp \
+ /app/CAS/include/frontend/ast_expr.hpp \
+ /app/CAS/include/frontend/ast_stmt.hpp \
+ /app/CAS/include/frontend/ast_module.hpp \
+ /app/CAS/include/frontend/../common/types.hpp \
  /usr/include/c++/13.2.1/algorithm \
  /usr/include/c++/13.2.1/bits/stl_algo.h \
  /usr/include/c++/13.2.1/bits/algorithmfwd.h \

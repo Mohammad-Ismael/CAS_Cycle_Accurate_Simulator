@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include_directories(include)
 
 add_executable(cas
-    src/lexer.cpp
-    src/parser.cpp
+    src/frontend/lexer.cpp
+    src/frontend/parser.cpp
     src/kernel/elaborator.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
