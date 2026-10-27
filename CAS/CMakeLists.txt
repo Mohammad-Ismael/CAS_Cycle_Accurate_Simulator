@@ -10,6 +10,7 @@ add_executable(cas
     src/frontend/lexer.cpp
     src/frontend/parser.cpp
     src/kernel/elaborator.cpp
+    src/kernel/evaluator.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

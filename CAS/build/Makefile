@@ -225,6 +225,30 @@ src/kernel/elaborator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/elaborator.cpp.s
 .PHONY : src/kernel/elaborator.cpp.s
 
+src/kernel/evaluator.o: src/kernel/evaluator.cpp.o
+.PHONY : src/kernel/evaluator.o
+
+# target to build an object file
+src/kernel/evaluator.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o
+.PHONY : src/kernel/evaluator.cpp.o
+
+src/kernel/evaluator.i: src/kernel/evaluator.cpp.i
+.PHONY : src/kernel/evaluator.i
+
+# target to preprocess a source file
+src/kernel/evaluator.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.i
+.PHONY : src/kernel/evaluator.cpp.i
+
+src/kernel/evaluator.s: src/kernel/evaluator.cpp.s
+.PHONY : src/kernel/evaluator.s
+
+# target to generate assembly for a file
+src/kernel/evaluator.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s
+.PHONY : src/kernel/evaluator.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -318,6 +342,9 @@ help:
 	@echo "... src/kernel/elaborator.o"
 	@echo "... src/kernel/elaborator.i"
 	@echo "... src/kernel/elaborator.s"
+	@echo "... src/kernel/evaluator.o"
+	@echo "... src/kernel/evaluator.i"
+	@echo "... src/kernel/evaluator.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

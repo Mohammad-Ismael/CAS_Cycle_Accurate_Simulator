@@ -2,6 +2,7 @@
 #include "ast.hpp"
 #include "kernel/netlist.hpp"
 #include "kernel/elaborator.hpp"
+#include "kernel/evaluator.hpp"
 #include "profiler/profiler.hpp"
 #include "tracer/vcd_dumper.hpp"
 #include <unordered_map>
@@ -41,6 +42,8 @@ struct SimEvent {
 };
 
 class Engine {
+    friend class Evaluator;
+
 private:
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
@@ -69,19 +72,15 @@ private:
     size_t nba_commits_count = 0;
 
     VcdDumper vcd_dumper;
+    Evaluator evaluator;
 
-    LogicVal read_slice(const NetSliceRef& ref);
-    void write_slice(const NetSliceRef& ref, const LogicVal& val);
-    LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
-    void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void propagate_comb();
     void evaluate_sequential_blocks();
     void commit_nba_updates();
     void step_process(size_t pid);
-    void check_monitor();
 
 public:
-    Engine() = default;
+    Engine();
     ~Engine() = default;
 
     void set_vcd_allowed(bool allowed) { vcd_dumper.set_allowed(allowed); }
