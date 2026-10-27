@@ -9,6 +9,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/cas.dir/src/parser.cpp.o.d"
   "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o"
   "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o.d"
+  "CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o"
+  "CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o.d"
   "cas"
   "cas.pdb"
 )

@@ -249,6 +249,30 @@ src/profiler/profiler.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/profiler/profiler.cpp.s
 .PHONY : src/profiler/profiler.cpp.s
 
+src/tracer/vcd_dumper.o: src/tracer/vcd_dumper.cpp.o
+.PHONY : src/tracer/vcd_dumper.o
+
+# target to build an object file
+src/tracer/vcd_dumper.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o
+.PHONY : src/tracer/vcd_dumper.cpp.o
+
+src/tracer/vcd_dumper.i: src/tracer/vcd_dumper.cpp.i
+.PHONY : src/tracer/vcd_dumper.i
+
+# target to preprocess a source file
+src/tracer/vcd_dumper.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.i
+.PHONY : src/tracer/vcd_dumper.cpp.i
+
+src/tracer/vcd_dumper.s: src/tracer/vcd_dumper.cpp.s
+.PHONY : src/tracer/vcd_dumper.s
+
+# target to generate assembly for a file
+src/tracer/vcd_dumper.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.s
+.PHONY : src/tracer/vcd_dumper.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -273,6 +297,9 @@ help:
 	@echo "... src/profiler/profiler.o"
 	@echo "... src/profiler/profiler.i"
 	@echo "... src/profiler/profiler.s"
+	@echo "... src/tracer/vcd_dumper.o"
+	@echo "... src/tracer/vcd_dumper.i"
+	@echo "... src/tracer/vcd_dumper.s"
 .PHONY : help
 
 

@@ -2,6 +2,7 @@
 #include "ast.hpp"
 #include "kernel/netlist.hpp"
 #include "profiler/profiler.hpp"
+#include "tracer/vcd_dumper.hpp"
 #include <unordered_map>
 #include <queue>
 #include <iostream>
@@ -94,16 +95,13 @@ private:
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
 
-    bool vcd_allowed = true;
-
+    // Profiler metrics
     size_t delta_cycles_count = 0;
     size_t events_dispatched = 0;
     size_t nba_commits_count = 0;
 
-    bool vcd_enabled = false;
-    std::string vcd_filename;
-    std::ofstream vcd_file;
-    uint64_t last_dump_time = ~0ULL;
+    // Subsystem: Dedicated VCD Dumper
+    VcdDumper vcd_dumper;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
@@ -125,18 +123,14 @@ private:
                           const std::string& parent_scope = "",
                           std::ostream* debug_out = nullptr);
 
-    std::string generate_vcd_id(size_t id);
-    void init_vcd_header();
-    void dump_vcd_sample(bool initial_dump = false);
-
 public:
-    ~Engine();
+    ~Engine() = default;
+
+    void set_vcd_allowed(bool allowed) { vcd_dumper.set_allowed(allowed); }
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 
                    const std::string& top_module_name = "", 
                    std::ostream* debug_out = nullptr);
     void run(std::ostream* debug_out = nullptr);
-
-    void set_vcd_allowed(bool allowed) { vcd_allowed = allowed; }
 
     EngineStats get_stats();
 };

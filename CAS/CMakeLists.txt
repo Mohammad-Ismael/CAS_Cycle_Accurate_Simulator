@@ -11,5 +11,6 @@ add_executable(cas
     src/parser.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
+    src/tracer/vcd_dumper.cpp
     src/main.cpp
 )

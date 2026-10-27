@@ -3,29 +3,13 @@
 #include <stdexcept>
 #include <ctime>
 
-Engine::~Engine() {
-    if (vcd_file.is_open()) {
-        vcd_file.close();
-    }
-}
-
-std::string Engine::generate_vcd_id(size_t id) {
-    std::string res;
-    size_t base = 94;
-    do {
-        res += (char)(33 + (id % base));
-        id /= base;
-    } while (id > 0);
-    return res;
-}
-
 size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width) {
     if (net_map.find(scoped_name) != net_map.end()) {
         return net_map[scoped_name];
     }
     size_t id = netlist.size();
     netlist.emplace_back(scoped_name, width);
-    netlist.back().vcd_id = generate_vcd_id(id);
+    netlist.back().vcd_id = VcdDumper::generate_vcd_id(id);
     net_map[scoped_name] = id;
     return id;
 }
@@ -215,66 +199,6 @@ LogicVal Engine::eval_expr(ExpressionNode* expr, const std::string& scope) {
     return LogicVal::make_x(1);
 }
 
-void Engine::init_vcd_header() {
-    if (!vcd_enabled || vcd_file.is_open()) return;
-
-    vcd_file.open(vcd_filename);
-    if (!vcd_file.is_open()) {
-        std::cerr << "[CAS ERROR] Unable to create VCD file: " << vcd_filename << "\n";
-        vcd_enabled = false;
-        return;
-    }
-
-    std::time_t now = std::time(nullptr);
-    vcd_file << "$date\n   " << std::asctime(std::localtime(&now)) << "$end\n";
-    vcd_file << "$version\n   CAS (Cycle Accurate Simulator) v1.0.0 [Production Kernel]\n$end\n";
-    vcd_file << "$timescale 1ns $end\n";
-
-    std::unordered_map<std::string, std::vector<size_t>> scopes;
-    for (size_t i = 0; i < netlist.size(); ++i) {
-        std::string full_name = netlist[i].name;
-        size_t dot_pos = full_name.rfind('.');
-        std::string scope_name = (dot_pos == std::string::npos) ? "top" : full_name.substr(0, dot_pos);
-        scopes[scope_name].push_back(i);
-    }
-
-    for (const auto& kv : scopes) {
-        vcd_file << "$scope module " << kv.first << " $end\n";
-        for (size_t net_id : kv.second) {
-            const auto& net = netlist[net_id];
-            size_t dot_pos = net.name.rfind('.');
-            std::string leaf_name = (dot_pos == std::string::npos) ? net.name : net.name.substr(dot_pos + 1);
-            vcd_file << "$var wire " << net.width << " " << net.vcd_id << " " << leaf_name << " $end\n";
-        }
-        vcd_file << "$upscope $end\n";
-    }
-
-    vcd_file << "$enddefinitions $end\n";
-    vcd_file << "$dumpvars\n";
-    dump_vcd_sample(true);
-    vcd_file << "$end\n";
-}
-
-void Engine::dump_vcd_sample(bool initial_dump) {
-    if (!vcd_enabled || !vcd_file.is_open()) return;
-
-    if (!initial_dump && sim_time != last_dump_time) {
-        vcd_file << "#" << sim_time << "\n";
-        last_dump_time = sim_time;
-    }
-
-    for (auto& net : netlist) {
-        if (initial_dump || net.modified) {
-            if (net.width == 1) {
-                if (net.value.is_unknown()) vcd_file << "x" << net.vcd_id << "\n";
-                else vcd_file << (net.value.aval & 1) << net.vcd_id << "\n";
-            } else {
-                vcd_file << "b" << net.value.to_bin_string() << " " << net.vcd_id << "\n";
-            }
-        }
-    }
-}
-
 void Engine::check_monitor() {
     if (!monitor_session.active) return;
 
@@ -285,7 +209,7 @@ void Engine::check_monitor() {
         if (arg_name == "$time") {
             current_values.push_back(LogicVal::make_known(64, sim_time));
         } else {
-            std::string scoped_arg = monitor_session.scope + "." + arg_name;
+            std::string scoped_arg = monitor_session.scope.empty() ? arg_name : (monitor_session.scope + "." + arg_name);
             if (net_map.find(scoped_arg) != net_map.end()) {
                 current_values.push_back(netlist[net_map.at(scoped_arg)].value);
             } else {
@@ -315,13 +239,12 @@ void Engine::check_monitor() {
         size_t fmt_len = monitor_session.format_string.size();
         for (size_t i = 0; i < fmt_len; ++i) {
             if (monitor_session.format_string[i] == '%' && i + 1 < fmt_len) {
-                i++;
-                char spec = monitor_session.format_string[i];
+                char spec = monitor_session.format_string[++i];
                 if (spec == '0' && i + 1 < fmt_len) {
                     char next_spec = monitor_session.format_string[i + 1];
                     if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
                         spec = next_spec;
-                        i++;
+                        ++i;
                     }
                 }
 
@@ -333,6 +256,7 @@ void Engine::check_monitor() {
                         if (spec == 'd' || spec == 't') std::cout << val.aval;
                         else if (spec == 'b') std::cout << val.to_bin_string();
                         else if (spec == 'h') std::cout << std::hex << val.aval << std::dec;
+                        else std::cout << val.aval;
                     }
                 }
             } else {
@@ -455,7 +379,7 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
     else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
         sim_time += delay->delay;
-        dump_vcd_sample();
+        vcd_dumper.dump_sample(netlist, sim_time);
         check_monitor();
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
@@ -476,13 +400,12 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             size_t fmt_len = disp->format_string.size();
             for (size_t i = 0; i < fmt_len; ++i) {
                 if (disp->format_string[i] == '%' && i + 1 < fmt_len) {
-                    i++;
-                    char spec = disp->format_string[i];
+                    char spec = disp->format_string[++i];
                     if (spec == '0' && i + 1 < fmt_len) {
                         char next_spec = disp->format_string[i + 1];
                         if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
                             spec = next_spec;
-                            i++;
+                            ++i;
                         }
                     }
 
@@ -491,15 +414,24 @@ void Engine::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (arg_name == "$time") {
                             std::cout << sim_time;
                         } else {
-                            std::string scoped_arg = bp.scope + "." + arg_name;
-                            size_t net_id = net_map.at(scoped_arg);
-                            const auto& net = netlist[net_id];
-                            if (net.value.is_unknown()) {
-                                std::cout << "x";
+                            std::string scoped_arg = bp.scope.empty() ? arg_name : (bp.scope + "." + arg_name);
+                            if (net_map.find(scoped_arg) != net_map.end()) {
+                                size_t net_id = net_map.at(scoped_arg);
+                                const auto& net = netlist[net_id];
+                                if (net.value.is_unknown()) {
+                                    std::cout << "x";
+                                } else {
+                                    if (spec == 'd' || spec == 't') std::cout << net.value.aval;
+                                    else if (spec == 'b') std::cout << net.value.to_bin_string();
+                                    else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
+                                    else std::cout << net.value.aval;
+                                }
+                            } else if (param_map.find(scoped_arg) != param_map.end()) {
+                                std::cout << param_map.at(scoped_arg);
+                            } else if (param_map.find(arg_name) != param_map.end()) {
+                                std::cout << param_map.at(arg_name);
                             } else {
-                                if (spec == 'd' || spec == 't') std::cout << net.value.aval;
-                                else if (spec == 'b') std::cout << net.value.to_bin_string();
-                                else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
+                                std::cout << "x";
                             }
                         }
                     }
@@ -730,7 +662,6 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
 
     ModuleNode* top = nullptr;
 
-    // 1. If explicit top module specified, look it up directly
     if (!top_module_name.empty()) {
         if (module_defs.find(top_module_name) != module_defs.end()) {
             top = module_defs.at(top_module_name);
@@ -739,7 +670,6 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
             throw std::runtime_error("Elaboration error: Top module '" + top_module_name + "' was not found in parsed sources.");
         }
     } else {
-        // 2. Otherwise auto-detect uninstantiated module root
         std::unordered_map<std::string, bool> is_instantiated;
         for (auto& mod : modules) {
             for (auto& inst : mod->instantiations) {
@@ -774,18 +704,13 @@ void Engine::step_process(size_t pid) {
         }
 
         if (auto df = dynamic_cast<DumpFileStatementNode*>(stmt)) {
-            if (vcd_allowed) {
-                vcd_filename = df->filename;
-                vcd_enabled = true;
-            }
+            vcd_dumper.enable(df->filename);
             bp.pc++;
             continue;
         }
 
         if (dynamic_cast<DumpVarsStatementNode*>(stmt)) {
-            if (vcd_allowed && vcd_enabled) {
-                init_vcd_header();
-            }
+            vcd_dumper.init_header(netlist, sim_time);
             bp.pc++;
             continue;
         }
@@ -810,7 +735,7 @@ void Engine::step_process(size_t pid) {
         propagate_comb();
         evaluate_sequential_blocks();
         commit_nba_updates();
-        dump_vcd_sample();
+        vcd_dumper.dump_sample(netlist, sim_time);
         check_monitor();
 
         for (auto& n : netlist) n.modified = false;
@@ -850,9 +775,10 @@ void Engine::run(std::ostream* debug_out) {
         step_process(ev.process_id);
     }
 
-    if (vcd_enabled && vcd_file.is_open()) {
-        vcd_file.close();
-        std::cout << "[CAS VCD] Trace successfully dumped to: " << vcd_filename << "\n";
+    if (vcd_dumper.is_enabled()) {
+        std::string dumped_file = vcd_dumper.get_filename();
+        vcd_dumper.close();
+        std::cout << "[CAS VCD] Trace successfully dumped to: " << dumped_file << "\n";
     }
 
     std::cout << "--------------------------------------------------------\n";
