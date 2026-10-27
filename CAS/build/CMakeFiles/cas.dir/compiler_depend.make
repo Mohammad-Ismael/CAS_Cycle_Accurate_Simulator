@@ -3,9 +3,10 @@
 
 CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/ast.hpp \
+  /app/CAS/include/common/types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/kernel/netlist.hpp \
   /app/CAS/include/lexer.hpp \
-  /app/CAS/include/netlist.hpp \
   /usr/include/alloca.h \
   /usr/include/bits/alltypes.h \
   /usr/include/bits/errno.h \
@@ -330,9 +331,10 @@ CMakeFiles/cas.dir/src/lexer.cpp.o: /app/CAS/src/lexer.cpp \
 
 CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/ast.hpp \
+  /app/CAS/include/common/types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/kernel/netlist.hpp \
   /app/CAS/include/lexer.hpp \
-  /app/CAS/include/netlist.hpp \
   /app/CAS/include/parser.hpp \
   /usr/include/alloca.h \
   /usr/include/bits/alltypes.h \
@@ -530,6 +532,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
 
 CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
   /app/CAS/include/ast.hpp \
+  /app/CAS/include/common/types.hpp \
   /app/CAS/include/lexer.hpp \
   /app/CAS/include/parser.hpp \
   /usr/include/alloca.h \
@@ -537,9 +540,11 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
   /usr/include/bits/errno.h \
   /usr/include/bits/limits.h \
   /usr/include/bits/stdint.h \
+  /usr/include/c++/13.2.1/algorithm \
   /usr/include/c++/13.2.1/backward/auto_ptr.h \
   /usr/include/c++/13.2.1/backward/binders.h \
   /usr/include/c++/13.2.1/bit \
+  /usr/include/c++/13.2.1/bits/algorithmfwd.h \
   /usr/include/c++/13.2.1/bits/align.h \
   /usr/include/c++/13.2.1/bits/alloc_traits.h \
   /usr/include/c++/13.2.1/bits/allocated_ptr.h \
@@ -587,10 +592,12 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
   /usr/include/c++/13.2.1/bits/std_abs.h \
+  /usr/include/c++/13.2.1/bits/stl_algo.h \
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
+  /usr/include/c++/13.2.1/bits/stl_heap.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
@@ -603,6 +610,7 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
   /usr/include/c++/13.2.1/bits/streambuf_iterator.h \
   /usr/include/c++/13.2.1/bits/string_view.tcc \
   /usr/include/c++/13.2.1/bits/stringfwd.h \
+  /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
   /usr/include/c++/13.2.1/bits/unique_ptr.h \
   /usr/include/c++/13.2.1/bits/uses_allocator.h \
   /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
@@ -636,6 +644,7 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
   /usr/include/c++/13.2.1/pstl/execution_defs.h \
+  /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
   /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
   /usr/include/c++/13.2.1/pstl/pstl_config.h \
   /usr/include/c++/13.2.1/stdexcept \
@@ -749,8 +758,6 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h:
 
-/usr/include/c++/13.2.1/vector:
-
 /usr/include/c++/13.2.1/unordered_map:
 
 /usr/include/features.h:
@@ -779,7 +786,15 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/locale:
 
+/usr/include/c++/13.2.1/chrono:
+
+/usr/include/c++/13.2.1/typeinfo:
+
+/usr/include/c++/13.2.1/istream:
+
 /usr/include/c++/13.2.1/iostream:
+
+/usr/include/c++/13.2.1/ios:
 
 /usr/include/fortify/string.h:
 
@@ -809,23 +824,13 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/bits/hash_bytes.h:
 
+/usr/include/c++/13.2.1/bits/functexcept.h:
+
 /usr/include/c++/13.2.1/bits/exception_ptr.h:
 
 /usr/include/c++/13.2.1/bits/exception_defines.h:
 
 /usr/include/c++/13.2.1/bits/stl_function.h:
-
-/usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc:
-
-/app/CAS/include/lexer.hpp:
-
-/usr/include/c++/13.2.1/bits/locale_facets.tcc:
-
-/usr/include/string.h:
-
-/usr/include/c++/13.2.1/algorithm:
-
-/usr/include/c++/13.2.1/bits/deque.tcc:
 
 /usr/include/c++/13.2.1/bits/stl_pair.h:
 
@@ -841,7 +846,17 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/bits/refwrap.h:
 
-/usr/include/bits/alltypes.h:
+/usr/include/c++/13.2.1/bits/concept_check.h:
+
+/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/cpu_defines.h:
+
+/usr/include/c++/13.2.1/backward/binders.h:
+
+/usr/include/c++/13.2.1/cerrno:
+
+/usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h:
+
+/usr/include/c++/13.2.1/cwctype:
 
 /usr/include/bits/stdint.h:
 
@@ -853,17 +868,21 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/bits/stl_deque.h:
 
+/usr/include/bits/alltypes.h:
+
 /usr/include/c++/13.2.1/bits/hashtable_policy.h:
 
-/usr/include/c++/13.2.1/bits/functexcept.h:
+/app/CAS/include/lexer.hpp:
 
-/usr/include/c++/13.2.1/chrono:
+/usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc:
 
-/usr/include/c++/13.2.1/typeinfo:
+/usr/include/c++/13.2.1/vector:
 
-/usr/include/c++/13.2.1/istream:
+/app/CAS/include/common/types.hpp:
 
-/app/CAS/include/netlist.hpp:
+/usr/include/c++/13.2.1/string_view:
+
+/usr/include/c++/13.2.1/bits/stl_uninitialized.h:
 
 /usr/include/c++/13.2.1/bits/stl_bvector.h:
 
@@ -875,17 +894,13 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/bits/allocator.h:
 
-/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/cpu_defines.h:
+/usr/include/c++/13.2.1/bits/locale_facets.tcc:
 
-/usr/include/c++/13.2.1/backward/binders.h:
+/usr/include/string.h:
 
-/usr/include/c++/13.2.1/bits/concept_check.h:
+/usr/include/c++/13.2.1/algorithm:
 
-/usr/include/c++/13.2.1/cerrno:
-
-/usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h:
-
-/usr/include/c++/13.2.1/cwctype:
+/usr/include/c++/13.2.1/bits/deque.tcc:
 
 /usr/include/c++/13.2.1/bits/enable_special_members.h:
 
@@ -894,8 +909,6 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 /usr/include/c++/13.2.1/ext/alloc_traits.h:
 
 /usr/include/c++/13.2.1/bits/basic_ios.h:
-
-/usr/include/c++/13.2.1/ios:
 
 /usr/include/c++/13.2.1/bits/localefwd.h:
 
@@ -908,10 +921,6 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 /app/CAS/src/engine.cpp:
 
 /usr/include/c++/13.2.1/bit:
-
-/usr/include/c++/13.2.1/bits/uniform_int_dist.h:
-
-/usr/include/c++/13.2.1/bits/nested_exception.h:
 
 /usr/include/c++/13.2.1/bits/align.h:
 
@@ -943,6 +952,10 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 
 /usr/include/c++/13.2.1/bits/charconv.h:
 
+/usr/include/c++/13.2.1/bits/uniform_int_dist.h:
+
+/usr/include/c++/13.2.1/bits/nested_exception.h:
+
 /usr/include/c++/13.2.1/bits/new_allocator.h:
 
 /usr/include/c++/13.2.1/fstream:
@@ -958,6 +971,8 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 /usr/include/c++/13.2.1/bits/codecvt.h:
 
 /usr/include/c++/13.2.1/cstdlib:
+
+/app/CAS/include/kernel/netlist.hpp:
 
 /usr/include/c++/13.2.1/bits/stringfwd.h:
 
@@ -1012,10 +1027,6 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
 /usr/include/c++/13.2.1/bits/locale_conv.h:
 
 /usr/include/c++/13.2.1/bits/stl_tempbuf.h:
-
-/usr/include/c++/13.2.1/string_view:
-
-/usr/include/c++/13.2.1/bits/stl_uninitialized.h:
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h:
 

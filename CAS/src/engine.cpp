@@ -886,24 +886,3 @@ EngineStats Engine::get_stats() {
     s.nba_commits = nba_commits_count;
     return s;
 }
-
-void Engine::print_profile_report() {
-    auto s = get_stats();
-    std::cout << "\n========================================================\n";
-    std::cout << "          CAS ENGINE PROFILER & DATA TOPOLOGY           \n";
-    std::cout << "========================================================\n";
-    std::cout << "[DATA STRUCTURE METRICS]\n";
-    std::cout << "  * Netlist Vector         : " << s.net_count << " / " << s.net_cap << " capacity\n";
-    std::cout << "  * Processes Vector       : " << s.proc_count << " / " << s.proc_cap << " capacity\n";
-    std::cout << "  * Interconnect Slices    : " << s.slice_count << " / " << s.slice_cap << " capacity\n";
-    std::cout << "  * Gate Primitives        : " << s.gate_count << " / " << s.gate_cap << " capacity\n";
-    std::cout << "  * Continuous Assigns     : " << s.ca_count << " / " << s.ca_cap << " capacity\n";
-    std::cout << "  * Memory Array Storage   : " << s.ram_count << " arrays (" << s.ram_total_words << " words)\n";
-    std::cout << "\n[HASH TABLE METRICS]\n";
-    std::cout << "  * Net Identifier Table   : " << s.net_map_keys << " keys, " << s.net_map_buckets << " buckets, load factor: "
-              << std::fixed << std::setprecision(2) << s.net_map_load << "\n";
-    std::cout << "\n[DISCRETE-EVENT SCHEDULER STATISTICS]\n";
-    std::cout << "  * Time Wheel Events Run  : " << s.events_dispatched << " events\n";
-    std::cout << "  * Combinational Passes   : " << s.delta_cycles << " delta cycles\n";
-    std::cout << "  * NBA Commit Iterations  : " << s.nba_commits << " sync rounds\n";
-}

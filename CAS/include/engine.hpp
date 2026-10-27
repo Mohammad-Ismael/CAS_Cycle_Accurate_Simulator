@@ -1,6 +1,7 @@
 #pragma once
 #include "ast.hpp"
 #include "kernel/netlist.hpp"
+#include "profiler/profiler.hpp"
 #include <unordered_map>
 #include <queue>
 #include <iostream>
@@ -67,27 +68,6 @@ struct SimEvent {
         if (time != other.time) return time > other.time;
         return order > other.order;
     }
-};
-
-struct EngineStats {
-    size_t net_count;
-    size_t net_cap;
-    size_t proc_count;
-    size_t proc_cap;
-    size_t slice_count;
-    size_t slice_cap;
-    size_t gate_count;
-    size_t gate_cap;
-    size_t ca_count;
-    size_t ca_cap;
-    size_t ram_count;
-    size_t ram_total_words;
-    size_t net_map_keys;
-    size_t net_map_buckets;
-    float  net_map_load;
-    size_t events_dispatched;
-    size_t delta_cycles;
-    size_t nba_commits;
 };
 
 class Engine {
@@ -159,5 +139,4 @@ public:
     void set_vcd_allowed(bool allowed) { vcd_allowed = allowed; }
 
     EngineStats get_stats();
-    void print_profile_report();
 };

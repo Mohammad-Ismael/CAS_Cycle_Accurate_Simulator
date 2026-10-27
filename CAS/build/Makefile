@@ -225,6 +225,30 @@ src/parser.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/parser.cpp.s
 .PHONY : src/parser.cpp.s
 
+src/profiler/profiler.o: src/profiler/profiler.cpp.o
+.PHONY : src/profiler/profiler.o
+
+# target to build an object file
+src/profiler/profiler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/profiler/profiler.cpp.o
+.PHONY : src/profiler/profiler.cpp.o
+
+src/profiler/profiler.i: src/profiler/profiler.cpp.i
+.PHONY : src/profiler/profiler.i
+
+# target to preprocess a source file
+src/profiler/profiler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/profiler/profiler.cpp.i
+.PHONY : src/profiler/profiler.cpp.i
+
+src/profiler/profiler.s: src/profiler/profiler.cpp.s
+.PHONY : src/profiler/profiler.s
+
+# target to generate assembly for a file
+src/profiler/profiler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/profiler/profiler.cpp.s
+.PHONY : src/profiler/profiler.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -246,6 +270,9 @@ help:
 	@echo "... src/parser.o"
 	@echo "... src/parser.i"
 	@echo "... src/parser.s"
+	@echo "... src/profiler/profiler.o"
+	@echo "... src/profiler/profiler.i"
+	@echo "... src/profiler/profiler.s"
 .PHONY : help
 
 

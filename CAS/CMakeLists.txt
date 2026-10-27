@@ -10,5 +10,6 @@ add_executable(cas
     src/lexer.cpp
     src/parser.cpp
     src/engine.cpp
+    src/profiler/profiler.cpp
     src/main.cpp
 )

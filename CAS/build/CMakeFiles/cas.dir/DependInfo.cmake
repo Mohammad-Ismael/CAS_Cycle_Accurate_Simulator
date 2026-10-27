@@ -12,6 +12,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/app/CAS/src/lexer.cpp" "CMakeFiles/cas.dir/src/lexer.cpp.o" "gcc" "CMakeFiles/cas.dir/src/lexer.cpp.o.d"
   "/app/CAS/src/main.cpp" "CMakeFiles/cas.dir/src/main.cpp.o" "gcc" "CMakeFiles/cas.dir/src/main.cpp.o.d"
   "/app/CAS/src/parser.cpp" "CMakeFiles/cas.dir/src/parser.cpp.o" "gcc" "CMakeFiles/cas.dir/src/parser.cpp.o.d"
+  "/app/CAS/src/profiler/profiler.cpp" "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o" "gcc" "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.
