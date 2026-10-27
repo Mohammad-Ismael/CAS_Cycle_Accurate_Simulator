@@ -11,6 +11,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR) {
         bool is_mon = (current.type == TokenType::TOKEN_MONITOR);
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
+
         advance();
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $display / $monitor");
 
@@ -39,7 +42,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $display / $monitor argument list");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $display / $monitor");
-        return std::make_unique<DisplayStatementNode>(fmt, args, is_mon, has_lead_time);
+        return std::make_unique<DisplayStatementNode>(fmt, args, is_mon, has_lead_time, origin_file, origin_line);
     }
 
     if (match(TokenType::TOKEN_DUMPFILE)) {
@@ -63,9 +66,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (match(TokenType::TOKEN_FINISH) || match(TokenType::TOKEN_STOP)) {
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
         if (match(TokenType::TOKEN_LPAREN)) expect(TokenType::TOKEN_RPAREN, "Expected ')'");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $finish/$stop");
-        return std::make_unique<FinishStatementNode>();
+        return std::make_unique<FinishStatementNode>(origin_file, origin_line);
     }
 
     if (match(TokenType::TOKEN_IF)) {

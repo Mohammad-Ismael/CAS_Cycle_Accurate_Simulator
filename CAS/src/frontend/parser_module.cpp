@@ -69,6 +69,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parameter list");
         }
 
+        // Parse Ports in module header
         if (match(TokenType::TOKEN_LPAREN)) {
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                 std::string dir = "";
@@ -94,12 +95,22 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                     PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr);
                     mod->ports.push_back(std::move(port));
+
                     if (match(TokenType::TOKEN_COMMA)) {
+                        // Comma consumed; if next is another port with direction or type, break inner list
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
                             current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG) {
                             break;
                         }
                         continue;
+                    }
+
+                    // No comma: the only valid next token in a port list is ')'
+                    if (current.type != TokenType::TOKEN_RPAREN) {
+                        std::string loc = current.filename.empty() 
+                            ? ("line " + std::to_string(current.line)) 
+                            : (current.filename + ":" + std::to_string(current.line));
+                        throw std::runtime_error(loc + ": error: Expected ',' or ')' in module port list (found: '" + current.text + "')");
                     }
                     break;
                 }

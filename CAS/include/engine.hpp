@@ -28,6 +28,8 @@ struct MonitorSession {
     std::vector<std::string> args;
     std::vector<LogicVal> prev_values;
     bool has_leading_time = false;
+    std::string src_file = "";
+    size_t src_line = 0;
 };
 
 struct SimEvent {

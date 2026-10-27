@@ -185,8 +185,15 @@ void Evaluator::check_monitor() {
 
     if (values_changed) {
         engine.monitor_session.prev_values = current_values;
+
+        if (!engine.monitor_session.src_file.empty() && engine.monitor_session.src_line > 0) {
+            std::cout << "[CAS $monitor " << engine.monitor_session.src_file << ":" << engine.monitor_session.src_line << "] ";
+        } else {
+            std::cout << "[CAS $monitor] ";
+        }
+
         if (engine.monitor_session.has_leading_time) {
-            std::cout << engine.sim_time;
+            std::cout << engine.sim_time << " ";
         }
 
         size_t arg_idx = 0;
@@ -276,10 +283,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.format_string = disp->format_string;
             engine.monitor_session.args = disp->args;
             engine.monitor_session.has_leading_time = disp->has_leading_time;
+            engine.monitor_session.src_file = disp->src_file;
+            engine.monitor_session.src_line = disp->src_line;
             engine.monitor_session.prev_values.clear();
             check_monitor();
         } else {
-            std::cout << "[CAS $display] ";
+            if (!disp->src_file.empty() && disp->src_line > 0) {
+                std::cout << "[CAS $display " << disp->src_file << ":" << disp->src_line << "] ";
+            } else {
+                std::cout << "[CAS $display] ";
+            }
+
             if (disp->has_leading_time) {
                 std::cout << engine.sim_time << " ";
             }
@@ -329,8 +343,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             std::cout << "\n";
         }
     }
-    else if (dynamic_cast<FinishStatementNode*>(stmt)) {
-        std::cout << "[CAS $finish] Simulation Terminated at time " << engine.sim_time << ".\n";
+    else if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
+        if (!fin->src_file.empty() && fin->src_line > 0) {
+            std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.sim_time << ".\n";
+        } else {
+            std::cout << "[CAS $finish] Simulation Terminated at time " << engine.sim_time << ".\n";
+        }
         engine.simulation_active = false;
         bp.completed = true;
     }

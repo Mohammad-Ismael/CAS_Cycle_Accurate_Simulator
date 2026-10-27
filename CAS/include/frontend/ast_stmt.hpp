@@ -6,7 +6,7 @@
 #include <cstdint>
 
 struct BlockingAssignNode : public StatementNode {
-    std::vector<std::string> lhs_targets; // supports single target or concatenation {a, b}
+    std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
 
     explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r)
@@ -44,7 +44,7 @@ struct IfStatementNode : public StatementNode {
 };
 
 struct CaseItem {
-    std::unique_ptr<ExpressionNode> match_expr; // nullptr if default
+    std::unique_ptr<ExpressionNode> match_expr;
     std::vector<std::unique_ptr<StatementNode>> statements;
     bool is_default = false;
 };
@@ -71,11 +71,22 @@ struct DisplayStatementNode : public StatementNode {
     std::vector<std::string> args;
     bool is_monitor = false;
     bool has_leading_time = false;
-    explicit DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false, bool lead_time = false)
-        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon), has_leading_time(lead_time) {}
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false, bool lead_time = false,
+                                  std::string file = "", size_t line = 0)
+        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon), has_leading_time(lead_time),
+          src_file(std::move(file)), src_line(line) {}
 };
 
-struct FinishStatementNode : public StatementNode {};
+struct FinishStatementNode : public StatementNode {
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit FinishStatementNode(std::string file = "", size_t line = 0)
+        : src_file(std::move(file)), src_line(line) {}
+};
 
 struct DumpFileStatementNode : public StatementNode {
     std::string filename;
