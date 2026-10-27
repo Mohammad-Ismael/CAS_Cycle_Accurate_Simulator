@@ -1,6 +1,9 @@
 #pragma once
+#include "lexer.hpp"
 #include "ast.hpp"
 #include <memory>
+#include <vector>
+#include <string>
 
 class Parser {
 private:
@@ -13,8 +16,9 @@ private:
 
     std::unique_ptr<ExpressionNode> parse_primary();
     std::unique_ptr<ExpressionNode> parse_unary();
-    std::unique_ptr<ExpressionNode> parse_shift();
+    std::unique_ptr<ExpressionNode> parse_multiplicative();
     std::unique_ptr<ExpressionNode> parse_additive();
+    std::unique_ptr<ExpressionNode> parse_shift();
     std::unique_ptr<ExpressionNode> parse_relational();
     std::unique_ptr<ExpressionNode> parse_equality();
     std::unique_ptr<ExpressionNode> parse_bitwise_and();
@@ -26,6 +30,10 @@ private:
     std::unique_ptr<ExpressionNode> parse_expression();
 
     std::unique_ptr<StatementNode> parse_statement();
+    std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
+    std::unique_ptr<ProcessNode> parse_always_ff();
+    std::unique_ptr<TaskNode> parse_task();
+    std::unique_ptr<ModuleNode> parse_module();
 
 public:
     explicit Parser(Lexer& lex);

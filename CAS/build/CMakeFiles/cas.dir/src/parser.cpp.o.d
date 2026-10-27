@@ -1,7 +1,6 @@
 CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
  /usr/include/stdc-predef.h /app/CAS/src/../include/parser.hpp \
- /app/CAS/src/../include/ast.hpp /app/CAS/src/../include/lexer.hpp \
- /usr/include/c++/13.2.1/string \
+ /app/CAS/src/../include/lexer.hpp /usr/include/c++/13.2.1/string \
  /usr/include/c++/13.2.1/bits/requires_hosted.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++config.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h \
@@ -101,17 +100,10 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h \
  /usr/include/c++/13.2.1/bits/locale_facets.tcc \
  /usr/include/c++/13.2.1/bits/basic_ios.tcc \
- /usr/include/c++/13.2.1/bits/ostream.tcc \
- /app/CAS/src/../include/common/types.hpp \
- /usr/include/c++/13.2.1/algorithm \
- /usr/include/c++/13.2.1/bits/stl_algo.h \
- /usr/include/c++/13.2.1/bits/algorithmfwd.h \
- /usr/include/c++/13.2.1/bits/stl_heap.h \
- /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
- /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
- /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
- /usr/include/c++/13.2.1/pstl/execution_defs.h \
+ /usr/include/c++/13.2.1/bits/ostream.tcc /app/CAS/src/../include/ast.hpp \
+ /app/CAS/src/../include/frontend/ast_base.hpp \
  /usr/include/c++/13.2.1/memory \
+ /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
  /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
  /usr/include/c++/13.2.1/bits/align.h \
  /usr/include/c++/13.2.1/bits/unique_ptr.h \
@@ -125,5 +117,16 @@ CMakeFiles/cas.dir/src/parser.cpp.o: /app/CAS/src/parser.cpp \
  /usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h \
  /usr/include/c++/13.2.1/backward/auto_ptr.h \
  /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
+ /usr/include/c++/13.2.1/pstl/execution_defs.h \
+ /app/CAS/src/../include/frontend/ast_expr.hpp \
+ /app/CAS/src/../include/frontend/ast_stmt.hpp \
+ /app/CAS/src/../include/frontend/ast_module.hpp \
+ /app/CAS/src/../include/frontend/../common/types.hpp \
+ /usr/include/c++/13.2.1/algorithm \
+ /usr/include/c++/13.2.1/bits/stl_algo.h \
+ /usr/include/c++/13.2.1/bits/algorithmfwd.h \
+ /usr/include/c++/13.2.1/bits/stl_heap.h \
+ /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
+ /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
  /usr/include/c++/13.2.1/iostream /usr/include/c++/13.2.1/istream \
  /usr/include/c++/13.2.1/bits/istream.tcc
