@@ -153,6 +153,30 @@ src/engine.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/engine.cpp.s
 .PHONY : src/engine.cpp.s
 
+src/kernel/elaborator.o: src/kernel/elaborator.cpp.o
+.PHONY : src/kernel/elaborator.o
+
+# target to build an object file
+src/kernel/elaborator.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o
+.PHONY : src/kernel/elaborator.cpp.o
+
+src/kernel/elaborator.i: src/kernel/elaborator.cpp.i
+.PHONY : src/kernel/elaborator.i
+
+# target to preprocess a source file
+src/kernel/elaborator.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/elaborator.cpp.i
+.PHONY : src/kernel/elaborator.cpp.i
+
+src/kernel/elaborator.s: src/kernel/elaborator.cpp.s
+.PHONY : src/kernel/elaborator.s
+
+# target to generate assembly for a file
+src/kernel/elaborator.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/elaborator.cpp.s
+.PHONY : src/kernel/elaborator.cpp.s
+
 src/lexer.o: src/lexer.cpp.o
 .PHONY : src/lexer.o
 
@@ -285,6 +309,9 @@ help:
 	@echo "... src/engine.o"
 	@echo "... src/engine.i"
 	@echo "... src/engine.s"
+	@echo "... src/kernel/elaborator.o"
+	@echo "... src/kernel/elaborator.i"
+	@echo "... src/kernel/elaborator.s"
 	@echo "... src/lexer.o"
 	@echo "... src/lexer.i"
 	@echo "... src/lexer.s"

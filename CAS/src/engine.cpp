@@ -3,76 +3,23 @@
 #include <stdexcept>
 #include <ctime>
 
-size_t Engine::get_or_create_net(const std::string& scoped_name, uint32_t width) {
-    if (net_map.find(scoped_name) != net_map.end()) {
-        return net_map[scoped_name];
-    }
-    size_t id = netlist.size();
-    netlist.emplace_back(scoped_name, width);
-    netlist.back().vcd_id = VcdDumper::generate_vcd_id(id);
-    net_map[scoped_name] = id;
-    return id;
+void Engine::load_elaboration(ElaborationResult&& elab_res) {
+    netlist = std::move(elab_res.netlist);
+    net_map = std::move(elab_res.net_map);
+    slice_bindings = std::move(elab_res.slice_bindings);
+    continuous_assigns = std::move(elab_res.continuous_assigns);
+    gates = std::move(elab_res.gates);
+    memory_map = std::move(elab_res.memory_map);
+    task_map = std::move(elab_res.task_map);
+    param_map = std::move(elab_res.param_map);
+    processes = std::move(elab_res.processes);
 }
 
-uint64_t Engine::eval_const_expr(ExpressionNode* expr, const std::string& scope) {
-    if (!expr) return 0;
-    if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        return num->value;
-    }
-    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
-        std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
-        if (param_map.find(scoped_id) != param_map.end()) {
-            return param_map.at(scoped_id);
-        }
-        if (param_map.find(id->name) != param_map.end()) {
-            return param_map.at(id->name);
-        }
-        return 0;
-    }
-    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
-        uint64_t l = eval_const_expr(bin->lhs.get(), scope);
-        uint64_t r = eval_const_expr(bin->rhs.get(), scope);
-        if (bin->op == "+") return l + r;
-        if (bin->op == "-") return (l >= r) ? (l - r) : 0;
-        if (bin->op == "*") return l * r;
-        if (bin->op == "<<") return l << r;
-        if (bin->op == ">>") return l >> r;
-    }
-    return 0;
-}
-
-NetSliceRef Engine::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
-    if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
-        std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
-        size_t id = net_map.at(full_name);
-        return {id, 0, netlist[id].width};
-    }
-    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
-        std::string full_name = scope.empty() ? idx->name : (scope + "." + idx->name);
-        size_t id = net_map.at(full_name);
-        if (!idx->is_part_select) {
-            LogicVal iv = eval_expr(idx->msb_expr.get(), scope);
-            uint32_t off = iv.is_unknown() ? 0 : (uint32_t)iv.aval;
-            return {id, off, 1};
-        } else {
-            LogicVal mv = eval_expr(idx->msb_expr.get(), scope);
-            LogicVal lv = eval_expr(idx->lsb_expr.get(), scope);
-            uint32_t msb = mv.is_unknown() ? 0 : (uint32_t)mv.aval;
-            uint32_t lsb = lv.is_unknown() ? 0 : (uint32_t)lv.aval;
-            uint32_t w = (msb >= lsb) ? (msb - lsb + 1) : (lsb - msb + 1);
-            return {id, lsb, w};
-        }
-    }
-    if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        static size_t const_counter = 0;
-        std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
-        size_t id = get_or_create_net(const_net_name, num->width);
-        LogicVal val = num->is_unknown ? LogicVal::make_x(num->width) : LogicVal::make_known(num->width, num->value);
-        netlist[id].set(val);
-        return {id, 0, num->width};
-    }
-
-    throw std::runtime_error("Expression is not a bindable net target");
+void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
+                       const std::string& top_module_name,
+                       std::ostream* debug_out) {
+    Elaborator elaborator;
+    load_elaboration(elaborator.elaborate(modules, top_module_name, debug_out));
 }
 
 LogicVal Engine::read_slice(const NetSliceRef& ref) {
@@ -274,7 +221,6 @@ void Engine::propagate_comb() {
     while (changed && iters < 100) {
         changed = false;
 
-        // 1. Module port interconnect slice bindings
         for (auto& bind : slice_bindings) {
             LogicVal src_val = read_slice(bind.src);
             LogicVal dst_val = read_slice(bind.dst);
@@ -284,7 +230,6 @@ void Engine::propagate_comb() {
             }
         }
 
-        // 2. Built-in Gate Primitives
         for (auto& g : gates) {
             LogicVal res = eval_expr(g.in_exprs[0], g.scope);
             for (size_t i = 1; i < g.in_exprs.size(); ++i) {
@@ -306,7 +251,6 @@ void Engine::propagate_comb() {
             }
         }
 
-        // 3. Continuous assign statements
         for (auto& ca : continuous_assigns) {
             LogicVal val = eval_expr(ca.rhs, ca.scope);
             LogicVal cur = read_slice(ca.target);
@@ -316,7 +260,6 @@ void Engine::propagate_comb() {
             }
         }
 
-        // 4. always_comb blocks
         for (auto& bp : processes) {
             if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
             for (auto& stmt : bp.proc->body) {
@@ -525,168 +468,6 @@ void Engine::commit_nba_updates() {
     }
     nba_mem_queue.clear();
     propagate_comb();
-}
-
-void Engine::elaborate_module(ModuleNode* mod, const std::string& scope,
-                              const std::unordered_map<std::string, ModuleNode*>& module_defs,
-                              const std::vector<std::unique_ptr<ExpressionNode>>* overrides,
-                              const std::string& parent_scope,
-                              std::ostream* debug_out) {
-    if (debug_out) {
-        *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
-    }
-
-    for (size_t i = 0; i < mod->parameters.size(); ++i) {
-        const auto& p = mod->parameters[i];
-        uint64_t val = 0;
-        if (overrides && i < overrides->size()) {
-            val = eval_const_expr((*overrides)[i].get(), parent_scope);
-            if (debug_out) *debug_out << "     * Parameter override: " << p.name << " = " << val << "\n";
-        } else {
-            val = eval_const_expr(p.default_expr.get(), scope);
-            if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << val << "\n";
-        }
-        param_map[scope + "." + p.name] = val;
-    }
-
-    for (auto& p : mod->ports) {
-        uint32_t w = 1;
-        if (p.msb_expr && p.lsb_expr) {
-            uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
-            uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-        }
-        get_or_create_net(scope + "." + p.name, w);
-    }
-
-    for (auto& s : mod->signals) {
-        uint32_t w = 1;
-        if (s.msb_expr && s.lsb_expr) {
-            uint64_t msb = eval_const_expr(s.msb_expr.get(), scope);
-            uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-        }
-        if (s.is_array) {
-            uint32_t depth = 1;
-            if (s.bound1_expr && s.bound2_expr) {
-                uint64_t b1 = eval_const_expr(s.bound1_expr.get(), scope);
-                uint64_t b2 = eval_const_expr(s.bound2_expr.get(), scope);
-                depth = (b1 >= b2) ? (uint32_t)(b1 - b2 + 1) : (uint32_t)(b2 - b1 + 1);
-            } else if (s.bound1_expr) {
-                depth = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
-            }
-            std::string mem_scope = scope + "." + s.name;
-            memory_map[mem_scope] = MemoryArray(mem_scope, w, depth);
-            if (debug_out) {
-                *debug_out << "     * Memory allocated: " << mem_scope 
-                           << " [" << w << "-bit x " << depth << " words]\n";
-            }
-        } else {
-            get_or_create_net(scope + "." + s.name, w);
-        }
-    }
-
-    for (auto& ca : mod->continuous_assigns) {
-        std::string scoped_target = scope + "." + ca->target_name;
-        size_t target_id = net_map.at(scoped_target);
-        continuous_assigns.push_back({scope, {target_id, 0, netlist[target_id].width}, ca->rhs.get()});
-    }
-
-    for (auto& g : mod->gates) {
-        GateInstance gi;
-        gi.type = g->type;
-        gi.scope = scope;
-        gi.out_target = resolve_slice_ref(g->out_expr.get(), scope);
-        for (auto& ie : g->in_exprs) gi.in_exprs.push_back(ie.get());
-        gates.push_back(gi);
-    }
-
-    for (auto& t : mod->tasks) {
-        task_map[scope + "." + t->name] = t.get();
-    }
-
-    for (auto& proc : mod->processes) {
-        processes.push_back({scope, proc.get(), 0, false});
-    }
-
-    for (auto& inst : mod->instantiations) {
-        std::string child_scope = scope + "." + inst->instance_name;
-        if (module_defs.find(inst->module_type) == module_defs.end()) {
-            throw std::runtime_error("Undefined module type instantiated: " + inst->module_type);
-        }
-        ModuleNode* submod = module_defs.at(inst->module_type);
-
-        elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope, debug_out);
-
-        for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
-            auto& conn = inst->connections[conn_idx];
-            std::string target_port_name;
-            if (inst->is_positional) {
-                if (conn_idx >= submod->ports.size()) {
-                    throw std::runtime_error("Positional connection out of bounds in " + inst->instance_name);
-                }
-                target_port_name = submod->ports[conn_idx].name;
-            } else {
-                target_port_name = conn.port_name;
-            }
-
-            std::string dir = "input";
-            for (auto& p : submod->ports) {
-                if (p.name == target_port_name) {
-                    dir = p.direction;
-                    break;
-                }
-            }
-
-            NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
-            size_t child_net_id = net_map.at(child_scope + "." + target_port_name);
-            NetSliceRef child_ref = {child_net_id, 0, netlist[child_net_id].width};
-
-            if (dir == "input") {
-                slice_bindings.push_back({parent_ref, child_ref});
-            } else {
-                slice_bindings.push_back({child_ref, parent_ref});
-            }
-        }
-    }
-}
-
-void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
-                       const std::string& top_module_name,
-                       std::ostream* debug_out) {
-    if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
-    std::unordered_map<std::string, ModuleNode*> module_defs;
-    for (auto& mod : modules) {
-        module_defs[mod->name] = mod.get();
-    }
-
-    ModuleNode* top = nullptr;
-
-    if (!top_module_name.empty()) {
-        if (module_defs.find(top_module_name) != module_defs.end()) {
-            top = module_defs.at(top_module_name);
-            if (debug_out) *debug_out << "  -> Using explicit top module: '" << top->name << "'\n";
-        } else {
-            throw std::runtime_error("Elaboration error: Top module '" + top_module_name + "' was not found in parsed sources.");
-        }
-    } else {
-        std::unordered_map<std::string, bool> is_instantiated;
-        for (auto& mod : modules) {
-            for (auto& inst : mod->instantiations) {
-                is_instantiated[inst->module_type] = true;
-            }
-        }
-        for (auto& mod : modules) {
-            if (!is_instantiated[mod->name]) {
-                top = mod.get();
-                break;
-            }
-        }
-        if (!top) top = modules.front().get();
-        if (debug_out) *debug_out << "  -> Auto-detected top-level root module: '" << top->name << "'\n";
-    }
-
-    elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
 }
 
 void Engine::step_process(size_t pid) {
