@@ -28,6 +28,18 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         }
         return 0;
     }
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        uint64_t res = 0;
+        for (auto& elem : cat->elements) {
+            uint64_t val = eval_const_expr(elem.get(), scope);
+            uint32_t w = 1;
+            if (auto num = dynamic_cast<NumberNode*>(elem.get())) {
+                w = num->width;
+            }
+            res = (res << w) | val;
+        }
+        return res;
+    }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         uint64_t l = eval_const_expr(bin->lhs.get(), scope);
         uint64_t r = eval_const_expr(bin->rhs.get(), scope);
@@ -68,7 +80,33 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         return {id, 0, num->width};
     }
 
-    throw std::runtime_error("Expression is not a bindable net target during elaboration");
+    // Dynamic port expression (e.g. .port({a, b})) -> synthesize intermediate driver net
+    static size_t expr_port_counter = 0;
+    std::string temp_net_name = scope + ".__expr_port_" + std::to_string(expr_port_counter++);
+    
+    uint32_t synth_width = 8;
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        synth_width = 0;
+        for (auto& el : cat->elements) {
+            if (auto n = dynamic_cast<NumberNode*>(el.get())) {
+                synth_width += n->width;
+            } else if (auto id = dynamic_cast<IdentifierNode*>(el.get())) {
+                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+                if (result.net_map.find(full) != result.net_map.end()) {
+                    synth_width += result.netlist[result.net_map[full]].width;
+                } else {
+                    synth_width += 1;
+                }
+            } else {
+                synth_width += 1;
+            }
+        }
+        if (synth_width == 0) synth_width = 32;
+    }
+
+    size_t id = get_or_create_net(temp_net_name, synth_width);
+    result.continuous_assigns.push_back({scope, {id, 0, synth_width}, expr});
+    return {id, 0, synth_width};
 }
 
 void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,

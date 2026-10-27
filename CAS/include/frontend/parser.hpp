@@ -10,6 +10,8 @@ private:
     Lexer& lexer;
     Token current;
 
+    std::vector<ParameterDef> global_parameters;
+
     void advance();
     bool match(TokenType t);
     void expect(TokenType t, const std::string& err);
@@ -38,4 +40,5 @@ private:
 public:
     explicit Parser(Lexer& lex);
     std::vector<std::unique_ptr<ModuleNode>> parse_all();
+    const std::vector<ParameterDef>& get_global_parameters() const { return global_parameters; }
 };

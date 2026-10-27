@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 struct NumberNode : public ExpressionNode {
     uint64_t value;
@@ -49,6 +50,22 @@ struct IndexSelectNode : public ExpressionNode {
                 lsb_expr ? lsb_expr->clone() : nullptr
             );
         }
+    }
+};
+
+struct ConcatNode : public ExpressionNode {
+    std::vector<std::unique_ptr<ExpressionNode>> elements;
+
+    ConcatNode() = default;
+    explicit ConcatNode(std::vector<std::unique_ptr<ExpressionNode>> elems)
+        : elements(std::move(elems)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> cloned;
+        for (const auto& elem : elements) {
+            cloned.push_back(elem ? elem->clone() : nullptr);
+        }
+        return std::make_unique<ConcatNode>(std::move(cloned));
     }
 };
 

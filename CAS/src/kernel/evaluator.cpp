@@ -43,6 +43,29 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
         }
         return LogicVal::make_x(1);
     }
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        uint32_t total_w = 0;
+        std::vector<LogicVal> vals;
+        for (auto& elem : cat->elements) {
+            LogicVal v = eval_expr(elem.get(), scope);
+            vals.push_back(v);
+            total_w += v.width;
+        }
+
+        uint64_t new_a = 0;
+        uint64_t new_b = 0;
+        int shift = (int)total_w;
+
+        for (const auto& v : vals) {
+            shift -= v.width;
+            uint64_t mask = (v.width >= 64) ? ~0ULL : ((1ULL << v.width) - 1);
+            if (shift >= 0) {
+                new_a |= ((v.aval & mask) << shift);
+                new_b |= ((v.bval & mask) << shift);
+            }
+        }
+        return LogicVal(total_w, new_a, new_b);
+    }
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
         if (engine.memory_map.find(scoped_ident) != engine.memory_map.end()) {

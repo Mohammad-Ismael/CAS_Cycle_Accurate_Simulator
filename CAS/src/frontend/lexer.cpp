@@ -257,7 +257,7 @@ Token Lexer::next_token() {
         if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, cur_file, cur_line};
         if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, cur_file, cur_line};
 
-        if (ident == "or") return {TokenType::TOKEN_OR, ident, 0, 0, cur_file, cur_line};
+        if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line};
         if (ident == "xor") return {TokenType::TOKEN_GATE_XOR, ident, 0, 0, cur_file, cur_line};
         if (ident == "nand") return {TokenType::TOKEN_GATE_NAND, ident, 0, 0, cur_file, cur_line};

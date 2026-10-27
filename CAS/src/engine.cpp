@@ -207,6 +207,7 @@ void Engine::run(std::ostream* debug_out) {
 
         sim_time = ev.time;
         step_process(ev.process_id);
+        evaluator.check_monitor();
     }
 
     if (vcd_dumper.is_enabled()) {
