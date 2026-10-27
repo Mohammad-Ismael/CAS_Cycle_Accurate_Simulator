@@ -213,11 +213,15 @@ void Engine::run(std::ostream* debug_out) {
     if (vcd_dumper.is_enabled()) {
         std::string dumped_file = vcd_dumper.get_filename();
         vcd_dumper.close();
-        std::cout << "[CAS VCD] Trace successfully dumped to: " << dumped_file << "\n";
+        if (allow_finish_msg) {
+            std::cout << "[CAS VCD] Trace successfully dumped to: " << dumped_file << "\n";
+        }
     }
 
-    std::cout << "--------------------------------------------------------\n";
-    std::cout << "[CAS SUMMARY] Simulation completed cleanly at T = " << sim_time << " ns.\n" << std::flush;
+    if (allow_finish_msg) {
+        std::cout << "--------------------------------------------------------\n";
+        std::cout << "[CAS SUMMARY] Simulation completed cleanly at T = " << sim_time << " ns.\n" << std::flush;
+    }
 }
 
 EngineStats Engine::get_stats() {

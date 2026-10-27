@@ -186,6 +186,9 @@ void Evaluator::check_monitor() {
     if (values_changed) {
         engine.monitor_session.prev_values = current_values;
 
+        // Skip printing if user disabled $monitor output
+        if (!engine.is_monitor_allowed()) return;
+
         if (!engine.monitor_session.src_file.empty() && engine.monitor_session.src_line > 0) {
             std::cout << "[CAS $monitor " << engine.monitor_session.src_file << ":" << engine.monitor_session.src_line << "] ";
         } else {
@@ -288,6 +291,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.prev_values.clear();
             check_monitor();
         } else {
+            // Check if $display output is suppressed
+            if (!engine.is_display_allowed()) return;
+
             if (!disp->src_file.empty() && disp->src_line > 0) {
                 std::cout << "[CAS $display " << disp->src_file << ":" << disp->src_line << "] ";
             } else {
@@ -344,10 +350,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
     }
     else if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
-        if (!fin->src_file.empty() && fin->src_line > 0) {
-            std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.sim_time << ".\n";
-        } else {
-            std::cout << "[CAS $finish] Simulation Terminated at time " << engine.sim_time << ".\n";
+        if (engine.is_finish_msg_allowed()) {
+            if (!fin->src_file.empty() && fin->src_line > 0) {
+                std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.sim_time << ".\n";
+            } else {
+                std::cout << "[CAS $finish] Simulation Terminated at time " << engine.sim_time << ".\n";
+            }
         }
         engine.simulation_active = false;
         bp.completed = true;

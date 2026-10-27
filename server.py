@@ -8,7 +8,6 @@ import shutil
 import json
 import os
 import glob
-import re
 from datetime import datetime
 
 app = FastAPI()
@@ -17,13 +16,16 @@ PROJECTS_DIR = "/app/projects"
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 
 class SimRequest(BaseModel):
-    files: Dict[str, str]  # filename -> file content
+    files: Dict[str, str]
     entry_tb: Optional[str] = "testbench.sv"
     top_module: Optional[str] = ""
     project_name: Optional[str] = None
     enable_profiler: Optional[bool] = True
     enable_debug: Optional[bool] = True
     enable_vcd: Optional[bool] = True
+    enable_display: Optional[bool] = True
+    enable_monitor: Optional[bool] = True
+    enable_finish_msg: Optional[bool] = True
     timescale: Optional[str] = "1ns"
 
 class SaveProjectRequest(BaseModel):
@@ -181,6 +183,12 @@ def simulate(req: SimRequest):
             options.append("--quiet")
         if not req.enable_vcd:
             options.append("--no-vcd")
+        if not req.enable_display:
+            options.append("--no-display")
+        if not req.enable_monitor:
+            options.append("--no-monitor")
+        if not req.enable_finish_msg:
+            options.append("--no-finish-msg")
         if req.top_module and req.top_module.strip():
             options += ["--top", req.top_module.strip()]
         if req.timescale and req.timescale.strip():
@@ -191,8 +199,6 @@ def simulate(req: SimRequest):
         try:
             res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=15)
             raw_output = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
-
-            # Strip temporary directory paths so console links refer directly to project filenames
             normalized_output = raw_output.replace(tmpdir + "/", "").replace(tmpdir + "\\", "")
 
             telemetry_data = None

@@ -16,6 +16,9 @@ int main(int argc, char* argv[]) {
     bool enable_profiling = true;
     bool verbose = true;
     bool enable_vcd = true;
+    bool enable_display = true;
+    bool enable_monitor = true;
+    bool enable_finish_msg = true;
     std::string top_override = "";
     std::string timescale_unit = "1ns";
     std::vector<std::string> source_files;
@@ -27,6 +30,12 @@ int main(int argc, char* argv[]) {
             verbose = false;
         } else if (std::strcmp(argv[i], "--no-vcd") == 0) {
             enable_vcd = false;
+        } else if (std::strcmp(argv[i], "--no-display") == 0) {
+            enable_display = false;
+        } else if (std::strcmp(argv[i], "--no-monitor") == 0) {
+            enable_monitor = false;
+        } else if (std::strcmp(argv[i], "--no-finish-msg") == 0) {
+            enable_finish_msg = false;
         } else if (std::strcmp(argv[i], "--top") == 0 && i + 1 < argc) {
             top_override = argv[++i];
         } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
@@ -103,19 +112,16 @@ int main(int argc, char* argv[]) {
             debug_ss << "\n";
         }
 
-        // ----------------------------------------------------
-        // PHASE 3 & 4: Elaboration & Simulation Execution
-        // ----------------------------------------------------
         Engine engine;
         engine.set_vcd_allowed(enable_vcd);
+        engine.set_display_allowed(enable_display);
+        engine.set_monitor_allowed(enable_monitor);
+        engine.set_finish_msg_allowed(enable_finish_msg);
+
         engine.elaborate(all_modules, top_override, debug_ptr);
         engine.run(debug_ptr);
 
-        // ----------------------------------------------------
-        // PERFORMANCE & PROFILING REPORT
-        // ----------------------------------------------------
         ProfileMetrics metrics = profiler.sample(engine.get_stats());
-
         Profiler::emit_json_telemetry(metrics, std::cout);
 
         std::cout << "\n---BEGIN_CAS_DEBUG_LOG---\n";

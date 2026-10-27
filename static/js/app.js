@@ -8,19 +8,28 @@ window.StudioApp = {
     },
 
     selectTab(t) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        const btnTerm = document.getElementById('tab-btn-term');
+        const btnWave = document.getElementById('tab-btn-wave');
+        const panelTerm = document.getElementById('panel-terminal');
+        const panelWave = document.getElementById('panel-waveform');
+
+        // Remove active class from all bottom tabs and panels
+        btnTerm.classList.remove('active');
+        btnWave.classList.remove('active');
+        panelTerm.classList.remove('active');
+        panelWave.classList.remove('active');
+        panelTerm.style.display = 'none';
+        panelWave.style.display = 'none';
 
         if (t === 'terminal') {
-            document.getElementById('tab-btn-term').classList.add('active');
-            document.getElementById('panel-terminal').classList.add('active');
+            btnTerm.classList.add('active');
+            panelTerm.classList.add('active');
+            panelTerm.style.display = 'block';
         } else if (t === 'waveform') {
-            document.getElementById('tab-btn-wave').classList.add('active');
-            document.getElementById('panel-waveform').classList.add('active');
+            btnWave.classList.add('active');
+            panelWave.classList.add('active');
+            panelWave.style.display = 'flex';
             window.StudioWaveform.render();
-        } else if (t === 'vcd-raw') {
-            document.getElementById('tab-btn-vcd').classList.add('active');
-            document.getElementById('panel-vcd-raw').classList.add('active');
         }
     },
 
@@ -82,6 +91,10 @@ window.StudioApp = {
         const enableDebug = document.getElementById('chk-debug-trace').checked;
         const enableVcd = document.getElementById('chk-vcd-enable').checked;
 
+        const enableDisplay = document.getElementById('chk-opt-display').checked;
+        const enableMonitor = document.getElementById('chk-opt-monitor').checked;
+        const enableFinish = document.getElementById('chk-opt-finish').checked;
+
         document.getElementById('lbl-timescale').textContent = timescale;
 
         window.StudioEditor.projectFiles[window.StudioEditor.activeTbFile] = window.StudioEditor.tbEditor.getValue();
@@ -104,6 +117,9 @@ window.StudioApp = {
                     enable_profiler: enableProfiler,
                     enable_debug: enableDebug,
                     enable_vcd: enableVcd,
+                    enable_display: enableDisplay,
+                    enable_monitor: enableMonitor,
+                    enable_finish_msg: enableFinish,
                     timescale: timescale
                 })
             });
@@ -171,7 +187,6 @@ window.StudioApp = {
             if (data.vcd && enableVcd) {
                 window.StudioWaveform.activeVcdContent = data.vcd;
                 window.StudioWaveform.activeVcdFilename = data.vcd_filename;
-                document.getElementById('panel-vcd-raw').textContent = data.vcd;
                 document.getElementById('btn-export-vcd').disabled = false;
                 window.StudioWaveform.render();
 

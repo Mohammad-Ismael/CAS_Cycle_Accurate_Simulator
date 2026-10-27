@@ -140,7 +140,6 @@ window.StudioProjects = {
         window.StudioWaveform.activeVcdContent = data.vcd;
         window.StudioWaveform.activeVcdFilename = filename;
         document.getElementById('btn-export-vcd').disabled = false;
-        document.getElementById('panel-vcd-raw').textContent = data.vcd;
         window.StudioWaveform.render();
     },
 

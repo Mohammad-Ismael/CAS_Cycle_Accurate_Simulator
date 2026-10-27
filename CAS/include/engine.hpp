@@ -68,6 +68,11 @@ private:
     uint32_t event_order_counter = 0;
     bool simulation_active = true;
 
+    // Verbosity and debug control flags
+    bool allow_display = true;
+    bool allow_monitor = true;
+    bool allow_finish_msg = true;
+
     // Profiler metrics
     size_t delta_cycles_count = 0;
     size_t events_dispatched = 0;
@@ -86,6 +91,14 @@ public:
     ~Engine() = default;
 
     void set_vcd_allowed(bool allowed) { vcd_dumper.set_allowed(allowed); }
+    void set_display_allowed(bool allowed) { allow_display = allowed; }
+    void set_monitor_allowed(bool allowed) { allow_monitor = allowed; }
+    void set_finish_msg_allowed(bool allowed) { allow_finish_msg = allowed; }
+
+    bool is_display_allowed() const { return allow_display; }
+    bool is_monitor_allowed() const { return allow_monitor; }
+    bool is_finish_msg_allowed() const { return allow_finish_msg; }
+
     void load_elaboration(ElaborationResult&& elab_res);
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 
                    const std::string& top_module_name = "", 

@@ -73,8 +73,24 @@
                 <span>Emit Compiler Phase Trace</span>
             </label>
             <label class="opt-checkbox-row">
-                <input type="checkbox" id="chk-vcd-enable" unchecked>
+                <input type="checkbox" id="chk-vcd-enable" checked>
                 <span>Enable VCD Wave Dump</span>
+            </label>
+        </div>
+
+        <div class="opt-section">
+            <div class="opt-title">Debug & Verbosity</div>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-opt-display" checked>
+                <span>Enable $display Prints</span>
+            </label>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-opt-monitor" checked>
+                <span>Enable $monitor Prints</span>
+            </label>
+            <label class="opt-checkbox-row">
+                <input type="checkbox" id="chk-opt-finish" checked>
+                <span>Enable $finish Summary</span>
             </label>
         </div>
 
@@ -129,7 +145,6 @@
                 <div class="tab-group">
                     <button class="tab-btn active" id="tab-btn-term" onclick="selectTab('terminal')">Output Console</button>
                     <button class="tab-btn" id="tab-btn-wave" onclick="selectTab('waveform')">Waveform Viewer</button>
-                    <button class="tab-btn" id="tab-btn-vcd" onclick="selectTab('vcd-raw')">Raw VCD</button>
                 </div>
                 <div>
                     <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearConsole()">Clear Console</button>
@@ -159,8 +174,6 @@
                         </div>
                     </div>
                 </div>
-
-                <pre id="panel-vcd-raw" class="panel">// Raw VCD content</pre>
             </div>
         </div>
     </div>

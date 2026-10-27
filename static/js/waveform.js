@@ -3,14 +3,19 @@ window.StudioWaveform = {
     activeVcdFilename: null,
 
     render() {
-        if (!this.activeVcdContent) {
-            document.getElementById('wave-empty').style.display = "flex";
-            return;
-        }
-        document.getElementById('wave-empty').style.display = "none";
-
         const namesContainer = document.getElementById('wave-names');
         const canvas = document.getElementById('wave-canvas');
+        const emptyState = document.getElementById('wave-empty');
+
+        if (!this.activeVcdContent) {
+            emptyState.style.display = "flex";
+            namesContainer.innerHTML = '';
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return;
+        }
+        emptyState.style.display = "none";
+
         const ctx = canvas.getContext('2d');
         namesContainer.innerHTML = '';
 
@@ -194,7 +199,6 @@ window.StudioWaveform = {
         this.activeVcdContent = null;
         this.activeVcdFilename = null;
         document.getElementById('btn-export-vcd').disabled = true;
-        document.getElementById('panel-vcd-raw').textContent = "// No waveform trace generated for this run.";
         document.getElementById('wave-empty').style.display = "flex";
         document.getElementById('wave-names').innerHTML = "";
         const canvas = document.getElementById('wave-canvas');
