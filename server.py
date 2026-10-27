@@ -8,6 +8,7 @@ import shutil
 import json
 import os
 import glob
+import re
 from datetime import datetime
 
 app = FastAPI()
@@ -62,7 +63,6 @@ def save_project(req: SaveProjectRequest):
     waves_dir = os.path.join(pdir, "waves")
     os.makedirs(waves_dir, exist_ok=True)
 
-    # Clean existing non-wave source files and write updated multi-file project
     for f in os.listdir(pdir):
         if f != "waves" and f != "project.json":
             fpath = os.path.join(pdir, f)
@@ -96,7 +96,6 @@ def load_project(name: str):
             with open(fpath, "r") as f:
                 files[fname] = f.read()
 
-    # Fallbacks if legacy project
     if "testbench.sv" not in files:
         files["testbench.sv"] = ""
     if "design.sv" not in files:
@@ -160,24 +159,17 @@ def simulate(req: SimRequest):
         }
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Write ALL created files into sandbox directory so `include can resolve any of them
         for fname, content in req.files.items():
             fpath = os.path.join(tmpdir, fname)
             os.makedirs(os.path.dirname(fpath), exist_ok=True)
             with open(fpath, "w") as f:
                 f.write(content)
 
-        # Decide CLI entry files:
-        # Standard Verilog practice:
-        # 1. Primary entry testbench file is passed.
-        # 2. If design.sv is present and NOT `included in testbench, pass it too.
-        # 3. All other helper files (+ added tabs) are included via `include.
         entry_tb = req.entry_tb if (req.entry_tb in req.files) else "testbench.sv"
         files_to_run = [os.path.join(tmpdir, entry_tb)]
 
         tb_text = req.files.get(entry_tb, "")
         if "design.sv" in req.files:
-            # If testbench already has `include "design.sv", don't pass design.sv on CLI (avoids duplicate module definitions)
             if '`include "design.sv"' not in tb_text and "`include 'design.sv'" not in tb_text:
                 files_to_run.append(os.path.join(tmpdir, "design.sv"))
 
@@ -200,9 +192,12 @@ def simulate(req: SimRequest):
             res = subprocess.run(run_cmd, cwd=tmpdir, capture_output=True, text=True, timeout=15)
             raw_output = res.stdout if res.returncode == 0 else (res.stderr + "\n" + res.stdout)
 
+            # Strip temporary directory paths so console links refer directly to project filenames
+            normalized_output = raw_output.replace(tmpdir + "/", "").replace(tmpdir + "\\", "")
+
             telemetry_data = None
             debug_log = ""
-            clean_output = raw_output
+            clean_output = normalized_output
 
             if "---BEGIN_CAS_DEBUG_LOG---" in clean_output and "---END_CAS_DEBUG_LOG---" in clean_output:
                 b1, p1 = clean_output.split("---BEGIN_CAS_DEBUG_LOG---", 1)
@@ -251,9 +246,10 @@ def simulate(req: SimRequest):
             }
         except subprocess.TimeoutExpired as e:
             partial_out = (e.stdout or "") + "\n" + (e.stderr or "")
+            cleaned = partial_out.replace(tmpdir + "/", "").replace(tmpdir + "\\", "")
             return {
                 "status": "error",
-                "output": f"[CAS TIMEOUT (15s)]\n{partial_out}",
+                "output": f"[CAS TIMEOUT (15s)]\n{cleaned}",
                 "vcd": None,
                 "vcd_filename": None,
                 "telemetry": None,

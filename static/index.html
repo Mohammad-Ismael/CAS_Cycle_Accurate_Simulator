@@ -136,7 +136,6 @@
             position: relative;
         }
 
-        /* Left Settings Sidebar */
         #options-sidebar {
             width: 270px;
             min-width: 200px;
@@ -225,7 +224,6 @@
         .roadmap-status.next { background-color: #78350f; color: #fde047; }
         .roadmap-status.plan { background-color: #1e293b; color: #94a3b8; }
 
-        /* Center Workspace */
         #workspace {
             flex: 1;
             display: flex;
@@ -249,7 +247,6 @@
             background-color: var(--bg-surface);
         }
 
-        /* Dynamic Multi-File Tab Header */
         .editor-header-bar {
             height: 34px;
             background-color: var(--bg-surface);
@@ -331,7 +328,12 @@
             position: relative;
         }
 
-        /* Splitters */
+        /* Monaco Highlight Line Decoration */
+        .cas-highlight-line {
+            background: rgba(239, 68, 68, 0.22) !important;
+            border-left: 3px solid #ef4444;
+        }
+
         .resizer-h {
             width: 5px;
             background-color: var(--bg-base);
@@ -412,7 +414,7 @@
         }
         .panel.active { display: flex; }
 
-        /* Output Console */
+        /* Output Console with Clickable File Chips */
         #panel-terminal {
             font-family: 'JetBrains Mono', monospace;
             font-size: 12.5px;
@@ -423,9 +425,42 @@
             background-color: #0b0c0e;
             user-select: text;
             -webkit-user-select: text;
+            display: block;
         }
 
-        /* Waveform Panel */
+        /* Clickable Code Links */
+        .cas-code-link {
+            color: #38bdf8;
+            background-color: rgba(56, 189, 248, 0.12);
+            border: 1px solid rgba(56, 189, 248, 0.28);
+            padding: 1px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .cas-code-link:hover {
+            background-color: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+            color: #fff;
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+        }
+        .cas-code-link.error-link {
+            color: #f87171;
+            background-color: rgba(239, 68, 68, 0.14);
+            border-color: rgba(239, 68, 68, 0.32);
+        }
+        .cas-code-link.error-link:hover {
+            background-color: rgba(239, 68, 68, 0.28);
+            border-color: #ef4444;
+            color: #fff;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        }
+
         #panel-waveform {
             flex-direction: column;
             background-color: #0b0c0e;
@@ -511,7 +546,6 @@
             -webkit-user-select: text;
         }
 
-        /* Right Inspector Side Drawer */
         #inspector-sidebar {
             width: 360px;
             min-width: 250px;
@@ -610,7 +644,6 @@
             user-select: text;
         }
 
-        /* Modal Drawer */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -737,7 +770,6 @@
 </header>
 
 <div id="main-container">
-    <!-- 1. LEFT SETTINGS SIDEBAR -->
     <aside id="options-sidebar">
         <div class="opt-section">
             <div class="opt-title">Elaboration Target</div>
@@ -783,27 +815,23 @@
                 <span class="roadmap-status done">v0.9.4</span>
             </div>
             <div class="roadmap-item">
-                <span>Multi-File & `include</span>
+                <span>Modular Frontend & AST</span>
                 <span class="roadmap-status done">v1.0.0</span>
             </div>
             <div class="roadmap-item">
-                <span>RV32I Core Execution</span>
-                <span class="roadmap-status plan">Next</span>
+                <span>VeeR EL2 ALU & RV32I</span>
+                <span class="roadmap-status plan">Active</span>
             </div>
         </div>
     </aside>
 
     <div class="resizer-h" id="left-resizer"></div>
 
-    <!-- 2. CENTER WORKSPACE WITH MULTI-FILE TABS -->
     <div id="workspace">
         <div id="editors-wrapper">
-            <!-- Left Pane: Testbenches -->
             <div class="editor-column" id="col-tb">
                 <div class="editor-header-bar">
-                    <div class="file-tabs-container" id="tb-tabs-list">
-                        <!-- Populated dynamically -->
-                    </div>
+                    <div class="file-tabs-container" id="tb-tabs-list"></div>
                     <button class="btn-add-tab" onclick="promptNewFile('tb')" title="Add Testbench / Helper File">+</button>
                 </div>
                 <div id="editor-tb" class="editor-body"></div>
@@ -811,12 +839,9 @@
 
             <div class="resizer-h" id="resizer-editors"></div>
 
-            <!-- Right Pane: Design RTL -->
             <div class="editor-column" id="col-rtl">
                 <div class="editor-header-bar">
-                    <div class="file-tabs-container" id="rtl-tabs-list">
-                        <!-- Populated dynamically -->
-                    </div>
+                    <div class="file-tabs-container" id="rtl-tabs-list"></div>
                     <button class="btn-add-tab" onclick="promptNewFile('rtl')" title="Add Design / Header File">+</button>
                 </div>
                 <div id="editor-rtl" class="editor-body"></div>
@@ -868,7 +893,6 @@
 
     <div class="resizer-h" id="right-resizer" style="display: none;"></div>
 
-    <!-- 3. RIGHT INSPECTOR DRAWER -->
     <aside id="inspector-sidebar">
         <div class="sidebar-header">
             <div class="sidebar-tabs">
@@ -970,7 +994,7 @@
         <span class="status-indicator ready" id="status-bulb"></span>
         <span id="status-msg">Ready</span>
     </div>
-    <div>CAS v1.0.0 // Multi-File Workspace</div>
+    <div>CAS v1.0.0 // Interactive Diagnostic Studio</div>
 </footer>
 
 <div class="modal-overlay" id="projects-modal">
@@ -993,6 +1017,9 @@
     let activeVcdFilename = null;
     let isInspectorOpen = false;
     let isOptionsOpen = true;
+
+    let tbDecorations = [];
+    let rtlDecorations = [];
 
     // Multi-File Project State
     const projectFiles = {
@@ -1087,7 +1114,101 @@ endmodule`
         renderFileTabs();
     });
 
-    // 2. Multi-File Tab Management
+    // 2. Interactive Navigation to Line in Code Editor
+    window.jumpToSource = function(filename, lineNumber) {
+        lineNumber = parseInt(lineNumber, 10);
+        if (!filename || isNaN(lineNumber)) return;
+
+        // Clean filename (strip trailing colons or path separators)
+        filename = filename.replace(/^.*[\\\/]/, '').trim();
+
+        // 1. Check if file belongs to Testbench pane or Design RTL pane
+        const isTbFile = filename.startsWith("tb_") || filename.startsWith("testbench");
+        const targetEditor = isTbFile ? tbEditor : rtlEditor;
+        const currentActiveFile = isTbFile ? activeTbFile : activeRtlFile;
+
+        // 2. If tab not actively selected in that pane, switch to it
+        if (projectFiles[filename] && currentActiveFile !== filename) {
+            switchFileTab(filename, isTbFile ? 'tb' : 'rtl');
+        }
+
+        // 3. Reveal line and move cursor
+        targetEditor.revealLineInCenter(lineNumber);
+        targetEditor.setPosition({ lineNumber: lineNumber, column: 1 });
+        targetEditor.focus();
+
+        // 4. Pulse Highlight Decoration
+        const newDecoration = [{
+            range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+            options: {
+                isWholeLine: true,
+                className: 'cas-highlight-line',
+                glyphMarginClassName: 'cas-highlight-glyph'
+            }
+        }];
+
+        if (isTbFile) {
+            tbDecorations = tbEditor.deltaDecorations(tbDecorations, newDecoration);
+            setTimeout(() => {
+                tbDecorations = tbEditor.deltaDecorations(tbDecorations, []);
+            }, 3000);
+        } else {
+            rtlDecorations = rtlEditor.deltaDecorations(rtlDecorations, newDecoration);
+            setTimeout(() => {
+                rtlDecorations = rtlEditor.deltaDecorations(rtlDecorations, []);
+            }, 3000);
+        }
+    };
+
+    // 3. Console Link Formatter
+    function renderConsoleWithLinks(rawText) {
+        const term = document.getElementById('panel-terminal');
+        term.innerHTML = '';
+
+        if (!rawText) return;
+
+        const lines = rawText.split('\n');
+        // Regex matches filenames ending with .sv, .v, .vh, .h followed by :line
+        const fileLineRegex = /([a-zA-Z0-9_\-\.\/]+\.(?:sv|v|vh|h)):(\d+)/g;
+
+        lines.forEach((lineText, idx) => {
+            const lineDiv = document.createElement('div');
+            let isErrorLine = lineText.toLowerCase().includes('error:') || lineText.toLowerCase().includes('fail');
+            
+            let lastIndex = 0;
+            let match;
+
+            while ((match = fileLineRegex.exec(lineText)) !== null) {
+                const matchStart = match.index;
+                const matchEnd = fileLineRegex.lastIndex;
+
+                if (matchStart > lastIndex) {
+                    lineDiv.appendChild(document.createTextNode(lineText.substring(lastIndex, matchStart)));
+                }
+
+                const fullPath = match[1];
+                const baseFilename = fullPath.replace(/^.*[\\\/]/, '');
+                const lineNum = match[2];
+
+                const linkSpan = document.createElement('span');
+                linkSpan.className = 'cas-code-link' + (isErrorLine ? ' error-link' : '');
+                linkSpan.textContent = `${baseFilename}:${lineNum}`;
+                linkSpan.title = `Jump to ${baseFilename} line ${lineNum}`;
+                linkSpan.onclick = () => window.jumpToSource(baseFilename, lineNum);
+
+                lineDiv.appendChild(linkSpan);
+                lastIndex = matchEnd;
+            }
+
+            if (lastIndex < lineText.length) {
+                lineDiv.appendChild(document.createTextNode(lineText.substring(lastIndex)));
+            }
+
+            term.appendChild(lineDiv);
+        });
+    }
+
+    // 4. Multi-File Tab Management
     function renderFileTabs() {
         const tbContainer = document.getElementById('tb-tabs-list');
         const rtlContainer = document.getElementById('rtl-tabs-list');
@@ -1098,7 +1219,6 @@ endmodule`
             const isTbActive = (fname === activeTbFile);
             const isRtlActive = (fname === activeRtlFile);
 
-            // Group into TB or RTL pane
             const isTbFile = fname.startsWith("tb_") || fname.startsWith("testbench");
             const targetContainer = isTbFile ? tbContainer : rtlContainer;
             const isActive = isTbFile ? isTbActive : isRtlActive;
@@ -1111,7 +1231,6 @@ endmodule`
             titleSpan.onclick = () => switchFileTab(fname, isTbFile ? 'tb' : 'rtl');
             tab.appendChild(titleSpan);
 
-            // Prevent deleting the primary files
             if (fname !== "testbench.sv" && fname !== "design.sv") {
                 const closeBtn = document.createElement('span');
                 closeBtn.className = 'tab-close-btn';
@@ -1174,7 +1293,6 @@ endmodule`
         renderFileTabs();
     }
 
-    // 3. Bottom Tabs
     function selectTab(t) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -1193,10 +1311,9 @@ endmodule`
     }
 
     function clearConsole() {
-        document.getElementById('panel-terminal').textContent = "";
+        document.getElementById('panel-terminal').innerHTML = "";
     }
 
-    // 4. Sidebars Toggling & Tabs
     function toggleOptionsSidebar() {
         isOptionsOpen = !isOptionsOpen;
         const side = document.getElementById('options-sidebar');
@@ -1251,14 +1368,12 @@ endmodule`
         }, 50);
     }
 
-    // 5. Project Management
     function newProject() {
         if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             activeProject = null;
             document.getElementById('active-project-label').textContent = "[Unsaved Scratchpad]";
             clearWaveformState();
 
-            // Reset projectFiles to default pair
             for (const key in projectFiles) delete projectFiles[key];
             projectFiles["testbench.sv"] = "";
             projectFiles["design.sv"] = "";
@@ -1278,7 +1393,6 @@ endmodule`
             if (!name) return;
         }
 
-        // Commit active editor text
         projectFiles[activeTbFile] = tbEditor.getValue();
         projectFiles[activeRtlFile] = rtlEditor.getValue();
 
@@ -1367,7 +1481,6 @@ endmodule`
         }
     }
 
-    // 6. Waveform & VCD State
     function refreshWaveDropdown(waves) {
         const sel = document.getElementById('wave-select');
         sel.innerHTML = "";
@@ -1437,9 +1550,8 @@ endmodule`
         URL.revokeObjectURL(url);
     }
 
-    // 7. Simulation Execution with Multi-File Payload
+    // 5. Simulation Execution
     async function executeSimulation() {
-        const term = document.getElementById('panel-terminal');
         const btnRun = document.getElementById('btn-run');
         const bulb = document.getElementById('status-bulb');
         const statusMsg = document.getElementById('status-msg');
@@ -1452,14 +1564,13 @@ endmodule`
 
         document.getElementById('lbl-timescale').textContent = timescale;
 
-        // Ensure active editors persist changes to dictionary
         projectFiles[activeTbFile] = tbEditor.getValue();
         projectFiles[activeRtlFile] = rtlEditor.getValue();
 
         btnRun.disabled = true;
         bulb.className = "status-indicator busy";
         statusMsg.textContent = "Simulating...";
-        term.textContent = "[CAS] Executing simulation...\n";
+        renderConsoleWithLinks("[CAS] Executing simulation...\n");
 
         try {
             const res = await fetch('/api/simulate', {
@@ -1478,7 +1589,9 @@ endmodule`
             });
 
             const data = await res.json();
-            term.textContent = data.output;
+            
+            // Render clickable error/log console
+            renderConsoleWithLinks(data.output);
 
             if (data.status === "success") {
                 bulb.className = "status-indicator ready";
@@ -1567,7 +1680,7 @@ endmodule`
                 clearWaveformState();
             }
         } catch (e) {
-            term.textContent = "[UI FETCH ERROR] " + e.message;
+            renderConsoleWithLinks("[UI FETCH ERROR] " + e.message);
             bulb.className = "status-indicator err";
             statusMsg.textContent = "Invocation Error";
         } finally {
@@ -1575,7 +1688,7 @@ endmodule`
         }
     }
 
-    // 8. 4-State Digital Timing Canvas
+    // 6. Waveform Canvas
     function renderActiveWaveform() {
         if (!activeVcdContent) {
             document.getElementById('wave-empty').style.display = "flex";
@@ -1764,7 +1877,7 @@ endmodule`
         });
     }
 
-    // 9. Fully Responsive Resizers
+    // 7. Responsive Drag Handles
     const resizerMain = document.getElementById('resizer-main');
     const editorsWrapper = document.getElementById('editors-wrapper');
     const workspace = document.getElementById('workspace');
