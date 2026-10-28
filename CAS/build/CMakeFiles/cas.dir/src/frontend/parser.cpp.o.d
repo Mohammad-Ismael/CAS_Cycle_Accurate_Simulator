@@ -102,8 +102,9 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h \
  /usr/include/c++/13.2.1/bits/locale_facets.tcc \
  /usr/include/c++/13.2.1/bits/basic_ios.tcc \
- /usr/include/c++/13.2.1/bits/ostream.tcc /app/CAS/include/ast.hpp \
- /app/CAS/include/frontend/ast_base.hpp /usr/include/c++/13.2.1/memory \
+ /usr/include/c++/13.2.1/bits/ostream.tcc \
+ /app/CAS/src/frontend/../../include/frontend/ast_base.hpp \
+ /usr/include/c++/13.2.1/memory \
  /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
  /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
  /usr/include/c++/13.2.1/bits/align.h \
@@ -119,10 +120,10 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /usr/include/c++/13.2.1/backward/auto_ptr.h \
  /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
  /usr/include/c++/13.2.1/pstl/execution_defs.h \
- /app/CAS/include/frontend/ast_expr.hpp \
- /app/CAS/include/frontend/ast_stmt.hpp \
- /app/CAS/include/frontend/ast_module.hpp \
- /app/CAS/include/frontend/../common/types.hpp \
- /app/CAS/include/frontend/../common/edge_types.hpp \
- /app/CAS/include/frontend/../common/gate_types.hpp \
- /app/CAS/include/frontend/../common/logic_val.hpp
+ /app/CAS/src/frontend/../../include/frontend/ast_expr.hpp \
+ /app/CAS/src/frontend/../../include/frontend/ast_stmt.hpp \
+ /app/CAS/src/frontend/../../include/frontend/ast_module.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/types.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/edge_types.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/gate_types.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/logic_val.hpp

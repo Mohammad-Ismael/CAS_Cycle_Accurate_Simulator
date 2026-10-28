@@ -111,13 +111,19 @@ void Evaluator::check_monitor() {
 }
 
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
-    if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
-        std::string full_name = bp.scope + "." + vdecl->var_name;
-        if (engine.net_map.find(full_name) == engine.net_map.end()) {
-            size_t id = engine.netlist.size();
-            engine.netlist.emplace_back(full_name, vdecl->width, vdecl->is_signed);
-            engine.net_map[full_name] = id;
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        for (auto& s : blk->statements) {
+            execute_statement(s.get(), bp);
+            if (!engine.scheduler.is_active()) return;
         }
+        return;
+    }
+
+    if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
+        if (!expr_eval.get_context().has_active_frame()) {
+            expr_eval.get_context().push_frame(bp.scope);
+        }
+        expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed);
         return;
     }
 
@@ -126,14 +132,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
             for (auto& s : for_stmt->body) execute_statement(s.get(), bp);
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
-        }
-        return;
-    }
-
-    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
-        for (auto& s : blk->statements) {
-            execute_statement(s.get(), bp);
-            if (!engine.scheduler.is_active()) return;
         }
         return;
     }
@@ -307,40 +305,66 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+
         if (assign->lhs_targets.size() > 1) {
             int shift = 0;
             for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
-                std::string scoped_target = bp.scope + "." + assign->lhs_targets[i];
-                size_t net_id = engine.net_map.at(scoped_target);
-                uint32_t width = engine.netlist[net_id].width;
-                uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                engine.netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
-                shift += width;
+                std::string target_name = assign->lhs_targets[i];
+                LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+                if (local) {
+                    uint32_t width = local->width;
+                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                    local->value = LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
+                    shift += width;
+                } else {
+                    std::string scoped_target = bp.scope + "." + target_name;
+                    size_t net_id = engine.net_map.at(scoped_target);
+                    uint32_t width = engine.netlist[net_id].width;
+                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                    engine.netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
+                    shift += width;
+                }
             }
         } else {
-            std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
-            if (engine.net_map.find(scoped_target) == engine.net_map.end()) {
-                size_t id = engine.netlist.size();
-                engine.netlist.emplace_back(scoped_target, rhs_val.width, false);
-                engine.net_map[scoped_target] = id;
-            }
-            size_t net_id = engine.net_map.at(scoped_target);
+            std::string target_name = assign->lhs_targets[0];
+            LocalVar* local = expr_eval.get_context().lookup_local(target_name);
 
-            if (assign->bit_idx) {
-                LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                if (!idx_val.is_unknown()) {
-                    uint32_t bit = idx_val.aval;
-                    auto cur = engine.netlist[net_id].value;
-                    uint64_t bit_mask = 1ULL << bit;
-                    uint64_t bit_a = (rhs_val.aval & 1) << bit;
-                    uint64_t bit_b = (rhs_val.bval & 1) << bit;
-                    uint64_t new_a = (cur.aval & ~bit_mask) | bit_a;
-                    uint64_t new_b = (cur.bval & ~bit_mask) | bit_b;
-                    engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+            if (local) {
+                if (assign->bit_idx) {
+                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                    if (!idx_val.is_unknown()) {
+                        uint32_t bit = idx_val.aval;
+                        uint64_t bit_mask = 1ULL << bit;
+                        uint64_t bit_a = (rhs_val.aval & 1) << bit;
+                        uint64_t bit_b = (rhs_val.bval & 1) << bit;
+                        uint64_t new_a = (local->value.aval & ~bit_mask) | bit_a;
+                        uint64_t new_b = (local->value.bval & ~bit_mask) | bit_b;
+                        local->value = LogicVal(local->width, new_a, new_b);
+                    }
+                } else {
+                    local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
                 }
             } else {
-                LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
-                engine.netlist[net_id].set(casted);
+                std::string scoped_target = bp.scope + "." + target_name;
+                if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+                    size_t net_id = engine.net_map.at(scoped_target);
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            uint32_t bit = idx_val.aval;
+                            auto cur = engine.netlist[net_id].value;
+                            uint64_t bit_mask = 1ULL << bit;
+                            uint64_t bit_a = (rhs_val.aval & 1) << bit;
+                            uint64_t bit_b = (rhs_val.bval & 1) << bit;
+                            uint64_t new_a = (cur.aval & ~bit_mask) | bit_a;
+                            uint64_t new_b = (cur.bval & ~bit_mask) | bit_b;
+                            engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+                        }
+                    } else {
+                        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                        engine.netlist[net_id].set(casted);
+                    }
+                }
             }
         }
         return;

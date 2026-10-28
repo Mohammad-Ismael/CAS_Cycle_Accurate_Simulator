@@ -5,6 +5,54 @@
 
 ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
+bool ExprEvaluator::eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
+    FunctionNode* target_fn = nullptr;
+    if (engine.function_map.find(func_name) != engine.function_map.end()) {
+        target_fn = engine.function_map.at(func_name);
+    }
+    if (!target_fn) return false;
+
+    std::string frame_name = func_name + "__call";
+    context.push_frame(frame_name);
+
+    // 1. Declare and initialize function return variable
+    context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed);
+
+    // 2. Declare and initialize input parameters
+    for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
+        const auto& in_p = target_fn->inputs[i];
+        uint32_t w = 1;
+        if (in_p.msb_expr && in_p.lsb_expr) {
+            auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
+            auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
+            if (msb_n && lsb_n) {
+                w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
+            }
+        }
+        context.declare_local(in_p.name, w, in_p.is_signed);
+        if (i < arg_vals.size()) {
+            context.set_local_value(in_p.name, arg_vals[i]);
+        }
+    }
+
+    // 3. Execute body statements directly through Evaluator
+    BoundProcess bp{frame_name, nullptr, 0, false};
+    for (auto& s : target_fn->body) {
+        engine.evaluator.execute_statement(s.get(), bp);
+    }
+
+    // 4. Retrieve return variable
+    LocalVar* ret_var = context.lookup_local(target_fn->name);
+    if (ret_var) {
+        result_out = ret_var->value;
+    } else {
+        result_out = LogicVal::make_x(target_fn->return_width);
+    }
+
+    context.pop_frame();
+    return true;
+}
+
 LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
 
@@ -13,50 +61,30 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
-        std::string scoped_fn = scope.empty() ? fn_call->func_name : (scope + "." + fn_call->func_name);
-        FunctionNode* target_fn = nullptr;
-        if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
-            target_fn = engine.function_map.at(scoped_fn);
-        } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
-            target_fn = engine.function_map.at(fn_call->func_name);
+        std::vector<LogicVal> evaluated_args;
+        for (const auto& a : fn_call->args) {
+            evaluated_args.push_back(eval(a.get(), scope));
         }
 
-        if (target_fn) {
-            std::string call_scope = scoped_fn + "__frame";
-            
-            // Allocate return value net
-            std::string ret_net_name = call_scope + "." + target_fn->name;
-            if (engine.net_map.find(ret_net_name) == engine.net_map.end()) {
-                size_t id = engine.netlist.size();
-                engine.netlist.emplace_back(ret_net_name, target_fn->return_width, target_fn->return_signed);
-                engine.net_map[ret_net_name] = id;
-            }
+        std::string scoped_fn = scope.empty() ? fn_call->func_name : (scope + "." + fn_call->func_name);
+        LogicVal ret(32, 0, 0);
 
-            // Bind evaluated arguments to input nets
-            for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
-                LogicVal arg_val = (i < fn_call->args.size()) ? eval(fn_call->args[i].get(), scope) : LogicVal::make_x(32);
-                std::string arg_net_name = call_scope + "." + target_fn->inputs[i].name;
-                if (engine.net_map.find(arg_net_name) == engine.net_map.end()) {
-                    size_t id = engine.netlist.size();
-                    engine.netlist.emplace_back(arg_net_name, arg_val.width, target_fn->inputs[i].is_signed);
-                    engine.net_map[arg_net_name] = id;
-                }
-                engine.netlist[engine.net_map[arg_net_name]].set(arg_val);
-            }
-
-            // Execute function statements in local call scope
-            BoundProcess fn_proc{call_scope, nullptr, 0, false};
-            for (auto& s : target_fn->body) {
-                engine.evaluator.execute_statement(s.get(), fn_proc);
-            }
-
-            return engine.netlist[engine.net_map[ret_net_name]].value;
+        if (eval_function(scoped_fn, evaluated_args, ret)) {
+            return ret;
+        }
+        if (eval_function(fn_call->func_name, evaluated_args, ret)) {
+            return ret;
         }
         return LogicVal::make_x(32);
     }
 
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
+
+        // Check local activation frame first
+        LocalVar* local = context.lookup_local(ident->name);
+        if (local) return local->value;
+
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
@@ -114,25 +142,32 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
-        std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
-        if (engine.memory_map.find(scoped_ident) != engine.memory_map.end()) {
-            const auto& mem = engine.memory_map.at(scoped_ident);
-            LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
-            if (addr_val.is_unknown() || addr_val.aval >= mem.depth) {
-                return LogicVal::make_x(mem.word_width);
+        LogicVal target_val = LogicVal::make_x(1);
+
+        LocalVar* local = context.lookup_local(idx_node->name);
+        if (local) {
+            target_val = local->value;
+        } else {
+            std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
+            if (engine.memory_map.find(scoped_ident) != engine.memory_map.end()) {
+                const auto& mem = engine.memory_map.at(scoped_ident);
+                LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
+                if (addr_val.is_unknown() || addr_val.aval >= mem.depth) {
+                    return LogicVal::make_x(mem.word_width);
+                }
+                return mem.words[addr_val.aval];
             }
-            return mem.words[addr_val.aval];
+
+            if (engine.net_map.find(scoped_ident) == engine.net_map.end()) {
+                if (engine.net_map.find(idx_node->name) != engine.net_map.end()) {
+                    scoped_ident = idx_node->name;
+                } else {
+                    return LogicVal::make_x(1);
+                }
+            }
+            target_val = engine.netlist[engine.net_map.at(scoped_ident)].value;
         }
 
-        if (engine.net_map.find(scoped_ident) == engine.net_map.end()) {
-            if (engine.net_map.find(idx_node->name) != engine.net_map.end()) {
-                scoped_ident = idx_node->name;
-            } else {
-                return LogicVal::make_x(1);
-            }
-        }
-
-        const auto& target_val = engine.netlist[engine.net_map.at(scoped_ident)].value;
         if (!idx_node->is_part_select) {
             LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
             if (idx_val.is_unknown() || idx_val.aval >= target_val.width) return LogicVal::make_x(1);
@@ -175,16 +210,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         bool l_signed = false;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
-            std::string full = scope.empty() ? id->name : (scope + "." + id->name);
-            if (engine.net_map.find(full) != engine.net_map.end()) {
-                l_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+            LocalVar* loc = context.lookup_local(id->name);
+            if (loc) {
+                l_signed = loc->is_signed;
+            } else {
+                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+                if (engine.net_map.find(full) != engine.net_map.end()) {
+                    l_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                }
             }
         }
         bool r_signed = false;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->rhs.get())) {
-            std::string full = scope.empty() ? id->name : (scope + "." + id->name);
-            if (engine.net_map.find(full) != engine.net_map.end()) {
-                r_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+            LocalVar* loc = context.lookup_local(id->name);
+            if (loc) {
+                r_signed = loc->is_signed;
+            } else {
+                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+                if (engine.net_map.find(full) != engine.net_map.end()) {
+                    r_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                }
             }
         }
 

@@ -249,6 +249,30 @@ src/frontend/parser_expr.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.s
 .PHONY : src/frontend/parser_expr.cpp.s
 
+src/frontend/parser_function.o: src/frontend/parser_function.cpp.o
+.PHONY : src/frontend/parser_function.o
+
+# target to build an object file
+src/frontend/parser_function.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
+.PHONY : src/frontend/parser_function.cpp.o
+
+src/frontend/parser_function.i: src/frontend/parser_function.cpp.i
+.PHONY : src/frontend/parser_function.i
+
+# target to preprocess a source file
+src/frontend/parser_function.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_function.cpp.i
+.PHONY : src/frontend/parser_function.cpp.i
+
+src/frontend/parser_function.s: src/frontend/parser_function.cpp.s
+.PHONY : src/frontend/parser_function.s
+
+# target to generate assembly for a file
+src/frontend/parser_function.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_function.cpp.s
+.PHONY : src/frontend/parser_function.cpp.s
+
 src/frontend/parser_module.o: src/frontend/parser_module.cpp.o
 .PHONY : src/frontend/parser_module.o
 
@@ -344,6 +368,30 @@ src/kernel/evaluator.s: src/kernel/evaluator.cpp.s
 src/kernel/evaluator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s
 .PHONY : src/kernel/evaluator.cpp.s
+
+src/kernel/execution_context.o: src/kernel/execution_context.cpp.o
+.PHONY : src/kernel/execution_context.o
+
+# target to build an object file
+src/kernel/execution_context.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o
+.PHONY : src/kernel/execution_context.cpp.o
+
+src/kernel/execution_context.i: src/kernel/execution_context.cpp.i
+.PHONY : src/kernel/execution_context.i
+
+# target to preprocess a source file
+src/kernel/execution_context.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/execution_context.cpp.i
+.PHONY : src/kernel/execution_context.cpp.i
+
+src/kernel/execution_context.s: src/kernel/execution_context.cpp.s
+.PHONY : src/kernel/execution_context.s
+
+# target to generate assembly for a file
+src/kernel/execution_context.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/execution_context.cpp.s
+.PHONY : src/kernel/execution_context.cpp.s
 
 src/kernel/expr_evaluator.o: src/kernel/expr_evaluator.cpp.o
 .PHONY : src/kernel/expr_evaluator.o
@@ -489,6 +537,9 @@ help:
 	@echo "... src/frontend/parser_expr.o"
 	@echo "... src/frontend/parser_expr.i"
 	@echo "... src/frontend/parser_expr.s"
+	@echo "... src/frontend/parser_function.o"
+	@echo "... src/frontend/parser_function.i"
+	@echo "... src/frontend/parser_function.s"
 	@echo "... src/frontend/parser_module.o"
 	@echo "... src/frontend/parser_module.i"
 	@echo "... src/frontend/parser_module.s"
@@ -501,6 +552,9 @@ help:
 	@echo "... src/kernel/evaluator.o"
 	@echo "... src/kernel/evaluator.i"
 	@echo "... src/kernel/evaluator.s"
+	@echo "... src/kernel/execution_context.o"
+	@echo "... src/kernel/execution_context.i"
+	@echo "... src/kernel/execution_context.s"
 	@echo "... src/kernel/expr_evaluator.o"
 	@echo "... src/kernel/expr_evaluator.i"
 	@echo "... src/kernel/expr_evaluator.s"

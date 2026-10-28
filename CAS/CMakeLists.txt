@@ -20,5 +20,7 @@ add_executable(cas
     src/kernel/scheduler.cpp
     src/frontend/number_parser.cpp
     src/kernel/expr_evaluator.cpp
+    src/kernel/execution_context.cpp
+    src/frontend/parser_function.cpp
     src/main.cpp
 )
