@@ -111,6 +111,49 @@ void Evaluator::check_monitor() {
 }
 
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
+    if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
+        std::string full_name = bp.scope + "." + vdecl->var_name;
+        if (engine.net_map.find(full_name) == engine.net_map.end()) {
+            size_t id = engine.netlist.size();
+            engine.netlist.emplace_back(full_name, vdecl->width, vdecl->is_signed);
+            engine.net_map[full_name] = id;
+        }
+        return;
+    }
+
+    if (auto for_stmt = dynamic_cast<ForStatementNode*>(stmt)) {
+        if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
+        while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
+            for (auto& s : for_stmt->body) execute_statement(s.get(), bp);
+            if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
+        }
+        return;
+    }
+
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        for (auto& s : blk->statements) {
+            execute_statement(s.get(), bp);
+            if (!engine.scheduler.is_active()) return;
+        }
+        return;
+    }
+
+    if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
+        while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
+            for (auto& s : while_stmt->body) execute_statement(s.get(), bp);
+        }
+        return;
+    }
+
+    if (auto rep_stmt = dynamic_cast<RepeatStatementNode*>(stmt)) {
+        LogicVal count_val = eval_expr(rep_stmt->count_expr.get(), bp.scope);
+        uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
+        for (uint64_t i = 0; i < count; ++i) {
+            for (auto& s : rep_stmt->body) execute_statement(s.get(), bp);
+        }
+        return;
+    }
+
     if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
         LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
         if (cond.to_bool()) {
@@ -118,8 +161,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         } else {
             for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
         }
+        return;
     }
-    else if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
+
+    if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
         LogicVal sel_val = eval_expr(case_stmt->selector.get(), bp.scope);
         bool branch_taken = false;
         const CaseItem* default_item = nullptr;
@@ -139,8 +184,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (!branch_taken && default_item) {
             for (auto& s : default_item->statements) execute_statement(s.get(), bp);
         }
+        return;
     }
-    else if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+
+    if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         std::string scoped_tname = bp.scope + "." + tcall->task_name;
         if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
             TaskNode* target_task = engine.task_map.at(scoped_tname);
@@ -149,11 +196,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (!engine.scheduler.is_active()) return;
             }
         }
+        return;
     }
-    else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
-        // Scheduled via StratifiedScheduler::step_process
+
+    if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
+        return;
     }
-    else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
+
+    if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
             engine.monitor_session.active = true;
             engine.monitor_session.scope = bp.scope;
@@ -211,8 +261,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             std::cout << "\n";
         }
+        return;
     }
-    else if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
+
+    if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
         if (engine.is_finish_msg_allowed()) {
             if (!fin->src_file.empty() && fin->src_line > 0) {
                 std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
@@ -222,15 +274,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         engine.scheduler.terminate();
         bp.completed = true;
+        return;
     }
-    else if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+
+    if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = engine.net_map.at(scoped_target);
         LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
         engine.scheduler.queue_nba(net_id, casted);
+        return;
     }
-    else if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
+
+    if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
         std::string scoped_mem = bp.scope + "." + mem_assign->mem_name;
         LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
         LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
@@ -246,8 +302,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
         }
+        return;
     }
-    else if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+
+    if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
         if (assign->lhs_targets.size() > 1) {
             int shift = 0;
@@ -261,9 +319,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         } else {
             std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
+            if (engine.net_map.find(scoped_target) == engine.net_map.end()) {
+                size_t id = engine.netlist.size();
+                engine.netlist.emplace_back(scoped_target, rhs_val.width, false);
+                engine.net_map[scoped_target] = id;
+            }
             size_t net_id = engine.net_map.at(scoped_target);
-            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
-            engine.netlist[net_id].set(casted);
+
+            if (assign->bit_idx) {
+                LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                if (!idx_val.is_unknown()) {
+                    uint32_t bit = idx_val.aval;
+                    auto cur = engine.netlist[net_id].value;
+                    uint64_t bit_mask = 1ULL << bit;
+                    uint64_t bit_a = (rhs_val.aval & 1) << bit;
+                    uint64_t bit_b = (rhs_val.bval & 1) << bit;
+                    uint64_t new_a = (cur.aval & ~bit_mask) | bit_a;
+                    uint64_t new_b = (cur.bval & ~bit_mask) | bit_b;
+                    engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+                }
+            } else {
+                LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                engine.netlist[net_id].set(casted);
+            }
         }
+        return;
     }
 }

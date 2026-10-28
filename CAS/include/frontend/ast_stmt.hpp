@@ -5,12 +5,30 @@
 #include <memory>
 #include <cstdint>
 
+struct BlockStatementNode : public StatementNode {
+    std::vector<std::unique_ptr<StatementNode>> statements;
+
+    BlockStatementNode() = default;
+    explicit BlockStatementNode(std::vector<std::unique_ptr<StatementNode>> stmts)
+        : statements(std::move(stmts)) {}
+};
+
+struct VarDeclStatementNode : public StatementNode {
+    std::string var_name;
+    uint32_t width = 32;
+    bool is_signed = false;
+
+    VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false)
+        : var_name(std::move(n)), width(w), is_signed(s) {}
+};
+
 struct BlockingAssignNode : public StatementNode {
     std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
+    std::unique_ptr<ExpressionNode> bit_idx = nullptr;
 
-    explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r)
-        : rhs(std::move(r)) { lhs_targets.push_back(std::move(t)); }
+    explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, std::unique_ptr<ExpressionNode> idx = nullptr)
+        : rhs(std::move(r)), bit_idx(std::move(idx)) { lhs_targets.push_back(std::move(t)); }
 
     explicit BlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r)
         : lhs_targets(std::move(targets)), rhs(std::move(r)) {}
@@ -41,6 +59,38 @@ struct IfStatementNode : public StatementNode {
     std::vector<std::unique_ptr<StatementNode>> else_branch;
     explicit IfStatementNode(std::unique_ptr<ExpressionNode> cond)
         : condition(std::move(cond)) {}
+};
+
+struct ForStatementNode : public StatementNode {
+    std::unique_ptr<StatementNode> init_stmt;
+    std::unique_ptr<ExpressionNode> condition;
+    std::unique_ptr<StatementNode> step_stmt;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    ForStatementNode(std::unique_ptr<StatementNode> init,
+                     std::unique_ptr<ExpressionNode> cond,
+                     std::unique_ptr<StatementNode> step,
+                     std::vector<std::unique_ptr<StatementNode>> b)
+        : init_stmt(std::move(init)), condition(std::move(cond)),
+          step_stmt(std::move(step)), body(std::move(b)) {}
+};
+
+struct WhileStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> condition;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    WhileStatementNode(std::unique_ptr<ExpressionNode> cond,
+                       std::vector<std::unique_ptr<StatementNode>> b)
+        : condition(std::move(cond)), body(std::move(b)) {}
+};
+
+struct RepeatStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> count_expr;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    RepeatStatementNode(std::unique_ptr<ExpressionNode> count,
+                        std::vector<std::unique_ptr<StatementNode>> b)
+        : count_expr(std::move(count)), body(std::move(b)) {}
 };
 
 struct CaseItem {

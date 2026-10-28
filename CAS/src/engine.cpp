@@ -12,6 +12,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
     processes = std::move(elab_res.processes);
+    function_map = std::move(elab_res.function_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
@@ -20,6 +21,8 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
     Elaborator elaborator;
     load_elaboration(elaborator.elaborate(modules, top_module_name, debug_out));
 }
+
+
 
 void Engine::run(std::ostream* debug_out) {
     if (debug_out) {

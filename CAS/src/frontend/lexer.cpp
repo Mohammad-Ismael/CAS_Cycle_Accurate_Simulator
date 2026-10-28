@@ -222,7 +222,7 @@ Token Lexer::next_token() {
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
-            advance(); // consume '\''
+            advance();
             bool is_signed = false;
             if (peek() == 's' || peek() == 'S') {
                 is_signed = true;
@@ -287,6 +287,13 @@ Token Lexer::next_token() {
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "function") return {TokenType::TOKEN_FUNCTION, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endfunction") return {TokenType::TOKEN_ENDFUNCTION, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "automatic") return {TokenType::TOKEN_AUTOMATIC, ident, 0, 0, cur_file, cur_line, 0};
+
+        if (ident == "for") return {TokenType::TOKEN_FOR, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "while") return {TokenType::TOKEN_WHILE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "repeat") return {TokenType::TOKEN_REPEAT, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line, 0};

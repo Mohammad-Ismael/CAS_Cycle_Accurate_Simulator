@@ -68,6 +68,16 @@ struct TaskNode : public ASTNode {
     explicit TaskNode(std::string n) : name(std::move(n)) {}
 };
 
+struct FunctionNode : public ASTNode {
+    std::string name;
+    uint32_t return_width = 32;
+    bool return_signed = false;
+    std::vector<PortNode> inputs;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    FunctionNode() = default;
+};
+
 struct PortConnection {
     std::string port_name;
     std::unique_ptr<ExpressionNode> expr;
@@ -123,6 +133,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<TaskNode>> tasks;
+    std::vector<std::unique_ptr<FunctionNode>> functions;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
 
     ModuleNode() = default;

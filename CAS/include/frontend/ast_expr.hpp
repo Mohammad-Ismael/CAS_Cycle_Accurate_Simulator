@@ -6,17 +6,15 @@
 #include <vector>
 
 struct NumberNode : public ExpressionNode {
-    uint64_t aval; // 0/1 bits (or 1 for X)
-    uint64_t bval; // 1 for X/Z
+    uint64_t aval;
+    uint64_t bval;
     uint32_t width;
 
-    // Backward-compatible constructor: known value or all-X
     explicit NumberNode(uint64_t val, uint32_t w = 32, bool unk = false)
         : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : val),
           bval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : 0),
           width(w) {}
 
-    // Precise 4-state constructor
     NumberNode(uint64_t a, uint64_t b, uint32_t w)
         : aval(a), bval(b), width(w) {}
 
@@ -34,6 +32,20 @@ struct IdentifierNode : public ExpressionNode {
 
     std::unique_ptr<ExpressionNode> clone() const override {
         return std::make_unique<IdentifierNode>(name);
+    }
+};
+
+struct FunctionCallNode : public ExpressionNode {
+    std::string func_name;
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    FunctionCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a)
+        : func_name(std::move(name)), args(std::move(a)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
+        return std::make_unique<FunctionCallNode>(func_name, std::move(c_args));
     }
 };
 

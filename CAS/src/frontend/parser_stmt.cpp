@@ -2,6 +2,47 @@
 #include <stdexcept>
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
+    // 0. Handle 'begin ... end' block statements
+    if (match(TokenType::TOKEN_BEGIN)) {
+        std::vector<std::unique_ptr<StatementNode>> stmts;
+        while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+            stmts.push_back(parse_statement());
+        }
+        expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<BlockStatementNode>(std::move(stmts));
+    }
+
+    // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp;)
+    if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE) {
+        bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER);
+        advance();
+        if (current.type == TokenType::TOKEN_SIGNED) {
+            is_signed_var = true;
+            advance();
+        }
+
+        uint32_t width = 32;
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+
+        std::string vname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var);
+    }
+
+    // 2. Delay Statement (#5;)
     if (match(TokenType::TOKEN_HASH)) {
         uint64_t d = current.num_val;
         expect(TokenType::TOKEN_NUMBER, "Expected numerical delay value after '#'");
@@ -9,6 +50,43 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DelayStatementNode>(d);
     }
 
+    // 3. For Loop
+    if (match(TokenType::TOKEN_FOR)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");
+        auto init_stmt = parse_statement();
+        auto cond_expr = parse_expression();
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for condition");
+        
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
+        auto step_rhs = parse_expression();
+        auto step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(step_rhs));
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing for header");
+
+        auto body = parse_statement_or_block();
+        return std::make_unique<ForStatementNode>(std::move(init_stmt), std::move(cond_expr), std::move(step_stmt), std::move(body));
+    }
+
+    // 4. While Loop
+    if (match(TokenType::TOKEN_WHILE)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'while'");
+        auto cond = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing while condition");
+        auto body = parse_statement_or_block();
+        return std::make_unique<WhileStatementNode>(std::move(cond), std::move(body));
+    }
+
+    // 5. Repeat Loop
+    if (match(TokenType::TOKEN_REPEAT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'repeat'");
+        auto count = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing repeat count");
+        auto body = parse_statement_or_block();
+        return std::make_unique<RepeatStatementNode>(std::move(count), std::move(body));
+    }
+
+    // 6. System Tasks ($display / $monitor)
     if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR) {
         bool is_mon = (current.type == TokenType::TOKEN_MONITOR);
         std::string origin_file = current.filename;
@@ -44,6 +122,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line);
     }
 
+    // 7. $dumpfile
     if (match(TokenType::TOKEN_DUMPFILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");
         std::string fname = current.text;
@@ -53,6 +132,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpFileStatementNode>(fname);
     }
 
+    // 8. $dumpvars
     if (match(TokenType::TOKEN_DUMPVARS)) {
         uint32_t levels = 0;
         if (match(TokenType::TOKEN_LPAREN)) {
@@ -69,6 +149,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpVarsStatementNode>(levels);
     }
 
+    // 9. $finish / $stop
     if (match(TokenType::TOKEN_FINISH) || match(TokenType::TOKEN_STOP)) {
         std::string origin_file = current.filename;
         size_t origin_line = current.line;
@@ -77,6 +158,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>(origin_file, origin_line);
     }
 
+    // 10. If Statement
     if (match(TokenType::TOKEN_IF)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
         auto cond = parse_expression();
@@ -91,6 +173,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return if_node;
     }
 
+    // 11. Case Statement
     if (match(TokenType::TOKEN_CASE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
         auto sel = parse_expression();
@@ -115,6 +198,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return case_node;
     }
 
+    // 12. Multi-target concatenation assignment ({a, b} = expr;)
     if (match(TokenType::TOKEN_LBRACE)) {
         std::vector<std::string> targets;
         while (true) {
@@ -130,21 +214,25 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockingAssignNode>(targets, std::move(rhs));
     }
 
+    // 13. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string ident = current.text;
         advance();
 
         if (match(TokenType::TOKEN_LBRACKET)) {
-            auto addr_expr = parse_expression();
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory assignment index");
+            auto idx_expr = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
 
-            bool is_nba = false;
-            if (match(TokenType::TOKEN_LE)) is_nba = true;
-            else expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in memory assignment");
-
-            auto rhs = parse_expression();
-            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after memory assignment");
-            return std::make_unique<MemAssignNode>(ident, std::move(addr_expr), std::move(rhs), is_nba);
+            if (match(TokenType::TOKEN_EQUAL)) {
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr));
+            }
+            if (match(TokenType::TOKEN_LE)) {
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
+                return std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true);
+            }
         }
 
         if (match(TokenType::TOKEN_EQUAL)) {
@@ -179,6 +267,7 @@ std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
             stmts.push_back(parse_statement());
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
+        match(TokenType::TOKEN_SEMICOLON);
     } else {
         stmts.push_back(parse_statement());
     }

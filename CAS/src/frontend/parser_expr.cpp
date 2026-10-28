@@ -14,6 +14,20 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         std::string name = current.text;
         advance();
 
+        // Function call: identifier followed immediately by '('
+        if (match(TokenType::TOKEN_LPAREN)) {
+            std::vector<std::unique_ptr<ExpressionNode>> args;
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                while (true) {
+                    args.push_back(parse_expression());
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing function call arguments");
+            return std::make_unique<FunctionCallNode>(name, std::move(args));
+        }
+
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto msb = parse_expression();
             if (match(TokenType::TOKEN_COLON)) {
@@ -73,7 +87,6 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
         char op = current.text[0];
         advance();
 
-        // Detect negative literal like -4'sd2
         if (op == '-' && current.type == TokenType::TOKEN_NUMBER) {
             uint64_t a = current.num_val;
             uint64_t b = current.bval;
