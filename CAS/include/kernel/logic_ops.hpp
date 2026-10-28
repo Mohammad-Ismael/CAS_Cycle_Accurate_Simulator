@@ -4,16 +4,41 @@
 
 class LogicOps {
 public:
-    // Bitwise NOT (~)
+    static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
+        if (v.width == target_width) return v;
+        if (v.width > target_width) {
+            uint64_t mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
+            return LogicVal(target_width, v.aval & mask, v.bval & mask);
+        }
+
+        uint64_t new_a = v.aval;
+        uint64_t new_b = v.bval;
+
+        if (is_signed && v.width > 0) {
+            bool sign_bit_a = (v.aval >> (v.width - 1)) & 1;
+            bool sign_bit_b = (v.bval >> (v.width - 1)) & 1;
+
+            if (sign_bit_b) {
+                uint64_t ext_mask = ~0ULL << v.width;
+                new_a |= ext_mask;
+                new_b |= ext_mask;
+            } else if (sign_bit_a) {
+                uint64_t ext_mask = ~0ULL << v.width;
+                new_a |= ext_mask;
+            }
+        }
+
+        uint64_t target_mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
+        return LogicVal(target_width, new_a & target_mask, new_b & target_mask);
+    }
+
     static LogicVal bitwise_not(const LogicVal& v) {
         uint64_t new_a = (~v.aval) & (~v.bval);
-        // Any X remains X (a=1, b=1), Z converts to X in standard operations
         uint64_t new_b = v.bval;
-        new_a |= v.bval; // IEEE: ~X -> X, ~Z -> X
+        new_a |= v.bval;
         return LogicVal(v.width, new_a, new_b);
     }
 
-    // Bitwise AND (&)
     static LogicVal bitwise_and(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
         uint64_t l_0 = (~l.aval) & (~l.bval);
@@ -26,7 +51,6 @@ public:
         return LogicVal(max_w, new_a, new_b);
     }
 
-    // Bitwise OR (|)
     static LogicVal bitwise_or(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
         uint64_t l_1 = l.aval & (~l.bval);
@@ -38,7 +62,6 @@ public:
         return LogicVal(max_w, new_a, new_b);
     }
 
-    // Bitwise XOR (^)
     static LogicVal bitwise_xor(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
         uint64_t new_b = l.bval | r.bval;
@@ -46,7 +69,6 @@ public:
         return LogicVal(max_w, new_a, new_b);
     }
 
-    // Logical Left Shift (<<)
     static LogicVal shift_left(const LogicVal& l, const LogicVal& r) {
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
@@ -54,7 +76,6 @@ public:
         return LogicVal(l.width, l.aval << sh, l.bval << sh);
     }
 
-    // Logical Right Shift (>>)
     static LogicVal shift_right(const LogicVal& l, const LogicVal& r) {
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
@@ -62,32 +83,62 @@ public:
         return LogicVal(l.width, l.aval >> sh, l.bval >> sh);
     }
 
-    // Logical Equality (==) -> Returns 1'bx if either side has X or Z (§11.4.5)
+    static LogicVal arith_shift_right(const LogicVal& l, const LogicVal& r, bool is_signed) {
+        if (r.is_unknown()) return LogicVal::make_x(l.width);
+        uint64_t sh = r.aval;
+        if (sh == 0) return l;
+
+        if (!is_signed) {
+            return shift_right(l, r);
+        }
+
+        if (l.width == 0) return l;
+        bool sign_a = (l.aval >> (l.width - 1)) & 1;
+        bool sign_b = (l.bval >> (l.width - 1)) & 1;
+
+        if (sh >= l.width) {
+            if (sign_b) return LogicVal::make_x(l.width);
+            return sign_a ? LogicVal::make_known(l.width, (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1))
+                          : LogicVal::make_known(l.width, 0);
+        }
+
+        uint64_t new_a = l.aval >> sh;
+        uint64_t new_b = l.bval >> sh;
+
+        uint64_t fill_mask = (~0ULL) << (l.width - sh);
+        uint64_t width_mask = (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1);
+        fill_mask &= width_mask;
+
+        if (sign_b) {
+            new_a |= fill_mask;
+            new_b |= fill_mask;
+        } else if (sign_a) {
+            new_a |= fill_mask;
+        }
+
+        return LogicVal(l.width, new_a & width_mask, new_b & width_mask);
+    }
+
     static LogicVal logical_eq(const LogicVal& l, const LogicVal& r) {
         if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
         return LogicVal::make_known(1, (l.aval == r.aval) ? 1 : 0);
     }
 
-    // Logical Inequality (!=) -> Returns 1'bx if either side has X or Z (§11.4.5)
     static LogicVal logical_neq(const LogicVal& l, const LogicVal& r) {
         if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
         return LogicVal::make_known(1, (l.aval != r.aval) ? 1 : 0);
     }
 
-    // Case Equality (===) -> Strict 4-state bit match (§11.4.5)
     static LogicVal case_eq(const LogicVal& l, const LogicVal& r) {
         bool match = (l.aval == r.aval) && (l.bval == r.bval);
         return LogicVal::make_known(1, match ? 1 : 0);
     }
 
-    // Case Inequality (!==) -> Strict 4-state bit mismatch (§11.4.5)
     static LogicVal case_neq(const LogicVal& l, const LogicVal& r) {
         bool match = (l.aval == r.aval) && (l.bval == r.bval);
         return LogicVal::make_known(1, match ? 0 : 1);
     }
 
-    // Ternary Operator: cond ? expr1 : expr2 (§11.4.11)
-    // When cond has X/Z, matching bits pass through; differing bits become X
     static LogicVal ternary(const LogicVal& cond, const LogicVal& t_val, const LogicVal& f_val) {
         if (!cond.is_unknown()) {
             return (cond.aval != 0) ? t_val : f_val;

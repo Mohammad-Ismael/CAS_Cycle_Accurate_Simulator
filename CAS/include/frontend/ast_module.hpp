@@ -13,6 +13,7 @@ struct PortNode : public ASTNode {
     std::string direction; // "input", "output", "inout", "internal"
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
+    bool is_signed = false;
     bool is_array = false;
     std::unique_ptr<ExpressionNode> bound1_expr;
     std::unique_ptr<ExpressionNode> bound2_expr;
@@ -21,9 +22,11 @@ struct PortNode : public ASTNode {
 
     PortNode(std::string n, std::string dir,
              std::unique_ptr<ExpressionNode> msb = nullptr,
-             std::unique_ptr<ExpressionNode> lsb = nullptr)
+             std::unique_ptr<ExpressionNode> lsb = nullptr,
+             bool signed_flag = false)
         : name(std::move(n)), direction(std::move(dir)),
-          msb_expr(std::move(msb)), lsb_expr(std::move(lsb)) {}
+          msb_expr(std::move(msb)), lsb_expr(std::move(lsb)),
+          is_signed(signed_flag) {}
 };
 
 struct ParameterDef {
@@ -32,7 +35,7 @@ struct ParameterDef {
 };
 
 struct ParamOverride {
-    std::string param_name; // empty if positional
+    std::string param_name;
     std::unique_ptr<ExpressionNode> expr;
 };
 
@@ -66,7 +69,7 @@ struct TaskNode : public ASTNode {
 };
 
 struct PortConnection {
-    std::string port_name; // empty if positional
+    std::string port_name;
     std::unique_ptr<ExpressionNode> expr;
 };
 

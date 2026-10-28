@@ -8,7 +8,8 @@
 Evaluator::Evaluator(Engine& eng) : engine(eng) {}
 
 LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
-    const auto& net_val = engine.netlist[ref.net_id].value;
+    const auto& net = engine.netlist[ref.net_id];
+    const auto& net_val = net.value;
     uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
     uint64_t a = (net_val.aval >> ref.offset) & mask;
     uint64_t b = (net_val.bval >> ref.offset) & mask;
@@ -16,13 +17,16 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
 }
 
 void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
-    auto cur = engine.netlist[ref.net_id].value;
+    auto& target_net = engine.netlist[ref.net_id];
+    LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
+
+    auto cur = target_net.value;
     uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
     uint64_t clear_mask = ~(mask << ref.offset);
 
-    uint64_t new_a = (cur.aval & clear_mask) | ((val.aval & mask) << ref.offset);
-    uint64_t new_b = (cur.bval & clear_mask) | ((val.bval & mask) << ref.offset);
-    engine.netlist[ref.net_id].set(LogicVal(cur.width, new_a, new_b));
+    uint64_t new_a = (cur.aval & clear_mask) | ((casted.aval & mask) << ref.offset);
+    uint64_t new_b = (cur.bval & clear_mask) | ((casted.bval & mask) << ref.offset);
+    target_net.set(LogicVal(cur.width, new_a, new_b));
 }
 
 LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
@@ -121,20 +125,48 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
         if (un->op == '~') return LogicOps::bitwise_not(val);
+        if (un->op == '+') return val;
+        if (un->op == '-') {
+            if (val.is_unknown()) return LogicVal::make_x(val.width);
+            uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
+            uint64_t neg_a = (~val.aval + 1) & mask;
+            return LogicVal(val.width, neg_a, 0);
+        }
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         LogicVal l = eval_expr(bin->lhs.get(), scope);
         LogicVal r = eval_expr(bin->rhs.get(), scope);
 
+        bool l_signed = false;
+        if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
+            std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+            if (engine.net_map.find(full) != engine.net_map.end()) {
+                l_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+            }
+        }
+        bool r_signed = false;
+        if (auto id = dynamic_cast<IdentifierNode*>(bin->rhs.get())) {
+            std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+            if (engine.net_map.find(full) != engine.net_map.end()) {
+                r_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+            }
+        }
+
+        bool expr_signed = l_signed && r_signed;
+
         if (bin->op == "+") {
             uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
-            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
-            return LogicVal::make_known(w, l.aval + r.aval);
+            LogicVal ext_l = LogicOps::cast_width(l, w, expr_signed);
+            LogicVal ext_r = LogicOps::cast_width(r, w, expr_signed);
+            if (ext_l.is_unknown() || ext_r.is_unknown()) return LogicVal::make_x(w);
+            return LogicVal::make_known(w, ext_l.aval + ext_r.aval);
         }
         if (bin->op == "-") {
             uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
-            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
-            return LogicVal::make_known(w, l.aval - r.aval);
+            LogicVal ext_l = LogicOps::cast_width(l, w, expr_signed);
+            LogicVal ext_r = LogicOps::cast_width(r, w, expr_signed);
+            if (ext_l.is_unknown() || ext_r.is_unknown()) return LogicVal::make_x(w);
+            return LogicVal::make_known(w, ext_l.aval - ext_r.aval);
         }
         if (bin->op == "*") {
             uint32_t w = std::min(64U, l.width + r.width);
@@ -146,24 +178,45 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "^")   return LogicOps::bitwise_xor(l, r);
         if (bin->op == "<<")  return LogicOps::shift_left(l, r);
         if (bin->op == ">>")  return LogicOps::shift_right(l, r);
+        if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, l_signed);
         if (bin->op == "==")  return LogicOps::logical_eq(l, r);
         if (bin->op == "!=")  return LogicOps::logical_neq(l, r);
         if (bin->op == "===") return LogicOps::case_eq(l, r);
         if (bin->op == "!==") return LogicOps::case_neq(l, r);
         if (bin->op == "<") {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                return LogicVal::make_known(1, (sl < sr) ? 1 : 0);
+            }
             return LogicVal::make_known(1, (l.aval < r.aval) ? 1 : 0);
         }
         if (bin->op == "<=") {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                return LogicVal::make_known(1, (sl <= sr) ? 1 : 0);
+            }
             return LogicVal::make_known(1, (l.aval <= r.aval) ? 1 : 0);
         }
         if (bin->op == ">") {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                return LogicVal::make_known(1, (sl > sr) ? 1 : 0);
+            }
             return LogicVal::make_known(1, (l.aval > r.aval) ? 1 : 0);
         }
         if (bin->op == ">=") {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                return LogicVal::make_known(1, (sl >= sr) ? 1 : 0);
+            }
             return LogicVal::make_known(1, (l.aval >= r.aval) ? 1 : 0);
         }
         if (bin->op == "&&") {
@@ -304,8 +357,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
     }
     else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
-        // Procedural delays are scheduled strictly via StratifiedScheduler::step_process
-        // onto the IEEE 1800 TimeWheel. Direct local time advancement is bypassed.
+        // Scheduled via StratifiedScheduler::step_process
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
@@ -381,7 +433,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = engine.net_map.at(scoped_target);
-        engine.scheduler.queue_nba(net_id, rhs_val);
+        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+        engine.scheduler.queue_nba(net_id, casted);
     }
     else if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
         std::string scoped_mem = bp.scope + "." + mem_assign->mem_name;
@@ -415,7 +468,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         } else {
             std::string scoped_target = bp.scope + "." + assign->lhs_targets[0];
             size_t net_id = engine.net_map.at(scoped_target);
-            engine.netlist[net_id].set(rhs_val);
+            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+            engine.netlist[net_id].set(casted);
         }
     }
 }

@@ -2,12 +2,12 @@
 #include "../../include/tracer/vcd_dumper.hpp"
 #include <stdexcept>
 
-size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width) {
+size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed) {
     if (result.net_map.find(scoped_name) != result.net_map.end()) {
         return result.net_map[scoped_name];
     }
     size_t id = result.netlist.size();
-    result.netlist.emplace_back(scoped_name, width);
+    result.netlist.emplace_back(scoped_name, width, is_signed);
     result.netlist.back().vcd_id = VcdDumper::generate_vcd_id(id);
     result.net_map[scoped_name] = id;
     return id;
@@ -47,7 +47,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "-") return (l >= r) ? (l - r) : 0;
         if (bin->op == "*") return l * r;
         if (bin->op == "<<") return l << r;
-        if (bin->op == ">>") return l >> r;
+        if (bin->op == ">>" || bin->op == ">>>") return l >> r;
     }
     return 0;
 }
@@ -74,7 +74,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         static size_t const_counter = 0;
         std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
-        size_t id = get_or_create_net(const_net_name, num->width);
+        size_t id = get_or_create_net(const_net_name, num->width, false);
         LogicVal val(num->width, num->aval, num->bval);
         result.netlist[id].set(val);
         return {id, 0, num->width};
@@ -103,7 +103,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         if (synth_width == 0) synth_width = 32;
     }
 
-    size_t id = get_or_create_net(temp_net_name, synth_width);
+    size_t id = get_or_create_net(temp_net_name, synth_width, false);
     result.continuous_assigns.push_back({scope, {id, 0, synth_width}, expr});
     return {id, 0, synth_width};
 }
@@ -153,7 +153,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
-        get_or_create_net(scope + "." + p.name, w);
+        get_or_create_net(scope + "." + p.name, w, p.is_signed);
     }
 
     for (auto& s : mod->signals) {
@@ -179,7 +179,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                            << " [" << w << "-bit x " << depth << " words]\n";
             }
         } else {
-            get_or_create_net(scope + "." + s.name, w);
+            get_or_create_net(scope + "." + s.name, w, s.is_signed);
         }
     }
 

@@ -16,6 +16,7 @@ enum class TokenType {
     TOKEN_WIRE,
     TOKEN_REG,
     TOKEN_INTEGER,
+    TOKEN_SIGNED,
     TOKEN_PARAMETER,
     TOKEN_LOCALPARAM,
     TOKEN_ASSIGN,
@@ -82,6 +83,7 @@ enum class TokenType {
     TOKEN_XOR,
     TOKEN_SHL,
     TOKEN_SHR,
+    TOKEN_ASHR,
     TOKEN_LOGICAL_AND,
     TOKEN_LOGICAL_OR,
     TOKEN_QUESTION,
@@ -95,7 +97,7 @@ struct Token {
     uint32_t width;
     std::string filename;
     size_t line;
-    uint64_t bval = 0; // Added for 4-state literal support
+    uint64_t bval = 0;
 };
 
 struct SourceBuffer {

@@ -78,7 +78,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (current.type == TokenType::TOKEN_OUTPUT) { dir = "output"; advance(); }
                 else if (current.type == TokenType::TOKEN_INOUT) { dir = "inout"; advance(); }
 
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                bool is_signed_port = false;
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_port = true;
+                    advance();
+                }
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+                    current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                    if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    advance();
+                }
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_port = true;
                     advance();
                 }
 
@@ -94,12 +105,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
-                    PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr);
+                    PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port);
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
-                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || 
+                            current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED) {
                             break;
                         }
                         continue;
@@ -147,9 +159,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT) {
                 std::string dir = current.text;
                 advance();
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                bool is_signed_port = false;
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_port = true;
                     advance();
                 }
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+                    current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                    if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    advance();
+                }
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_port = true;
+                    advance();
+                }
+
                 std::unique_ptr<ExpressionNode> msb = nullptr;
                 std::unique_ptr<ExpressionNode> lsb = nullptr;
                 if (match(TokenType::TOKEN_LBRACKET)) {
@@ -165,6 +189,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     for (auto& p : mod->ports) {
                         if (p.name == pname) {
                             p.direction = dir;
+                            p.is_signed = is_signed_port;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
                             found = true;
@@ -172,7 +197,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     }
                     if (!found) {
-                        mod->ports.emplace_back(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr);
+                        mod->ports.emplace_back(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port);
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -181,9 +206,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || 
+                current.type == TokenType::TOKEN_SIGNED) {
+                
+                bool is_signed_sig = false;
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_sig = true;
+                    advance();
+                }
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
+                if (is_int) is_signed_sig = true;
                 advance();
+
+                if (current.type == TokenType::TOKEN_SIGNED) {
+                    is_signed_sig = true;
+                    advance();
+                }
+
                 std::unique_ptr<ExpressionNode> msb = nullptr;
                 std::unique_ptr<ExpressionNode> lsb = nullptr;
                 if (match(TokenType::TOKEN_LBRACKET)) {
@@ -198,7 +238,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig);
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
                         sig.is_array = true;
@@ -209,8 +249,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory dimension");
                     }
 
-                    // Variable inline initialization (e.g., integer errors = 0;)
-                    // Treated as an initial procedural assignment rather than a continuous assign
                     if (match(TokenType::TOKEN_EQUAL)) {
                         auto init_expr = parse_expression();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
@@ -221,6 +259,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     bool is_port = false;
                     for (auto& p : mod->ports) {
                         if (p.name == signame) {
+                            p.is_signed = is_signed_sig;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
                             is_port = true;
@@ -350,7 +389,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     proc->body = parse_statement_or_block();
                     mod->processes.push_back(std::move(proc));
                 } else {
-                    // Plain 'always begin ... end' with procedural delays is a free-running ALWAYS process
                     auto proc = std::make_unique<ProcessNode>(ProcessType::ALWAYS);
                     proc->body = parse_statement_or_block();
                     mod->processes.push_back(std::move(proc));

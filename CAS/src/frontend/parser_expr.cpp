@@ -38,14 +38,12 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         auto first_expr = parse_expression();
 
         if (match(TokenType::TOKEN_LBRACE)) {
-            // Replication operator: {count {target}}
             auto target = parse_expression();
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inner replication target");
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing replication expression");
             return std::make_unique<ReplicateNode>(std::move(first_expr), std::move(target));
         }
 
-        // Concatenation operator: {elem1, elem2, ...}
         std::vector<std::unique_ptr<ExpressionNode>> elements;
         elements.push_back(std::move(first_expr));
 
@@ -74,6 +72,18 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
         
         char op = current.text[0];
         advance();
+
+        // Detect negative literal like -4'sd2
+        if (op == '-' && current.type == TokenType::TOKEN_NUMBER) {
+            uint64_t a = current.num_val;
+            uint64_t b = current.bval;
+            uint32_t w = current.width;
+            advance();
+            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+            uint64_t neg_a = (~a + 1) & mask;
+            return std::make_unique<NumberNode>(neg_a, b, w);
+        }
+
         auto operand = parse_unary();
         return std::make_unique<UnaryOpNode>(op, std::move(operand));
     }
@@ -107,7 +117,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_additive() {
 std::unique_ptr<ExpressionNode> Parser::parse_shift() {
     auto lhs = parse_additive();
 
-    while (current.type == TokenType::TOKEN_SHL || current.type == TokenType::TOKEN_SHR) {
+    while (current.type == TokenType::TOKEN_SHL || current.type == TokenType::TOKEN_SHR || current.type == TokenType::TOKEN_ASHR) {
         std::string op = current.text;
         advance();
         auto rhs = parse_additive();
@@ -202,18 +212,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_logical_or() {
     return lhs;
 }
 
-std::unique_ptr<ExpressionNode> Parser::parse_conditional() {
+std::unique_ptr<ExpressionNode> Parser::parse_expression() {
     auto cond = parse_logical_or();
 
     if (match(TokenType::TOKEN_QUESTION)) {
         auto true_expr = parse_expression();
         expect(TokenType::TOKEN_COLON, "Expected ':' in ternary conditional expression");
-        auto false_expr = parse_conditional();
+        auto false_expr = parse_expression();
         return std::make_unique<TernaryOpNode>(std::move(cond), std::move(true_expr), std::move(false_expr));
     }
     return cond;
-}
-
-std::unique_ptr<ExpressionNode> Parser::parse_expression() {
-    return parse_conditional();
 }

@@ -1,7 +1,7 @@
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /app/CAS/src/kernel/elaborator.cpp /usr/include/stdc-predef.h \
  /app/CAS/src/kernel/../../include/kernel/elaborator.hpp \
- /app/CAS/src/kernel/../../include/kernel/../ast.hpp \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/ast_module.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/ast_base.hpp \
  /usr/include/c++/13.2.1/string \
  /usr/include/c++/13.2.1/bits/requires_hosted.h \
@@ -104,7 +104,6 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /usr/include/c++/13.2.1/bits/stl_bvector.h \
  /usr/include/c++/13.2.1/bits/vector.tcc \
  /app/CAS/src/kernel/../../include/kernel/../frontend/ast_stmt.hpp \
- /app/CAS/src/kernel/../../include/kernel/../frontend/ast_module.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/edge_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/gate_types.hpp \

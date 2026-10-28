@@ -1061,7 +1061,6 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.cpp \
-  /app/CAS/include/ast.hpp \
   /app/CAS/include/common/edge_types.hpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \

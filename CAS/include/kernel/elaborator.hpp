@@ -1,5 +1,5 @@
 #pragma once
-#include "../ast.hpp"
+#include "../frontend/ast_module.hpp"
 #include "netlist.hpp"
 #include <vector>
 #include <string>
@@ -55,7 +55,7 @@ class Elaborator {
 private:
     ElaborationResult result;
 
-    size_t get_or_create_net(const std::string& scoped_name, uint32_t width);
+    size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false);
     uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
 

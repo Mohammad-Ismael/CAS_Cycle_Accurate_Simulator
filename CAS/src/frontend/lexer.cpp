@@ -196,7 +196,14 @@ Token Lexer::next_token() {
     if (c == '>') {
         advance();
         if (peek() == '=') { advance(); return {TokenType::TOKEN_GE, ">=", 0, 0, cur_file, cur_line, 0}; }
-        if (peek() == '>') { advance(); return {TokenType::TOKEN_SHR, ">>", 0, 0, cur_file, cur_line, 0}; }
+        if (peek() == '>') {
+            advance();
+            if (peek() == '>') {
+                advance();
+                return {TokenType::TOKEN_ASHR, ">>>", 0, 0, cur_file, cur_line, 0};
+            }
+            return {TokenType::TOKEN_SHR, ">>", 0, 0, cur_file, cur_line, 0};
+        }
         return {TokenType::TOKEN_GT, ">", 0, 0, cur_file, cur_line, 0};
     }
 
@@ -216,6 +223,11 @@ Token Lexer::next_token() {
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
             advance(); // consume '\''
+            bool is_signed = false;
+            if (peek() == 's' || peek() == 'S') {
+                is_signed = true;
+                advance();
+            }
             char base = advance();
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {
@@ -223,7 +235,7 @@ Token Lexer::next_token() {
                 advance();
             }
 
-            auto pnum = NumberParser::parse_sized_literal(width, base, digits);
+            auto pnum = NumberParser::parse_sized_literal(width, is_signed, base, digits);
             return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
         }
 
@@ -266,6 +278,7 @@ Token Lexer::next_token() {
         if (ident == "wire") return {TokenType::TOKEN_WIRE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "reg") return {TokenType::TOKEN_REG, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "integer") return {TokenType::TOKEN_INTEGER, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "signed") return {TokenType::TOKEN_SIGNED, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, cur_file, cur_line, 0};
