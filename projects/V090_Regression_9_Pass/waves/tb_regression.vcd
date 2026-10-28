@@ -1,0 +1,123 @@
+$date
+  CAS Simulator Generated
+$end
+$version
+  CAS v1.0.0
+$end
+$timescale
+  1ns
+$end
+$scope module top $end
+$var wire 1 ! tb_regression.clk $end
+$var wire 1 " tb_regression.rst_n $end
+$var wire 4 # tb_regression.a $end
+$var wire 4 $ tb_regression.b $end
+$var wire 3 % tb_regression.opcode $end
+$var wire 2 & tb_regression.mem_addr $end
+$var wire 1 ' tb_regression.mem_we $end
+$var wire 4 ( tb_regression.alu_result $end
+$var wire 4 ) tb_regression.reg_accum $end
+$var wire 1 * tb_regression.is_equal $end
+$var wire 1 + tb_regression.is_less $end
+$var wire 1 , tb_regression.bit_extracted $end
+$var wire 2 - tb_regression.slice_extracted $end
+$var wire 4 . tb_regression.cont_assign_out $end
+$var wire 4 / tb_regression.mem_rdata $end
+$var wire 8 0 tb_regression.fail_count $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+x!
+x"
+bx #
+bx $
+bx %
+bx &
+x'
+b0000 (
+bx )
+x*
+x+
+x,
+bx -
+bx .
+bx /
+b00000001 0
+$end
+#5
+0!
+#5
+0"
+b0000 )
+#5
+b0000 #
+0,
+b00 -
+b0001 .
+#5
+b0000 $
+1*
+0+
+#5
+b000 %
+#5
+b00 &
+#5
+0'
+#10
+1"
+#15
+b1100 #
+0*
+1,
+b11 -
+b1101 .
+#15
+b1010 $
+b1000 (
+#20
+b001 %
+b1110 (
+#30
+b10 &
+#35
+b1011 #
+b1011 (
+0,
+b10 -
+b1100 .
+#35
+1'
+#40
+1!
+b1011 )
+b1011 /
+#45
+0!
+#50
+0'
+#55
+0"
+b0000 )
+#60
+1"
+#65
+b0011 #
+1+
+b00 -
+b0100 .
+#65
+b0100 $
+b0111 (
+#65
+b110 %
+#70
+1!
+b0111 )
+#75
+0!
+#80
+1!
+b1110 )
+#85
+0!

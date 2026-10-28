@@ -34,6 +34,12 @@ class SimRequest(BaseModel):
 class SaveProjectRequest(BaseModel):
     project_name: str
     files: Dict[str, str]
+    settings: Optional[Dict] = {}
+    status: Optional[Dict] = {}
+
+class RenameProjectRequest(BaseModel):
+    old_name: str
+    new_name: str
 
 # ----------------- Project Management APIs ----------------- #
 
@@ -81,12 +87,53 @@ def save_project(req: SaveProjectRequest):
     meta = {
         "project_name": pname,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "files": list(req.files.keys())
+        "files": list(req.files.keys()),
+        "settings": req.settings or {},
+        "status": req.status or {}
     }
     with open(os.path.join(pdir, "project.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
     return {"status": "success", "project_name": pname}
+
+@app.post("/api/projects/rename")
+def rename_project(req: RenameProjectRequest):
+    old_pname = req.old_name.strip()
+    new_pname = req.new_name.strip()
+    
+    if not old_pname or not new_pname:
+        raise HTTPException(status_code=400, detail="Project names cannot be empty.")
+
+    old_clean = "".join(c for c in old_pname if c.isalnum() or c in ('_', '-'))
+    new_clean = "".join(c for c in new_pname if c.isalnum() or c in ('_', '-'))
+
+    old_dir = os.path.join(PROJECTS_DIR, old_clean)
+    new_dir = os.path.join(PROJECTS_DIR, new_clean)
+
+    if not os.path.exists(old_dir):
+        raise HTTPException(status_code=404, detail="Source project does not exist.")
+    if os.path.exists(new_dir) and old_clean != new_clean:
+        raise HTTPException(status_code=400, detail="A project with the new name already exists.")
+
+    if old_clean != new_clean:
+        shutil.move(old_dir, new_dir)
+
+    # Update metadata file with new name
+    meta_path = os.path.join(new_dir, "project.json")
+    meta = {}
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+        except Exception:
+            meta = {}
+    
+    meta["project_name"] = new_clean
+    meta["saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    return {"status": "success", "old_name": old_clean, "new_name": new_clean}
 
 @app.get("/api/projects/{name}")
 def load_project(name: str):
@@ -118,10 +165,26 @@ def load_project(name: str):
                 })
     waves.sort(key=lambda x: x["timestamp"], reverse=True)
 
+    settings = {}
+    status = {}
+    meta_path = os.path.join(pdir, "project.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+                settings = meta.get("settings", {})
+                status = meta.get("status", {})
+        except Exception as e:
+            print(f"[ERROR] Failed to read project.json for {name}: {e}")
+            settings = {}
+            status = {}
+
     return {
         "project_name": name,
         "files": files,
-        "waves": waves
+        "waves": waves,
+        "settings": settings,
+        "status": status
     }
 
 @app.delete("/api/projects/{name}")

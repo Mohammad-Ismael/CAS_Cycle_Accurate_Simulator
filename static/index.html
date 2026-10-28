@@ -22,7 +22,7 @@
             <span class="dot"></span>
             CAS STUDIO
         </div>
-        <div class="project-pill">
+        <div class="project-pill" style="cursor: pointer;" onclick="if(window.StudioProjects.activeProject) window.StudioProjects.renamePrompt(null, window.StudioProjects.activeProject);" title="Click to rename active project">
             <span style="color: var(--text-muted);">Project:</span>
             <span id="active-project-label">[Unsaved Scratchpad]</span>
         </div>

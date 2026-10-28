@@ -85,6 +85,14 @@ window.StudioApp = {
         }
     },
 
+    toggleVcdSettingsDrawer(enabled) {
+        const drawer = document.getElementById('vcd-settings-drawer');
+        if (drawer) {
+            if (enabled) drawer.classList.remove('collapsed');
+            else drawer.classList.add('collapsed');
+        }
+    },
+
     async run() {
         const btnRun = document.getElementById('btn-run');
         const bulb = document.getElementById('status-bulb');

@@ -58,9 +58,6 @@ module tb_master;
     endtask
 
     initial begin
-        // v0.5.0 VCD dumping with argument
-        $dumpfile("master_regression.vcd");
-        $dumpvars(1);
 
         fail_count = 8'd0;
 

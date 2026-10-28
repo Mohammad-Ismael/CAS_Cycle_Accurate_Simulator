@@ -1,8 +1,0 @@
-{
-  "project_name": "Arithmatic_Operations_ALU",
-  "saved_at": "2026-10-28 13:16:37",
-  "files": [
-    "design.sv",
-    "testbench.sv"
-  ]
-}

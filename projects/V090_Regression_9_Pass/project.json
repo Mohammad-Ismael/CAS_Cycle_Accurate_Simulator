@@ -1,8 +1,25 @@
 {
   "project_name": "V090_Regression_9_Pass",
-  "saved_at": "2026-10-27 17:41:06",
+  "saved_at": "2026-10-28 13:41:33",
   "files": [
     "design.sv",
     "testbench.sv"
-  ]
+  ],
+  "settings": {
+    "top_module": "tb_regression",
+    "timescale": "1ns",
+    "enable_profiler": false,
+    "enable_debug": false,
+    "enable_vcd": true,
+    "vcd_filename": "tb_regression.vcd",
+    "vcd_levels": 1,
+    "enable_display": true,
+    "enable_monitor": true,
+    "enable_finish_msg": true
+  },
+  "status": {
+    "active_tb_file": "testbench.sv",
+    "active_rtl_file": "design.sv",
+    "selected_wave": ""
+  }
 }

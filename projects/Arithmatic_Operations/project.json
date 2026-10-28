@@ -1,0 +1,25 @@
+{
+  "project_name": "Arithmatic_Operations",
+  "saved_at": "2026-10-28 13:55:30",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "settings": {
+    "top_module": "arithmetic_unit1",
+    "timescale": "100ps",
+    "enable_profiler": false,
+    "enable_debug": false,
+    "enable_vcd": false,
+    "vcd_filename": "ALU.vcd",
+    "vcd_levels": 0,
+    "enable_display": false,
+    "enable_monitor": false,
+    "enable_finish_msg": false
+  },
+  "status": {
+    "active_tb_file": "testbench.sv",
+    "active_rtl_file": "design.sv",
+    "selected_wave": ""
+  }
+}
