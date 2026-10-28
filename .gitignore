@@ -1,0 +1,4 @@
+CAS/build/
+**/waves/*.vcd
+__pycache__/
+codes.txt
