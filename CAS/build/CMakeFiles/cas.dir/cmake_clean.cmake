@@ -15,6 +15,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o.d"
   "CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o"
   "CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o.d"
+  "CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o"
+  "CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o.d"
   "CMakeFiles/cas.dir/src/main.cpp.o"
   "CMakeFiles/cas.dir/src/main.cpp.o.d"
   "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o"

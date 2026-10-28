@@ -32,7 +32,7 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
         return LogicVal::make_known(num->width, num->value);
     }
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
-        if (ident->name == "$time") return LogicVal::make_known(64, engine.sim_time);
+        if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
@@ -191,7 +191,7 @@ void Evaluator::check_monitor() {
 
     for (const auto& arg_name : engine.monitor_session.args) {
         if (arg_name == "$time") {
-            current_values.push_back(LogicVal::make_known(64, engine.sim_time));
+            current_values.push_back(LogicVal::make_known(64, engine.get_sim_time()));
         } else {
             std::string scoped_arg = engine.monitor_session.scope.empty() ? arg_name : (engine.monitor_session.scope + "." + arg_name);
             if (engine.net_map.find(scoped_arg) != engine.net_map.end()) {
@@ -225,7 +225,7 @@ void Evaluator::check_monitor() {
         }
 
         if (engine.monitor_session.has_leading_time) {
-            std::cout << engine.sim_time << " ";
+            std::cout << engine.get_sim_time() << " ";
         }
 
         size_t arg_idx = 0;
@@ -296,16 +296,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             TaskNode* target_task = engine.task_map.at(scoped_tname);
             for (auto& s : target_task->body) {
                 execute_statement(s.get(), bp);
-                if (!engine.simulation_active) return;
-                engine.propagate_comb();
-                engine.evaluate_sequential_blocks();
-                engine.commit_nba_updates();
+                if (!engine.scheduler.is_active()) return;
             }
         }
     }
     else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
-    // Delays are scheduled by Engine::step_process onto the time wheel.
-    // Ignored in direct statement evaluation.
+        // Procedural delays are scheduled strictly via StratifiedScheduler::step_process
+        // onto the IEEE 1800 TimeWheel. Direct local time advancement is bypassed.
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
@@ -333,7 +330,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             if (disp->has_leading_time) {
-                std::cout << engine.sim_time << " ";
+                std::cout << engine.get_sim_time() << " ";
             }
             size_t arg_idx = 0;
             size_t fmt_len = disp->format_string.size();
@@ -369,19 +366,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     else if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
         if (engine.is_finish_msg_allowed()) {
             if (!fin->src_file.empty() && fin->src_line > 0) {
-                std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.sim_time << ".\n";
+                std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
             } else {
-                std::cout << "[CAS $finish] Simulation Terminated at time " << engine.sim_time << ".\n";
+                std::cout << "[CAS $finish] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
             }
         }
-        engine.simulation_active = false;
+        engine.scheduler.terminate();
         bp.completed = true;
     }
     else if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = engine.net_map.at(scoped_target);
-        engine.nba_queue.push_back({net_id, rhs_val});
+        engine.scheduler.queue_nba(net_id, rhs_val);
     }
     else if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
         std::string scoped_mem = bp.scope + "." + mem_assign->mem_name;
@@ -391,7 +388,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (!addr_val.is_unknown()) {
             uint32_t addr = addr_val.aval;
             if (mem_assign->is_non_blocking) {
-                engine.nba_mem_queue.push_back({scoped_mem, addr, rhs_val});
+                engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
             } else {
                 if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                     auto& mem = engine.memory_map.at(scoped_mem);

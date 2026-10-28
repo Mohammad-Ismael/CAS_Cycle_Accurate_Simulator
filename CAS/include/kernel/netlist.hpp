@@ -26,16 +26,26 @@ struct Net {
         }
     }
 
+    // A posedge occurs ONLY if the net was modified and transitioned to 1 from not-1
     bool is_posedge() const {
+        if (!modified) return false;
         bool curr_1 = (value.bval == 0 && (value.aval & 1) == 1);
         bool prev_not_1 = (prev_value.bval != 0) || ((prev_value.aval & 1) == 0);
         return prev_not_1 && curr_1;
     }
 
+    // A negedge occurs ONLY if the net was modified and transitioned to 0 from not-0
     bool is_negedge() const {
+        if (!modified) return false;
         bool curr_0 = (value.bval == 0 && (value.aval & 1) == 0);
         bool prev_not_0 = (prev_value.bval != 0) || ((prev_value.aval & 1) == 1);
         return prev_not_0 && curr_0;
+    }
+
+    // Synchronize history at the end of a time slot
+    void commit_time_slot() {
+        prev_value = value;
+        modified = false;
     }
 };
 

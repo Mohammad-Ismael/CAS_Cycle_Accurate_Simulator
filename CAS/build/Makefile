@@ -321,6 +321,30 @@ src/kernel/evaluator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s
 .PHONY : src/kernel/evaluator.cpp.s
 
+src/kernel/scheduler.o: src/kernel/scheduler.cpp.o
+.PHONY : src/kernel/scheduler.o
+
+# target to build an object file
+src/kernel/scheduler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o
+.PHONY : src/kernel/scheduler.cpp.o
+
+src/kernel/scheduler.i: src/kernel/scheduler.cpp.i
+.PHONY : src/kernel/scheduler.i
+
+# target to preprocess a source file
+src/kernel/scheduler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/scheduler.cpp.i
+.PHONY : src/kernel/scheduler.cpp.i
+
+src/kernel/scheduler.s: src/kernel/scheduler.cpp.s
+.PHONY : src/kernel/scheduler.s
+
+# target to generate assembly for a file
+src/kernel/scheduler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/scheduler.cpp.s
+.PHONY : src/kernel/scheduler.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -426,6 +450,9 @@ help:
 	@echo "... src/kernel/evaluator.o"
 	@echo "... src/kernel/evaluator.i"
 	@echo "... src/kernel/evaluator.s"
+	@echo "... src/kernel/scheduler.o"
+	@echo "... src/kernel/scheduler.i"
+	@echo "... src/kernel/scheduler.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"
