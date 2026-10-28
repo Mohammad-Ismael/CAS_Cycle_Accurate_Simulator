@@ -190,18 +190,28 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
         LogicVal val = eval(un->operand.get(), scope);
-        if (un->op == '!') {
+
+        // Logical and Bitwise Unary
+        if (un->op == "!") {
             if (val.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
-        if (un->op == '~') return LogicOps::bitwise_not(val);
-        if (un->op == '+') return val;
-        if (un->op == '-') {
+        if (un->op == "~") return LogicOps::bitwise_not(val);
+        if (un->op == "+") return val;
+        if (un->op == "-") {
             if (val.is_unknown()) return LogicVal::make_x(val.width);
             uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
             uint64_t neg_a = (~val.aval + 1) & mask;
             return LogicVal(val.width, neg_a, 0);
         }
+
+        // Unary Reductions (§11.4.3)
+        if (un->op == "&")  return LogicOps::reduce_and(val);
+        if (un->op == "~&") return LogicOps::reduce_nand(val);
+        if (un->op == "|")  return LogicOps::reduce_or(val);
+        if (un->op == "~|") return LogicOps::reduce_nor(val);
+        if (un->op == "^")  return LogicOps::reduce_xor(val);
+        if (un->op == "~^" || un->op == "^~") return LogicOps::reduce_xnor(val);
     }
 
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {

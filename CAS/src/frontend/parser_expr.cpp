@@ -76,18 +76,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_unary() {
-    if (current.type == TokenType::TOKEN_NOT || 
-        current.type == TokenType::TOKEN_TILDE || 
-        current.type == TokenType::TOKEN_MINUS || 
-        current.type == TokenType::TOKEN_PLUS ||
-        current.type == TokenType::TOKEN_AND ||
-        current.type == TokenType::TOKEN_OR_BIT ||
-        current.type == TokenType::TOKEN_XOR) {
+    // 1. Two-character composite unary reduction: ~&, ~|, ~^
+    if (current.type == TokenType::TOKEN_TILDE) {
+        advance();
+        if (current.type == TokenType::TOKEN_AND) {
+            advance();
+            return std::make_unique<UnaryOpNode>("~&", parse_unary());
+        }
+        if (current.type == TokenType::TOKEN_OR_BIT) {
+            advance();
+            return std::make_unique<UnaryOpNode>("~|", parse_unary());
+        }
+        if (current.type == TokenType::TOKEN_XOR) {
+            advance();
+            return std::make_unique<UnaryOpNode>("~^", parse_unary());
+        }
+        return std::make_unique<UnaryOpNode>("~", parse_unary());
+    }
+
+    // 2. Two-character composite unary reduction: ^~
+    if (current.type == TokenType::TOKEN_XOR) {
+        advance();
+        if (current.type == TokenType::TOKEN_TILDE) {
+            advance();
+            return std::make_unique<UnaryOpNode>("^~", parse_unary());
+        }
+        return std::make_unique<UnaryOpNode>("^", parse_unary());
+    }
+
+    // 3. Single-character unary reductions and prefix operators: &, |, !, +, -
+    if (current.type == TokenType::TOKEN_AND        ||
+        current.type == TokenType::TOKEN_OR_BIT    ||
+        current.type == TokenType::TOKEN_NOT       ||
+        current.type == TokenType::TOKEN_PLUS      ||
+        current.type == TokenType::TOKEN_MINUS) {
         
-        char op = current.text[0];
+        std::string op = current.text;
         advance();
 
-        if (op == '-' && current.type == TokenType::TOKEN_NUMBER) {
+        if (op == "-" && current.type == TokenType::TOKEN_NUMBER) {
             uint64_t a = current.num_val;
             uint64_t b = current.bval;
             uint32_t w = current.width;
@@ -97,9 +124,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
             return std::make_unique<NumberNode>(neg_a, b, w);
         }
 
-        auto operand = parse_unary();
-        return std::make_unique<UnaryOpNode>(op, std::move(operand));
+        return std::make_unique<UnaryOpNode>(op, parse_unary());
     }
+
     return parse_primary();
 }
 

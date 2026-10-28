@@ -4,6 +4,84 @@
 
 class LogicOps {
 public:
+
+    // ------------------------------------------------------------------------
+    // IEEE Std 1800-2023 §11.4.3: Unary Reduction Operators
+    // ------------------------------------------------------------------------
+    static LogicVal reduce_and(const LogicVal& v) {
+        if (v.width == 0) return LogicVal::make_x(1);
+        bool has_zero = false;
+        bool has_unknown = false;
+
+        for (uint32_t i = 0; i < v.width; ++i) {
+            uint64_t a = (v.aval >> i) & 1;
+            uint64_t b = (v.bval >> i) & 1;
+            if (b == 1) {
+                has_unknown = true;
+            } else if (a == 0) {
+                has_zero = true;
+                break; // 0 dominates reduction AND
+            }
+        }
+
+        if (has_zero) return LogicVal::make_known(1, 0);
+        if (has_unknown) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, 1);
+    }
+
+    static LogicVal reduce_nand(const LogicVal& v) {
+        LogicVal r = reduce_and(v);
+        if (r.is_unknown()) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, r.aval ^ 1);
+    }
+
+    static LogicVal reduce_or(const LogicVal& v) {
+        if (v.width == 0) return LogicVal::make_x(1);
+        bool has_one = false;
+        bool has_unknown = false;
+
+        for (uint32_t i = 0; i < v.width; ++i) {
+            uint64_t a = (v.aval >> i) & 1;
+            uint64_t b = (v.bval >> i) & 1;
+            if (b == 1) {
+                has_unknown = true;
+            } else if (a == 1) {
+                has_one = true;
+                break; // 1 dominates reduction OR
+            }
+        }
+
+        if (has_one) return LogicVal::make_known(1, 1);
+        if (has_unknown) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, 0);
+    }
+
+    static LogicVal reduce_nor(const LogicVal& v) {
+        LogicVal r = reduce_or(v);
+        if (r.is_unknown()) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, r.aval ^ 1);
+    }
+
+    static LogicVal reduce_xor(const LogicVal& v) {
+        if (v.width == 0) return LogicVal::make_x(1);
+        uint64_t parity = 0;
+
+        for (uint32_t i = 0; i < v.width; ++i) {
+            uint64_t a = (v.aval >> i) & 1;
+            uint64_t b = (v.bval >> i) & 1;
+            if (b == 1) return LogicVal::make_x(1); // Any unknown forces XOR result to X
+            parity ^= a;
+        }
+
+        return LogicVal::make_known(1, parity & 1);
+    }
+
+    static LogicVal reduce_xnor(const LogicVal& v) {
+        LogicVal r = reduce_xor(v);
+        if (r.is_unknown()) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, r.aval ^ 1);
+    }
+
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
         if (v.width == target_width) return v;
         if (v.width > target_width) {

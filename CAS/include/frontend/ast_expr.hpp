@@ -106,11 +106,14 @@ struct ReplicateNode : public ExpressionNode {
 };
 
 struct UnaryOpNode : public ExpressionNode {
-    char op;
+    std::string op;
     std::unique_ptr<ExpressionNode> operand;
 
+    UnaryOpNode(std::string o, std::unique_ptr<ExpressionNode> opnd)
+        : op(std::move(o)), operand(std::move(opnd)) {}
+
     UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
-        : op(o), operand(std::move(opnd)) {}
+        : op(1, o), operand(std::move(opnd)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         return std::make_unique<UnaryOpNode>(op, operand ? operand->clone() : nullptr);
