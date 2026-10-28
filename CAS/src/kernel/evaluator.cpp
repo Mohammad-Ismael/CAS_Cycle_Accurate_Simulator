@@ -304,9 +304,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
     }
     else if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
-        engine.sim_time += delay->delay;
-        engine.vcd_dumper.dump_sample(engine.netlist, engine.sim_time);
-        check_monitor();
+    // Delays are scheduled by Engine::step_process onto the time wheel.
+    // Ignored in direct statement evaluation.
     }
     else if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {

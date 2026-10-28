@@ -27,7 +27,7 @@ void Engine::propagate_comb() {
     delta_cycles_count++;
     bool changed = true;
     size_t iters = 0;
-    while (changed && iters < 100) {
+    while (changed && iters < 200) {
         changed = false;
 
         for (auto& bind : slice_bindings) {
@@ -93,24 +93,29 @@ void Engine::evaluate_sequential_blocks() {
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
             std::string scoped_sig = bp.scope + "." + sens.signal_name;
-            size_t net_id = net_map.at(scoped_sig);
-            const auto& net = netlist[net_id];
+            auto it = net_map.find(scoped_sig);
+            if (it == net_map.end()) continue;
+            const auto& net = netlist[it->second];
 
             if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) { triggered = true; break; }
             else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) { triggered = true; break; }
         }
 
         if (triggered) {
-            for (auto& stmt : bp.proc->body) evaluator.execute_statement(stmt.get(), bp);
+            for (auto& stmt : bp.proc->body) {
+                evaluator.execute_statement(stmt.get(), bp);
+            }
         }
     }
 }
 
-void Engine::commit_nba_updates() {
-    if (nba_queue.empty() && nba_mem_queue.empty()) return;
+bool Engine::commit_nba_updates() {
+    if (nba_queue.empty() && nba_mem_queue.empty()) return false;
 
     nba_commits_count++;
-    for (const auto& update : nba_queue) netlist[update.net_id].set(update.val);
+    for (const auto& update : nba_queue) {
+        netlist[update.net_id].set(update.val);
+    }
     nba_queue.clear();
 
     for (const auto& mem_up : nba_mem_queue) {
@@ -120,10 +125,11 @@ void Engine::commit_nba_updates() {
         }
     }
     nba_mem_queue.clear();
-    propagate_comb();
+    return true;
 }
 
 void Engine::step_process(size_t pid) {
+    if (!simulation_active) return;
     auto& bp = processes[pid];
     if (bp.completed) return;
 
@@ -150,34 +156,34 @@ void Engine::step_process(size_t pid) {
             continue;
         }
 
-        if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
-            evaluator.execute_statement(if_stmt, bp);
-            if (!simulation_active) return;
-            bp.pc++;
-            continue;
-        }
-
-        if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
-            evaluator.execute_statement(case_stmt, bp);
-            if (!simulation_active) return;
-            bp.pc++;
-            continue;
-        }
-
         evaluator.execute_statement(stmt, bp);
         if (!simulation_active) return;
-
-        propagate_comb();
-        evaluate_sequential_blocks();
-        commit_nba_updates();
-        vcd_dumper.dump_sample(netlist, sim_time);
-        evaluator.check_monitor();
-
-        for (auto& n : netlist) n.modified = false;
         bp.pc++;
     }
 
-    bp.completed = true;
+    if (bp.proc->type == ProcessType::INITIAL) {
+        bp.completed = true;
+    } else {
+        // ALWAYS processes loop continuously: reset PC to 0 and re-execute from start
+        bp.pc = 0;
+        step_process(pid);
+    }
+}
+
+void Engine::execute_time_slot_delta_loop() {
+    // Phase 1: Propagate combinational logic to settle inputs for this timestamp
+    propagate_comb();
+
+    // Phase 2: Sample clock edges and evaluate sequential (always_ff) blocks ONCE
+    // Their non-blocking assignments (<=) are staged into nba_queue without committing
+    evaluate_sequential_blocks();
+
+    // Phase 3: Non-blocking Assignment (NBA) Update Region
+    // Commit staged updates simultaneously across all registers
+    if (commit_nba_updates()) {
+        // Phase 4: Propagate combinational effects of new register states
+        propagate_comb();
+    }
 }
 
 void Engine::run(std::ostream* debug_out) {
@@ -189,26 +195,53 @@ void Engine::run(std::ostream* debug_out) {
         *debug_out << "  -> Continuous Assigns Bound     : " << continuous_assigns.size() << "\n";
         *debug_out << "  -> Memory Arrays Allocated      : " << memory_map.size() << "\n";
         *debug_out << "  -> Concurrent Processes Bound   : " << processes.size() << "\n";
-        *debug_out << "[PHASE 5: Simulation Runtime (Discrete-Event Scheduler)]\n";
+        *debug_out << "[PHASE 5: Simulation Runtime (IEEE 1800 Stratified Engine)]\n";
         *debug_out << "--------------------------------------------------------\n";
     }
 
-    propagate_comb();
+    sim_time = 0;
+    simulation_active = true;
 
+    // Time 0 Initialization: Start all initial and always processes
     for (size_t i = 0; i < processes.size(); ++i) {
-        if (processes[i].proc->type == ProcessType::INITIAL) {
+        if (processes[i].proc->type == ProcessType::INITIAL || 
+            processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
         }
     }
 
-    while (simulation_active && !time_wheel.empty()) {
-        events_dispatched++;
-        SimEvent ev = time_wheel.top();
-        time_wheel.pop();
+    // Stabilize initial state at Time 0
+    execute_time_slot_delta_loop();
 
-        sim_time = ev.time;
-        step_process(ev.process_id);
+    // IEEE Postponed Region at Time 0: Dump waveform and sample $monitor
+    vcd_dumper.dump_sample(netlist, sim_time);
+    evaluator.check_monitor();
+    for (auto& n : netlist) n.modified = false;
+
+    // Time Wheel Loop
+    while (simulation_active && !time_wheel.empty()) {
+        uint64_t current_slot_time = time_wheel.top().time;
+        sim_time = current_slot_time;
+
+        // Active Region: Wake up all processes scheduled for this timestamp
+        while (!time_wheel.empty() && time_wheel.top().time == current_slot_time && simulation_active) {
+            SimEvent ev = time_wheel.top();
+            time_wheel.pop();
+            events_dispatched++;
+            step_process(ev.process_id);
+        }
+
+        if (!simulation_active) break;
+
+        // Run stratified delta cycles (Active -> NBA -> Comb propagation)
+        execute_time_slot_delta_loop();
+
+        // IEEE Postponed Region: Read-only sample after all deltas have stabilized
+        vcd_dumper.dump_sample(netlist, sim_time);
         evaluator.check_monitor();
+
+        // Clear edge flags for the next time tick
+        for (auto& n : netlist) n.modified = false;
     }
 
     if (vcd_dumper.is_enabled()) {

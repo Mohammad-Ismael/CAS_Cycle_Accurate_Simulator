@@ -2,3 +2,4 @@ CAS/build/
 **/waves/*.vcd
 __pycache__/
 codes.txt
+requested_code.txt

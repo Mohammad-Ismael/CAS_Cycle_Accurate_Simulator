@@ -350,7 +350,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     proc->body = parse_statement_or_block();
                     mod->processes.push_back(std::move(proc));
                 } else {
-                    auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+                    // Plain 'always begin ... end' with procedural delays is a free-running ALWAYS process
+                    auto proc = std::make_unique<ProcessNode>(ProcessType::ALWAYS);
                     proc->body = parse_statement_or_block();
                     mod->processes.push_back(std::move(proc));
                 }

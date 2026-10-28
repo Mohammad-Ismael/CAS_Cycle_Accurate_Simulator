@@ -83,8 +83,9 @@ private:
 
     void propagate_comb();
     void evaluate_sequential_blocks();
-    void commit_nba_updates();
+    bool commit_nba_updates();
     void step_process(size_t pid);
+    void execute_time_slot_delta_loop();
 
 public:
     Engine();

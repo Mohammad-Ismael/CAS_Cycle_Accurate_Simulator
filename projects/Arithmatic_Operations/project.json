@@ -1,12 +1,12 @@
 {
   "project_name": "Arithmatic_Operations",
-  "saved_at": "2026-10-28 13:55:30",
+  "saved_at": "2026-10-28 17:35:33",
   "files": [
     "design.sv",
     "testbench.sv"
   ],
   "settings": {
-    "top_module": "arithmetic_unit1",
+    "top_module": "",
     "timescale": "100ps",
     "enable_profiler": false,
     "enable_debug": false,
