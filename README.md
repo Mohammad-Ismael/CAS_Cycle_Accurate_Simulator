@@ -1,118 +1,208 @@
+Here are the comprehensive, production-grade documentation files (`README.md` and `VERSIONS.md`) fully aligned with your exact project tree, reflecting the verified features up to `v0.9.3` and the `v0.9.4` active milestone, with no mention of CASDB.
+
+---
+
+### 1. Full File: `README.md`
+
+Replace `README.md` with:
+
+```markdown
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v0.9.0`  
+**Current Version:** `v0.9.3`  
 **License:** MIT  
 **Target Standard:** IEEE 1800 SystemVerilog (subset)
 
-CAS is an independent, ground-up discrete-event RTL simulator implemented in C++17. It operates without external compiler chains (LLVM, intermediate C++ transpilation) or third-party frontends. CAS parses SystemVerilog sources directly into an in-memory Abstract Syntax Tree (AST), elaborates arbitrary-depth hierarchical netlist graphs, and executes simulation events using an IEEE 1800-inspired stratified scheduler (Active, NBA, Combinational Convergence, and Time Wheel).
+CAS (Cycle-Accurate Simulator) is an independent, ground-up discrete-event RTL simulator and integrated verification development environment implemented in C++17. Operating independently of external compiler toolchains (such as LLVM, GCC intermediate compilation, or intermediate transpilation to C++), CAS parses SystemVerilog directly into an in-memory Abstract Syntax Tree (AST), dynamically elaborates hierarchical design topologies of arbitrary depth, and executes discrete-event simulations using an IEEE 1800-inspired stratified scheduler.
+
+The system includes a containerized web execution server paired with a Monaco-based multi-file IDE, interactive waveform viewer, source-linked diagnostic console, and hardware profiler.
+
+---
+
+## Repository Tree Structure
+
+```text
+CAS_Cycle_Accurate_Simulator/
+│   .gitignore
+│   Dockerfile
+│   README.md
+│   requirements.txt
+│   server.py
+│   VERSIONS.md
+│
+├───CAS
+│   │   CMakeLists.txt
+│   │
+│   ├───include
+│   │   │   ast.hpp
+│   │   │   engine.hpp
+│   │   │   lexer.hpp
+│   │   │   netlist.hpp
+│   │   │   parser.hpp
+│   │   │
+│   │   ├───common
+│   │   │       types.hpp
+│   │   │
+│   │   ├───frontend
+│   │   │       ast_base.hpp
+│   │   │       ast_expr.hpp
+│   │   │       ast_module.hpp
+│   │   │       ast_stmt.hpp
+│   │   │       lexer.hpp
+│   │   │       parser.hpp
+│   │   │
+│   │   ├───kernel
+│   │   │       elaborator.hpp
+│   │   │       evaluator.hpp
+│   │   │       netlist.hpp
+│   │   │
+│   │   ├───profiler
+│   │   │       profiler.hpp
+│   │   │
+│   │   └───tracer
+│   │           vcd_dumper.hpp
+│   │
+│   └───src
+│       │   engine.cpp
+│       │   main.cpp
+│       │
+│       ├───frontend
+│       │       lexer.cpp
+│       │       parser.cpp
+│       │       parser_expr.cpp
+│       │       parser_module.cpp
+│       │       parser_stmt.cpp
+│       │
+│       ├───kernel
+│       │       elaborator.cpp
+│       │       evaluator.cpp
+│       │
+│       ├───profiler
+│       │       profiler.cpp
+│       │
+│       └───tracer
+│               vcd_dumper.cpp
+│
+├───projects
+│   ├───IntegratedDigitalGates/
+│   ├───MasterRegression_v100/
+│   ├───Non-ANSIHeaderResolutionsupport/
+│   ├───Ram/
+│   ├───Testingforversion070/
+│   ├───V090_Regression_9_Pass/
+│   └───v093Regression/
+│
+└───static
+    │   index.html
+    │
+    ├───css
+    │       style.css
+    │
+    └───js
+            app.js
+            console.js
+            editor.js
+            projects.js
+            waveform.js
+
+```
 
 ---
 
 ## Architectural Highlights
 
-* **Continuous `assign` Dataflow Modeling:** Top-level module continuous assignments dynamically evaluated and converged within the delta-cycle loop without requiring procedural wrapper processes.
-* **1D Unpacked Memory Arrays:** Support for memory structures (`logic [W-1:0] mem [0:D-1]`) with dual-rail 4-state unknown initialization, dynamic asynchronous reads (`mem[addr]`), and synchronous non-blocking writes (`mem[addr] <= data`).
-* **Multi-Way Control Flow Selection (`case` / `endcase`):** Native branch selection supporting exact value matching, `default` fallbacks, and multi-statement `begin ... end` case items.
-* **Vector Bit-Select & Part-Select Slicing:** Dynamic scalar extraction (`wire[idx]`) and fixed range slicing (`wire[msb:lsb]`) with dual-rail 4-state bit alignment.
-* **Full ALU Operator Suite & Expression Precedence:** Operator precedence climbing supporting bitwise (`&`, `|`, `^`, `~`), logical shifts (`<<`, `>>`), relational/equality (`==`, `!=`, `<`, `<=`, `>`, `>=`), logical short-circuit gates (`&&`, `||`), and ternary conditional evaluation (`cond ? true_expr : false_expr`).
-* **Recursive Multi-Level Module Elaboration:** Fully recursive elaborator traversing arbitrary submodule instantiation depths (`top -> dut -> submod -> ...`), dynamically instantiating scoped nets and binding bidirectional port interconnects.
-* **Dual-Rail 4-State Bitwise Evaluation:** Exact per-bit IEEE 1800 evaluation rules for unknown bits (`0 & X = 0`, `1 | X = 1`, `X ^ X = X`, `~X = X`), preserving hardware-accurate uninitialized propagation across wide datapath buses.
-* **Native 4-State Logic Engine (`0, 1, X, Z`):** Dual-rail bit-vector arithmetic (`aval` data, `bval` unknown mask). All un-driven nets, memory cells, and uninitialized registers initialize to `X` (unknown) rather than optimistic `0`, catching un-reset design bugs.
-* **Self-Checking Regression Suite:** Automated verification harness covering all milestone deliverables from `v0.1.0` through `v0.9.0` with diagnostic pass/fail accounting.
-* **Project-Centric Workspace Engine:** Isolated directory hierarchies (`projects/<name>/`) storing RTL designs (`design.sv`), testbenches (`testbench.sv`), metadata (`project.json`), and archived waveform traces (`waves/`).
-* **Persistent Waveform History:** Timestamped VCD trace runs stored per project with in-browser selection, deletion, and immediate canvas invalidation when dump directives are omitted.
-* **4-State Digital Timing Canvas:** Native HTML5 Canvas timing diagram renderer displaying clocks, single-bit logic wires, and multibit transition buses with distinct visual styles for known values vs. `X`/`Z` states.
-* **Native VCD Waveform Generation:** Direct export of IEEE 1364/1800 Value Change Dump (`.vcd`) traces supporting `$dumpfile` and `$dumpvars` with hierarchical scope definitions and compact ASCII symbol mapping.
-* **Stratified IEEE 1800 Scheduling (Active vs. NBA):** Evaluates non-blocking assignments (`<=`) during the active region and buffers values into an NBA update queue, committing all register transitions simultaneously before triggering combinational delta passes.
-* **Edge-Triggered Sensitivity Engine:** Dynamic transition tracking (`is_posedge()`, `is_negedge()`) across hierarchical signal handles for `always_ff` blocks with asynchronous resets (`X -> 0` correctly triggers `negedge`).
-* **Native Discrete-Event Time Wheel:** Min-heap priority queue (`std::priority_queue`) that advances simulation time dynamically across `#delay` intervals.
+### 1. Dual-Rail 4-State Logic Engine (`0, 1, X, Z`)
+
+* **Two-Word Bit Vector Representation:** Logic states are tracked via pairs of 64-bit integer masks: `aval` (data payload) and `bval` (unknown mask). Known states (`0`, `1`) hold `bval == 0`. Uninitialized nets, high-impedance pins, and indeterminate transitions hold `bval == 1`.
+* **Hardware-Accurate X-Poisoning:** Implements strict IEEE 1800 unknown propagation:
+* `0 & X = 0` (definite zero dominance)
+* `1 | X = 1` (definite one dominance)
+* `X ^ X = X`, `~X = X`, `X + val = X`
+* Relational comparisons against `X` produce `X`.
+
+
+* **Safe Power-On Initialization:** All un-driven signals, registers without reset assertions, and memory cells power on in the indeterminate `X` state, immediately surfacing uninitialized register bugs.
+
+### 2. Stratified IEEE 1800 Scheduler
+
+* **Active vs. NBA Event Partitioning:** Procedural non-blocking assignments (`<=`) evaluate expressions during active event regions and enqueue updates into an NBA transaction queue. Register states commit synchronously across all processes before delta combinational passes trigger, eliminating delta-cycle race conditions.
+* **Combinational Delta Loop:** Iterative fixed-point propagation continuously recalculates gate primitives, continuous assignments, and `always_comb` sensitivity lists until global topological convergence is reached.
+* **Discrete-Event Time Wheel:** Min-heap priority queue (`std::priority_queue`) scheduling discrete process wakeups across explicit `#delay` operations and timing markers.
+* **Dynamic Edge Detection:** Tracks state transitions across clock boundaries (`posedge`, `negedge`) and supports mixed asynchronous resets (e.g., `always @(posedge clk or negedge rst_n)`).
+
+### 3. Parser & Modular AST Architecture
+
+* **Direct Lexing & Preprocessing:** Custom token stream generator handling string constants, based numeric literals (`4'b1010`, `16'hDEAD`, `8'd42`), comments (`//`, `/* */`), and recursive ``include` file ingestion.
+* **Precedence-Climbed Expression Parsing:** Complete evaluation of bitwise (`&`, `|`, `^`, `~`), logical (`&&`, `||`, `!`), arithmetic (`+`, `-`, `*`), relational (`<`, `<=`, `>`, `>=`), equality (`==`, `!=`), shift (`<<`, `>>`), concatenation (`{a, b}`), and ternary conditional (`cond ? a : b`) expressions.
+* **Vector Indexing & Slicing:** Scalar indexing (`signal[idx]`) and fixed-range part-slicing (`signal[msb:lsb]`) for multi-bit vectors.
+* **Gate Primitives:** Structural gate primitives (`and`, `or`, `xor`, `nand`, `nor`, `xnor`, `not`, `buf`) instantiated directly in module scope.
+* **Control Selection:** Multi-branch conditional selection using `case`, `endcase`, and `default` blocks.
+* **Procedural Subroutines:** User-defined `task` blocks with internal control logic and prefix delays.
+
+### 4. Memory Modeling & Continuous Dataflow
+
+* **1D Unpacked Memory Arrays:** Native syntax support for register arrays (`logic [W-1:0] mem [0:D-1];`) featuring asynchronous read access (`assign out = mem[addr]`) and synchronous procedural write access (`mem[addr] <= data`).
+* **Continuous `assign` Interconnects:** Zero-delay continuous assignments evaluated within the delta loop alongside gate instances.
+
+### 5. Diagnostics, Profiling & VCD Engine
+
+* **Hierarchical VCD Trace Generation:** Emits standard IEEE 1364/1800 Value Change Dump (`.vcd`) traces supporting `$dumpfile` and `$dumpvars` with hierarchy levels and compact identifier hashing.
+* **Kernel Resource Profiler:** Real-time resource tracking reporting wallclock duration, user/kernel CPU consumption (via `getrusage`), peak Resident Set Size (RSS), heap netlist allocations, delta passes, and discrete event dispatch throughput.
+* **Diagnostic Console Linking:** Standard output (`$display`, `$monitor`, compiler warnings, and runtime errors) contains clickable filename and line-number anchors navigating directly to the source file in the IDE.
 
 ---
 
-## Regression Verification Suite (`projects/regression/`)
+## Web Studio Environment
 
-The repository includes a comprehensive self-checking regression suite that evaluates the simulation kernel across all language and architectural features prior to releases:
+The included web environment (`server.py` and `static/`) provides an IDE built on FastAPI and Monaco Editor:
 
-```bash
-./CAS/build/cas projects/regression/testbench.sv projects/regression/design.sv
-
-```
-
-```text
-CAS (Cycle Accurate Simulator) v0.9.0 [Memory & Dataflow Kernel] Initiated
-Hierarchical Nets Elaborated: 35
-Port Interconnects Bound: 19
-Continuous Assigns Bound: 2
-Memory Arrays Allocated: 1
---------------------------------------------------------
-[CAS $display] ========================================================
-[CAS $display]    CAS COMPREHENSIVE REGRESSION SUITE (v0.1.0 - v0.9.0) [CAS$display] ========================================================
-[CAS $display] [PASS] v0.6.0: Uninitialized register holds 'X' prior to reset (raw=x).
-[CAS $display] [PASS] v0.3.0: Time Wheel dynamic event scheduler & $time valid at T=5.
-[CAS $display] [PASS] v0.4.0: Asynchronous reset edge (X -> 0) cleared register to 0. [CAS$display] [PASS] v0.2.0: Submodule port interconnect & delta comb pass verified (alu_result=8).
-[CAS $display] [PASS] v0.8.0: Case branch 3'd1 (\vert{}) selected correctly (res=1110). [CAS$display] [PASS] v0.8.0: Bit-select a[2]=1 and part-select a[3:2]=11 verified.
-[CAS $display] [PASS] v0.9.0: Continuous assign dataflow evaluation verified (12 + 1 = 13). [CAS$display] [PASS] v0.9.0: Uninitialized RAM word holds 4-state 'X' (raw=x).
-[CAS $display] [PASS] v0.9.0: Synchronous RAM write & async read verified (RAM[2]=1011).
-[CAS $display] [PASS] v0.4.0: Stratified NBA assignment commit loop verified (accum=14). [CAS$display] [PASS] v0.5.0: Native VCD generation running without runtime faults.
-[CAS $display] [PASS] v0.1.0: AST generation, literals, and system tasks verified.
-[CAS $display] ========================================================
-[CAS $display]    VERDICT: ALL TESTS PASSED (CAS READY FOR COMMIT)     
-[CAS $display] ========================================================
-[CAS $finish] Simulation Terminated at time 90.
-[CAS VCD] Trace successfully dumped to: regression_suite.vcd
---------------------------------------------------------
-Simulation finished at sim_time = 90.
-
-```
+* **Dual-Pane Source Editor:** Independent, synchronized Monaco editors for testbenches and design modules with syntax highlighting, live tabs, and multi-file management.
+* **Interactive Waveform Viewer:** Client-side HTML5 canvas timing diagram viewer rendering 1-bit wires, multi-bit buses with hexadecimal labels, cursor tracking, timescale alignment, and export capabilities.
+* **Project Persistence:** Projects are saved in isolated workspaces under `projects/<name>/` containing RTL source files, testbench code, VCD waveforms, and compiler settings (`project.json`).
 
 ---
 
 ## Build and Execution
 
-### Build Statically-Linked Binary via Docker
+### 1. Build Native Static Executable (via Docker)
 
-```bash
-docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c \
-    "apk add --no-cache build-base cmake && cmake -B build -DCMAKE_EXE_LINKER_FLAGS='-static' && cmake --build build"
-
-```
-
-### Run Native CLI Binary
-
-```bash
-./CAS/build/cas path/to/testbench.sv path/to/design.sv
+```powershell
+docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c "apk add --no-cache build-base cmake && cmake -B build -DCMAKE_EXE_LINKER_FLAGS='-static' && cmake --build build"
 
 ```
 
-### Launch Web Studio IDE
+### 2. Run CLI Simulator
 
-```bash
-docker run --rm -p 8080:8080 -v "${PWD}:/app" eda-web
+```powershell
+# Run a multi-file project directly:
+./CAS/build/cas projects/MasterRegression_v100/testbench.sv projects/MasterRegression_v100/top_mac.sv
+
+# Command-line options:
+#   --quiet        Disable compiler phase logging
+#   --no-profile   Bypass kernel profiling and telemetry metrics
+#   --no-vcd       Suppress VCD trace dumping
+#   --no-display   Suppress $display output
+#   --no-monitor   Suppress $monitor output
+#   --top <name>   Manually specify top-level root module
+#   --timescale <s> Specify time precision (e.g., 1ns, 100ps)
 
 ```
 
-Access `http://localhost:8080` in the browser.
+### 3. Run Self-Checking Regression Suites
 
----
+```powershell
+# Execute the comprehensive master regression suite:
+./CAS/build/cas projects/MasterRegression_v100/testbench.sv
 
-## Roadmap
+```
 
-Detailed release history is tracked in [`VERSIONS.md`](VERSIONS.md).
+### 4. Launch Web Studio
 
-In the previous version of the table, `v0.7.0` **was marked as Released**, but the Markdown table formatting had a broken unescaped vertical bar (`|`) inside the code snippet (`&, |, ^...`). In Markdown, an unescaped pipe symbol split that row across extra phantom table columns, which made the status column wrap incorrectly or disappear on rendered viewers like GitHub.
+```powershell
+# Build and run the local container:
+docker build -t eda-web .
+docker run --rm -p 8080:8080 -v "${PWD}:/app" --name eda-web eda-web
 
-Here is the clean, fixed roadmap table with every symbol properly escaped (`\|`) so all columns align and render **Released** as intended:
+```
 
-| Target Version | Milestone Feature Focus | Status |
-| --- | --- | --- |
-| **`v0.1.0`** | Standalone AST, dynamic netlist, flat delta-cycle loop, `$display`, `$finish`. | **Released** |
-| **`v0.2.0`** | Hierarchical module instantiation, named port mapping (`.port(wire)`), cross-boundary net propagation. | **Released** |
-| **`v0.3.0`** | Priority-queue event scheduler, `#delay` statements, cooperative process execution, and `$time`. | **Released** |
-| **`v0.4.0`** | Sequential logic, IEEE 1800 Active vs. NBA event regions, `always_ff @(posedge/negedge)`, non-blocking assignments (`<=`). | **Released** |
-| **`v0.5.0`** | Native VCD generation (`$dumpfile`, `$dumpvars`), studio IDE dark theme, and HTML5 canvas waveform engine. | **Released** |
-| **`v0.5.1`** | Project workspace architecture (`projects/`), persistent trace history stack, and strict canvas state invalidation. | **Released** |
-| **`v0.6.0`** | 4-State Logic Engine (`0, 1, X, Z`): Dual-rail bit vectors (`aval` + `bval`), unknown poisoning, 4-state edge transitions. | **Released** |
-| **`v0.7.0`** | Extended ALU operators (`&.. etc`), recursive elaboration, and regression suite. | **Released** |
-| **`v0.8.0`** | Control flow selection (`case`, `default`) and vector indexing (`wire[idx]`, `wire[msb:lsb]`). | **Released** |
-| **`v0.9.0`** | Memory arrays (`logic [W-1:0] mem [0:D-1]`), dynamic array read/write, and continuous `assign` statements. | **Released** |
-| **`v1.0.0`** | RISC-V Benchmarking: Cycle-accurate execution of an RV32I core and performance comparisons against commercial simulators. | *Next* |
+Open `http://localhost:8080` in your browser.
