@@ -25,6 +25,8 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
 }
 
 LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
+    if (!expr) return LogicVal::make_x(1);
+
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         if (num->is_unknown) return LogicVal::make_x(num->width);
         return LogicVal::make_known(num->width, num->value);
@@ -42,6 +44,21 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
             return LogicVal::make_known(32, engine.param_map.at(ident->name));
         }
         return LogicVal::make_x(1);
+    }
+    if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
+        LogicVal count_val = eval_expr(rep->count_expr.get(), scope);
+        uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
+        LogicVal t_val = eval_expr(rep->target_expr.get(), scope);
+
+        if (count == 0 || t_val.width == 0) return LogicVal(1, 0, 0);
+        uint32_t total_w = t_val.width * (uint32_t)count;
+        uint64_t new_a = 0;
+        uint64_t new_b = 0;
+        for (uint64_t i = 0; i < count; ++i) {
+            new_a = (new_a << t_val.width) | t_val.aval;
+            new_b = (new_b << t_val.width) | t_val.bval;
+        }
+        return LogicVal(total_w, new_a, new_b);
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         uint32_t total_w = 0;
@@ -110,14 +127,19 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
         LogicVal r = eval_expr(bin->rhs.get(), scope);
 
         if (bin->op == "+") {
-            uint32_t w = std::max(l.width, r.width);
+            uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
             return LogicVal::make_known(w, l.aval + r.aval);
         }
         if (bin->op == "-") {
-            uint32_t w = std::max(l.width, r.width);
+            uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
             return LogicVal::make_known(w, l.aval - r.aval);
+        }
+        if (bin->op == "*") {
+            uint32_t w = std::min(64U, l.width + r.width);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
+            return LogicVal::make_known(w, l.aval * r.aval);
         }
         if (bin->op == "&")  return LogicVal::bitwise_and(l, r);
         if (bin->op == "|")  return LogicVal::bitwise_or(l, r);
@@ -126,6 +148,14 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == ">>") return LogicVal::shift_right(l, r);
         if (bin->op == "==") return LogicVal::logical_eq(l, r);
         if (bin->op == "!=") return LogicVal::logical_neq(l, r);
+        if (bin->op == "===") {
+            bool matches = (l.aval == r.aval) && (l.bval == r.bval);
+            return LogicVal::make_known(1, matches ? 1 : 0);
+        }
+        if (bin->op == "!==") {
+            bool matches = (l.aval == r.aval) && (l.bval == r.bval);
+            return LogicVal::make_known(1, matches ? 0 : 1);
+        }
         if (bin->op == "<")  return LogicVal::rel_lt(l, r);
         if (bin->op == "<=") return LogicVal::rel_le(l, r);
         if (bin->op == ">")  return LogicVal::rel_gt(l, r);
@@ -186,7 +216,6 @@ void Evaluator::check_monitor() {
     if (values_changed) {
         engine.monitor_session.prev_values = current_values;
 
-        // Skip printing if user disabled $monitor output
         if (!engine.is_monitor_allowed()) return;
 
         if (!engine.monitor_session.src_file.empty() && engine.monitor_session.src_line > 0) {
@@ -284,14 +313,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.active = true;
             engine.monitor_session.scope = bp.scope;
             engine.monitor_session.format_string = disp->format_string;
-            engine.monitor_session.args = disp->args;
+            engine.monitor_session.args.clear();
+            for (auto& arg : disp->arg_exprs) {
+                if (auto id = dynamic_cast<IdentifierNode*>(arg.get())) {
+                    engine.monitor_session.args.push_back(id->name);
+                }
+            }
             engine.monitor_session.has_leading_time = disp->has_leading_time;
             engine.monitor_session.src_file = disp->src_file;
             engine.monitor_session.src_line = disp->src_line;
             engine.monitor_session.prev_values.clear();
             check_monitor();
         } else {
-            // Check if $display output is suppressed
             if (!engine.is_display_allowed()) return;
 
             if (!disp->src_file.empty() && disp->src_line > 0) {
@@ -316,30 +349,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
 
-                    if (arg_idx < disp->args.size()) {
-                        std::string arg_name = disp->args[arg_idx++];
-                        if (arg_name == "$time") {
-                            std::cout << engine.sim_time;
+                    if (arg_idx < disp->arg_exprs.size()) {
+                        LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
+                        if (val.is_unknown()) {
+                            std::cout << "x";
                         } else {
-                            std::string scoped_arg = bp.scope.empty() ? arg_name : (bp.scope + "." + arg_name);
-                            if (engine.net_map.find(scoped_arg) != engine.net_map.end()) {
-                                size_t net_id = engine.net_map.at(scoped_arg);
-                                const auto& net = engine.netlist[net_id];
-                                if (net.value.is_unknown()) {
-                                    std::cout << "x";
-                                } else {
-                                    if (spec == 'd' || spec == 't') std::cout << net.value.aval;
-                                    else if (spec == 'b') std::cout << net.value.to_bin_string();
-                                    else if (spec == 'h') std::cout << std::hex << net.value.aval << std::dec;
-                                    else std::cout << net.value.aval;
-                                }
-                            } else if (engine.param_map.find(scoped_arg) != engine.param_map.end()) {
-                                std::cout << engine.param_map.at(scoped_arg);
-                            } else if (engine.param_map.find(arg_name) != engine.param_map.end()) {
-                                std::cout << engine.param_map.at(arg_name);
-                            } else {
-                                std::cout << "x";
-                            }
+                            if (spec == 'd' || spec == 't') std::cout << val.aval;
+                            else if (spec == 'b') std::cout << val.to_bin_string();
+                            else if (spec == 'h') std::cout << std::hex << val.aval << std::dec;
+                            else std::cout << val.aval;
                         }
                     }
                 } else {

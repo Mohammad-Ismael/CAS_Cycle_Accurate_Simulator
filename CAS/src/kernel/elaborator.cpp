@@ -80,7 +80,6 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         return {id, 0, num->width};
     }
 
-    // Dynamic port expression (e.g. .port({a, b})) -> synthesize intermediate driver net
     static size_t expr_port_counter = 0;
     std::string temp_net_name = scope + ".__expr_port_" + std::to_string(expr_port_counter++);
     
@@ -111,7 +110,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
 
 void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                  const std::unordered_map<std::string, ModuleNode*>& module_defs,
-                                 const std::vector<std::unique_ptr<ExpressionNode>>* overrides,
+                                 const std::vector<ParamOverride>* overrides,
                                  const std::string& parent_scope,
                                  std::ostream* debug_out) {
     if (debug_out) {
@@ -121,8 +120,24 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
-        if (overrides && i < overrides->size()) {
-            val = eval_const_expr((*overrides)[i].get(), parent_scope);
+        bool overridden = false;
+
+        if (overrides) {
+            for (size_t oi = 0; oi < overrides->size(); ++oi) {
+                const auto& ov = (*overrides)[oi];
+                if (!ov.param_name.empty() && ov.param_name == p.name) {
+                    val = eval_const_expr(ov.expr.get(), parent_scope);
+                    overridden = true;
+                    break;
+                } else if (ov.param_name.empty() && oi == i) {
+                    val = eval_const_expr(ov.expr.get(), parent_scope);
+                    overridden = true;
+                    break;
+                }
+            }
+        }
+
+        if (overridden) {
             if (debug_out) *debug_out << "     * Parameter override: " << p.name << " = " << val << "\n";
         } else {
             val = eval_const_expr(p.default_expr.get(), scope);

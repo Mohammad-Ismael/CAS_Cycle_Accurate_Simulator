@@ -31,6 +31,11 @@ struct ParameterDef {
     std::unique_ptr<ExpressionNode> default_expr;
 };
 
+struct ParamOverride {
+    std::string param_name; // empty if positional
+    std::unique_ptr<ExpressionNode> expr;
+};
+
 enum class ProcessType {
     INITIAL,
     ALWAYS,
@@ -68,7 +73,7 @@ struct PortConnection {
 struct InstantiationNode : public ASTNode {
     std::string module_type;
     std::string instance_name;
-    std::vector<std::unique_ptr<ExpressionNode>> param_overrides;
+    std::vector<ParamOverride> param_overrides;
     std::vector<PortConnection> connections;
     bool is_positional = false;
 

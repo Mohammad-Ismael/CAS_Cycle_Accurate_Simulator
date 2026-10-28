@@ -38,11 +38,19 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (match(TokenType::TOKEN_LBRACE)) {
+        auto first_expr = parse_expression();
+        if (match(TokenType::TOKEN_LBRACE)) {
+            // Replication: { count { expr } }
+            auto rep_expr = parse_expression();
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing replication payload");
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing outer replication");
+            return std::make_unique<ReplicateNode>(std::move(first_expr), std::move(rep_expr));
+        }
+
         std::vector<std::unique_ptr<ExpressionNode>> elements;
-        while (true) {
+        elements.push_back(std::move(first_expr));
+        while (match(TokenType::TOKEN_COMMA)) {
             elements.push_back(parse_expression());
-            if (match(TokenType::TOKEN_COMMA)) continue;
-            break;
         }
         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation expression");
         return std::make_unique<ConcatNode>(std::move(elements));
@@ -66,6 +74,12 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
 
 std::unique_ptr<ExpressionNode> Parser::parse_multiplicative() {
     auto lhs = parse_unary();
+    while (current.type == TokenType::TOKEN_STAR) {
+        std::string op = current.text;
+        advance();
+        auto rhs = parse_unary();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    }
     return lhs;
 }
 
@@ -105,7 +119,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
 
 std::unique_ptr<ExpressionNode> Parser::parse_equality() {
     auto lhs = parse_relational();
-    while (current.type == TokenType::TOKEN_EQ || current.type == TokenType::TOKEN_NEQ) {
+    while (current.type == TokenType::TOKEN_EQ || current.type == TokenType::TOKEN_NEQ ||
+           current.type == TokenType::TOKEN_CASE_EQ || current.type == TokenType::TOKEN_CASE_NEQ) {
         std::string op = current.text;
         advance();
         auto rhs = parse_relational();

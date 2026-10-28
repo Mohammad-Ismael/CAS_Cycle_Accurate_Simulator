@@ -34,15 +34,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             advance();
         }
 
-        std::vector<std::string> args;
+        std::vector<std::unique_ptr<ExpressionNode>> args;
         while (match(TokenType::TOKEN_COMMA)) {
-            args.push_back(current.text);
-            advance();
+            args.push_back(parse_expression());
         }
 
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $display / $monitor argument list");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $display / $monitor");
-        return std::make_unique<DisplayStatementNode>(fmt, args, is_mon, has_lead_time, origin_file, origin_line);
+        return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line);
     }
 
     if (match(TokenType::TOKEN_DUMPFILE)) {

@@ -9,7 +9,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             advance();
             
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
-                current.type == TokenType::TOKEN_WIRE || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte"))) {
+                current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte"))) {
                 advance();
             }
             if (match(TokenType::TOKEN_LBRACKET)) {
@@ -77,7 +78,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (current.type == TokenType::TOKEN_OUTPUT) { dir = "output"; advance(); }
                 else if (current.type == TokenType::TOKEN_INOUT) { dir = "inout"; advance(); }
 
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG) {
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
                     advance();
                 }
 
@@ -97,15 +98,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
-                        // Comma consumed; if next is another port with direction or type, break inner list
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
-                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG) {
+                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
                             break;
                         }
                         continue;
                     }
 
-                    // No comma: the only valid next token in a port list is ')'
                     if (current.type != TokenType::TOKEN_RPAREN) {
                         std::string loc = current.filename.empty() 
                             ? ("line " + std::to_string(current.line)) 
@@ -123,7 +122,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
-                    current.type == TokenType::TOKEN_WIRE) {
+                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER) {
                     advance();
                 }
                 if (match(TokenType::TOKEN_LBRACKET)) {
@@ -148,7 +147,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT) {
                 std::string dir = current.text;
                 advance();
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG) {
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
                     advance();
                 }
                 std::unique_ptr<ExpressionNode> msb = nullptr;
@@ -182,7 +181,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG) {
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                bool is_int = (current.type == TokenType::TOKEN_INTEGER);
                 advance();
                 std::unique_ptr<ExpressionNode> msb = nullptr;
                 std::unique_ptr<ExpressionNode> lsb = nullptr;
@@ -191,6 +191,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                } else if (is_int) {
+                    msb = std::make_unique<NumberNode>(31, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 }
                 while (true) {
                     std::string signame = current.text;
@@ -204,6 +207,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             sig.bound2_expr = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory dimension");
+                    }
+
+                    // Variable inline initialization (e.g., integer errors = 0;)
+                    // Treated as an initial procedural assignment rather than a continuous assign
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        auto init_expr = parse_expression();
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
                     }
 
                     bool is_port = false;
@@ -349,17 +361,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string mtype = current.text;
                 advance();
 
-                std::vector<std::unique_ptr<ExpressionNode>> param_overrides;
+                std::vector<ParamOverride> param_overrides;
                 if (match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' in parameter override list");
                     while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
                         if (match(TokenType::TOKEN_DOT)) {
+                            std::string pname = current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter name after '.'");
                             expect(TokenType::TOKEN_LPAREN, "Expected '(' in named parameter override");
-                            param_overrides.push_back(parse_expression());
+                            auto pval = parse_expression();
                             expect(TokenType::TOKEN_RPAREN, "Expected ')' in named parameter override");
+                            param_overrides.push_back({pname, std::move(pval)});
                         } else {
-                            param_overrides.push_back(parse_expression());
+                            param_overrides.push_back({"", parse_expression()});
                         }
                         if (match(TokenType::TOKEN_COMMA)) continue;
                         break;

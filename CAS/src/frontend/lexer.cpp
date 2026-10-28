@@ -19,6 +19,13 @@ char Lexer::peek() const {
     return cur.src[cur.cursor];
 }
 
+char Lexer::peek_next() const {
+    if (file_stack.empty()) return '\0';
+    const auto& cur = file_stack.back();
+    if (cur.cursor + 1 >= cur.src.size()) return '\0';
+    return cur.src[cur.cursor + 1];
+}
+
 char Lexer::advance() {
     if (file_stack.empty()) return '\0';
     auto& cur = file_stack.back();
@@ -101,7 +108,7 @@ void Lexer::skip_whitespace_and_comments() {
             if (peek() != '\0') { advance(); advance(); }
         } else if (c == '`') {
             size_t saved_cursor = cur.cursor;
-            advance(); // consume '`'
+            advance();
             std::string directive = "";
             while (std::isalpha(peek())) directive += advance();
             if (directive == "include") {
@@ -142,6 +149,7 @@ Token Lexer::next_token() {
     if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line}; }
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, cur_file, cur_line}; }
     if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, cur_file, cur_line}; }
+    if (c == '*') { advance(); return {TokenType::TOKEN_STAR, "*", 0, 0, cur_file, cur_line}; }
 
     // Multi-character Operators
     if (c == '&') {
@@ -156,12 +164,26 @@ Token Lexer::next_token() {
     }
     if (c == '!') {
         advance();
-        if (peek() == '=') { advance(); return {TokenType::TOKEN_NEQ, "!=", 0, 0, cur_file, cur_line}; }
+        if (peek() == '=') {
+            advance();
+            if (peek() == '=') {
+                advance();
+                return {TokenType::TOKEN_CASE_NEQ, "!==", 0, 0, cur_file, cur_line};
+            }
+            return {TokenType::TOKEN_NEQ, "!=", 0, 0, cur_file, cur_line};
+        }
         return {TokenType::TOKEN_NOT, "!", 0, 0, cur_file, cur_line};
     }
     if (c == '=') {
         advance();
-        if (peek() == '=') { advance(); return {TokenType::TOKEN_EQ, "==", 0, 0, cur_file, cur_line}; }
+        if (peek() == '=') {
+            advance();
+            if (peek() == '=') {
+                advance();
+                return {TokenType::TOKEN_CASE_EQ, "===", 0, 0, cur_file, cur_line};
+            }
+            return {TokenType::TOKEN_EQ, "==", 0, 0, cur_file, cur_line};
+        }
         return {TokenType::TOKEN_EQUAL, "=", 0, 0, cur_file, cur_line};
     }
     if (c == '<') {
@@ -175,6 +197,16 @@ Token Lexer::next_token() {
         if (peek() == '=') { advance(); return {TokenType::TOKEN_GE, ">=", 0, 0, cur_file, cur_line}; }
         if (peek() == '>') { advance(); return {TokenType::TOKEN_SHR, ">>", 0, 0, cur_file, cur_line}; }
         return {TokenType::TOKEN_GT, ">", 0, 0, cur_file, cur_line};
+    }
+
+    // Unbased unsized literals: '0, '1, 'x, 'z
+    if (c == '\'') {
+        advance();
+        char lit = advance();
+        if (lit == '0') return {TokenType::TOKEN_NUMBER, "'0", 0, 64, cur_file, cur_line};
+        if (lit == '1') return {TokenType::TOKEN_NUMBER, "'1", ~0ULL, 64, cur_file, cur_line};
+        if (lit == 'x' || lit == 'X') return {TokenType::TOKEN_NUMBER, "'x", 0, 64, cur_file, cur_line};
+        if (lit == 'z' || lit == 'Z') return {TokenType::TOKEN_NUMBER, "'z", 0, 64, cur_file, cur_line};
     }
 
     // Numeric Literals
@@ -248,6 +280,7 @@ Token Lexer::next_token() {
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, cur_file, cur_line};
         if (ident == "wire") return {TokenType::TOKEN_WIRE, ident, 0, 0, cur_file, cur_line};
         if (ident == "reg") return {TokenType::TOKEN_REG, ident, 0, 0, cur_file, cur_line};
+        if (ident == "integer") return {TokenType::TOKEN_INTEGER, ident, 0, 0, cur_file, cur_line};
         if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, cur_file, cur_line};
         if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, cur_file, cur_line};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, cur_file, cur_line};

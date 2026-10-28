@@ -69,6 +69,21 @@ struct ConcatNode : public ExpressionNode {
     }
 };
 
+struct ReplicateNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> count_expr;
+    std::unique_ptr<ExpressionNode> target_expr;
+
+    ReplicateNode(std::unique_ptr<ExpressionNode> c, std::unique_ptr<ExpressionNode> t)
+        : count_expr(std::move(c)), target_expr(std::move(t)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<ReplicateNode>(
+            count_expr ? count_expr->clone() : nullptr,
+            target_expr ? target_expr->clone() : nullptr
+        );
+    }
+};
+
 struct UnaryOpNode : public ExpressionNode {
     char op;
     std::unique_ptr<ExpressionNode> operand;

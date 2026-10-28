@@ -15,6 +15,7 @@ enum class TokenType {
     TOKEN_LOGIC,
     TOKEN_WIRE,
     TOKEN_REG,
+    TOKEN_INTEGER,
     TOKEN_PARAMETER,
     TOKEN_LOCALPARAM,
     TOKEN_ASSIGN,
@@ -71,8 +72,11 @@ enum class TokenType {
     TOKEN_GT,
     TOKEN_EQ,
     TOKEN_NEQ,
+    TOKEN_CASE_EQ,
+    TOKEN_CASE_NEQ,
     TOKEN_PLUS,
     TOKEN_MINUS,
+    TOKEN_STAR,
     TOKEN_AND,
     TOKEN_OR_BIT,
     TOKEN_XOR,
@@ -108,6 +112,7 @@ private:
     size_t include_depth = 0;
 
     char peek() const;
+    char peek_next() const;
     char advance();
     void skip_whitespace_and_comments();
     void handle_include();

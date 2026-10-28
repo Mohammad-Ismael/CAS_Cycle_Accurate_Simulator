@@ -39,7 +39,6 @@ struct BoundProcess {
     bool completed = false;
 };
 
-// Represents the fully synthesized, flat netlist and bindings ready for simulation
 struct ElaborationResult {
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
@@ -62,7 +61,7 @@ private:
 
     void elaborate_module(ModuleNode* mod, const std::string& scope,
                           const std::unordered_map<std::string, ModuleNode*>& module_defs,
-                          const std::vector<std::unique_ptr<ExpressionNode>>* overrides = nullptr,
+                          const std::vector<ParamOverride>* overrides = nullptr,
                           const std::string& parent_scope = "",
                           std::ostream* debug_out = nullptr);
 

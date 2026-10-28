@@ -68,16 +68,17 @@ struct DelayStatementNode : public StatementNode {
 
 struct DisplayStatementNode : public StatementNode {
     std::string format_string;
-    std::vector<std::string> args;
+    std::vector<std::unique_ptr<ExpressionNode>> arg_exprs;
     bool is_monitor = false;
     bool has_leading_time = false;
     std::string src_file = "";
     size_t src_line = 0;
 
-    explicit DisplayStatementNode(std::string fmt, std::vector<std::string> a, bool mon = false, bool lead_time = false,
+    explicit DisplayStatementNode(std::string fmt, std::vector<std::unique_ptr<ExpressionNode>> a,
+                                  bool mon = false, bool lead_time = false,
                                   std::string file = "", size_t line = 0)
-        : format_string(std::move(fmt)), args(std::move(a)), is_monitor(mon), has_leading_time(lead_time),
-          src_file(std::move(file)), src_line(line) {}
+        : format_string(std::move(fmt)), arg_exprs(std::move(a)), is_monitor(mon),
+          has_leading_time(lead_time), src_file(std::move(file)), src_line(line) {}
 };
 
 struct FinishStatementNode : public StatementNode {
