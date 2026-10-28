@@ -1,6 +1,7 @@
 #pragma once
-#include "../ast.hpp"
+#include "../frontend/ast_stmt.hpp"
 #include "netlist.hpp"
+#include "expr_evaluator.hpp"
 #include <string>
 
 class Engine;
@@ -9,6 +10,7 @@ struct BoundProcess;
 class Evaluator {
 private:
     Engine& engine;
+    ExprEvaluator expr_eval;
 
 public:
     explicit Evaluator(Engine& eng);

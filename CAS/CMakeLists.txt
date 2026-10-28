@@ -19,5 +19,6 @@ add_executable(cas
     src/tracer/vcd_dumper.cpp
     src/kernel/scheduler.cpp
     src/frontend/number_parser.cpp
+    src/kernel/expr_evaluator.cpp
     src/main.cpp
 )

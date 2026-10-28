@@ -345,6 +345,30 @@ src/kernel/evaluator.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s
 .PHONY : src/kernel/evaluator.cpp.s
 
+src/kernel/expr_evaluator.o: src/kernel/expr_evaluator.cpp.o
+.PHONY : src/kernel/expr_evaluator.o
+
+# target to build an object file
+src/kernel/expr_evaluator.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o
+.PHONY : src/kernel/expr_evaluator.cpp.o
+
+src/kernel/expr_evaluator.i: src/kernel/expr_evaluator.cpp.i
+.PHONY : src/kernel/expr_evaluator.i
+
+# target to preprocess a source file
+src/kernel/expr_evaluator.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.i
+.PHONY : src/kernel/expr_evaluator.cpp.i
+
+src/kernel/expr_evaluator.s: src/kernel/expr_evaluator.cpp.s
+.PHONY : src/kernel/expr_evaluator.s
+
+# target to generate assembly for a file
+src/kernel/expr_evaluator.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.s
+.PHONY : src/kernel/expr_evaluator.cpp.s
+
 src/kernel/scheduler.o: src/kernel/scheduler.cpp.o
 .PHONY : src/kernel/scheduler.o
 
@@ -477,6 +501,9 @@ help:
 	@echo "... src/kernel/evaluator.o"
 	@echo "... src/kernel/evaluator.i"
 	@echo "... src/kernel/evaluator.s"
+	@echo "... src/kernel/expr_evaluator.o"
+	@echo "... src/kernel/expr_evaluator.i"
+	@echo "... src/kernel/expr_evaluator.s"
 	@echo "... src/kernel/scheduler.o"
 	@echo "... src/kernel/scheduler.i"
 	@echo "... src/kernel/scheduler.s"

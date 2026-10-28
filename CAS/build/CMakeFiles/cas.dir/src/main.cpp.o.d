@@ -139,6 +139,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /usr/include/c++/13.2.1/bits/erase_if.h /usr/include/c++/13.2.1/iostream \
  /usr/include/c++/13.2.1/istream /usr/include/c++/13.2.1/bits/istream.tcc \
  /app/CAS/src/../include/kernel/evaluator.hpp \
+ /app/CAS/src/../include/kernel/expr_evaluator.hpp \
  /app/CAS/src/../include/kernel/scheduler.hpp \
  /app/CAS/include/kernel/time_wheel.hpp /usr/include/c++/13.2.1/queue \
  /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \

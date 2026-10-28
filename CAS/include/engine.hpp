@@ -3,6 +3,7 @@
 #include "kernel/netlist.hpp"
 #include "kernel/elaborator.hpp"
 #include "kernel/evaluator.hpp"
+#include "kernel/expr_evaluator.hpp"
 #include "kernel/scheduler.hpp"
 #include "profiler/profiler.hpp"
 #include "tracer/vcd_dumper.hpp"
@@ -23,6 +24,7 @@ struct MonitorSession {
 
 class Engine {
     friend class Evaluator;
+    friend class ExprEvaluator;
     friend class StratifiedScheduler;
 
 private:
