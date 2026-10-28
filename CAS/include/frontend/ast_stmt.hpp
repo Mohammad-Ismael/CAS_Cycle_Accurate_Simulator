@@ -1,6 +1,6 @@
 #pragma once
 #include "ast_base.hpp"
-#include "../common/types.hpp" // <-- Add this include
+#include "../common/types.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -42,19 +42,22 @@ struct BlockingAssignNode : public StatementNode {
     std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
+    uint64_t intra_delay = 0;
 
-    explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, std::unique_ptr<ExpressionNode> idx = nullptr)
-        : rhs(std::move(r)), bit_idx(std::move(idx)) { lhs_targets.push_back(std::move(t)); }
+    explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, std::unique_ptr<ExpressionNode> idx = nullptr, uint64_t delay = 0)
+        : rhs(std::move(r)), bit_idx(std::move(idx)), intra_delay(delay) { lhs_targets.push_back(std::move(t)); }
 
-    explicit BlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r)
-        : lhs_targets(std::move(targets)), rhs(std::move(r)) {}
+    explicit BlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
+        : lhs_targets(std::move(targets)), rhs(std::move(r)), intra_delay(delay) {}
 };
 
 struct NonBlockingAssignNode : public StatementNode {
     std::string target;
     std::unique_ptr<ExpressionNode> rhs;
-    NonBlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r)
-        : target(std::move(t)), rhs(std::move(r)) {}
+    uint64_t intra_delay = 0;
+
+    NonBlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
+        : target(std::move(t)), rhs(std::move(r)), intra_delay(delay) {}
 };
 
 struct MemAssignNode : public StatementNode {
@@ -62,11 +65,12 @@ struct MemAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> addr_expr;
     std::unique_ptr<ExpressionNode> rhs;
     bool is_non_blocking = false;
+    uint64_t intra_delay = 0;
 
     MemAssignNode(std::string name, std::unique_ptr<ExpressionNode> addr,
-                  std::unique_ptr<ExpressionNode> r, bool nba = false)
+                  std::unique_ptr<ExpressionNode> r, bool nba = false, uint64_t delay = 0)
         : mem_name(std::move(name)), addr_expr(std::move(addr)),
-          rhs(std::move(r)), is_non_blocking(nba) {}
+          rhs(std::move(r)), is_non_blocking(nba), intra_delay(delay) {}
 };
 
 struct IfStatementNode : public StatementNode {

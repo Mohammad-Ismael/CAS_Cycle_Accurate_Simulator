@@ -1,6 +1,7 @@
 #include "../../include/kernel/scheduler.hpp"
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
+#include <iostream>
 
 StratifiedScheduler::StratifiedScheduler(Engine& eng) : engine(eng) {}
 
@@ -14,6 +15,60 @@ void StratifiedScheduler::queue_nba(size_t net_id, const LogicVal& val) {
 
 void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, uint32_t addr, const LogicVal& val) {
     nba_mem_queue.push_back({scoped_mem, addr, val});
+}
+
+void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val) {
+    delayed_nba_queue[wake_time].push_back({net_id, val});
+    time_wheel.schedule(wake_time, UINT32_MAX);
+}
+
+void StratifiedScheduler::queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, uint32_t addr, const LogicVal& val) {
+    delayed_nba_mem_queue[wake_time].push_back({scoped_mem, addr, val});
+    time_wheel.schedule(wake_time, UINT32_MAX);
+}
+
+void StratifiedScheduler::queue_delayed_blocking(uint64_t wake_time, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val) {
+    delayed_blocking_queue[wake_time].push_back({pid, target_name, scope, val});
+    time_wheel.schedule(wake_time, UINT32_MAX);
+}
+
+void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
+    // 1. Commit due delayed NBAs directly so they are immediately visible in this time slot
+    auto it = delayed_nba_queue.find(target_time);
+    if (it != delayed_nba_queue.end()) {
+        for (const auto& item : it->second) {
+            engine.netlist[item.net_id].set(item.val);
+            nba_commits_count++;
+        }
+        delayed_nba_queue.erase(it);
+    }
+
+    auto mit = delayed_nba_mem_queue.find(target_time);
+    if (mit != delayed_nba_mem_queue.end()) {
+        for (const auto& item : mit->second) {
+            if (engine.memory_map.find(item.mem_scoped_name) != engine.memory_map.end()) {
+                auto& mem = engine.memory_map.at(item.mem_scoped_name);
+                if (item.addr < mem.depth) mem.words[item.addr] = item.val;
+            }
+        }
+        delayed_nba_mem_queue.erase(mit);
+    }
+
+    // 2. Commit due delayed blocking assignments and wake their processes
+    auto bit = delayed_blocking_queue.find(target_time);
+    if (bit != delayed_blocking_queue.end()) {
+        for (const auto& b_item : bit->second) {
+            std::string scoped_target = b_item.scope + "." + b_item.target_name;
+            if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+                size_t net_id = engine.net_map.at(scoped_target);
+                LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                engine.netlist[net_id].set(casted);
+            }
+            // Resume the waiting process
+            step_process(b_item.pid);
+        }
+        delayed_blocking_queue.erase(bit);
+    }
 }
 
 void StratifiedScheduler::terminate() {
@@ -245,6 +300,20 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
+        // 4. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
+        if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+            if (assign->intra_delay > 0) {
+                // Sample RHS immediately at current sim time
+                LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
+                std::string target_name = assign->lhs_targets[0];
+                bp.pc++; // Advance PC so upon resumption it executes the next statement
+                uint64_t wake_time = current_sim_time + assign->intra_delay;
+                queue_delayed_blocking(wake_time, pid, target_name, bp.scope, rhs_val);
+                return; // Process suspends cleanly
+            }
+        }
+
+        // 5. Standard Statement Execution
         engine.evaluator.execute_statement(stmt, bp);
         if (!simulation_active) return;
         bp.pc++;
@@ -268,8 +337,9 @@ void StratifiedScheduler::step_process(size_t pid) {
 void StratifiedScheduler::execute_time_slot_delta_loop() {
     bool activity = true;
     size_t loop_guard = 0;
+    const size_t MAX_DELTA_ITERS = 100;
 
-    while (activity && loop_guard < 50) {
+    while (activity && loop_guard < MAX_DELTA_ITERS) {
         activity = false;
 
         propagate_comb();
@@ -287,6 +357,13 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
 
         loop_guard++;
     }
+
+    if (loop_guard >= MAX_DELTA_ITERS) {
+        std::cerr << "\n[CAS RUNTIME ERROR] Delta cycle limit exceeded (100 delta cycles at T="
+                  << current_sim_time << " ns).\n"
+                  << "Possible causes: combinatorial feedback loop or oscillating sequential event.\n";
+        terminate();
+    }
 }
 
 void StratifiedScheduler::run_simulation() {
@@ -297,7 +374,6 @@ void StratifiedScheduler::run_simulation() {
         bp.fired_in_time_slot = false;
     }
 
-    // Time 0: Initial activation of all initial and always processes
     for (size_t i = 0; i < engine.processes.size(); ++i) {
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
@@ -305,6 +381,7 @@ void StratifiedScheduler::run_simulation() {
         }
     }
 
+    transfer_due_delayed_updates(0);
     execute_time_slot_delta_loop();
 
     engine.vcd_dumper.dump_sample(engine.netlist, current_sim_time);
@@ -322,12 +399,47 @@ void StratifiedScheduler::run_simulation() {
             bp.fired_in_time_slot = false;
         }
 
+        // 1. Active Region: Drain events for current timestamp
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {
             SimEvent ev = time_wheel.pop();
-            step_process(ev.process_id);
+            if (ev.process_id != UINT32_MAX) {
+                step_process(ev.process_id);
+            }
         }
 
         if (!simulation_active) break;
+
+        // 2. NBA Region: Transfer matured delayed NBAs into nba_queue so they commit in the NBA region
+        auto it = delayed_nba_queue.find(slot_time);
+        if (it != delayed_nba_queue.end()) {
+            for (const auto& item : it->second) {
+                nba_queue.push_back(item);
+            }
+            delayed_nba_queue.erase(it);
+        }
+
+        auto mit = delayed_nba_mem_queue.find(slot_time);
+        if (mit != delayed_nba_mem_queue.end()) {
+            for (const auto& item : mit->second) {
+                nba_mem_queue.push_back(item);
+            }
+            delayed_nba_mem_queue.erase(mit);
+        }
+
+        // Handle due delayed blocking assignments (which wake processes in Active)
+        auto bit = delayed_blocking_queue.find(slot_time);
+        if (bit != delayed_blocking_queue.end()) {
+            for (const auto& b_item : bit->second) {
+                std::string scoped_target = b_item.scope + "." + b_item.target_name;
+                if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+                    size_t net_id = engine.net_map.at(scoped_target);
+                    LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    engine.netlist[net_id].set(casted);
+                }
+                step_process(b_item.pid);
+            }
+            delayed_blocking_queue.erase(bit);
+        }
 
         execute_time_slot_delta_loop();
 

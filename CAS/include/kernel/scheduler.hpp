@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <map>
 #include "kernel/netlist.hpp"
 #include "kernel/evaluator.hpp"
 #include "kernel/time_wheel.hpp"
@@ -20,6 +21,13 @@ struct NBAMemUpdate {
     LogicVal val;
 };
 
+struct DelayedBlockingAssign {
+    size_t pid;
+    std::string target_name;
+    std::string scope;
+    LogicVal val;
+};
+
 class StratifiedScheduler {
 private:
     Engine& engine;
@@ -27,6 +35,10 @@ private:
 
     std::vector<NBAUpdate> nba_queue;
     std::vector<NBAMemUpdate> nba_mem_queue;
+
+    std::map<uint64_t, std::vector<NBAUpdate>> delayed_nba_queue;
+    std::map<uint64_t, std::vector<NBAMemUpdate>> delayed_nba_mem_queue;
+    std::map<uint64_t, std::vector<DelayedBlockingAssign>> delayed_blocking_queue;
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;
@@ -39,6 +51,7 @@ private:
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();
     bool resume_waiting_processes();
+    void transfer_due_delayed_updates(uint64_t target_time);
 
 public:
     explicit StratifiedScheduler(Engine& eng);
@@ -47,6 +60,9 @@ public:
     void schedule_event(uint64_t wake_time, uint32_t pid);
     void queue_nba(size_t net_id, const LogicVal& val);
     void queue_nba_mem(const std::string& scoped_mem, uint32_t addr, const LogicVal& val);
+    void queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val);
+    void queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, uint32_t addr, const LogicVal& val);
+    void queue_delayed_blocking(uint64_t wake_time, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);
 
     void terminate();
     bool is_active() const { return simulation_active; }

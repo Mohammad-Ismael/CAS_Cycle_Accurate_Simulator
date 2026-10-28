@@ -237,9 +237,16 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation target list");
         expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation blocking assignment");
+        
+        uint64_t intra_delay = 0;
+        if (match(TokenType::TOKEN_HASH)) {
+            intra_delay = current.num_val;
+            expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+        }
+
         auto rhs = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after concatenation assignment");
-        return std::make_unique<BlockingAssignNode>(targets, std::move(rhs));
+        return std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
     }
 
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
@@ -252,27 +259,47 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
 
             if (match(TokenType::TOKEN_EQUAL)) {
+                uint64_t intra_delay = 0;
+                if (match(TokenType::TOKEN_HASH)) {
+                    intra_delay = current.num_val;
+                    expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+                }
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
-                return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr));
+                return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr), intra_delay);
             }
             if (match(TokenType::TOKEN_LE)) {
+                uint64_t intra_delay = 0;
+                if (match(TokenType::TOKEN_HASH)) {
+                    intra_delay = current.num_val;
+                    expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+                }
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-                return std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true);
+                return std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
             }
         }
 
         if (match(TokenType::TOKEN_EQUAL)) {
+            uint64_t intra_delay = 0;
+            if (match(TokenType::TOKEN_HASH)) {
+                intra_delay = current.num_val;
+                expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+            }
             auto rhs = parse_expression();
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after blocking assignment");
-            return std::make_unique<BlockingAssignNode>(ident, std::move(rhs));
+            return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), nullptr, intra_delay);
         }
 
         if (match(TokenType::TOKEN_LE)) {
+            uint64_t intra_delay = 0;
+            if (match(TokenType::TOKEN_HASH)) {
+                intra_delay = current.num_val;
+                expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+            }
             auto rhs = parse_expression();
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-            return std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs));
+            return std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs), intra_delay);
         }
 
         if (match(TokenType::TOKEN_LPAREN)) {

@@ -95,10 +95,13 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -140,6 +143,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/limits \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1489,10 +1493,13 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1537,6 +1544,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/limits \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1837,10 +1845,13 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1883,6 +1894,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/limits \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -2035,10 +2047,13 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -2081,6 +2096,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/limits \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -2234,10 +2250,13 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -2280,6 +2299,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/limits \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -2754,8 +2774,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/pstl/pstl_config.h:
 
-/usr/include/c++/13.2.1/pstl/glue_memory_defs.h:
-
 /usr/include/c++/13.2.1/pstl/execution_defs.h:
 
 /usr/include/c++/13.2.1/ostream:
@@ -2779,6 +2797,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/ext/numeric_traits.h:
 
 /usr/include/c++/13.2.1/ext/concurrence.h:
+
+/usr/include/c++/13.2.1/ext/alloc_traits.h:
+
+/usr/include/c++/13.2.1/ext/aligned_buffer.h:
+
+/usr/include/c++/13.2.1/exception:
 
 /usr/include/c++/13.2.1/bits/hashtable_policy.h:
 
@@ -2824,12 +2848,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/invoke.h:
 
-/app/CAS/src/frontend/parser_module.cpp:
-
-/usr/include/c++/13.2.1/stdexcept:
-
-/app/CAS/include/kernel/evaluator.hpp:
-
 /app/CAS/include/common/edge_types.hpp:
 
 /usr/include/c++/13.2.1/bits/enable_special_members.h:
@@ -2839,8 +2857,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/basic_string.tcc:
 
 /app/CAS/include/common/gate_types.hpp:
-
-/usr/include/c++/13.2.1/ext/alloc_traits.h:
 
 /usr/include/c++/13.2.1/bits/allocated_ptr.h:
 
@@ -2863,6 +2879,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/src/frontend/parser_stmt.cpp:
 
 /usr/include/c++/13.2.1/bits/functexcept.h:
+
+/usr/include/c++/13.2.1/pstl/glue_memory_defs.h:
+
+/usr/include/c++/13.2.1/bits/stl_map.h:
 
 /usr/include/fortify/string.h:
 
@@ -2930,8 +2950,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/chrono.h:
 
-/usr/include/c++/13.2.1/exception:
-
 /app/CAS/src/engine.cpp:
 
 /usr/include/wctype.h:
@@ -2971,6 +2989,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/locale_classes.tcc:
 
 /usr/include/c++/13.2.1/bits/memoryfwd.h:
+
+/usr/include/c++/13.2.1/map:
 
 /usr/include/c++/13.2.1/backward/auto_ptr.h:
 
@@ -3048,6 +3068,16 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/stl_tempbuf.h:
 
+/app/CAS/src/frontend/parser_module.cpp:
+
+/usr/include/c++/13.2.1/stdexcept:
+
+/app/CAS/include/kernel/evaluator.hpp:
+
+/usr/include/c++/13.2.1/bits/stl_multimap.h:
+
+/usr/include/c++/13.2.1/bits/stl_tree.h:
+
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h:
 
 /usr/include/c++/13.2.1/bits/erase_if.h:
@@ -3103,5 +3133,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/memory_resource.h:
 
 /usr/include/c++/13.2.1/cstdio:
-
-/usr/include/c++/13.2.1/ext/aligned_buffer.h:

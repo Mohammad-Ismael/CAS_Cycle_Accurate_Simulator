@@ -275,12 +275,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        // Sample RHS immediately at current sim time
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = engine.net_map.at(scoped_target);
         LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
-        engine.scheduler.queue_nba(net_id, casted);
+
+        if (nassign->intra_delay > 0) {
+            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+            engine.scheduler.queue_delayed_nba(wake_time, net_id, casted);
+        } else {
+            engine.scheduler.queue_nba(net_id, casted);
+        }
         return;
     }
 
@@ -292,7 +300,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (!addr_val.is_unknown()) {
             uint32_t addr = addr_val.aval;
             if (mem_assign->is_non_blocking) {
-                engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
+                if (mem_assign->intra_delay > 0) {
+                    uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
+                    engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem, addr, rhs_val);
+                } else {
+                    engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
+                }
             } else {
                 if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                     auto& mem = engine.memory_map.at(scoped_mem);
@@ -303,7 +316,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    // IEEE 1800-2023 §10.6.1: Blocking Assignment
+    // (If intra_delay > 0, handled in scheduler.cpp via queue_delayed_blocking)
     if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        if (assign->intra_delay > 0) {
+            return;
+        }
+
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
 
         if (assign->lhs_targets.size() > 1) {
