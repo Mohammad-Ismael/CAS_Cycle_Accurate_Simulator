@@ -32,11 +32,22 @@ struct MemoryArray {
           words(d, LogicVal::make_x(w)) {}
 };
 
+struct EventWaitTarget {
+    bool active = false;
+    EdgeType edge = EdgeType::LEVEL;
+    std::string signal_name;
+    size_t net_id = 0;
+};
+
 struct BoundProcess {
     std::string scope;
     ProcessNode* proc;
     size_t pc = 0;
     bool completed = false;
+    EventWaitTarget wait_target;
+    bool is_looping = false;
+    size_t loop_start_pc = 0;
+    bool fired_in_time_slot = false;
 };
 
 struct ElaborationResult {

@@ -31,6 +31,7 @@ enum class TokenType {
     TOKEN_FOR,
     TOKEN_WHILE,
     TOKEN_REPEAT,
+    TOKEN_FOREVER,
     TOKEN_GATE_AND,
     TOKEN_GATE_OR,
     TOKEN_GATE_XOR,

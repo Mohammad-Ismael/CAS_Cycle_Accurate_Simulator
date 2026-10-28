@@ -88,6 +88,7 @@ void StratifiedScheduler::propagate_comb() {
 void StratifiedScheduler::evaluate_sequential_blocks() {
     for (auto& bp : engine.processes) {
         if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
+        if (bp.fired_in_time_slot) continue;
 
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
@@ -101,6 +102,7 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
         }
 
         if (triggered) {
+            bp.fired_in_time_slot = true;
             for (auto& stmt : bp.proc->body) {
                 engine.evaluator.execute_statement(stmt.get(), bp);
             }
@@ -127,19 +129,107 @@ bool StratifiedScheduler::commit_nba_updates() {
     return true;
 }
 
+bool StratifiedScheduler::resume_waiting_processes() {
+    bool resumed_any = false;
+
+    for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
+        auto& bp = engine.processes[pid];
+        if (!bp.wait_target.active) continue;
+
+        const auto& net = engine.netlist[bp.wait_target.net_id];
+        bool event_matched = false;
+
+        if (bp.wait_target.edge == EdgeType::POSEDGE && net.is_posedge()) {
+            event_matched = true;
+        } else if (bp.wait_target.edge == EdgeType::NEGEDGE && net.is_negedge()) {
+            event_matched = true;
+        } else if (bp.wait_target.edge == EdgeType::LEVEL && net.modified) {
+            event_matched = true;
+        }
+
+        if (event_matched) {
+            bp.wait_target.active = false;
+            step_process(pid);
+            resumed_any = true;
+        }
+    }
+
+    return resumed_any;
+}
+
 void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     auto& bp = engine.processes[pid];
-    if (bp.completed) return;
+    if (bp.completed || bp.wait_target.active) return;
 
     while (bp.pc < bp.proc->body.size()) {
         auto stmt = bp.proc->body[bp.pc].get();
 
+        // 0. Unwrap any embedded BlockStatementNode in place
+        if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+            std::vector<std::unique_ptr<StatementNode>> new_body;
+            for (size_t i = 0; i < bp.pc; ++i) {
+                new_body.push_back(std::move(bp.proc->body[i]));
+            }
+            for (auto& bs : blk->statements) {
+                new_body.push_back(std::move(bs));
+            }
+            for (size_t i = bp.pc + 1; i < bp.proc->body.size(); ++i) {
+                new_body.push_back(std::move(bp.proc->body[i]));
+            }
+            bp.proc->body = std::move(new_body);
+            continue;
+        }
+
+        // 1. Procedural In-Body Event Control: @(...)
+        if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
+            std::string scoped_sig = bp.scope + "." + ev_stmt->signal_name;
+            size_t net_id = 0;
+            if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
+                net_id = engine.net_map.at(scoped_sig);
+            } else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) {
+                net_id = engine.net_map.at(ev_stmt->signal_name);
+            } else {
+                bp.pc++;
+                continue;
+            }
+
+            bp.pc++;
+            bp.wait_target.active = true;
+            bp.wait_target.edge = ev_stmt->edge;
+            bp.wait_target.signal_name = ev_stmt->signal_name;
+            bp.wait_target.net_id = net_id;
+            return;
+        }
+
+        // 2. Procedural Delay: #delay
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t wake_time = current_sim_time + delay->delay;
             time_wheel.schedule(wake_time, (uint32_t)pid);
             return;
+        }
+
+        // 3. Forever Loop: Inline body and set loop anchor
+        if (auto forever_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
+            std::vector<std::unique_ptr<StatementNode>> new_body;
+            for (size_t i = 0; i < bp.pc; ++i) {
+                new_body.push_back(std::move(bp.proc->body[i]));
+            }
+            bp.loop_start_pc = bp.pc;
+            bp.is_looping = true;
+
+            for (auto& s : forever_stmt->body) {
+                if (auto blk_inner = dynamic_cast<BlockStatementNode*>(s.get())) {
+                    for (auto& bs : blk_inner->statements) {
+                        new_body.push_back(std::move(bs));
+                    }
+                } else {
+                    new_body.push_back(std::move(s));
+                }
+            }
+            bp.proc->body = std::move(new_body);
+            continue;
         }
 
         if (auto df = dynamic_cast<DumpFileStatementNode*>(stmt)) {
@@ -160,25 +250,52 @@ void StratifiedScheduler::step_process(size_t pid) {
         bp.pc++;
     }
 
-    if (bp.proc->type == ProcessType::INITIAL) {
-        bp.completed = true;
-    } else {
+    if (bp.is_looping) {
+        bp.pc = bp.loop_start_pc;
+        if (bp.pc < bp.proc->body.size()) {
+            step_process(pid);
+        }
+    } else if (bp.proc->type == ProcessType::ALWAYS) {
         bp.pc = 0;
-        step_process(pid);
+        if (!bp.proc->body.empty()) {
+            step_process(pid);
+        }
+    } else {
+        bp.completed = true;
     }
 }
 
 void StratifiedScheduler::execute_time_slot_delta_loop() {
-    propagate_comb();
-    evaluate_sequential_blocks();
-    if (commit_nba_updates()) {
+    bool activity = true;
+    size_t loop_guard = 0;
+
+    while (activity && loop_guard < 50) {
+        activity = false;
+
         propagate_comb();
+        evaluate_sequential_blocks();
+
+        if (commit_nba_updates()) {
+            activity = true;
+            propagate_comb();
+        }
+
+        if (resume_waiting_processes()) {
+            activity = true;
+            propagate_comb();
+        }
+
+        loop_guard++;
     }
 }
 
 void StratifiedScheduler::run_simulation() {
     current_sim_time = 0;
     simulation_active = true;
+
+    for (auto& bp : engine.processes) {
+        bp.fired_in_time_slot = false;
+    }
 
     // Time 0: Initial activation of all initial and always processes
     for (size_t i = 0; i < engine.processes.size(); ++i) {
@@ -188,24 +305,23 @@ void StratifiedScheduler::run_simulation() {
         }
     }
 
-    // Stabilize Time 0 state
     execute_time_slot_delta_loop();
 
-    // Postponed Region at Time 0
     engine.vcd_dumper.dump_sample(engine.netlist, current_sim_time);
     engine.evaluator.check_monitor();
 
-    // Settle history and clear modified flags for Time 0
     for (auto& n : engine.netlist) {
         n.commit_time_slot();
     }
 
-    // Discrete-Event Wheel Loop
     while (simulation_active && !time_wheel.empty()) {
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
 
-        // Active Region: Drain all events scheduled for this exact timestamp
+        for (auto& bp : engine.processes) {
+            bp.fired_in_time_slot = false;
+        }
+
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {
             SimEvent ev = time_wheel.pop();
             step_process(ev.process_id);
@@ -213,14 +329,11 @@ void StratifiedScheduler::run_simulation() {
 
         if (!simulation_active) break;
 
-        // Stratified Delta Cycle Execution (Active -> Sequential -> NBA -> Comb)
         execute_time_slot_delta_loop();
 
-        // IEEE Postponed Region: Sample after delta stabilization
         engine.vcd_dumper.dump_sample(engine.netlist, current_sim_time);
         engine.evaluator.check_monitor();
 
-        // Settle history so static signals never re-trigger edges on next timestamps
         for (auto& n : engine.netlist) {
             n.commit_time_slot();
         }

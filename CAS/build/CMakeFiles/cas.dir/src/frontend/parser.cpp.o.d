@@ -122,8 +122,8 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /usr/include/c++/13.2.1/pstl/execution_defs.h \
  /app/CAS/src/frontend/../../include/frontend/ast_expr.hpp \
  /app/CAS/src/frontend/../../include/frontend/ast_stmt.hpp \
- /app/CAS/src/frontend/../../include/frontend/ast_module.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/types.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/edge_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/gate_types.hpp \
- /app/CAS/src/frontend/../../include/frontend/../common/logic_val.hpp
+ /app/CAS/src/frontend/../../include/frontend/../common/logic_val.hpp \
+ /app/CAS/src/frontend/../../include/frontend/ast_module.hpp

@@ -42,15 +42,43 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var);
     }
 
-    // 2. Delay Statement (#5;)
+    // 2. Delay Statement (#5; or #5 clk = ~clk;)
     if (match(TokenType::TOKEN_HASH)) {
         uint64_t d = current.num_val;
         expect(TokenType::TOKEN_NUMBER, "Expected numerical delay value after '#'");
-        match(TokenType::TOKEN_SEMICOLON);
-        return std::make_unique<DelayStatementNode>(d);
+        
+        if (match(TokenType::TOKEN_SEMICOLON)) {
+            return std::make_unique<DelayStatementNode>(d);
+        }
+
+        auto target_stmt = parse_statement();
+        std::vector<std::unique_ptr<StatementNode>> stmts;
+        stmts.push_back(std::make_unique<DelayStatementNode>(d));
+        stmts.push_back(std::move(target_stmt));
+        return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
-    // 3. For Loop
+    // 3. Procedural Event Control: @(posedge clk), @(negedge clk), @(signal)
+    if (match(TokenType::TOKEN_AT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+        EdgeType edge = EdgeType::LEVEL;
+        if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+        else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+
+        std::string sig = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event control");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<EventControlStatementNode>(edge, sig);
+    }
+
+    // 4. Forever Loop
+    if (match(TokenType::TOKEN_FOREVER)) {
+        auto body = parse_statement_or_block();
+        return std::make_unique<ForeverStatementNode>(std::move(body));
+    }
+
+    // 5. For Loop
     if (match(TokenType::TOKEN_FOR)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");
         auto init_stmt = parse_statement();
@@ -68,7 +96,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ForStatementNode>(std::move(init_stmt), std::move(cond_expr), std::move(step_stmt), std::move(body));
     }
 
-    // 4. While Loop
+    // 6. While Loop
     if (match(TokenType::TOKEN_WHILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'while'");
         auto cond = parse_expression();
@@ -77,7 +105,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<WhileStatementNode>(std::move(cond), std::move(body));
     }
 
-    // 5. Repeat Loop
+    // 7. Repeat Loop
     if (match(TokenType::TOKEN_REPEAT)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'repeat'");
         auto count = parse_expression();
@@ -86,7 +114,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<RepeatStatementNode>(std::move(count), std::move(body));
     }
 
-    // 6. System Tasks ($display / $monitor)
+    // 8. System Tasks ($display / $monitor)
     if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR) {
         bool is_mon = (current.type == TokenType::TOKEN_MONITOR);
         std::string origin_file = current.filename;
@@ -122,7 +150,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line);
     }
 
-    // 7. $dumpfile
+    // 9. $dumpfile
     if (match(TokenType::TOKEN_DUMPFILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");
         std::string fname = current.text;
@@ -132,7 +160,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpFileStatementNode>(fname);
     }
 
-    // 8. $dumpvars
+    // 10. $dumpvars
     if (match(TokenType::TOKEN_DUMPVARS)) {
         uint32_t levels = 0;
         if (match(TokenType::TOKEN_LPAREN)) {
@@ -149,7 +177,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DumpVarsStatementNode>(levels);
     }
 
-    // 9. $finish / $stop
+    // 11. $finish / $stop
     if (match(TokenType::TOKEN_FINISH) || match(TokenType::TOKEN_STOP)) {
         std::string origin_file = current.filename;
         size_t origin_line = current.line;
@@ -158,7 +186,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>(origin_file, origin_line);
     }
 
-    // 10. If Statement
+    // 12. If Statement
     if (match(TokenType::TOKEN_IF)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
         auto cond = parse_expression();
@@ -173,7 +201,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return if_node;
     }
 
-    // 11. Case Statement
+    // 13. Case Statement
     if (match(TokenType::TOKEN_CASE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
         auto sel = parse_expression();
@@ -198,7 +226,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return case_node;
     }
 
-    // 12. Multi-target concatenation assignment ({a, b} = expr;)
+    // 14. Multi-target concatenation assignment ({a, b} = expr;)
     if (match(TokenType::TOKEN_LBRACE)) {
         std::vector<std::string> targets;
         while (true) {
@@ -214,7 +242,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockingAssignNode>(targets, std::move(rhs));
     }
 
-    // 13. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
+    // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string ident = current.text;
         advance();
@@ -264,12 +292,26 @@ std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
     std::vector<std::unique_ptr<StatementNode>> stmts;
     if (match(TokenType::TOKEN_BEGIN)) {
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
-            stmts.push_back(parse_statement());
+            auto s = parse_statement();
+            if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                for (auto& sub : blk->statements) {
+                    stmts.push_back(std::move(sub));
+                }
+            } else {
+                stmts.push_back(std::move(s));
+            }
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
         match(TokenType::TOKEN_SEMICOLON);
     } else {
-        stmts.push_back(parse_statement());
+        auto s = parse_statement();
+        if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+            for (auto& sub : blk->statements) {
+                stmts.push_back(std::move(sub));
+            }
+        } else {
+            stmts.push_back(std::move(s));
+        }
     }
     return stmts;
 }

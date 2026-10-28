@@ -374,7 +374,9 @@ def simulate(req: SimRequest):
                 "debug_log": debug_log
             }
         except subprocess.TimeoutExpired as e:
-            partial_out = (e.stdout or "") + "\n" + (e.stderr or "")
+            stdout_str = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+            stderr_str = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+            partial_out = stdout_str + "\n" + stderr_str
             cleaned = partial_out.replace(tmpdir + "/", "").replace(tmpdir + "\\", "")
             return {
                 "status": "error",

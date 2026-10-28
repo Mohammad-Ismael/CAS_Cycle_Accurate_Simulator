@@ -1,9 +1,25 @@
 #pragma once
 #include "ast_base.hpp"
+#include "../common/types.hpp" // <-- Add this include
 #include <string>
 #include <vector>
 #include <memory>
 #include <cstdint>
+
+struct EventControlStatementNode : public StatementNode {
+    EdgeType edge = EdgeType::LEVEL;
+    std::string signal_name;
+
+    EventControlStatementNode(EdgeType e, std::string sig)
+        : edge(e), signal_name(std::move(sig)) {}
+};
+
+struct ForeverStatementNode : public StatementNode {
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    explicit ForeverStatementNode(std::vector<std::unique_ptr<StatementNode>> b)
+        : body(std::move(b)) {}
+};
 
 struct BlockStatementNode : public StatementNode {
     std::vector<std::unique_ptr<StatementNode>> statements;

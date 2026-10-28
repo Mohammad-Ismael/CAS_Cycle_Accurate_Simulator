@@ -31,7 +31,6 @@ private:
     uint64_t current_sim_time = 0;
     bool simulation_active = true;
 
-    // Telemetry & metrics
     size_t delta_cycles_count = 0;
     size_t nba_commits_count = 0;
 
@@ -39,6 +38,7 @@ private:
     void evaluate_sequential_blocks();
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();
+    bool resume_waiting_processes();
 
 public:
     explicit StratifiedScheduler(Engine& eng);
