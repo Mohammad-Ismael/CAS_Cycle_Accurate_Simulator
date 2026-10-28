@@ -92,9 +92,10 @@ struct Token {
     TokenType type;
     std::string text;
     uint64_t num_val;
-    uint32_t bit_width;
+    uint32_t width;
     std::string filename;
     size_t line;
+    uint64_t bval = 0; // Added for 4-state literal support
 };
 
 struct SourceBuffer {

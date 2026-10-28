@@ -177,6 +177,30 @@ src/frontend/lexer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/lexer.cpp.s
 .PHONY : src/frontend/lexer.cpp.s
 
+src/frontend/number_parser.o: src/frontend/number_parser.cpp.o
+.PHONY : src/frontend/number_parser.o
+
+# target to build an object file
+src/frontend/number_parser.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o
+.PHONY : src/frontend/number_parser.cpp.o
+
+src/frontend/number_parser.i: src/frontend/number_parser.cpp.i
+.PHONY : src/frontend/number_parser.i
+
+# target to preprocess a source file
+src/frontend/number_parser.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/number_parser.cpp.i
+.PHONY : src/frontend/number_parser.cpp.i
+
+src/frontend/number_parser.s: src/frontend/number_parser.cpp.s
+.PHONY : src/frontend/number_parser.s
+
+# target to generate assembly for a file
+src/frontend/number_parser.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/number_parser.cpp.s
+.PHONY : src/frontend/number_parser.cpp.s
+
 src/frontend/parser.o: src/frontend/parser.cpp.o
 .PHONY : src/frontend/parser.o
 
@@ -432,6 +456,9 @@ help:
 	@echo "... src/frontend/lexer.o"
 	@echo "... src/frontend/lexer.i"
 	@echo "... src/frontend/lexer.s"
+	@echo "... src/frontend/number_parser.o"
+	@echo "... src/frontend/number_parser.i"
+	@echo "... src/frontend/number_parser.s"
 	@echo "... src/frontend/parser.o"
 	@echo "... src/frontend/parser.i"
 	@echo "... src/frontend/parser.s"

@@ -6,15 +6,24 @@
 #include <vector>
 
 struct NumberNode : public ExpressionNode {
-    uint64_t value;
+    uint64_t aval; // 0/1 bits (or 1 for X)
+    uint64_t bval; // 1 for X/Z
     uint32_t width;
-    bool is_unknown = false;
 
+    // Backward-compatible constructor: known value or all-X
     explicit NumberNode(uint64_t val, uint32_t w = 32, bool unk = false)
-        : value(val), width(w), is_unknown(unk) {}
+        : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : val),
+          bval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : 0),
+          width(w) {}
+
+    // Precise 4-state constructor
+    NumberNode(uint64_t a, uint64_t b, uint32_t w)
+        : aval(a), bval(b), width(w) {}
+
+    bool is_unknown() const { return bval != 0; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<NumberNode>(value, width, is_unknown);
+        return std::make_unique<NumberNode>(aval, bval, width);
     }
 };
 

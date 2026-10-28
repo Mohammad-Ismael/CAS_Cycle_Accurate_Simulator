@@ -16,7 +16,7 @@ size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t wi
 uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return 0;
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        return num->value;
+        return num->aval;
     }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
         std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
@@ -75,7 +75,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         static size_t const_counter = 0;
         std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
         size_t id = get_or_create_net(const_net_name, num->width);
-        LogicVal val = num->is_unknown ? LogicVal::make_x(num->width) : LogicVal::make_known(num->width, num->value);
+        LogicVal val(num->width, num->aval, num->bval);
         result.netlist[id].set(val);
         return {id, 0, num->width};
     }

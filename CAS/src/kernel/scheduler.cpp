@@ -1,5 +1,6 @@
 #include "../../include/kernel/scheduler.hpp"
 #include "../../include/engine.hpp"
+#include "../../include/kernel/logic_ops.hpp"
 
 StratifiedScheduler::StratifiedScheduler(Engine& eng) : engine(eng) {}
 
@@ -41,15 +42,15 @@ void StratifiedScheduler::propagate_comb() {
             LogicVal res = engine.evaluator.eval_expr(g.in_exprs[0], g.scope);
             for (size_t i = 1; i < g.in_exprs.size(); ++i) {
                 LogicVal next_in = engine.evaluator.eval_expr(g.in_exprs[i], g.scope);
-                if (g.type == GateType::AND) res = LogicVal::bitwise_and(res, next_in);
-                else if (g.type == GateType::OR) res = LogicVal::bitwise_or(res, next_in);
-                else if (g.type == GateType::XOR) res = LogicVal::bitwise_xor(res, next_in);
-                else if (g.type == GateType::NAND) res = LogicVal::bitwise_and(res, next_in);
-                else if (g.type == GateType::NOR) res = LogicVal::bitwise_or(res, next_in);
-                else if (g.type == GateType::XNOR) res = LogicVal::bitwise_xor(res, next_in);
+                if (g.type == GateType::AND) res = LogicOps::bitwise_and(res, next_in);
+                else if (g.type == GateType::OR) res = LogicOps::bitwise_or(res, next_in);
+                else if (g.type == GateType::XOR) res = LogicOps::bitwise_xor(res, next_in);
+                else if (g.type == GateType::NAND) res = LogicOps::bitwise_and(res, next_in);
+                else if (g.type == GateType::NOR) res = LogicOps::bitwise_or(res, next_in);
+                else if (g.type == GateType::XNOR) res = LogicOps::bitwise_xor(res, next_in);
             }
             if (g.type == GateType::NAND || g.type == GateType::NOR || g.type == GateType::XNOR || g.type == GateType::NOT) {
-                res = res.bitwise_not();
+                res = LogicOps::bitwise_not(res);
             }
             LogicVal cur_out = engine.evaluator.read_slice(g.out_target);
             if (cur_out != res) {

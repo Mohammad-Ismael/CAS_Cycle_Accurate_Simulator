@@ -3,6 +3,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/cas.dir/src/engine.cpp.o.d"
   "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o"
   "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o.d"
+  "CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o"
+  "CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o.d"
   "CMakeFiles/cas.dir/src/frontend/parser.cpp.o"
   "CMakeFiles/cas.dir/src/frontend/parser.cpp.o.d"
   "CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o"

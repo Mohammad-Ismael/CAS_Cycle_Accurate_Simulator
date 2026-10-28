@@ -101,8 +101,10 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h \
  /usr/include/c++/13.2.1/bits/locale_facets.tcc \
  /usr/include/c++/13.2.1/bits/basic_ios.tcc \
- /usr/include/c++/13.2.1/bits/ostream.tcc /usr/include/c++/13.2.1/fstream \
- /usr/include/c++/13.2.1/istream /usr/include/c++/13.2.1/bits/istream.tcc \
+ /usr/include/c++/13.2.1/bits/ostream.tcc \
+ /app/CAS/src/frontend/../../include/frontend/number_parser.hpp \
+ /usr/include/c++/13.2.1/fstream /usr/include/c++/13.2.1/istream \
+ /usr/include/c++/13.2.1/bits/istream.tcc \
  /usr/include/c++/13.2.1/bits/codecvt.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++io.h \

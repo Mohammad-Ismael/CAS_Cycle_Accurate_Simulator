@@ -123,9 +123,6 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: \
  /app/CAS/include/frontend/ast_stmt.hpp \
  /app/CAS/include/frontend/ast_module.hpp \
  /app/CAS/include/frontend/../common/types.hpp \
- /usr/include/c++/13.2.1/algorithm \
- /usr/include/c++/13.2.1/bits/stl_algo.h \
- /usr/include/c++/13.2.1/bits/algorithmfwd.h \
- /usr/include/c++/13.2.1/bits/stl_heap.h \
- /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
- /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h
+ /app/CAS/include/frontend/../common/edge_types.hpp \
+ /app/CAS/include/frontend/../common/gate_types.hpp \
+ /app/CAS/include/frontend/../common/logic_val.hpp

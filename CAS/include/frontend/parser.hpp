@@ -28,6 +28,7 @@ private:
     std::unique_ptr<ExpressionNode> parse_bitwise_or();
     std::unique_ptr<ExpressionNode> parse_logical_and();
     std::unique_ptr<ExpressionNode> parse_logical_or();
+    std::unique_ptr<ExpressionNode> parse_conditional();
     std::unique_ptr<ExpressionNode> parse_ternary();
     std::unique_ptr<ExpressionNode> parse_expression();
 

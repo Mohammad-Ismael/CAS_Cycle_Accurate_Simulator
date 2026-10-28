@@ -18,5 +18,6 @@ add_executable(cas
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp
     src/kernel/scheduler.cpp
+    src/frontend/number_parser.cpp
     src/main.cpp
 )

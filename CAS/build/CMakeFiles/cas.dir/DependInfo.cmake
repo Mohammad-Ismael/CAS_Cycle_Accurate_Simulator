@@ -10,6 +10,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/app/CAS/src/engine.cpp" "CMakeFiles/cas.dir/src/engine.cpp.o" "gcc" "CMakeFiles/cas.dir/src/engine.cpp.o.d"
   "/app/CAS/src/frontend/lexer.cpp" "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/lexer.cpp.o.d"
+  "/app/CAS/src/frontend/number_parser.cpp" "CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o.d"
   "/app/CAS/src/frontend/parser.cpp" "CMakeFiles/cas.dir/src/frontend/parser.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/parser.cpp.o.d"
   "/app/CAS/src/frontend/parser_expr.cpp" "CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o.d"
   "/app/CAS/src/frontend/parser_module.cpp" "CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o" "gcc" "CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o.d"

@@ -1,5 +1,6 @@
 #include "../../include/kernel/evaluator.hpp"
 #include "../../include/engine.hpp"
+#include "../../include/kernel/logic_ops.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
@@ -28,8 +29,7 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
 
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        if (num->is_unknown) return LogicVal::make_x(num->width);
-        return LogicVal::make_known(num->width, num->value);
+        return LogicVal(num->width, num->aval, num->bval);
     }
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
@@ -120,7 +120,7 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
             if (val.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (val.aval == 0) ? 1 : 0);
         }
-        if (un->op == '~') return val.bitwise_not();
+        if (un->op == '~') return LogicOps::bitwise_not(val);
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         LogicVal l = eval_expr(bin->lhs.get(), scope);
@@ -141,25 +141,31 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
             return LogicVal::make_known(w, l.aval * r.aval);
         }
-        if (bin->op == "&")  return LogicVal::bitwise_and(l, r);
-        if (bin->op == "|")  return LogicVal::bitwise_or(l, r);
-        if (bin->op == "^")  return LogicVal::bitwise_xor(l, r);
-        if (bin->op == "<<") return LogicVal::shift_left(l, r);
-        if (bin->op == ">>") return LogicVal::shift_right(l, r);
-        if (bin->op == "==") return LogicVal::logical_eq(l, r);
-        if (bin->op == "!=") return LogicVal::logical_neq(l, r);
-        if (bin->op == "===") {
-            bool matches = (l.aval == r.aval) && (l.bval == r.bval);
-            return LogicVal::make_known(1, matches ? 1 : 0);
+        if (bin->op == "&")   return LogicOps::bitwise_and(l, r);
+        if (bin->op == "|")   return LogicOps::bitwise_or(l, r);
+        if (bin->op == "^")   return LogicOps::bitwise_xor(l, r);
+        if (bin->op == "<<")  return LogicOps::shift_left(l, r);
+        if (bin->op == ">>")  return LogicOps::shift_right(l, r);
+        if (bin->op == "==")  return LogicOps::logical_eq(l, r);
+        if (bin->op == "!=")  return LogicOps::logical_neq(l, r);
+        if (bin->op == "===") return LogicOps::case_eq(l, r);
+        if (bin->op == "!==") return LogicOps::case_neq(l, r);
+        if (bin->op == "<") {
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.aval < r.aval) ? 1 : 0);
         }
-        if (bin->op == "!==") {
-            bool matches = (l.aval == r.aval) && (l.bval == r.bval);
-            return LogicVal::make_known(1, matches ? 0 : 1);
+        if (bin->op == "<=") {
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.aval <= r.aval) ? 1 : 0);
         }
-        if (bin->op == "<")  return LogicVal::rel_lt(l, r);
-        if (bin->op == "<=") return LogicVal::rel_le(l, r);
-        if (bin->op == ">")  return LogicVal::rel_gt(l, r);
-        if (bin->op == ">=") return LogicVal::rel_ge(l, r);
+        if (bin->op == ">") {
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.aval > r.aval) ? 1 : 0);
+        }
+        if (bin->op == ">=") {
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.aval >= r.aval) ? 1 : 0);
+        }
         if (bin->op == "&&") {
             if ((!l.is_unknown() && l.aval == 0) || (!r.is_unknown() && r.aval == 0)) return LogicVal::make_known(1, 0);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
@@ -173,12 +179,9 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
     }
     if (auto tern = dynamic_cast<TernaryOpNode*>(expr)) {
         LogicVal cond = eval_expr(tern->condition.get(), scope);
-        if (cond.is_unknown()) {
-            LogicVal t_val = eval_expr(tern->true_expr.get(), scope);
-            LogicVal f_val = eval_expr(tern->false_expr.get(), scope);
-            return LogicVal::make_x(std::max(t_val.width, f_val.width));
-        }
-        return cond.to_bool() ? eval_expr(tern->true_expr.get(), scope) : eval_expr(tern->false_expr.get(), scope);
+        LogicVal t_val = eval_expr(tern->true_expr.get(), scope);
+        LogicVal f_val = eval_expr(tern->false_expr.get(), scope);
+        return LogicOps::ternary(cond, t_val, f_val);
     }
     return LogicVal::make_x(1);
 }
@@ -243,7 +246,7 @@ void Evaluator::check_monitor() {
 
                 if (arg_idx < current_values.size()) {
                     const auto& val = current_values[arg_idx++];
-                    if (val.is_unknown()) {
+                    if (val.is_unknown() && (spec == 'd' || spec == 't' || spec == 'h')) {
                         std::cout << "x";
                     } else {
                         if (spec == 'd' || spec == 't') std::cout << val.aval;
@@ -280,7 +283,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 continue;
             }
             LogicVal item_val = eval_expr(item.match_expr.get(), bp.scope);
-            if (LogicVal::logical_eq(sel_val, item_val).to_bool()) {
+            if (LogicOps::case_eq(sel_val, item_val).to_bool()) {
                 for (auto& s : item.statements) execute_statement(s.get(), bp);
                 branch_taken = true;
                 break;
@@ -347,7 +350,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     if (arg_idx < disp->arg_exprs.size()) {
                         LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
-                        if (val.is_unknown()) {
+                        if (val.is_unknown() && (spec == 'd' || spec == 't' || spec == 'h')) {
                             std::cout << "x";
                         } else {
                             if (spec == 'd' || spec == 't') std::cout << val.aval;
