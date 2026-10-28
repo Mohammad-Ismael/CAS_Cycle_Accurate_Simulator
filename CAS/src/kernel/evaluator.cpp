@@ -38,11 +38,13 @@ void Evaluator::check_monitor() {
 
     bool values_changed = false;
     std::vector<LogicVal> current_values;
+    bool has_active_signals = false;
 
     for (const auto& arg_name : engine.monitor_session.args) {
         if (arg_name == "$time") {
             current_values.push_back(LogicVal::make_known(64, engine.get_sim_time()));
         } else {
+            has_active_signals = true;
             std::string scoped_arg = engine.monitor_session.scope.empty() ? arg_name : (engine.monitor_session.scope + "." + arg_name);
             if (engine.net_map.find(scoped_arg) != engine.net_map.end()) {
                 current_values.push_back(engine.netlist[engine.net_map.at(scoped_arg)].value);
@@ -55,7 +57,11 @@ void Evaluator::check_monitor() {
     if (engine.monitor_session.prev_values.empty()) {
         values_changed = true;
     } else {
+        // IEEE 1800-2023 §21.2.2: Only watched signals trigger $monitor, NOT $time
         for (size_t i = 0; i < current_values.size(); ++i) {
+            if (i < engine.monitor_session.args.size() && engine.monitor_session.args[i] == "$time") {
+                continue;
+            }
             if (current_values[i] != engine.monitor_session.prev_values[i]) {
                 values_changed = true;
                 break;
@@ -277,7 +283,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
-        // Sample RHS immediately at current sim time
         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
         std::string scoped_target = bp.scope + "." + nassign->target;
         size_t net_id = engine.net_map.at(scoped_target);
@@ -317,7 +322,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     // IEEE 1800-2023 §10.6.1: Blocking Assignment
-    // (If intra_delay > 0, handled in scheduler.cpp via queue_delayed_blocking)
     if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
         if (assign->intra_delay > 0) {
             return;

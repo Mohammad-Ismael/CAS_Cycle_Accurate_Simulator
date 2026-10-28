@@ -1,0 +1,25 @@
+{
+  "project_name": "random_stress_top",
+  "saved_at": "2026-10-28 22:16:03",
+  "files": [
+    "testbench.sv",
+    "design.sv"
+  ],
+  "settings": {
+    "top_module": "",
+    "timescale": "1ns",
+    "enable_profiler": false,
+    "enable_debug": false,
+    "enable_vcd": true,
+    "vcd_filename": "trace.vcd",
+    "vcd_levels": 0,
+    "enable_display": true,
+    "enable_monitor": true,
+    "enable_finish_msg": true
+  },
+  "status": {
+    "active_tb_file": "testbench.sv",
+    "active_rtl_file": "design.sv",
+    "selected_wave": ""
+  }
+}
