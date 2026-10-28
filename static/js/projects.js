@@ -5,7 +5,7 @@ window.StudioProjects = {
         if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             this.activeProject = null;
             document.getElementById('active-project-label').textContent = "[Unsaved Scratchpad]";
-            window.StudioWaveform.clear();
+            if (window.WaveApp) window.WaveApp.clear();
 
             for (const key in window.StudioEditor.projectFiles) {
                 delete window.StudioEditor.projectFiles[key];
@@ -102,7 +102,7 @@ window.StudioProjects = {
         window.StudioEditor.renderTabs();
 
         this.refreshWaveDropdown(data.waves);
-        window.StudioWaveform.clear();
+        if (window.WaveApp) window.WaveApp.clear();
 
         if (data.waves.length > 0) {
             this.loadVcd(data.waves[0].filename);
@@ -134,15 +134,19 @@ window.StudioProjects = {
     },
 
     async loadVcd(filename) {
-        if (!this.activeProject) return;
-        const res = await fetch(`/api/projects/${this.activeProject}/waves/${filename}`);
-        const data = await res.json();
-        window.StudioWaveform.activeVcdContent = data.vcd;
-        window.StudioWaveform.activeVcdFilename = filename;
-        document.getElementById('btn-export-vcd').disabled = false;
-        window.StudioWaveform.render();
+        if (!this.activeProject || !filename) return;
+        try {
+            const res = await fetch(`/api/projects/${this.activeProject}/waves/${filename}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            
+            if (window.WaveApp) {
+                window.WaveApp.loadTrace(data.vcd, filename);
+            }
+        } catch (e) {
+            console.error("Failed to load VCD file:", e);
+        }
     },
-
     async deleteSelectedWave() {
         const sel = document.getElementById('wave-select');
         const fname = sel.value;
@@ -159,7 +163,27 @@ window.saveProjectPrompt = () => window.StudioProjects.save();
 window.openProjectsModal = () => window.StudioProjects.openModal();
 window.closeProjectsModal = () => window.StudioProjects.closeModal();
 window.onSelectWaveTrace = (fname) => {
-    if (!fname) window.StudioWaveform.clear();
-    else window.StudioProjects.loadVcd(fname);
+    if (!fname) {
+        if (window.WaveApp) window.WaveApp.clear();
+    } else {
+        window.StudioProjects.loadVcd(fname);
+        // Automatically switch to waveform tab if user selects a trace
+        if (window.StudioApp) {
+            window.StudioApp.selectTab('waveform');
+        }
+    }
 };
 window.deleteSelectedWave = () => window.StudioProjects.deleteSelectedWave();
+
+window.downloadActiveVcd = () => {
+    if (!window.WaveApp || !window.WaveApp.rawVcdContent) return;
+    const blob = new Blob([window.WaveApp.rawVcdContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = window.WaveApp.rawVcdFilename || "trace.vcd";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};

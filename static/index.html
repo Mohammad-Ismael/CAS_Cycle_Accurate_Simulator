@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/editor/editor.main.min.css">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/waveviewer/css/waveviewer.css">
 </head>
 <body>
 
@@ -172,22 +173,38 @@
                 <div id="panel-terminal" class="panel active">CAS Ready.</div>
 
                 <div id="panel-waveform" class="panel">
-                    <div class="wave-toolbar">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span>Trace:</span>
-                            <select id="wave-select" class="wave-history-select" onchange="onSelectWaveTrace(this.value)">
-                                <option value="">(No trace loaded)</option>
-                            </select>
-                            <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="deleteSelectedWave()">Delete</button>
+                    <div id="wv-container">
+                        <div id="wv-toolbar">
+                            <div class="wv-btn-group">
+                                <button class="wv-btn" onclick="window.WaveApp.zoom(4)">Zoom In (+)</button>
+                                <button class="wv-btn" onclick="window.WaveApp.zoom(-4)">Zoom Out (-)</button>
+                                <button class="wv-btn" onclick="window.WaveCursorManager.setPrimary(0); window.WaveApp.updateLabels(); window.WaveApp.render();">Reset Marker</button>
+                            </div>
+                            <div class="wv-btn-group" style="display: flex; align-items: center; gap: 8px;">
+                                <span>Trace:</span>
+                                <select id="wave-select" class="opt-select" style="font-size: 11px; padding: 2px 6px; max-width: 250px;" onchange="onSelectWaveTrace(this.value)">
+                                    <option value="">(No trace loaded)</option>
+                                </select>
+                                <button class="wv-btn" onclick="deleteSelectedWave()">Delete</button>
+                                <span class="wv-info-pill">Marker: <strong id="wv-lbl-cursor">0 ns</strong></span>
+                                <span class="wv-info-pill">Timescale: <strong id="lbl-timescale">1ns</strong></span>
+                            </div>
                         </div>
-                        <span>Timescale: <strong id="lbl-timescale">1ns</strong></span>
-                    </div>
-                    <div id="wave-canvas-container">
-                        <div id="wave-names"></div>
-                        <canvas id="wave-canvas"></canvas>
-                        <div id="wave-empty" class="wave-empty-state">
-                            <span>No waveform trace available for this state.</span>
-                            <span style="font-size: 11px; color: var(--text-faint);">Check 'Enable VCD Wave Dump' in the left settings drawer.</span>
+                        <div id="wv-workspace">
+                            <div id="wv-sidebar">
+                                <div class="wv-sidebar-header">
+                                    <span>SIGNAL NAME</span>
+                                    <span>VALUE</span>
+                                </div>
+                                <div class="wv-sig-list" id="wv-sidebar-list"></div>
+                            </div>
+                            <div id="wv-viewport">
+                                <canvas id="wv-canvas"></canvas>
+                                <div id="wv-empty-overlay">
+                                    <span>No VCD Waveform Loaded.</span>
+                                    <span style="font-size: 11px; color: #475569;">Run a simulation with VCD enabled to view traces.</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -316,8 +333,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 <script src="/js/editor.js"></script>
 <script src="/js/console.js"></script>
-<script src="/js/waveform.js"></script>
 <script src="/js/projects.js"></script>
+
+<!-- Modular WaveViewer Engine -->
+<script src="/waveviewer/js/vcd_parser.js"></script>
+<script src="/waveviewer/js/time_ruler.js"></script>
+<script src="/waveviewer/js/signal_renderer.js"></script>
+<script src="/waveviewer/js/cursor_manager.js"></script>
+<script src="/waveviewer/js/signal_tree.js"></script>
+<script src="/waveviewer/js/wave_app.js"></script>
+
 <script src="/js/app.js"></script>
 
 </body>

@@ -297,10 +297,9 @@ def simulate(req: SimRequest):
                         if os.path.exists(pdir):
                             pwaves = os.path.join(pdir, "waves")
                             os.makedirs(pwaves, exist_ok=True)
-                            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            saved_name = f"{ts}_{fname}"
-                            shutil.copy2(os.path.join(tmpdir, fname), os.path.join(pwaves, saved_name))
-                            vcd_filename = saved_name
+                            dest_path = os.path.join(pwaves, fname)
+                            shutil.copy2(os.path.join(tmpdir, fname), dest_path)
+                            vcd_filename = fname
                     break
 
             return {

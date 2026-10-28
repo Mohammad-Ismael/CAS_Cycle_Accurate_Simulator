@@ -4,6 +4,17 @@ window.StudioApp = {
 
     init() {
         window.StudioEditor.init();
+        if (window.WaveApp) {
+            window.WaveApp.init();
+        }
+        this.initResizers();
+    },
+
+    init() {
+        window.StudioEditor.init();
+        if (window.WaveApp) {
+            window.WaveApp.init();
+        }
         this.initResizers();
     },
 
@@ -28,22 +39,10 @@ window.StudioApp = {
             btnWave.classList.add('active');
             panelWave.classList.add('active');
             panelWave.style.display = 'flex';
-            window.StudioWaveform.render();
+            if (window.WaveApp) {
+                window.WaveApp.render();
+            }
         }
-    },
-
-    toggleOptionsSidebar() {
-        this.isOptionsOpen = !this.isOptionsOpen;
-        const side = document.getElementById('options-sidebar');
-        const resizer = document.getElementById('left-resizer');
-        if (this.isOptionsOpen) {
-            side.classList.remove('collapsed');
-            resizer.style.display = 'block';
-        } else {
-            side.classList.add('collapsed');
-            resizer.style.display = 'none';
-        }
-        window.StudioEditor.relayout();
     },
 
     toggleInspectorSidebar() {
@@ -54,36 +53,35 @@ window.StudioApp = {
 
         if (this.isInspectorOpen) {
             bar.classList.add('open');
-            resizer.style.display = 'block';
-            btn.classList.add('btn-active');
+            if (resizer) resizer.style.display = 'block';
+            if (btn) btn.classList.add('btn-active');
         } else {
             bar.classList.remove('open');
-            resizer.style.display = 'none';
-            btn.classList.remove('btn-active');
+            if (resizer) resizer.style.display = 'none';
+            if (btn) btn.classList.remove('btn-active');
         }
-        window.StudioEditor.relayout();
+        if (window.StudioEditor && typeof window.StudioEditor.relayout === 'function') {
+            window.StudioEditor.relayout();
+        }
     },
 
     switchSidebarTab(tab) {
-        document.getElementById('btn-side-profiler').classList.remove('active');
-        document.getElementById('btn-side-debug').classList.remove('active');
-        document.getElementById('side-tab-profiler').style.display = 'none';
-        document.getElementById('side-tab-debug').style.display = 'none';
+        const btnProf = document.getElementById('btn-side-profiler');
+        const btnDebug = document.getElementById('btn-side-debug');
+        const tabProf = document.getElementById('side-tab-profiler');
+        const tabDebug = document.getElementById('side-tab-debug');
+
+        if (btnProf) btnProf.classList.remove('active');
+        if (btnDebug) btnDebug.classList.remove('active');
+        if (tabProf) tabProf.style.display = 'none';
+        if (tabDebug) tabDebug.style.display = 'none';
 
         if (tab === 'profiler') {
-            document.getElementById('btn-side-profiler').classList.add('active');
-            document.getElementById('side-tab-profiler').style.display = 'flex';
+            if (btnProf) btnProf.classList.add('active');
+            if (tabProf) tabProf.style.display = 'flex';
         } else {
-            document.getElementById('btn-side-debug').classList.add('active');
-            document.getElementById('side-tab-debug').style.display = 'flex';
-        }
-    },
-
-    toggleVcdSettingsDrawer(enabled) {
-        const drawer = document.getElementById('vcd-settings-drawer');
-        if (drawer) {
-            if (enabled) drawer.classList.remove('collapsed');
-            else drawer.classList.add('collapsed');
+            if (btnDebug) btnDebug.classList.add('active');
+            if (tabDebug) tabDebug.style.display = 'flex';
         }
     },
 
@@ -198,10 +196,10 @@ window.StudioApp = {
             }
 
             if (data.vcd && enableVcd) {
-                window.StudioWaveform.activeVcdContent = data.vcd;
-                window.StudioWaveform.activeVcdFilename = data.vcd_filename;
+                window.WaveApp.rawVcdContent = data.vcd;
+                window.WaveApp.rawVcdFilename = data.vcd_filename;
                 document.getElementById('btn-export-vcd').disabled = false;
-                window.StudioWaveform.render();
+                window.WaveApp.loadTrace(data.vcd, data.vcd_filename);
 
                 if (window.StudioProjects.activeProject) {
                     const pres = await fetch(`/api/projects/${window.StudioProjects.activeProject}`);
@@ -218,12 +216,12 @@ window.StudioApp = {
                     const pdata = await pres.json();
                     window.StudioProjects.refreshWaveDropdown(pdata.waves);
                     if (pdata.waves.length > 0) window.StudioProjects.loadVcd(pdata.waves[0].filename);
-                    else window.StudioWaveform.clear();
+                    else window.WaveApp.clear();
                 } else {
-                    window.StudioWaveform.clear();
+                    window.WaveApp.clear();
                 }
             } else {
-                window.StudioWaveform.clear();
+                window.WaveApp.clear();
             }
         } catch (e) {
             window.StudioConsole.render("[UI FETCH ERROR] " + e.message);
@@ -301,6 +299,8 @@ window.StudioApp = {
         });
     }
 };
+
+
 
 window.onload = () => window.StudioApp.init();
 window.selectTab = (t) => window.StudioApp.selectTab(t);

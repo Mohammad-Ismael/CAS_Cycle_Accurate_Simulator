@@ -1,0 +1,177 @@
+$date
+  CAS Simulator Generated
+$end
+$version
+  CAS v1.0.0
+$end
+$timescale
+  1ns
+$end
+$scope module top $end
+$var wire 4 ! testbench.op_a $end
+$var wire 4 " testbench.op_b $end
+$var wire 3 # testbench.alu_sel $end
+$var wire 5 $ testbench.add_result $end
+$var wire 5 % testbench.sub_result $end
+$var wire 8 & testbench.mul_result $end
+$var wire 1 ' testbench.is_equal $end
+$var wire 1 ( testbench.is_less_than $end
+$var wire 1 ) testbench.is_greater_than $end
+$var wire 8 * testbench.final_result $end
+$var wire 32 + testbench.errors $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+b0011 !
+b0100 "
+b000 #
+b00111 $
+b11111 %
+b00001100 &
+0'
+1(
+0)
+b00000111 *
+b00000000000000000000000000000000 +
+$end
+#5
+b1111 !
+b10011 $
+b01011 %
+b00111100 &
+0(
+1)
+b00010011 *
+#5
+b0001 "
+b10000 $
+b01110 %
+b00001111 &
+b00010000 *
+#10
+b1111 "
+b11110 $
+b00000 %
+b11100001 &
+1'
+0)
+b00011110 *
+#15
+b1010 !
+b11001 $
+b11011 %
+b10010110 &
+0'
+1(
+b00011001 *
+#15
+b0100 "
+b01110 $
+b00110 %
+b00101000 &
+0(
+1)
+b00001110 *
+#15
+b001 #
+b00000110 *
+#20
+b0111 !
+b01011 $
+b00011 %
+b00011100 &
+b00000011 *
+#20
+b0111 "
+b01110 $
+b00000 %
+b00110001 &
+1'
+0)
+b00000000 *
+#25
+b0011 !
+b01010 $
+b11100 %
+b00010101 &
+0'
+1(
+b00011100 *
+#25
+b0101 "
+b01000 $
+b11110 %
+b00001111 &
+b00011110 *
+#30
+b0100 "
+b00111 $
+b11111 %
+b00001100 &
+b00011111 *
+#30
+b010 #
+b00001100 *
+#35
+b1111 !
+b10011 $
+b01011 %
+b00111100 &
+0(
+1)
+b00111100 *
+#35
+b1111 "
+b11110 $
+b00000 %
+b11100001 &
+1'
+0)
+b11100001 *
+#40
+b1001 !
+b11000 $
+b11010 %
+b10000111 &
+0'
+1(
+b10000111 *
+#40
+b0000 "
+b01001 $
+b01001 %
+b00000000 &
+0(
+1)
+b00000000 *
+#45
+b0010 !
+b00010 $
+b00010 %
+#45
+b1000 "
+b01010 $
+b11010 %
+b00010000 &
+1(
+0)
+b00010000 *
+#45
+b100 #
+b00000001 *
+#50
+b1101 !
+b10101 $
+b00101 %
+b01101000 &
+0(
+1)
+b00000000 *
+#50
+b0111 "
+b10100 $
+b00110 %
+b01011011 &
+#50
+b101 #
+b00000001 *
