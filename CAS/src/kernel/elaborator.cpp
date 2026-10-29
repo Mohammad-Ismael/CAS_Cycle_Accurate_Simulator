@@ -235,15 +235,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         if (s.is_array) {
             uint32_t depth = 1;
+            int64_t b1_val = 0;
+            int64_t b2_val = 0;
             if (s.bound1_expr && s.bound2_expr) {
-                uint64_t b1 = eval_const_expr(s.bound1_expr.get(), scope);
-                uint64_t b2 = eval_const_expr(s.bound2_expr.get(), scope);
-                depth = (b1 >= b2) ? (uint32_t)(b1 - b2 + 1) : (uint32_t)(b2 - b1 + 1);
+                b1_val = (int64_t)eval_const_expr(s.bound1_expr.get(), scope);
+                b2_val = (int64_t)eval_const_expr(s.bound2_expr.get(), scope);
+                depth = (b1_val >= b2_val) ? (uint32_t)(b1_val - b2_val + 1) : (uint32_t)(b2_val - b1_val + 1);
             } else if (s.bound1_expr) {
                 depth = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
+                b1_val = 0;
+                b2_val = depth > 0 ? (int64_t)(depth - 1) : 0;
             }
             std::string mem_scope = scope + "." + s.name;
-            result.memory_map[mem_scope] = MemoryArray(mem_scope, w, depth);
+            result.memory_map[mem_scope] = MemoryArray(mem_scope, w, depth, b1_val, b2_val);
             if (debug_out) {
                 *debug_out << "     * Memory allocated: " << mem_scope 
                            << " [" << w << "-bit x " << depth << " words]\n";

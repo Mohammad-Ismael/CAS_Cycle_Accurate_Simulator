@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v2.6.0.0`  
-**Status:** Production Milestone v2.6.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v2.7.0.0`  
+**Status:** Production Milestone v2.7.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,9 +14,9 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 15.8%`
+`[█████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 17.2%`
 
-*Current Baseline (v2.6.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls (disable/wait fork), named events, enum types, and packed structures.
+*Current Baseline (v2.7.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls (disable/wait fork), named events, enum types, packed structures, and fixed-size unpacked arrays/memories.
 *Upcoming Domains:* Dynamic Arrays & Queues, Interfaces & Modports, OOP Classes & Polymorphism, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
 
 ---
@@ -30,6 +30,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§6.5, §10.3.2** | **Variable Exclusivity Enforcement** | Variables (`logic`, `reg`, `var`) reject multiple continuous assignment drivers with `[CAS-MCD]`. |
 | **§6.19** | **Enumerated Types & Methods** | `typedef enum` declarations with base types, automatic ordinal increments, constant member expressions, built-in methods (`.first()`, `.last()`, `.next()`, `.prev()`, `.name()`), and static type casting (`type'(expr)`). |
 | **§7.2** | **Packed Structures & Member Slicing** | `typedef struct packed` declarations, MSB-to-LSB field bit mapping, field member reading/writing, concurrent sibling field NBA slice updates, aggregate contiguous vector assignment, and static struct casting (`type'(expr)`). |
+| **§7.4, §7.4.6** | **Fixed-Size Unpacked Arrays & Memories** | Unpacked dimension declarations (`[start:end]`, `[size]`), asynchronous/combinational reads, synchronous NBA/blocking writes, multi-word register files/memories, and IEEE §7.4.6 4-state out-of-bounds safety semantics (`'x` on read, no-op on write). |
 | **§6.7** | **4-State Logic System** | Dual-rail 64-bit integer vectors (`aval` data, `bval` control) supporting `0`, `1`, `X`, and `Z`. |
 | **§9.2.2.4** | **Driver Exclusivity Enforcement** | Variables driven inside `always_ff`, `always_comb`, or `always_latch` reject multi-process or continuous drives (`[CAS-ICPD]`). |
 | **§9.3.2** | **Parallel Blocks (`fork ... join`)** | `fork ... join` (all complete), `fork ... join_any` (any completes, background continuation), `fork ... join_none` (non-blocking concurrent dispatch). Dynamic thread tree with inherited lexical scopes and call frames. |
@@ -48,7 +49,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (17 / 17 PASS)
+## Milestone Regression Pass Matrix (18 / 18 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -71,6 +72,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v2.4.0.0** | `projects/v2_4_0_0_named_events` | Named Events & Triggers (`->`, `->>`, `@e`, `wait(e.triggered)`) (§15) | **PASS** | 100% VCS |
 | **v2.5.0.0** | `projects/v2_5_0_0_enum_types` | Enumerated Types & Methods (`first`, `last`, `next`, `prev`, `name`) (§6.19) | **PASS** | 100% VCS |
 | **v2.6.0.0** | `projects/v2_6_0_0_struct_types` | Packed Structures, Member Slicing, & Aggregate Vector Conversions (§7.2) | **PASS** | 100% VCS |
+| **v2.7.0.0** | `projects/v2_7_0_0_unpacked_arrays` | Fixed-Size Unpacked Arrays, Memory Element Indexing, & 4-State Out-of-Bounds Semantics (§7.4) | **PASS** | 100% VCS |
 
 ---
 

@@ -14,7 +14,7 @@ void StratifiedScheduler::queue_nba(size_t net_id, const LogicVal& val, uint32_t
     nba_queue.push_back({net_id, val, offset, slice_width, is_slice});
 }
 
-void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, uint32_t addr, const LogicVal& val) {
+void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, int64_t addr, const LogicVal& val) {
     nba_mem_queue.push_back({scoped_mem, addr, val});
 }
 
@@ -23,7 +23,7 @@ void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, c
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
-void StratifiedScheduler::queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, uint32_t addr, const LogicVal& val) {
+void StratifiedScheduler::queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, int64_t addr, const LogicVal& val) {
     delayed_nba_mem_queue[wake_time].push_back({scoped_mem, addr, val});
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
@@ -125,7 +125,7 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
         for (const auto& item : mit->second) {
             if (engine.memory_map.find(item.mem_scoped_name) != engine.memory_map.end()) {
                 auto& mem = engine.memory_map.at(item.mem_scoped_name);
-                if (item.addr < mem.depth) mem.words[item.addr] = item.val;
+                mem.set_word(item.addr, item.val);
             }
         }
         delayed_nba_mem_queue.erase(mit);
@@ -304,7 +304,7 @@ bool StratifiedScheduler::commit_nba_updates() {
     for (const auto& mem_up : nba_mem_queue) {
         if (engine.memory_map.find(mem_up.mem_scoped_name) != engine.memory_map.end()) {
             auto& mem = engine.memory_map.at(mem_up.mem_scoped_name);
-            if (mem_up.addr < mem.depth) mem.words[mem_up.addr] = mem_up.val;
+            mem.set_word(mem_up.addr, mem_up.val);
         }
     }
     nba_mem_queue.clear();

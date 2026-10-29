@@ -368,13 +368,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             target_val = local->value;
         } else {
             std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
-            if (engine.memory_map.find(scoped_ident) != engine.memory_map.end()) {
-                const auto& mem = engine.memory_map.at(scoped_ident);
+            std::string scoped_mem = scoped_ident;
+            if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+                if (engine.memory_map.find(idx_node->name) != engine.memory_map.end()) {
+                    scoped_mem = idx_node->name;
+                }
+            }
+            if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
+                const auto& mem = engine.memory_map.at(scoped_mem);
                 LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
-                if (addr_val.is_unknown() || addr_val.aval >= mem.depth) {
+                if (addr_val.is_unknown()) {
                     return LogicVal::make_x(mem.word_width);
                 }
-                return mem.words[addr_val.aval];
+                int64_t addr = (int64_t)addr_val.aval;
+                return mem.get_word(addr);
             }
 
             if (engine.net_map.find(scoped_ident) == engine.net_map.end()) {

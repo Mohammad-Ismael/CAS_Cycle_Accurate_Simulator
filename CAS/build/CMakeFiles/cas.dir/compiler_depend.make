@@ -817,6 +817,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -1356,6 +1357,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -1954,6 +1956,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
   /app/CAS/include/kernel/logic_ops.hpp \
@@ -2569,6 +2572,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \

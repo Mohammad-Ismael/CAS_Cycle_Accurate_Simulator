@@ -499,12 +499,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
-        std::string scoped_mem = bp.scope + "." + mem_assign->mem_name;
+        std::string scoped_mem = bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name);
+        if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+            if (engine.memory_map.find(mem_assign->mem_name) != engine.memory_map.end()) {
+                scoped_mem = mem_assign->mem_name;
+            }
+        }
         LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
         LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
 
         if (!addr_val.is_unknown()) {
-            uint32_t addr = addr_val.aval;
+            int64_t addr = (int64_t)addr_val.aval;
             if (mem_assign->is_non_blocking) {
                 if (mem_assign->intra_delay > 0) {
                     uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
@@ -515,7 +520,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                     auto& mem = engine.memory_map.at(scoped_mem);
-                    if (addr < mem.depth) mem.words[addr] = rhs_val;
+                    mem.set_word(addr, rhs_val);
                 }
             }
         }
@@ -625,6 +630,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             } else {
                 std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                std::string scoped_mem = scoped_full;
+                if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+                    if (engine.memory_map.find(target_name) != engine.memory_map.end()) {
+                        scoped_mem = target_name;
+                    }
+                }
+                if (engine.memory_map.find(scoped_mem) != engine.memory_map.end() && assign->bit_idx) {
+                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                    if (!idx_val.is_unknown()) {
+                        int64_t addr = (int64_t)idx_val.aval;
+                        auto& mem = engine.memory_map.at(scoped_mem);
+                        mem.set_word(addr, rhs_val);
+                    }
+                    return;
+                }
                 size_t net_id = (size_t)-1;
                 bool is_member = false;
                 if (engine.net_map.find(scoped_full) != engine.net_map.end()) {

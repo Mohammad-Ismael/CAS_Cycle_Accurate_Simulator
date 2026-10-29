@@ -20,7 +20,7 @@ struct NBAUpdate {
 
 struct NBAMemUpdate {
     std::string mem_scoped_name;
-    uint32_t addr;
+    int64_t addr;
     LogicVal val;
 };
 
@@ -102,9 +102,9 @@ public:
     void step_process(size_t pid);
     void schedule_event(uint64_t wake_time, uint32_t pid);
     void queue_nba(size_t net_id, const LogicVal& val, uint32_t offset = 0, uint32_t slice_width = 0, bool is_slice = false);
-    void queue_nba_mem(const std::string& scoped_mem, uint32_t addr, const LogicVal& val);
+    void queue_nba_mem(const std::string& scoped_mem, int64_t addr, const LogicVal& val);
     void queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val, uint32_t offset = 0, uint32_t slice_width = 0, bool is_slice = false);
-    void queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, uint32_t addr, const LogicVal& val);
+    void queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, int64_t addr, const LogicVal& val);
     void queue_delayed_blocking(uint64_t wake_time, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);
     void queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val, uint32_t offset = 0, uint32_t slice_width = 0, bool is_slice = false);
     void queue_intra_event_blocking(size_t trigger_net_id, EdgeType edge, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);

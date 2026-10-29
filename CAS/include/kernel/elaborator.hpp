@@ -33,14 +33,54 @@ struct ResolvedContinuousAssign {
 
 struct MemoryArray {
     std::string name;
-    uint32_t word_width;
-    uint32_t depth;
+    uint32_t word_width = 32;
+    uint32_t depth = 0;
+    int64_t start_idx = 0;
+    int64_t end_idx = 0;
+    bool is_descending = false;
     std::vector<LogicVal> words;
 
-    MemoryArray() : word_width(32), depth(0) {}
-    MemoryArray(std::string n, uint32_t w, uint32_t d)
-        : name(std::move(n)), word_width(w), depth(d),
-          words(d, LogicVal::make_x(w)) {}
+    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false) {}
+    MemoryArray(std::string n, uint32_t w, uint32_t d, int64_t b1 = 0, int64_t b2 = 0)
+        : name(std::move(n)), word_width(w), depth(d) {
+        if (b1 <= b2) {
+            start_idx = b1;
+            end_idx = b2;
+            is_descending = false;
+        } else {
+            start_idx = b2;
+            end_idx = b1;
+            is_descending = true;
+        }
+        words = std::vector<LogicVal>(d, LogicVal::make_x(w));
+    }
+
+    bool is_valid_index(int64_t idx) const {
+        return (idx >= start_idx && idx <= end_idx);
+    }
+
+    size_t to_word_offset(int64_t idx) const {
+        if (is_descending) {
+            return (size_t)(end_idx - idx);
+        } else {
+            return (size_t)(idx - start_idx);
+        }
+    }
+
+    LogicVal get_word(int64_t idx) const {
+        if (!is_valid_index(idx)) return LogicVal::make_x(word_width);
+        size_t off = to_word_offset(idx);
+        if (off < words.size()) return words[off];
+        return LogicVal::make_x(word_width);
+    }
+
+    void set_word(int64_t idx, const LogicVal& val) {
+        if (!is_valid_index(idx)) return;
+        size_t off = to_word_offset(idx);
+        if (off < words.size()) {
+            words[off] = val;
+        }
+    }
 };
 
 struct EventWaitTarget {
