@@ -142,7 +142,14 @@ Token Lexer::next_token() {
     if (c == ';') { advance(); return {TokenType::TOKEN_SEMICOLON, ";", 0, 0, cur_file, cur_line, 0}; }
     if (c == ',') { advance(); return {TokenType::TOKEN_COMMA, ",", 0, 0, cur_file, cur_line, 0}; }
     if (c == '.') { advance(); return {TokenType::TOKEN_DOT, ".", 0, 0, cur_file, cur_line, 0}; }
-    if (c == '#') { advance(); return {TokenType::TOKEN_HASH, "#", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '#') {
+        advance();
+        if (peek() == '#') {
+            advance();
+            return {TokenType::TOKEN_CYCLE_DELAY, "##", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_HASH, "#", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == '@') { advance(); return {TokenType::TOKEN_AT, "@", 0, 0, cur_file, cur_line, 0}; }
     if (c == '?') { advance(); return {TokenType::TOKEN_QUESTION, "?", 0, 0, cur_file, cur_line, 0}; }
     if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0}; }
@@ -236,6 +243,15 @@ Token Lexer::next_token() {
     if (std::isdigit(c)) {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
+
+        if (std::isalpha(peek()) || peek() == '_') {
+            std::string alnum_part = "";
+            while (std::isalnum(peek()) || peek() == '_') alnum_part += advance();
+            if (num_str == "1" && alnum_part == "step") {
+                return {TokenType::TOKEN_1STEP, "1step", 0, 0, cur_file, cur_line, 0};
+            }
+            num_str += alnum_part;
+        }
 
         if (peek() == '\'') {
             uint32_t width = std::stoul(num_str);
@@ -362,6 +378,9 @@ Token Lexer::next_token() {
         if (ident == "interface") return {TokenType::TOKEN_INTERFACE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endinterface") return {TokenType::TOKEN_ENDINTERFACE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "modport") return {TokenType::TOKEN_MODPORT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "clocking") return {TokenType::TOKEN_CLOCKING, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endclocking") return {TokenType::TOKEN_ENDCLOCKING, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "1step") return {TokenType::TOKEN_1STEP, ident, 0, 0, cur_file, cur_line, 0};
 
 
 

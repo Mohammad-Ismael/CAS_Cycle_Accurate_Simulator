@@ -376,6 +376,90 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    for (auto& cb_node : mod->clocking_blocks) {
+        ClockingBlockInstance cb_inst;
+        cb_inst.name = cb_node->name;
+        cb_inst.scope = scope;
+        cb_inst.is_default = cb_node->is_default;
+        cb_inst.clock_edge = cb_node->clock_edge;
+        cb_inst.clock_signal = cb_node->clock_signal;
+        cb_inst.default_input_skew = cb_node->default_input_skew;
+        cb_inst.default_output_skew = cb_node->default_output_skew;
+
+        std::string clk_scoped = scope.empty() ? cb_node->clock_signal : (scope + "." + cb_node->clock_signal);
+        if (result.net_map.find(clk_scoped) != result.net_map.end()) {
+            cb_inst.clock_net_id = result.net_map.at(clk_scoped);
+        } else if (result.net_map.find(cb_node->clock_signal) != result.net_map.end()) {
+            cb_inst.clock_net_id = result.net_map.at(cb_node->clock_signal);
+        }
+
+        for (const auto& item : cb_node->items) {
+            ClockingSignalInfo sinfo;
+            sinfo.direction = item.direction;
+            sinfo.signal_name = item.signal_name;
+            sinfo.skew = item.skew.empty() ? (item.direction == "input" ? cb_node->default_input_skew : cb_node->default_output_skew) : item.skew;
+
+            std::string sig_scoped = scope.empty() ? item.signal_name : (scope + "." + item.signal_name);
+            if (result.net_map.find(sig_scoped) != result.net_map.end()) {
+                sinfo.net_id = result.net_map.at(sig_scoped);
+            } else if (result.net_map.find(item.signal_name) != result.net_map.end()) {
+                sinfo.net_id = result.net_map.at(item.signal_name);
+            }
+            cb_inst.signals[item.signal_name] = sinfo;
+            cb_inst.signal_names.push_back(item.signal_name);
+        }
+
+        size_t cb_idx = result.clocking_blocks.size();
+        result.clocking_blocks.push_back(std::move(cb_inst));
+        std::string full_cb_name = scope.empty() ? cb_node->name : (scope + "." + cb_node->name);
+        result.clocking_block_map[full_cb_name] = cb_idx;
+        result.clocking_block_map[cb_node->name] = cb_idx;
+
+        if (cb_node->is_default) {
+            result.default_clocking_map[scope] = cb_idx;
+        }
+    }
+
+    std::function<void(StatementNode*)> check_dcns = [&](StatementNode* s) {
+        if (!s) return;
+        if (auto cd = dynamic_cast<CycleDelayStatementNode*>(s)) {
+            if (cd->clocking_name.empty()) {
+                if (mod->default_clocking_name.empty()) {
+                    throw std::runtime_error("[CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                }
+            } else {
+                if (mod->clocking_block_map.find(cd->clocking_name) == mod->clocking_block_map.end()) {
+                    throw std::runtime_error("[CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                }
+            }
+        } else if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
+            for (auto& child : blk->statements) check_dcns(child.get());
+        } else if (auto if_s = dynamic_cast<IfStatementNode*>(s)) {
+            for (auto& child : if_s->then_branch) check_dcns(child.get());
+            for (auto& child : if_s->else_branch) check_dcns(child.get());
+        } else if (auto for_s = dynamic_cast<ForStatementNode*>(s)) {
+            for (auto& child : for_s->body) check_dcns(child.get());
+        } else if (auto wh_s = dynamic_cast<WhileStatementNode*>(s)) {
+            for (auto& child : wh_s->body) check_dcns(child.get());
+        } else if (auto rep_s = dynamic_cast<RepeatStatementNode*>(s)) {
+            for (auto& child : rep_s->body) check_dcns(child.get());
+        } else if (auto fo_s = dynamic_cast<ForeverStatementNode*>(s)) {
+            for (auto& child : fo_s->body) check_dcns(child.get());
+        } else if (auto fork_s = dynamic_cast<ForkStatementNode*>(s)) {
+            for (auto& child : fork_s->branches) check_dcns(child.get());
+        }
+    };
+    for (auto& proc : mod->processes) {
+        for (auto& s : proc->body) {
+            check_dcns(s.get());
+        }
+    }
+    for (auto& t : mod->tasks) {
+        for (auto& s : t->body) {
+            check_dcns(s.get());
+        }
+    }
+
     for (auto& proc : mod->processes) {
         result.processes.push_back({scope, proc.get(), 0, false});
     }
@@ -577,6 +661,22 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 resolved_target = result.interface_port_map.at(scoped_prefix) + "." + suffix;
             } else if (result.interface_port_map.find(prefix) != result.interface_port_map.end()) {
                 resolved_target = result.interface_port_map.at(prefix) + "." + suffix;
+            }
+            std::string scoped_cb = scope.empty() ? prefix : (scope + "." + prefix);
+            if (result.clocking_block_map.find(scoped_cb) != result.clocking_block_map.end()) {
+                size_t cb_idx = result.clocking_block_map.at(scoped_cb);
+                const auto& cb = result.clocking_blocks[cb_idx];
+                auto it_sig = cb.signals.find(suffix);
+                if (it_sig != cb.signals.end()) {
+                    return it_sig->second.net_id;
+                }
+            } else if (result.clocking_block_map.find(prefix) != result.clocking_block_map.end()) {
+                size_t cb_idx = result.clocking_block_map.at(prefix);
+                const auto& cb = result.clocking_blocks[cb_idx];
+                auto it_sig = cb.signals.find(suffix);
+                if (it_sig != cb.signals.end()) {
+                    return it_sig->second.net_id;
+                }
             }
         }
         std::string scoped = scope.empty() ? resolved_target : (scope + "." + resolved_target);

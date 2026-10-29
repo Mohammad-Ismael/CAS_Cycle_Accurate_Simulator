@@ -52,6 +52,9 @@ private:
     std::unordered_map<std::string, std::string> var_to_struct_type;
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
+    std::vector<ClockingBlockInstance> clocking_blocks;
+    std::unordered_map<std::string, size_t> clocking_block_map;
+    std::unordered_map<std::string, size_t> default_clocking_map;
 
     MonitorSession monitor_session;
 
@@ -112,6 +115,8 @@ public:
 
     std::string resolve_scoped_name(const std::string& scope, const std::string& name) const;
     size_t get_net_id(const std::string& scope, const std::string& name) const;
+    size_t get_clocking_block_id(const std::string& cb_name, const std::string& scope = "") const;
+    bool is_clocking_block(const std::string& name) const;
 
     void load_elaboration(ElaborationResult&& elab_res);
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 

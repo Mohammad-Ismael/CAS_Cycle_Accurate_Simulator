@@ -259,6 +259,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string member_name = member_node->member_name;
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
+        size_t cb_id = engine.get_clocking_block_id(var_name, scope);
+        if (cb_id != (size_t)-1) {
+            const auto& cb = engine.clocking_blocks[cb_id];
+            auto it = cb.signals.find(member_name);
+            if (it != cb.signals.end()) {
+                if (it->second.direction == "input" || it->second.direction == "inout") {
+                    return it->second.sampled_value;
+                }
+                if (it->second.net_id < engine.netlist.size()) {
+                    return engine.netlist[it->second.net_id].value;
+                }
+            }
+        }
+
         std::string full_hier = var_name + "." + member_name;
         size_t nid = engine.get_net_id(scope, full_hier);
         if (nid != (size_t)-1) {

@@ -263,3 +263,11 @@ struct DumpVarsStatementNode : public StatementNode {
     uint32_t levels = 0;
     explicit DumpVarsStatementNode(uint32_t lvl = 0) : levels(lvl) {}
 };
+
+struct CycleDelayStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> cycle_expr;
+    std::string clocking_name;
+
+    explicit CycleDelayStatementNode(std::unique_ptr<ExpressionNode> expr = nullptr, std::string cb = "")
+        : cycle_expr(std::move(expr)), clocking_name(std::move(cb)) {}
+};

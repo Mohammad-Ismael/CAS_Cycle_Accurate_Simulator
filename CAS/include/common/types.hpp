@@ -7,3 +7,4 @@
 #include "struct_types.hpp"
 #include "queue_types.hpp"
 #include "dynamic_array_types.hpp"
+#include "clocking_types.hpp"

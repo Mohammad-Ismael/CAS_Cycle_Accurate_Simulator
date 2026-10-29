@@ -192,6 +192,33 @@ struct ModportItemNode : public ASTNode {
     }
 };
 
+struct ClockingItem {
+    std::string direction; // "input", "output", "inout"
+    std::string signal_name;
+    std::string skew = "";
+};
+
+struct ClockingBlockNode : public ASTNode {
+    std::string name;
+    bool is_default = false;
+    EdgeType clock_edge = EdgeType::POSEDGE;
+    std::string clock_signal;
+    std::string default_input_skew = "1step";
+    std::string default_output_skew = "0";
+    std::vector<ClockingItem> items;
+    std::unordered_map<std::string, ClockingItem> item_map;
+
+    ClockingBlockNode() = default;
+    ClockingBlockNode(std::string n, bool def = false)
+        : name(std::move(n)), is_default(def) {}
+
+    void add_item(const std::string& dir, const std::string& sig_name, const std::string& sk = "") {
+        ClockingItem item{dir, sig_name, sk};
+        items.push_back(item);
+        item_map[sig_name] = item;
+    }
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -210,6 +237,9 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
     std::vector<std::unique_ptr<ModportItemNode>> modports;
     std::unordered_map<std::string, ModportItemNode*> modport_map;
+    std::vector<std::unique_ptr<ClockingBlockNode>> clocking_blocks;
+    std::unordered_map<std::string, ClockingBlockNode*> clocking_block_map;
+    std::string default_clocking_name = "";
 
     ModuleNode() = default;
 };

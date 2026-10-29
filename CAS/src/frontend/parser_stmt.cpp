@@ -88,6 +88,28 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q, is_dyn);
     }
 
+    // Cycle Delay Statement (##N; or ##(expr);)
+    if (match(TokenType::TOKEN_CYCLE_DELAY)) {
+        std::unique_ptr<ExpressionNode> cycle_expr = nullptr;
+        if (current.type == TokenType::TOKEN_NUMBER) {
+            uint64_t n = current.num_val;
+            advance();
+            cycle_expr = std::make_unique<NumberNode>(n, 32);
+        } else if (match(TokenType::TOKEN_LPAREN)) {
+            cycle_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cycle delay expression");
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            std::string id_name = current.text;
+            advance();
+            cycle_expr = std::make_unique<IdentifierNode>(id_name);
+        } else {
+            cycle_expr = parse_expression();
+        }
+
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after cycle delay statement");
+        return std::make_unique<CycleDelayStatementNode>(std::move(cycle_expr));
+    }
+
     // 2. Delay Statement (#5; or #delay_ticks; or #5 clk = ~clk;)
     if (match(TokenType::TOKEN_HASH)) {
         std::unique_ptr<ExpressionNode> delay_expr = nullptr;

@@ -40,6 +40,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     var_to_struct_type = std::move(elab_res.var_to_struct_type);
     interface_port_map = std::move(elab_res.interface_port_map);
     modport_binding_map = std::move(elab_res.modport_binding_map);
+    clocking_blocks = std::move(elab_res.clocking_blocks);
+    clocking_block_map = std::move(elab_res.clocking_block_map);
+    default_clocking_map = std::move(elab_res.default_clocking_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
@@ -141,4 +144,23 @@ EngineStats Engine::get_stats() {
     s.delta_cycles = scheduler.get_delta_cycles();
     s.nba_commits = scheduler.get_nba_commits();
     return s;
+}
+
+size_t Engine::get_clocking_block_id(const std::string& cb_name, const std::string& scope) const {
+    if (!cb_name.empty()) {
+        std::string scoped = scope.empty() ? cb_name : (scope + "." + cb_name);
+        auto it = clocking_block_map.find(scoped);
+        if (it != clocking_block_map.end()) return it->second;
+        auto it2 = clocking_block_map.find(cb_name);
+        if (it2 != clocking_block_map.end()) return it2->second;
+    } else {
+        auto it = default_clocking_map.find(scope);
+        if (it != default_clocking_map.end()) return it->second;
+        if (!default_clocking_map.empty()) return default_clocking_map.begin()->second;
+    }
+    return (size_t)-1;
+}
+
+bool Engine::is_clocking_block(const std::string& name) const {
+    return clocking_block_map.find(name) != clocking_block_map.end();
 }

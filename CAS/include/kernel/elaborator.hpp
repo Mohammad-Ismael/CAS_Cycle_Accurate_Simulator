@@ -131,6 +131,10 @@ struct BoundProcess {
     bool is_waiting_fork = false;
     size_t waiting_event_id = (size_t)-1;
 
+    bool is_waiting_cycle = false;
+    size_t cycle_delay_count = 0;
+    size_t clocking_block_id = (size_t)-1;
+
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
         : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}
@@ -159,6 +163,9 @@ struct ElaborationResult {
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
     std::unordered_set<std::string> interface_instances;
+    std::vector<ClockingBlockInstance> clocking_blocks;
+    std::unordered_map<std::string, size_t> clocking_block_map;
+    std::unordered_map<std::string, size_t> default_clocking_map;
 };
 
 class Elaborator {

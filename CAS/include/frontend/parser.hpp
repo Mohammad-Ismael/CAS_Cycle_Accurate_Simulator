@@ -42,6 +42,7 @@ public:
         return struct_typedef_map.find(name) != struct_typedef_map.end();
     }
     std::unique_ptr<TypedefNode> parse_typedef();
+    std::string parse_skew_spec();
 
     explicit Parser(Lexer& lex);
 

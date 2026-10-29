@@ -251,6 +251,87 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after modport declaration");
                 continue;
             }
+
+            bool is_def_cb = false;
+            if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_CLOCKING) {
+                is_def_cb = true;
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_CLOCKING) {
+                advance();
+                std::string cb_name = "";
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    cb_name = current.text;
+                    advance();
+                } else if (is_def_cb) {
+                    cb_name = "__default_cb";
+                } else {
+                    throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                        ": error: Expected clocking identifier");
+                }
+                expect(TokenType::TOKEN_AT, "Expected '@' in clocking block event control");
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+                EdgeType edge = EdgeType::LEVEL;
+                if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+                else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                std::string clk_sig = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected clock signal identifier");
+                while (match(TokenType::TOKEN_DOT)) {
+                    clk_sig += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in clocking signal");
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clocking event");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after clocking header");
+
+                auto cb_node = std::make_unique<ClockingBlockNode>(cb_name, is_def_cb);
+                cb_node->clock_edge = edge;
+                cb_node->clock_signal = clk_sig;
+
+                while (current.type != TokenType::TOKEN_ENDCLOCKING && current.type != TokenType::TOKEN_EOF) {
+                    if (match(TokenType::TOKEN_DEFAULT)) {
+                        while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                            if (match(TokenType::TOKEN_INPUT)) {
+                                cb_node->default_input_skew = parse_skew_spec();
+                            } else if (match(TokenType::TOKEN_OUTPUT)) {
+                                cb_node->default_output_skew = parse_skew_spec();
+                            } else {
+                                advance();
+                            }
+                        }
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after default clocking skew");
+                        continue;
+                    }
+
+                    if (current.type == TokenType::TOKEN_INPUT || 
+                        current.type == TokenType::TOKEN_OUTPUT || 
+                        current.type == TokenType::TOKEN_INOUT) {
+                        std::string pdir = current.text;
+                        advance();
+                        std::string skew = parse_skew_spec();
+                        while (true) {
+                            std::string sig = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in clocking item");
+                            cb_node->add_item(pdir, sig, skew);
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after clocking signal list");
+                        continue;
+                    }
+
+                    advance();
+                }
+                expect(TokenType::TOKEN_ENDCLOCKING, "Expected 'endclocking'");
+                if (match(TokenType::TOKEN_COLON)) {
+                    match(TokenType::TOKEN_IDENTIFIER);
+                }
+                if (is_def_cb || mod->default_clocking_name.empty()) {
+                    if (is_def_cb) mod->default_clocking_name = cb_name;
+                }
+                mod->clocking_block_map[cb_name] = cb_node.get();
+                mod->clocking_blocks.push_back(std::move(cb_node));
+                continue;
+            }
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
@@ -726,6 +807,30 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
     return modules;
 }
+std::string Parser::parse_skew_spec() {
+    if (match(TokenType::TOKEN_HASH)) {
+        if (current.type == TokenType::TOKEN_1STEP) {
+            advance();
+            return "1step";
+        }
+        if (current.type == TokenType::TOKEN_NUMBER) {
+            std::string num = current.text;
+            advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "step") {
+                advance();
+                return num + "step";
+            }
+            return num;
+        }
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            std::string id = current.text;
+            advance();
+            return id;
+        }
+    }
+    return "";
+}
+
 std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
 

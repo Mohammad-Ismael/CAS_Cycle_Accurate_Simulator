@@ -72,6 +72,7 @@ private:
 
     bool trigger_intra_event_nbas();
     bool trigger_intra_event_blocking();
+    void evaluate_clocking_blocks();
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;

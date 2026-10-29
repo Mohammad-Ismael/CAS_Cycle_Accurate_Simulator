@@ -529,6 +529,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             member_name = target_name.substr(dot_pos + 1);
         }
 
+        if (!member_name.empty()) {
+            size_t cb_id = engine.get_clocking_block_id(base_var, bp.scope);
+            if (cb_id != (size_t)-1) {
+                auto& cb = engine.clocking_blocks[cb_id];
+                auto sig_it = cb.signals.find(member_name);
+                if (sig_it != cb.signals.end()) {
+                    size_t target_net_id = sig_it->second.net_id;
+                    if (target_net_id != (size_t)-1) {
+                        LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+                        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                        if (cb.fired_in_time_slot) {
+                            engine.scheduler.queue_nba(target_net_id, casted);
+                        } else {
+                            cb.pending_drives.push_back({target_net_id, casted});
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
         LocalVar* local = nullptr;
         if (expr_eval.get_context().has_active_frame()) {
             local = expr_eval.get_context().lookup_local(base_var);
@@ -686,6 +707,36 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+
+        if (!assign->lhs_targets.empty()) {
+            std::string target_name = assign->lhs_targets[0];
+            std::string base_var = target_name;
+            std::string member_name = "";
+            auto dot_pos = target_name.rfind('.');
+            if (dot_pos != std::string::npos) {
+                base_var = target_name.substr(0, dot_pos);
+                member_name = target_name.substr(dot_pos + 1);
+            }
+            if (!member_name.empty()) {
+                size_t cb_id = engine.get_clocking_block_id(base_var, bp.scope);
+                if (cb_id != (size_t)-1) {
+                    auto& cb = engine.clocking_blocks[cb_id];
+                    auto sig_it = cb.signals.find(member_name);
+                    if (sig_it != cb.signals.end()) {
+                        size_t target_net_id = sig_it->second.net_id;
+                        if (target_net_id != (size_t)-1) {
+                            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                            if (cb.fired_in_time_slot) {
+                                engine.scheduler.queue_nba(target_net_id, casted);
+                            } else {
+                                cb.pending_drives.push_back({target_net_id, casted});
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        }
 
         if (assign->lhs_targets.size() > 1) {
             int shift = 0;

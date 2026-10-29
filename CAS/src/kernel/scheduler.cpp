@@ -275,6 +275,58 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
     }
 }
 
+void StratifiedScheduler::evaluate_clocking_blocks() {
+    for (size_t cb_idx = 0; cb_idx < engine.clocking_blocks.size(); ++cb_idx) {
+        auto& cb = engine.clocking_blocks[cb_idx];
+        if (cb.fired_in_time_slot) continue;
+        if (cb.clock_net_id >= engine.netlist.size()) continue;
+
+        const auto& clk_net = engine.netlist[cb.clock_net_id];
+        bool clk_triggered = false;
+        if (cb.clock_edge == EdgeType::POSEDGE && clk_net.is_posedge()) {
+            clk_triggered = true;
+        } else if (cb.clock_edge == EdgeType::NEGEDGE && clk_net.is_negedge()) {
+            clk_triggered = true;
+        }
+
+        if (clk_triggered) {
+            cb.fired_in_time_slot = true;
+            // Preponed sampling of input signals
+            for (auto& kv : cb.signals) {
+                if (kv.second.direction == "input" || kv.second.direction == "inout") {
+                    if (kv.second.net_id < engine.netlist.size()) {
+                        kv.second.sampled_value = engine.netlist[kv.second.net_id].value;
+                    }
+                }
+            }
+
+            // Commit pending drives synchronized to this clock edge
+            for (const auto& drv : cb.pending_drives) {
+                queue_nba(drv.net_id, drv.val);
+            }
+            cb.pending_drives.clear();
+
+            // Decrement cycle delays and wake up processes
+            std::vector<size_t> pids_to_wake;
+            for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
+                auto& bp = engine.processes[pid];
+                if (bp.is_waiting_cycle && bp.clocking_block_id == cb_idx) {
+                    if (bp.cycle_delay_count > 0) {
+                        bp.cycle_delay_count--;
+                    }
+                    if (bp.cycle_delay_count == 0) {
+                        bp.is_waiting_cycle = false;
+                        pids_to_wake.push_back(pid);
+                    }
+                }
+            }
+            for (size_t pid : pids_to_wake) {
+                step_process(pid);
+            }
+        }
+    }
+}
+
 bool StratifiedScheduler::commit_nba_updates() {
     if (nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
 
@@ -530,6 +582,7 @@ void StratifiedScheduler::terminate_process_tree(size_t target_pid) {
     p.fork_barrier.active = false;
     p.is_waiting_fork = false;
     p.waiting_event_id = (size_t)-1;
+    p.is_waiting_cycle = false;
 }
 
 void StratifiedScheduler::trigger_named_event_id(size_t ev_id) {
@@ -625,14 +678,14 @@ void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     if (pid >= engine.processes.size()) return;
     auto& initial_bp = engine.processes[pid];
-    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1) return;
+    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1 || initial_bp.is_waiting_cycle) return;
 
     engine.evaluator.set_current_process(&initial_bp);
 
     while (simulation_active) {
         if (pid >= engine.processes.size()) break;
         auto& bp = engine.processes[pid];
-        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1) break;
+        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_cycle) break;
         engine.evaluator.set_current_process(&bp);
 
         // A. Execution within an active task activation frame
@@ -656,6 +709,24 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
 
             StatementNode* stmt = cur_frame.flattened_body[cur_frame.pc];
+
+            // Cycle Delay inside task: ##N
+            if (auto cdelay = dynamic_cast<CycleDelayStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                int64_t cycles = 1;
+                if (cdelay->cycle_expr) {
+                    LogicVal cval = engine.evaluator.eval_expr(cdelay->cycle_expr.get(), bp.scope);
+                    cycles = cval.is_unknown() ? 0 : (int64_t)cval.aval;
+                }
+                if (cycles > 0) {
+                    size_t cb_id = engine.get_clocking_block_id(cdelay->clocking_name, bp.scope);
+                    bp.is_waiting_cycle = true;
+                    bp.cycle_delay_count = (size_t)cycles;
+                    bp.clocking_block_id = cb_id;
+                    break;
+                }
+                continue;
+            }
 
             // Procedural Delay inside task: #delay
             if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
@@ -1041,6 +1112,24 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
+        // Cycle Delay Statement: ##N
+        if (auto cdelay = dynamic_cast<CycleDelayStatementNode*>(stmt)) {
+            bp.pc++;
+            int64_t cycles = 1;
+            if (cdelay->cycle_expr) {
+                LogicVal cval = engine.evaluator.eval_expr(cdelay->cycle_expr.get(), bp.scope);
+                cycles = cval.is_unknown() ? 0 : (int64_t)cval.aval;
+            }
+            if (cycles > 0) {
+                size_t cb_id = engine.get_clocking_block_id(cdelay->clocking_name, bp.scope);
+                bp.is_waiting_cycle = true;
+                bp.cycle_delay_count = (size_t)cycles;
+                bp.clocking_block_id = cb_id;
+                break;
+            }
+            continue;
+        }
+
         // 2. Procedural Delay: #delay
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
@@ -1185,6 +1274,7 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
 
         propagate_comb();
         evaluate_sequential_blocks();
+        evaluate_clocking_blocks();
 
         if (trigger_intra_event_nbas()) {
             activity = true;
@@ -1223,6 +1313,16 @@ void StratifiedScheduler::run_simulation() {
     for (auto& bp : engine.processes) {
         bp.fired_in_time_slot = false;
     }
+    for (auto& cb : engine.clocking_blocks) {
+        cb.fired_in_time_slot = false;
+        for (auto& kv : cb.signals) {
+            if (kv.second.direction == "input" || kv.second.direction == "inout") {
+                if (kv.second.net_id < engine.netlist.size()) {
+                    kv.second.sampled_value = engine.netlist[kv.second.net_id].value;
+                }
+            }
+        }
+    }
 
     size_t num_root_processes = engine.processes.size();
     for (size_t i = 0; i < num_root_processes; ++i) {
@@ -1250,6 +1350,9 @@ void StratifiedScheduler::run_simulation() {
 
         for (auto& bp : engine.processes) {
             bp.fired_in_time_slot = false;
+        }
+        for (auto& cb : engine.clocking_blocks) {
+            cb.fired_in_time_slot = false;
         }
 
         // 1. Active Region: Drain events for current timestamp
