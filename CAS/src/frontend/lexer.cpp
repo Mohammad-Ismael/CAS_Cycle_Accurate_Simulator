@@ -361,6 +361,7 @@ Token Lexer::next_token() {
         if (ident == "new") return {TokenType::TOKEN_NEW, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "interface") return {TokenType::TOKEN_INTERFACE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endinterface") return {TokenType::TOKEN_ENDINTERFACE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "modport") return {TokenType::TOKEN_MODPORT, ident, 0, 0, cur_file, cur_line, 0};
 
 
 

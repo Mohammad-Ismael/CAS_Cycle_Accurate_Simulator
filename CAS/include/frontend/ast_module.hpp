@@ -21,6 +21,7 @@ struct PortNode : public ASTNode {
     bool is_dynamic_array = false;
     bool is_interface = false;
     std::string interface_type_name = "";
+    std::string modport_name = "";
     std::unique_ptr<ExpressionNode> queue_bound_expr;
     NetKind net_kind = NetKind::WIRE;
     std::string type_name = "";
@@ -172,6 +173,25 @@ struct TypedefNode : public ASTNode {
         : type_name(std::move(name)), struct_type(std::move(st)) {}
 };
 
+struct ModportPort {
+    std::string direction; // "input", "output", "inout"
+    std::string name;
+};
+
+struct ModportItemNode : public ASTNode {
+    std::string name;
+    std::vector<ModportPort> ports;
+    std::unordered_map<std::string, std::string> signal_directions;
+
+    ModportItemNode() = default;
+    explicit ModportItemNode(std::string n) : name(std::move(n)) {}
+
+    void add_port(const std::string& dir, const std::string& sig_name) {
+        ports.push_back({dir, sig_name});
+        signal_directions[sig_name] = dir;
+    }
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -188,6 +208,8 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
+    std::vector<std::unique_ptr<ModportItemNode>> modports;
+    std::unordered_map<std::string, ModportItemNode*> modport_map;
 
     ModuleNode() = default;
 };

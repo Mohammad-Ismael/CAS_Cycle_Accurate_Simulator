@@ -107,6 +107,23 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 if (dir.empty() && current.type == TokenType::TOKEN_IDENTIFIER) {
                     Token next_tok = peek_token();
+                    if (next_tok.type == TokenType::TOKEN_DOT) {
+                        std::string iface_type = current.text;
+                        advance();
+                        expect(TokenType::TOKEN_DOT, "Expected '.' in modport port typing");
+                        std::string mp_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name");
+                        std::string pname = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
+                        PortNode port(pname, "interface");
+                        port.is_interface = true;
+                        port.interface_type_name = iface_type;
+                        port.modport_name = mp_name;
+                        port.type_name = iface_type + "." + mp_name;
+                        mod->ports.push_back(std::move(port));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
                     if (next_tok.type == TokenType::TOKEN_IDENTIFIER) {
                         std::string iface_type = current.text;
                         advance();
@@ -172,7 +189,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
                             current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED ||
                             current.type == TokenType::TOKEN_INTERFACE ||
-                            (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER)) {
+                            (current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_IDENTIFIER || peek_token().type == TokenType::TOKEN_DOT))) {
                             break;
                         }
                         continue;
@@ -193,11 +210,45 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : TokenType::TOKEN_ENDMODULE;
         while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
-            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "modport") {
+            if (current.type == TokenType::TOKEN_MODPORT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "modport")) {
+                advance();
                 while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
-                    advance();
+                    std::string mp_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected modport identifier");
+                    auto mp_node = std::make_unique<ModportItemNode>(mp_name);
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' in modport");
+                    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                        std::string pdir = "";
+                        if (current.type == TokenType::TOKEN_INPUT) { pdir = "input"; advance(); }
+                        else if (current.type == TokenType::TOKEN_OUTPUT) { pdir = "output"; advance(); }
+                        else if (current.type == TokenType::TOKEN_INOUT) { pdir = "inout"; advance(); }
+                        else {
+                            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                                ": error: Expected 'input', 'output', or 'inout' in modport port list (found: '" + current.text + "')");
+                        }
+                        while (true) {
+                            std::string sig_name = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in modport");
+                            mp_node->add_port(pdir, sig_name);
+                            if (match(TokenType::TOKEN_COMMA)) {
+                                if (current.type == TokenType::TOKEN_INPUT || 
+                                    current.type == TokenType::TOKEN_OUTPUT || 
+                                    current.type == TokenType::TOKEN_INOUT ||
+                                    current.type == TokenType::TOKEN_RPAREN) {
+                                    break;
+                                }
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing modport");
+                    mod->modport_map[mp_name] = mp_node.get();
+                    mod->modports.push_back(std::move(mp_node));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
                 }
-                match(TokenType::TOKEN_SEMICOLON);
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after modport declaration");
                 continue;
             }
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {

@@ -157,6 +157,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
     std::unordered_map<std::string, std::string> interface_port_map;
+    std::unordered_map<std::string, std::string> modport_binding_map;
     std::unordered_set<std::string> interface_instances;
 };
 

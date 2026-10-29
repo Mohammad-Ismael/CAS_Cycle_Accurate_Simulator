@@ -421,19 +421,42 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (formal_p) {
                 if (formal_p->is_interface || formal_p->direction == "interface") {
                     is_iface_port = true;
-                } else if (!formal_p->type_name.empty() && module_defs.count(formal_p->type_name) &&
-                           module_defs.at(formal_p->type_name)->is_interface) {
-                    is_iface_port = true;
+                } else if (!formal_p->type_name.empty()) {
+                    std::string base_type = formal_p->type_name;
+                    auto dot_pos = base_type.find('.');
+                    if (dot_pos != std::string::npos) {
+                        base_type = base_type.substr(0, dot_pos);
+                    }
+                    if (module_defs.count(base_type) && module_defs.at(base_type)->is_interface) {
+                        is_iface_port = true;
+                    }
                 } else if (!formal_p->interface_type_name.empty()) {
                     is_iface_port = true;
+                }
+            }
+            if (!is_iface_port && conn.expr) {
+                if (auto mem = dynamic_cast<MemberAccessNode*>(conn.expr.get())) {
+                    std::string pkey = scope.empty() ? mem->var_name : (scope + "." + mem->var_name);
+                    if (result.interface_instances.count(pkey) || result.interface_port_map.count(pkey)) {
+                        is_iface_port = true;
+                    }
                 }
             }
 
             if (is_iface_port) {
                 std::string actual_iface_name = "";
+                std::string modport_view = "";
                 if (auto id = dynamic_cast<IdentifierNode*>(conn.expr.get())) {
                     actual_iface_name = id->name;
+                } else if (auto mem = dynamic_cast<MemberAccessNode*>(conn.expr.get())) {
+                    actual_iface_name = mem->var_name;
+                    modport_view = mem->member_name;
                 }
+
+                if (modport_view.empty() && formal_p && !formal_p->modport_name.empty()) {
+                    modport_view = formal_p->modport_name;
+                }
+
                 std::string parent_port_key = scope.empty() ? actual_iface_name : (scope + "." + actual_iface_name);
                 std::string bound_target = "";
                 if (result.interface_port_map.find(parent_port_key) != result.interface_port_map.end()) {
@@ -446,9 +469,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
                 std::string child_port_key = child_scope + "." + target_port_name;
                 result.interface_port_map[child_port_key] = bound_target;
+                if (!modport_view.empty()) {
+                    result.modport_binding_map[child_port_key] = modport_view;
+                }
                 if (debug_out) {
                     *debug_out << "     * Bound interface port: " << child_port_key 
-                               << " -> " << bound_target << "\n";
+                               << " -> " << bound_target;
+                    if (!modport_view.empty()) {
+                        *debug_out << " (modport: " << modport_view << ")";
+                    }
+                    *debug_out << "\n";
                 }
                 continue;
             }

@@ -120,7 +120,8 @@ enum class TokenType {
     TOKEN_DOLLAR,
     TOKEN_NEW,
     TOKEN_INTERFACE,
-    TOKEN_ENDINTERFACE
+    TOKEN_ENDINTERFACE,
+    TOKEN_MODPORT
 };
 
 struct Token {

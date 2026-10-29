@@ -39,6 +39,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     struct_types = std::move(elab_res.struct_types);
     var_to_struct_type = std::move(elab_res.var_to_struct_type);
     interface_port_map = std::move(elab_res.interface_port_map);
+    modport_binding_map = std::move(elab_res.modport_binding_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
