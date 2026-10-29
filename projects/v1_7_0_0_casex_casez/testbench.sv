@@ -234,14 +234,14 @@ module tb_v1_7_0_0_regression;
                 error_count = error_count + 1;
             end
 
-            // Unbased '? wildcard matching
+            // Sized based wildcard matching (IEEE Std 1800-2023 §5.7.1 & §12.5)
             casez (test_sel)
-                '?:      sub_test_res = 42;
+                4'b????: sub_test_res = 42;
                 default: sub_test_res = 0;
             endcase
 
             if (sub_test_res !== 42) begin
-                $display("[FAIL] Unbased '? wildcard match failed! sub_test_res=%0d (exp 42)", sub_test_res);
+                $display("[FAIL] Sized wildcard 4'b???? match failed! sub_test_res=%0d (exp 42)", sub_test_res);
                 error_count = error_count + 1;
             end
         end

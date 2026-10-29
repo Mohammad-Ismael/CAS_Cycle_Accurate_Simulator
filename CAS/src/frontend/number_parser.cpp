@@ -16,9 +16,11 @@ ParsedNumber NumberParser::parse_unbased_literal(char lit) {
     } else if (lit == 'x' || lit == 'X') {
         res.aval = ~0ULL;
         res.bval = ~0ULL;
-    } else if (lit == 'z' || lit == 'Z' || lit == '?') {
+    } else if (lit == 'z' || lit == 'Z') {
         res.aval = 0;
         res.bval = ~0ULL;
+    } else {
+        throw std::runtime_error("Invalid unbased unsized literal: '" + std::string(1, lit) + "'. IEEE Std 1800-2023 §5.7.1 restricts unbased literals to '0, '1, 'z/'Z, and 'x/'X.");
     }
     return res;
 }
