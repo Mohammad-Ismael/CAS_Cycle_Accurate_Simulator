@@ -77,6 +77,8 @@ private:
     void transfer_due_delayed_updates(uint64_t target_time);
     void invoke_task(BoundProcess& bp, TaskCallNode* tcall);
     void write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val);
+    void invoke_fork(size_t pid, ForkStatementNode* fork_stmt);
+    void notify_parent_child_completed(size_t child_pid);
 
 public:
     explicit StratifiedScheduler(Engine& eng);

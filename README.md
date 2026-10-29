@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v2.1.0.0`  
-**Status:** Production Milestone v2.1.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v2.2.0.0`  
+**Status:** Production Milestone v2.2.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -20,6 +20,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§6.5, §10.3.2** | **Variable Exclusivity Enforcement** | Variables (`logic`, `reg`, `var`) reject multiple continuous assignment drivers with `[CAS-MCD]`. |
 | **§6.7** | **4-State Logic System** | Dual-rail 64-bit integer vectors (`aval` data, `bval` control) supporting `0`, `1`, `X`, and `Z`. |
 | **§9.2.2.4** | **Driver Exclusivity Enforcement** | Variables driven inside `always_ff`, `always_comb`, or `always_latch` reject multi-process or continuous drives (`[CAS-ICPD]`). |
+| **§9.3.2** | **Parallel Blocks (`fork ... join`)** | `fork ... join` (all complete), `fork ... join_any` (any completes, background continuation), `fork ... join_none` (non-blocking concurrent dispatch). Dynamic thread tree with inherited lexical scopes and call frames. |
 | **§9.4** | **Procedural Event Controls** | Level and edge-triggered events (`posedge`, `negedge`), asynchronous reset sensitivity lists, and named events. |
 | **§10.4.2** | **Procedural Continuous Assignments** | Procedural `assign` and `deassign` on variables with dynamic operand sensitivity and procedural write suppression. |
 | **§10.6.1** | **Intra-Assignment Delays** | Timing controls within procedural assignments (`a = #delay expr;` and `a <= #delay expr;`). |
@@ -33,7 +34,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (12 / 12 PASS)
+## Milestone Regression Pass Matrix (13 / 13 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -51,6 +52,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v1.9.0.0** | `projects/v1_9_0_0_intra_event` | Event-Based Intra-Assignments (`@(edge sig)`) (§10.6.2) | **PASS** | 100% VCS |
 | **v2.0.0.0** | `projects/v2_0_0_0_multi_driver_resolution` | Net Types (`wire`, `wand`, `wor`, `tri`) & Multi-Driver Resolution (§6.5, §10.3) | **PASS** | 100% VCS |
 | **v2.1.0.0** | `projects/v2_1_0_0_automatic_routines` | Automatic Functions, Re-entrant Tasks, & Call Frames (§13.4.2, §13.5.1) | **PASS** | 100% VCS |
+| **v2.2.0.0** | `projects/v2_2_0_0_fork_join` | Parallel Blocks (`fork ... join`, `join_any`, `join_none`) (§9.3.2) | **PASS** | 100% VCS |
 
 ---
 
@@ -97,8 +99,8 @@ CAS_Cycle_Accurate_Simulator/
 │   │   ├── profiler/           # Runtime hardware resource profiler
 │   │   └── tracer/             # VCD trace dumper
 │   └── src/                    # Implementation sources
-├── projects/                   # Milestone regression suites (v1_0_0_0 through v2_0_0_0)
-├── versions/                   # Milestone release documentation (v1.0.0.0.md through v2.0.0.0.md)
+├── projects/                   # Milestone regression suites (v1_0_0_0 through v2_2_0_0)
+├── versions/                   # Milestone release documentation (v1.0.0.0.md through v2.2.0.0.md)
 ├── server.py                   # Containerized FastAPI simulation and IDE server
 ├── Dockerfile                  # Production container definition
 └── README.md                   # Simulator architecture and documentation
@@ -123,7 +125,7 @@ docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c "apk add --no-cac
 
 ```powershell
 # Run a multi-file project directly:
-./CAS/build/cas projects/v2_1_0_0_automatic_routines/testbench.sv projects/v2_1_0_0_automatic_routines/design.sv
+./CAS/build/cas projects/v2_2_0_0_fork_join/testbench.sv projects/v2_2_0_0_fork_join/design.sv
 
 # Command-line options:
 #   --quiet        Disable compiler phase logging
@@ -143,7 +145,7 @@ import subprocess, os
 suites = ['v1_0_0_0_shift_reg_core', 'v1_1_0_0_four_state_core', 'v1_2_0_0_width_sign_core',
           'v1_3_0_0_loop_func_core', 'v1_4_0_0_reduction_core', 'v1_5_0_0_event_ctrl_core',
           'v1_6_0_0_intra_assign_core', 'v1_7_0_0_casex_casez', 'v1_8_0_0_procedural_continuous',
-          'v1_9_0_0_intra_event', 'v2_0_0_0_multi_driver_resolution', 'v2_1_0_0_automatic_routines']
+          'v1_9_0_0_intra_event', 'v2_0_0_0_multi_driver_resolution', 'v2_1_0_0_automatic_routines', 'v2_2_0_0_fork_join']
 for s in suites:
     cmd = ['docker', 'exec', '-w', f'/app/projects/{s}', 'cas_dev', '/app/CAS/build/cas', 'testbench.sv', 'design.sv']
     r = subprocess.run(cmd, capture_output=True, text=True)

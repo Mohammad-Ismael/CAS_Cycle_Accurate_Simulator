@@ -301,6 +301,10 @@ Token Lexer::next_token() {
         if (ident == "while") return {TokenType::TOKEN_WHILE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "repeat") return {TokenType::TOKEN_REPEAT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "forever") return {TokenType::TOKEN_FOREVER, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "fork") return {TokenType::TOKEN_FORK, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "join") return {TokenType::TOKEN_JOIN, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "join_any") return {TokenType::TOKEN_JOIN_ANY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "join_none") return {TokenType::TOKEN_JOIN_NONE, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line, 0};

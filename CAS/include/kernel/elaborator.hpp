@@ -62,9 +62,18 @@ struct TaskActivationFrame {
         : task_name(std::move(name)), task_node(node), local_frame(task_name) {}
 };
 
+struct ForkBarrier {
+    bool active = false;
+    bool in_fork_setup = false;
+    JoinType join_type = JoinType::JOIN;
+    size_t total_children = 0;
+    size_t completed_children = 0;
+    std::vector<size_t> child_pids;
+};
+
 struct BoundProcess {
     std::string scope;
-    ProcessNode* proc;
+    ProcessNode* proc = nullptr;
     size_t pc = 0;
     bool completed = false;
     EventWaitTarget wait_target;
@@ -72,6 +81,15 @@ struct BoundProcess {
     size_t loop_start_pc = 0;
     bool fired_in_time_slot = false;
     std::vector<TaskActivationFrame> call_stack;
+
+    size_t parent_pid = (size_t)-1;
+    ForkBarrier fork_barrier;
+    std::vector<StatementNode*> dynamic_statements;
+    bool is_delayed = false;
+
+    BoundProcess() = default;
+    BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
+        : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}
 };
 
 struct ElaborationResult {

@@ -94,6 +94,9 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
                     engine.netlist[net_id].set(casted);
                 }
             }
+            if (item.pid < engine.processes.size()) {
+                engine.processes[item.pid].is_delayed = false;
+            }
             step_process(item.pid);
             triggered_any = true;
         } else {
@@ -140,6 +143,9 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
                 }
             }
             // Resume the waiting process
+            if (b_item.pid < engine.processes.size()) {
+                engine.processes[b_item.pid].is_delayed = false;
+            }
             step_process(b_item.pid);
         }
         delayed_blocking_queue.erase(bit);
@@ -416,14 +422,107 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
         net.set(casted);
     }
 }
+
+void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) {
+    if (!fork_stmt) return;
+
+    size_t total_children = fork_stmt->branches.size();
+    if (total_children == 0) {
+        return;
+    }
+
+    engine.processes[pid].fork_barrier.join_type = fork_stmt->join_type;
+    engine.processes[pid].fork_barrier.total_children = total_children;
+    engine.processes[pid].fork_barrier.completed_children = 0;
+    engine.processes[pid].fork_barrier.child_pids.clear();
+    engine.processes[pid].fork_barrier.in_fork_setup = true;
+
+    if (fork_stmt->join_type == JoinType::JOIN_NONE) {
+        engine.processes[pid].fork_barrier.active = false;
+    } else {
+        engine.processes[pid].fork_barrier.active = true;
+    }
+
+    // Spawn child processes
+    for (auto& branch : fork_stmt->branches) {
+        BoundProcess child_bp;
+        child_bp.scope = engine.processes[pid].scope;
+        child_bp.proc = engine.processes[pid].proc;
+        child_bp.call_stack = engine.processes[pid].call_stack;
+        child_bp.parent_pid = pid;
+        child_bp.pc = 0;
+        child_bp.completed = false;
+        child_bp.is_delayed = false;
+
+        flatten_task_statements(branch.get(), child_bp.dynamic_statements);
+
+        size_t child_pid = engine.processes.size();
+        engine.processes.push_back(std::move(child_bp));
+        engine.processes[pid].fork_barrier.child_pids.push_back(child_pid);
+    }
+
+    // Step child processes in Active region
+    std::vector<size_t> child_pids = engine.processes[pid].fork_barrier.child_pids;
+    for (size_t c_pid : child_pids) {
+        step_process(c_pid);
+    }
+
+    engine.processes[pid].fork_barrier.in_fork_setup = false;
+
+    // Check if barrier was satisfied during synchronous execution
+    if (engine.processes[pid].fork_barrier.active) {
+        if (engine.processes[pid].fork_barrier.join_type == JoinType::JOIN &&
+            engine.processes[pid].fork_barrier.completed_children >= engine.processes[pid].fork_barrier.total_children) {
+            engine.processes[pid].fork_barrier.active = false;
+        } else if (engine.processes[pid].fork_barrier.join_type == JoinType::JOIN_ANY &&
+                   engine.processes[pid].fork_barrier.completed_children >= 1) {
+            engine.processes[pid].fork_barrier.active = false;
+        }
+    }
+}
+
+void StratifiedScheduler::notify_parent_child_completed(size_t child_pid) {
+    if (child_pid >= engine.processes.size()) return;
+    size_t ppid = engine.processes[child_pid].parent_pid;
+    if (ppid == (size_t)-1 || ppid >= engine.processes.size()) return;
+
+    auto& parent = engine.processes[ppid];
+    if (!parent.fork_barrier.active) return;
+
+    parent.fork_barrier.completed_children++;
+
+    bool unblock = false;
+    if (parent.fork_barrier.join_type == JoinType::JOIN) {
+        if (parent.fork_barrier.completed_children >= parent.fork_barrier.total_children) {
+            unblock = true;
+        }
+    } else if (parent.fork_barrier.join_type == JoinType::JOIN_ANY) {
+        if (parent.fork_barrier.completed_children >= 1) {
+            unblock = true;
+        }
+    }
+
+    if (unblock) {
+        parent.fork_barrier.active = false;
+        if (!parent.fork_barrier.in_fork_setup) {
+            step_process(ppid);
+        }
+    }
+}
 void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
-    auto& bp = engine.processes[pid];
-    if (bp.completed || bp.wait_target.active) return;
+    if (pid >= engine.processes.size()) return;
+    auto& initial_bp = engine.processes[pid];
+    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed) return;
 
-    engine.evaluator.set_current_process(&bp);
+    engine.evaluator.set_current_process(&initial_bp);
 
-    while (simulation_active && !bp.completed && !bp.wait_target.active) {
+    while (simulation_active) {
+        if (pid >= engine.processes.size()) break;
+        auto& bp = engine.processes[pid];
+        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed) break;
+        engine.evaluator.set_current_process(&bp);
+
         // A. Execution within an active task activation frame
         if (!bp.call_stack.empty()) {
             auto& cur_frame = bp.call_stack.back();
@@ -455,6 +554,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                     d = dval.is_unknown() ? 0 : dval.aval;
                 }
                 uint64_t wake_time = current_sim_time + d;
+                bp.is_delayed = true;
                 time_wheel.schedule(wake_time, (uint32_t)pid);
                 break;
             }
@@ -490,13 +590,120 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
+            // Fork inside task: IEEE 1800-2023 §9.3.2
+            if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                invoke_fork(pid, fork_stmt);
+                if (engine.processes[pid].fork_barrier.active) {
+                    break;
+                }
+                continue;
+            }
+
             // Standard statement execution inside task
             engine.evaluator.execute_statement(stmt, bp);
             cur_frame.pc++;
             continue;
         }
 
-        // B. Top-level Process Body Execution
+        // B. Dynamic Statements (Child Process from Fork)
+        if (bp.parent_pid != (size_t)-1) {
+            if (bp.pc >= bp.dynamic_statements.size()) {
+                bp.completed = true;
+                notify_parent_child_completed(pid);
+                break;
+            }
+
+            StatementNode* stmt = bp.dynamic_statements[bp.pc];
+
+            // 1. Procedural In-Body Event Control: @(...)
+            if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
+                std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                size_t net_id = (size_t)-1;
+                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(scoped_sig);
+                } else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(ev_stmt->signal_name);
+                } else {
+                    bp.pc++;
+                    continue;
+                }
+
+                bp.pc++;
+                bp.wait_target.active = true;
+                bp.wait_target.edge = ev_stmt->edge;
+                bp.wait_target.signal_name = ev_stmt->signal_name;
+                bp.wait_target.net_id = net_id;
+                break;
+            }
+
+            // 2. Procedural Delay: #delay
+            if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
+                bp.pc++;
+                uint64_t d = delay->delay;
+                if (delay->delay_expr) {
+                    LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
+                    d = dval.is_unknown() ? 0 : dval.aval;
+                }
+                uint64_t wake_time = current_sim_time + d;
+                bp.is_delayed = true;
+                time_wheel.schedule(wake_time, (uint32_t)pid);
+                break;
+            }
+
+            // 3. Task Invocation: invoke task activation frame
+            if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+                invoke_task(bp, tcall);
+                continue;
+            }
+
+            // 4. Nested Fork: IEEE 1800-2023 §9.3.2
+            if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
+                bp.pc++;
+                invoke_fork(pid, fork_stmt);
+                if (engine.processes[pid].fork_barrier.active) {
+                    break;
+                }
+                continue;
+            }
+
+            // 5. Intra-assignment event / delay
+            if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+                if (assign->has_intra_event) {
+                    LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
+                    std::string target_name = assign->lhs_targets[0];
+                    bp.pc++;
+
+                    size_t trig_net_id = (size_t)-1;
+                    std::string scoped_sig = bp.scope.empty() ? assign->intra_signal : (bp.scope + "." + assign->intra_signal);
+                    if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
+                    else if (engine.net_map.find(assign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(assign->intra_signal);
+
+                    if (trig_net_id != (size_t)-1) {
+                        bp.is_delayed = true;
+                        queue_intra_event_blocking(trig_net_id, assign->intra_edge, pid, target_name, bp.scope, rhs_val);
+                    }
+                    break;
+                }
+                if (assign->intra_delay > 0) {
+                    LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
+                    std::string target_name = assign->lhs_targets[0];
+                    bp.pc++;
+                    uint64_t wake_time = current_sim_time + assign->intra_delay;
+                    bp.is_delayed = true;
+                    queue_delayed_blocking(wake_time, pid, target_name, bp.scope, rhs_val);
+                    break;
+                }
+            }
+
+            // 6. Standard Statement Execution
+            engine.evaluator.execute_statement(stmt, bp);
+            if (!simulation_active) break;
+            bp.pc++;
+            continue;
+        }
+
+        // C. Top-level Root Process Body Execution
         if (bp.pc >= bp.proc->body.size()) {
             if (bp.is_looping) {
                 bp.pc = bp.loop_start_pc;
@@ -558,6 +765,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 d = dval.is_unknown() ? 0 : dval.aval;
             }
             uint64_t wake_time = current_sim_time + d;
+            bp.is_delayed = true;
             time_wheel.schedule(wake_time, (uint32_t)pid);
             break;
         }
@@ -568,7 +776,17 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
-        // 4. Forever Loop: Inline body and set loop anchor
+        // 4. Fork / Join Statements: IEEE 1800-2023 §9.3.2
+        if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
+            bp.pc++;
+            invoke_fork(pid, fork_stmt);
+            if (engine.processes[pid].fork_barrier.active) {
+                break;
+            }
+            continue;
+        }
+
+        // 5. Forever Loop: Inline body and set loop anchor
         if (auto forever_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
             std::vector<std::unique_ptr<StatementNode>> new_body;
             for (size_t i = 0; i < bp.pc; ++i) {
@@ -616,25 +834,27 @@ void StratifiedScheduler::step_process(size_t pid) {
                 else if (engine.net_map.find(assign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(assign->intra_signal);
 
                 if (trig_net_id != (size_t)-1) {
+                    bp.is_delayed = true;
                     queue_intra_event_blocking(trig_net_id, assign->intra_edge, pid, target_name, bp.scope, rhs_val);
                 }
                 break;
             }
         }
 
-        // 5. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
+        // 6. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->intra_delay > 0) {
                 LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
                 std::string target_name = assign->lhs_targets[0];
                 bp.pc++;
                 uint64_t wake_time = current_sim_time + assign->intra_delay;
+                bp.is_delayed = true;
                 queue_delayed_blocking(wake_time, pid, target_name, bp.scope, rhs_val);
                 break;
             }
         }
 
-        // 6. Standard Statement Execution
+        // 7. Standard Statement Execution
         engine.evaluator.execute_statement(stmt, bp);
         if (!simulation_active) break;
         bp.pc++;
@@ -692,7 +912,9 @@ void StratifiedScheduler::run_simulation() {
         bp.fired_in_time_slot = false;
     }
 
-    for (size_t i = 0; i < engine.processes.size(); ++i) {
+    size_t num_root_processes = engine.processes.size();
+    for (size_t i = 0; i < num_root_processes; ++i) {
+        if (engine.processes[i].parent_pid != (size_t)-1) continue;
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
@@ -722,6 +944,9 @@ void StratifiedScheduler::run_simulation() {
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {
             SimEvent ev = time_wheel.pop();
             if (ev.process_id != UINT32_MAX) {
+                if (ev.process_id < engine.processes.size()) {
+                    engine.processes[ev.process_id].is_delayed = false;
+                }
                 step_process(ev.process_id);
             }
         }
@@ -754,6 +979,9 @@ void StratifiedScheduler::run_simulation() {
                     size_t net_id = engine.net_map.at(scoped_target);
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
+                }
+                if (b_item.pid < engine.processes.size()) {
+                    engine.processes[b_item.pid].is_delayed = false;
                 }
                 step_process(b_item.pid);
             }

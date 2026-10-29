@@ -91,6 +91,39 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ForeverStatementNode>(std::move(body));
     }
 
+    // Fork-Join Parallel Block (IEEE 1800-2023 §9.3.2)
+    if (match(TokenType::TOKEN_FORK)) {
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected fork block label");
+        }
+
+        std::vector<std::unique_ptr<StatementNode>> branches;
+        while (current.type != TokenType::TOKEN_JOIN &&
+               current.type != TokenType::TOKEN_JOIN_ANY &&
+               current.type != TokenType::TOKEN_JOIN_NONE &&
+               current.type != TokenType::TOKEN_EOF) {
+            branches.push_back(parse_statement());
+        }
+
+        JoinType jt = JoinType::JOIN;
+        if (match(TokenType::TOKEN_JOIN)) {
+            jt = JoinType::JOIN;
+        } else if (match(TokenType::TOKEN_JOIN_ANY)) {
+            jt = JoinType::JOIN_ANY;
+        } else if (match(TokenType::TOKEN_JOIN_NONE)) {
+            jt = JoinType::JOIN_NONE;
+        } else {
+            throw std::runtime_error("Expected 'join', 'join_any', or 'join_none'");
+        }
+
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected join block label");
+        }
+        match(TokenType::TOKEN_SEMICOLON);
+
+        return std::make_unique<ForkStatementNode>(jt, std::move(branches));
+    }
+
     // 5. For Loop
     if (match(TokenType::TOKEN_FOR)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");

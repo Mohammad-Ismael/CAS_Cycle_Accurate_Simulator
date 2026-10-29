@@ -176,6 +176,20 @@ struct CaseStatementNode : public StatementNode {
         : case_type(ct), selector(std::move(sel)) {}
 };
 
+enum class JoinType {
+    JOIN,
+    JOIN_ANY,
+    JOIN_NONE
+};
+
+struct ForkStatementNode : public StatementNode {
+    JoinType join_type = JoinType::JOIN;
+    std::vector<std::unique_ptr<StatementNode>> branches;
+
+    explicit ForkStatementNode(JoinType jt, std::vector<std::unique_ptr<StatementNode>> b)
+        : join_type(jt), branches(std::move(b)) {}
+};
+
 struct TaskCallNode : public StatementNode {
     std::string task_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
