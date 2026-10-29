@@ -17,6 +17,8 @@ struct PortNode : public ASTNode {
     bool is_array = false;
     std::unique_ptr<ExpressionNode> bound1_expr;
     std::unique_ptr<ExpressionNode> bound2_expr;
+    bool is_queue = false;
+    std::unique_ptr<ExpressionNode> queue_bound_expr;
     NetKind net_kind = NetKind::WIRE;
     std::string type_name = "";
 

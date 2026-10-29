@@ -38,6 +38,7 @@ private:
     std::vector<ResolvedContinuousAssign> resolved_continuous_assigns;
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;
+    std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
@@ -71,6 +72,22 @@ public:
     bool is_display_allowed() const { return allow_display; }
     bool is_monitor_allowed() const { return allow_monitor; }
     bool is_finish_msg_allowed() const { return allow_finish_msg; }
+
+    bool is_queue(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (queue_map.find(scoped) != queue_map.end()) return true;
+        if (queue_map.find(name) != queue_map.end()) return true;
+        return false;
+    }
+
+    QueueObject* get_queue(const std::string& name, const std::string& scope = "") {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        auto it = queue_map.find(scoped);
+        if (it != queue_map.end()) return &it->second;
+        it = queue_map.find(name);
+        if (it != queue_map.end()) return &it->second;
+        return nullptr;
+    }
 
     uint64_t get_sim_time() const { return scheduler.get_sim_time(); }
 

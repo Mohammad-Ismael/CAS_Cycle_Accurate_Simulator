@@ -738,6 +738,16 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // Sub-task invocation inside task
             if (auto sub_tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+                std::string tname = sub_tcall->task_name;
+                auto dot = tname.rfind('.');
+                if (dot != std::string::npos) {
+                    std::string var_name = tname.substr(0, dot);
+                    if (engine.is_queue(var_name, bp.scope)) {
+                        engine.evaluator.execute_statement(stmt, bp);
+                        cur_frame.pc++;
+                        continue;
+                    }
+                }
                 invoke_task(bp, sub_tcall);
                 continue;
             }
@@ -872,6 +882,16 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // 3. Task Invocation: invoke task activation frame
             if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+                std::string tname = tcall->task_name;
+                auto dot = tname.rfind('.');
+                if (dot != std::string::npos) {
+                    std::string var_name = tname.substr(0, dot);
+                    if (engine.is_queue(var_name, bp.scope)) {
+                        engine.evaluator.execute_statement(stmt, bp);
+                        bp.pc++;
+                        continue;
+                    }
+                }
                 invoke_task(bp, tcall);
                 continue;
             }
@@ -1051,6 +1071,16 @@ void StratifiedScheduler::step_process(size_t pid) {
 
         // 3. Task Invocation: invoke task activation frame
         if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+            std::string tname = tcall->task_name;
+            auto dot = tname.rfind('.');
+            if (dot != std::string::npos) {
+                std::string var_name = tname.substr(0, dot);
+                if (engine.is_queue(var_name, bp.scope)) {
+                    engine.evaluator.execute_statement(stmt, bp);
+                    bp.pc++;
+                    continue;
+                }
+            }
             invoke_task(bp, tcall);
             continue;
         }

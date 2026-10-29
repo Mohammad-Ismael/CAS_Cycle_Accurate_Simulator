@@ -142,6 +142,7 @@ struct ElaborationResult {
     std::vector<ContinuousAssignBinding> continuous_assigns;
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;
+    std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;

@@ -144,6 +144,9 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /usr/include/c++/13.2.1/bits/node_handle.h \
  /usr/include/c++/13.2.1/bits/erase_if.h \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/struct_types.hpp \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/../common/queue_types.hpp \
+ /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \
+ /usr/include/c++/13.2.1/bits/deque.tcc /usr/include/c++/13.2.1/iostream \
  /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
  /app/CAS/src/kernel/../../include/kernel/expr_evaluator.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/ast_expr.hpp \
@@ -152,14 +155,11 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /app/CAS/src/kernel/../../include/ast.hpp \
  /app/CAS/src/kernel/../../include/frontend/ast_module.hpp \
  /app/CAS/src/kernel/../../include/kernel/elaborator.hpp \
- /usr/include/c++/13.2.1/iostream \
  /app/CAS/src/kernel/../../include/kernel/scheduler.hpp \
  /usr/include/c++/13.2.1/map /usr/include/c++/13.2.1/bits/stl_tree.h \
  /usr/include/c++/13.2.1/bits/stl_map.h \
  /usr/include/c++/13.2.1/bits/stl_multimap.h \
  /app/CAS/include/kernel/time_wheel.hpp /usr/include/c++/13.2.1/queue \
- /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \
- /usr/include/c++/13.2.1/bits/deque.tcc \
  /usr/include/c++/13.2.1/bits/stl_heap.h \
  /usr/include/c++/13.2.1/bits/stl_queue.h \
  /app/CAS/include/tracer/vcd_dumper.hpp /usr/include/c++/13.2.1/fstream \
@@ -177,4 +177,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
  /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
  /usr/include/c++/13.2.1/unordered_set \
- /usr/include/c++/13.2.1/bits/unordered_set.h
+ /usr/include/c++/13.2.1/bits/unordered_set.h \
+ /usr/include/c++/13.2.1/functional \
+ /usr/include/c++/13.2.1/bits/std_function.h \
+ /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare

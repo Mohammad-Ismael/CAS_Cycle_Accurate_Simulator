@@ -116,7 +116,8 @@ enum class TokenType {
     TOKEN_LOGICAL_OR,
     TOKEN_QUESTION,
     TOKEN_COLON,
-    TOKEN_APOSTROPHE
+    TOKEN_APOSTROPHE,
+    TOKEN_DOLLAR
 };
 
 struct Token {

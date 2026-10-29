@@ -11,6 +11,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -457,6 +458,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -490,6 +492,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -534,6 +537,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -565,6 +569,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -577,6 +582,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -637,6 +643,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -670,6 +677,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -714,6 +722,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -745,6 +754,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -757,6 +767,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -817,6 +828,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -850,6 +862,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -894,6 +907,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -925,6 +939,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -937,6 +952,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -997,6 +1013,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -1030,6 +1047,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -1074,6 +1092,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -1105,6 +1124,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -1117,6 +1137,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -1177,6 +1198,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -1210,6 +1232,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -1254,6 +1277,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -1285,6 +1309,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -1297,6 +1322,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -1357,6 +1383,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -1390,6 +1417,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -1434,6 +1462,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -1465,6 +1494,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -1477,6 +1507,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -1537,6 +1568,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -1744,6 +1776,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -1763,6 +1796,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/bits/limits.h \
   /usr/include/bits/stdint.h \
   /usr/include/c++/13.2.1/algorithm \
+  /usr/include/c++/13.2.1/array \
   /usr/include/c++/13.2.1/backward/auto_ptr.h \
   /usr/include/c++/13.2.1/backward/binders.h \
   /usr/include/c++/13.2.1/bit \
@@ -1829,6 +1863,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
+  /usr/include/c++/13.2.1/bits/std_function.h \
   /usr/include/c++/13.2.1/bits/stl_algo.h \
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
@@ -1864,6 +1899,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
   /usr/include/c++/13.2.1/cstdio \
@@ -1883,6 +1919,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/ext/string_conversions.h \
   /usr/include/c++/13.2.1/ext/type_traits.h \
   /usr/include/c++/13.2.1/fstream \
+  /usr/include/c++/13.2.1/functional \
   /usr/include/c++/13.2.1/initializer_list \
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
@@ -1956,6 +1993,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
@@ -1987,6 +2025,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -2032,6 +2071,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_heap.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
@@ -2065,6 +2105,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -2077,6 +2118,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/memory \
@@ -2144,6 +2186,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -2353,6 +2396,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -2572,6 +2616,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
@@ -2934,6 +2979,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/kernel/netlist.hpp \
@@ -2958,6 +3004,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -3000,6 +3047,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
@@ -3028,6 +3076,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -3040,6 +3089,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/iomanip \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
+  /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/new \
@@ -3252,7 +3302,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/ctime:
 
-/usr/include/c++/13.2.1/bits/hash_bytes.h:
+/usr/include/c++/13.2.1/cstdint:
 
 /usr/include/c++/13.2.1/unordered_set:
 
@@ -3314,6 +3364,18 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bit:
 
+/usr/include/c++/13.2.1/compare:
+
+/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/messages_members.h:
+
+/usr/include/c++/13.2.1/bits/functional_hash.h:
+
+/usr/include/c++/13.2.1/bits/ostream.tcc:
+
+/usr/include/sched.h:
+
+/usr/include/c++/13.2.1/bits/stl_deque.h:
+
 /usr/include/c++/13.2.1/vector:
 
 /app/CAS/include/common/types.hpp:
@@ -3346,6 +3408,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/istream.tcc:
 
+/usr/include/c++/13.2.1/bits/stl_iterator_base_types.h:
+
+/usr/include/c++/13.2.1/bits/move.h:
+
 /usr/include/c++/13.2.1/bits/deque.tcc:
 
 /usr/include/c++/13.2.1/bits/locale_facets.tcc:
@@ -3363,14 +3429,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/locale_facets.h:
 
 /app/CAS/include/kernel/scheduler.hpp:
-
-/usr/include/c++/13.2.1/bits/charconv.h:
-
-/app/CAS/include/frontend/ast_base.hpp:
-
-/usr/include/fortify/stdlib.h:
-
-/usr/include/c++/13.2.1/clocale:
 
 /usr/include/c++/13.2.1/bits/align.h:
 
@@ -3394,9 +3452,19 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/common/enum_types.hpp:
 
+/app/CAS/include/common/queue_types.hpp:
+
 /app/CAS/include/tracer/vcd_dumper.hpp:
 
 /app/CAS/include/profiler/profiler.hpp:
+
+/usr/include/c++/13.2.1/bits/charconv.h:
+
+/app/CAS/include/frontend/ast_base.hpp:
+
+/usr/include/fortify/stdlib.h:
+
+/usr/include/c++/13.2.1/clocale:
 
 /usr/include/c++/13.2.1/bits/cpp_type_traits.h:
 
@@ -3428,21 +3496,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/unique_ptr.h:
 
-/usr/include/c++/13.2.1/compare:
-
-/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/messages_members.h:
-
-/usr/include/c++/13.2.1/bits/functional_hash.h:
-
-/usr/include/c++/13.2.1/bits/ostream.tcc:
-
-/usr/include/c++/13.2.1/bits/move.h:
-
-/usr/include/c++/13.2.1/bits/stl_iterator_base_types.h:
-
-/usr/include/sched.h:
-
-/usr/include/c++/13.2.1/bits/stl_deque.h:
+/usr/include/c++/13.2.1/bits/hash_bytes.h:
 
 /usr/include/c++/13.2.1/bits/hashtable_policy.h:
 
@@ -3587,5 +3641,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/ptr_traits.h:
 
 /usr/include/c++/13.2.1/cstddef:
-
-/usr/include/c++/13.2.1/cstdint:

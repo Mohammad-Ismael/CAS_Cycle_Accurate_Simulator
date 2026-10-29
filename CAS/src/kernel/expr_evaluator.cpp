@@ -98,6 +98,54 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
         std::string var_name = method_node->var_name;
+        QueueObject* q = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && local->is_queue) q = &local->queue_data;
+        }
+        if (!q && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_queue) {
+                    q = &local->queue_data;
+                    break;
+                }
+            }
+        }
+        if (!q) {
+            q = engine.get_queue(var_name, scope);
+        }
+
+        if (q) {
+            std::string method = method_node->method_name;
+            if (method == "size") {
+                return LogicVal::make_known(32, q->size());
+            } else if (method == "pop_front") {
+                return q->pop_front();
+            } else if (method == "pop_back") {
+                return q->pop_back();
+            } else if (method == "delete") {
+                if (method_node->args.empty()) {
+                    q->delete_all();
+                } else {
+                    LogicVal idx_v = eval(method_node->args[0].get(), scope);
+                    q->delete_at((int64_t)idx_v.aval);
+                }
+                return LogicVal::make_known(32, 0);
+            } else if (method == "push_back") {
+                if (!method_node->args.empty()) {
+                    LogicVal v = eval(method_node->args[0].get(), scope);
+                    q->push_back(v);
+                }
+                return LogicVal::make_known(32, q->size());
+            } else if (method == "push_front") {
+                if (!method_node->args.empty()) {
+                    LogicVal v = eval(method_node->args[0].get(), scope);
+                    q->push_front(v);
+                }
+                return LogicVal::make_known(32, q->size());
+            }
+        }
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         std::string type_name = "";
@@ -354,6 +402,32 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
+        QueueObject* q = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* lq = context.lookup_local(idx_node->name);
+            if (lq && lq->is_queue) q = &lq->queue_data;
+        }
+        if (!q && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* lq = it->local_frame.get_var(idx_node->name);
+                if (lq && lq->is_queue) {
+                    q = &lq->queue_data;
+                    break;
+                }
+            }
+        }
+        if (!q) {
+            q = engine.get_queue(idx_node->name, scope);
+        }
+        if (q) {
+            LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
+            if (addr_val.is_unknown()) {
+                return LogicVal::make_x(q->elem_width);
+            }
+            int64_t idx = (int64_t)addr_val.aval;
+            return q->get_elem(idx);
+        }
+
         LogicVal target_val = LogicVal::make_x(1);
 
         LocalVar* local = nullptr;

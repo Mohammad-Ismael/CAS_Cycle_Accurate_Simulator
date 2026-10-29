@@ -233,7 +233,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
-        if (s.is_array) {
+        if (s.is_queue) {
+            int64_t max_bound = -1;
+            if (s.queue_bound_expr) {
+                max_bound = (int64_t)eval_const_expr(s.queue_bound_expr.get(), scope);
+            }
+            std::string q_scope = scope + "." + s.name;
+            result.queue_map[q_scope] = QueueObject(q_scope, w, s.is_signed, max_bound);
+            if (debug_out) {
+                *debug_out << "     * Queue allocated: " << q_scope 
+                           << " [" << w << "-bit, bound=" << max_bound << "]\n";
+            }
+        } else if (s.is_array) {
             uint32_t depth = 1;
             int64_t b1_val = 0;
             int64_t b2_val = 0;
@@ -266,6 +277,47 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
+        if (result.queue_map.find(scoped_target) != result.queue_map.end() ||
+            result.queue_map.find(ca->target_name) != result.queue_map.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to queue '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 7.10.4");
+        }
+        std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
+            if (!expr) return;
+            if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+                std::string s_id = scope + "." + id->name;
+                if (result.queue_map.find(s_id) != result.queue_map.end() ||
+                    result.queue_map.find(id->name) != result.queue_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
+                }
+            } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+                std::string s_id = scope + "." + idx->name;
+                if (result.queue_map.find(s_id) != result.queue_map.end() ||
+                    result.queue_map.find(idx->name) != result.queue_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
+                }
+                check_expr(idx->msb_expr.get());
+                check_expr(idx->lsb_expr.get());
+            } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+                std::string s_id = scope + "." + mc->var_name;
+                if (result.queue_map.find(s_id) != result.queue_map.end() ||
+                    result.queue_map.find(mc->var_name) != result.queue_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
+                }
+                for (auto& a : mc->args) check_expr(a.get());
+            } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+                check_expr(bin->lhs.get());
+                check_expr(bin->rhs.get());
+            } else if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+                check_expr(un->operand.get());
+            } else if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+                check_expr(ter->condition.get());
+                check_expr(ter->true_expr.get());
+                check_expr(ter->false_expr.get());
+            } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+                for (auto& a : fc->args) check_expr(a.get());
+            }
+        };
+        check_expr(ca->rhs.get());
         size_t target_id = result.net_map.at(scoped_target);
         result.continuous_assigns.push_back({scope, {target_id, 0, result.netlist[target_id].width}, ca->rhs.get()});
     }

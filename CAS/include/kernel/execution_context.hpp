@@ -11,10 +11,14 @@ struct LocalVar {
     bool is_signed;
     LogicVal value;
     std::string type_name = "";
+    bool is_queue = false;
+    QueueObject queue_data;
 
-    LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "")
+    LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false)
         : name(std::move(n)), width(w), is_signed(s),
-          value(LogicVal::make_x(w)), type_name(std::move(t)) {}
+          value(LogicVal::make_x(w)), type_name(std::move(t)), is_queue(q) {
+        if (is_queue) queue_data = QueueObject(name, width, is_signed);
+    }
 };
 
 struct ScopeFrame {
@@ -32,8 +36,8 @@ struct ScopeFrame {
         return (it != locals.end()) ? &it->second : nullptr;
     }
 
-    void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "") {
-        locals.emplace(name, LocalVar(name, width, is_signed, type));
+    void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "", bool is_q = false) {
+        locals.emplace(name, LocalVar(name, width, is_signed, type, is_q));
     }
 };
 

@@ -293,12 +293,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig.type_name = type_name;
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
-                        sig.is_array = true;
-                        sig.bound1_expr = parse_expression();
-                        if (match(TokenType::TOKEN_COLON)) {
-                            sig.bound2_expr = parse_expression();
+                        if (match(TokenType::TOKEN_DOLLAR)) {
+                            sig.is_queue = true;
+                            if (match(TokenType::TOKEN_COLON)) {
+                                sig.queue_bound_expr = parse_expression();
+                            }
+                        } else {
+                            sig.is_array = true;
+                            sig.bound1_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COLON)) {
+                                sig.bound2_expr = parse_expression();
+                            }
                         }
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory dimension");
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {
@@ -380,12 +387,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
-                        sig.is_array = true;
-                        sig.bound1_expr = parse_expression();
-                        if (match(TokenType::TOKEN_COLON)) {
-                            sig.bound2_expr = parse_expression();
+                        if (match(TokenType::TOKEN_DOLLAR)) {
+                            sig.is_queue = true;
+                            if (match(TokenType::TOKEN_COLON)) {
+                                sig.queue_bound_expr = parse_expression();
+                            }
+                        } else {
+                            sig.is_array = true;
+                            sig.bound1_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COLON)) {
+                                sig.bound2_expr = parse_expression();
+                            }
                         }
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory dimension");
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {

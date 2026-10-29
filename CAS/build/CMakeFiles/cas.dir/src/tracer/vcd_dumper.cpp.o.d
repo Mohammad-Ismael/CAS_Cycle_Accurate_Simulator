@@ -130,6 +130,9 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: \
  /usr/include/c++/13.2.1/bits/node_handle.h \
  /usr/include/c++/13.2.1/bits/erase_if.h \
  /app/CAS/src/tracer/../../include/tracer/../kernel/../common/struct_types.hpp \
+ /app/CAS/src/tracer/../../include/tracer/../kernel/../common/queue_types.hpp \
+ /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \
+ /usr/include/c++/13.2.1/bits/deque.tcc /usr/include/c++/13.2.1/iostream \
  /usr/include/c++/13.2.1/fstream \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++io.h \

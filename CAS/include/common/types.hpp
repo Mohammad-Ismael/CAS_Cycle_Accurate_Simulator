@@ -5,3 +5,4 @@
 #include "net_types.hpp"
 #include "enum_types.hpp"
 #include "struct_types.hpp"
+#include "queue_types.hpp"

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iomanip>
 #include <unordered_set>
+#include <functional>
 #include <queue>
 
 Evaluator::Evaluator(Engine& eng) 
@@ -167,14 +168,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
             expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
+            if (vdecl->is_queue) {
+                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+                if (lv) {
+                    lv->is_queue = true;
+                    lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
+                }
+            }
             return;
         }
         if (!bp.call_stack.empty()) {
-            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
+            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue);
             return;
         }
         expr_eval.get_context().push_frame(bp.scope);
         expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
+        if (vdecl->is_queue) {
+            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+            if (lv) {
+                lv->is_queue = true;
+                lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            }
+        }
         return;
     }
 
@@ -267,9 +282,67 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
-        std::string scoped_tname = bp.scope + "." + tcall->task_name;
+        std::string tname = tcall->task_name;
+        auto dot = tname.rfind('.');
+        if (dot != std::string::npos) {
+            std::string var_name = tname.substr(0, dot);
+            std::string method = tname.substr(dot + 1);
+            QueueObject* q = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                if (local && local->is_queue) q = &local->queue_data;
+            }
+            if (!q && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_queue) {
+                        q = &local->queue_data;
+                        break;
+                    }
+                }
+            }
+            if (!q) {
+                q = engine.get_queue(var_name, bp.scope);
+            }
+            if (q) {
+                if (method == "push_back") {
+                    if (!tcall->args.empty()) {
+                        LogicVal val = eval_expr(tcall->args[0].get(), bp.scope);
+                        q->push_back(val);
+                    }
+                    return;
+                } else if (method == "push_front") {
+                    if (!tcall->args.empty()) {
+                        LogicVal val = eval_expr(tcall->args[0].get(), bp.scope);
+                        q->push_front(val);
+                    }
+                    return;
+                } else if (method == "pop_front") {
+                    q->pop_front();
+                    return;
+                } else if (method == "pop_back") {
+                    q->pop_back();
+                    return;
+                } else if (method == "delete") {
+                    if (tcall->args.empty()) {
+                        q->delete_all();
+                    } else {
+                        LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
+                        q->delete_at((int64_t)idx_v.aval);
+                    }
+                    return;
+                }
+            }
+        }
+
+        std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
+        TaskNode* target_task = nullptr;
         if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
-            TaskNode* target_task = engine.task_map.at(scoped_tname);
+            target_task = engine.task_map.at(scoped_tname);
+        } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+            target_task = engine.task_map.at(tcall->task_name);
+        }
+        if (target_task) {
             for (auto& s : target_task->body) {
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active()) return;
@@ -284,6 +357,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
+            std::function<void(ExpressionNode*)> check_mon_expr = [&](ExpressionNode* expr) {
+                if (!expr) return;
+                if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+                    if (engine.is_queue(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
+                    }
+                } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+                    if (engine.is_queue(idx->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
+                    }
+                    check_mon_expr(idx->msb_expr.get());
+                    check_mon_expr(idx->lsb_expr.get());
+                } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+                    if (engine.is_queue(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
+                    }
+                    for (auto& a : mc->args) check_mon_expr(a.get());
+                } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+                    check_mon_expr(bin->lhs.get());
+                    check_mon_expr(bin->rhs.get());
+                } else if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+                    check_mon_expr(un->operand.get());
+                } else if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+                    check_mon_expr(ter->condition.get());
+                    check_mon_expr(ter->true_expr.get());
+                    check_mon_expr(ter->false_expr.get());
+                } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+                    for (auto& a : fc->args) check_mon_expr(a.get());
+                }
+            };
+            for (const auto& arg : disp->arg_exprs) {
+                check_mon_expr(arg.get());
+            }
             engine.monitor_session.active = true;
             engine.monitor_session.scope = bp.scope;
             engine.monitor_session.format_string = disp->format_string;
@@ -499,6 +605,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
+        QueueObject* q = engine.get_queue(mem_assign->mem_name, bp.scope);
+        if (q) {
+            LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
+            LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
+            if (!addr_val.is_unknown()) {
+                int64_t idx = (int64_t)addr_val.aval;
+                q->set_elem(idx, rhs_val);
+            }
+            return;
+        }
         std::string scoped_mem = bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name);
         if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
             if (engine.memory_map.find(mem_assign->mem_name) != engine.memory_map.end()) {
@@ -630,6 +746,31 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             } else {
                 std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                QueueObject* q = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+                    if (local && local->is_queue) q = &local->queue_data;
+                }
+                if (!q && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(target_name);
+                        if (local && local->is_queue) {
+                            q = &local->queue_data;
+                            break;
+                        }
+                    }
+                }
+                if (!q) {
+                    q = engine.get_queue(target_name, bp.scope);
+                }
+                if (q && assign->bit_idx) {
+                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                    if (!idx_val.is_unknown()) {
+                        int64_t idx = (int64_t)idx_val.aval;
+                        q->set_elem(idx, rhs_val);
+                    }
+                    return;
+                }
                 std::string scoped_mem = scoped_full;
                 if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
                     if (engine.memory_map.find(target_name) != engine.memory_map.end()) {

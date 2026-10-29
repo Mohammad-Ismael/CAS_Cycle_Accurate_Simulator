@@ -148,4 +148,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: \
  /usr/include/c++/13.2.1/bits/node_handle.h \
  /usr/include/c++/13.2.1/bits/erase_if.h \
  /app/CAS/src/frontend/../../include/frontend/../common/struct_types.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/queue_types.hpp \
+ /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \
+ /usr/include/c++/13.2.1/bits/deque.tcc /usr/include/c++/13.2.1/iostream \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp
