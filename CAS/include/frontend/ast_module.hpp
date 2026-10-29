@@ -55,6 +55,9 @@ struct ProcessNode : public ASTNode {
     ProcessType type;
     std::vector<SensitivityTarget> sensitivity_list;
     std::vector<std::unique_ptr<StatementNode>> body;
+    bool is_always_ff = false;
+    bool is_always_comb = false;
+    bool is_always_latch = false;
 
     ProcessNode() = default;
     explicit ProcessNode(ProcessType t) : type(t) {}

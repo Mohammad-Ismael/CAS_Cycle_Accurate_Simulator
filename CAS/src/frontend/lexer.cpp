@@ -282,9 +282,11 @@ Token Lexer::next_token() {
         if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "deassign") return {TokenType::TOKEN_DEASSIGN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "always") return {TokenType::TOKEN_ALWAYS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "always_comb") return {TokenType::TOKEN_ALWAYS_COMB, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "always_ff") return {TokenType::TOKEN_ALWAYS_FF, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "always_latch") return {TokenType::TOKEN_ALWAYS_LATCH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "task") return {TokenType::TOKEN_TASK, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endtask") return {TokenType::TOKEN_ENDTASK, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "function") return {TokenType::TOKEN_FUNCTION, ident, 0, 0, cur_file, cur_line, 0};

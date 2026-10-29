@@ -3,9 +3,35 @@
 #include "../../include/kernel/logic_ops.hpp"
 #include <iostream>
 #include <iomanip>
+#include <unordered_set>
+#include <queue>
 
 Evaluator::Evaluator(Engine& eng) 
     : engine(eng), expr_eval(eng) {}
+
+std::vector<size_t> Evaluator::get_connected_nets(size_t start_id) {
+    std::vector<size_t> result;
+    std::unordered_set<size_t> visited;
+    std::queue<size_t> q;
+    q.push(start_id);
+    visited.insert(start_id);
+    while (!q.empty()) {
+        size_t curr = q.front();
+        q.pop();
+        result.push_back(curr);
+        for (const auto& bind : engine.slice_bindings) {
+            if (bind.src.net_id == curr && visited.find(bind.dst.net_id) == visited.end()) {
+                visited.insert(bind.dst.net_id);
+                q.push(bind.dst.net_id);
+            }
+            if (bind.dst.net_id == curr && visited.find(bind.src.net_id) == visited.end()) {
+                visited.insert(bind.src.net_id);
+                q.push(bind.src.net_id);
+            }
+        }
+    }
+    return result;
+}
 
 LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
     const auto& net = engine.netlist[ref.net_id];
@@ -18,6 +44,7 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
 
 void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     auto& target_net = engine.netlist[ref.net_id];
+    if (target_net.has_procedural_assign) return;
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
 
     auto cur = target_net.value;
@@ -48,6 +75,8 @@ void Evaluator::check_monitor() {
             std::string scoped_arg = engine.monitor_session.scope.empty() ? arg_name : (engine.monitor_session.scope + "." + arg_name);
             if (engine.net_map.find(scoped_arg) != engine.net_map.end()) {
                 current_values.push_back(engine.netlist[engine.net_map.at(scoped_arg)].value);
+            } else if (engine.net_map.find(arg_name) != engine.net_map.end()) {
+                current_values.push_back(engine.netlist[engine.net_map.at(arg_name)].value);
             } else {
                 current_values.push_back(LogicVal::make_x(1));
             }
@@ -89,10 +118,12 @@ void Evaluator::check_monitor() {
         for (size_t i = 0; i < fmt_len; ++i) {
             if (engine.monitor_session.format_string[i] == '%' && i + 1 < fmt_len) {
                 char spec = engine.monitor_session.format_string[++i];
+                bool unpadded = false;
                 if (spec == '0' && i + 1 < fmt_len) {
                     char next_spec = engine.monitor_session.format_string[i + 1];
                     if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
                         spec = next_spec;
+                        unpadded = true;
                         ++i;
                     }
                 }
@@ -104,7 +135,14 @@ void Evaluator::check_monitor() {
                     } else {
                         if (spec == 'd' || spec == 't') std::cout << val.aval;
                         else if (spec == 'b') std::cout << val.to_bin_string();
-                        else if (spec == 'h') std::cout << std::hex << val.aval << std::dec;
+                        else if (spec == 'h') {
+                            if (unpadded) {
+                                std::cout << std::hex << val.aval << std::dec;
+                            } else {
+                                int hex_width = (val.width + 3) / 4;
+                                std::cout << std::hex << std::setfill('0') << std::setw(hex_width) << val.aval << std::dec;
+                            }
+                        }
                         else std::cout << val.aval;
                     }
                 }
@@ -252,7 +290,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.src_file = disp->src_file;
             engine.monitor_session.src_line = disp->src_line;
             engine.monitor_session.prev_values.clear();
-            check_monitor();
         } else {
             if (!engine.is_display_allowed()) return;
 
@@ -270,10 +307,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (size_t i = 0; i < fmt_len; ++i) {
                 if (disp->format_string[i] == '%' && i + 1 < fmt_len) {
                     char spec = disp->format_string[++i];
+                    bool unpadded = false;
                     if (spec == '0' && i + 1 < fmt_len) {
                         char next_spec = disp->format_string[i + 1];
                         if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
                             spec = next_spec;
+                            unpadded = true;
                             ++i;
                         }
                     }
@@ -285,7 +324,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             if (spec == 'd' || spec == 't') std::cout << val.aval;
                             else if (spec == 'b') std::cout << val.to_bin_string();
-                            else if (spec == 'h') std::cout << std::hex << val.aval << std::dec;
+                            else if (spec == 'h') {
+                                if (unpadded) {
+                                    std::cout << std::hex << val.aval << std::dec;
+                                } else {
+                                    int hex_width = (val.width + 3) / 4;
+                                    std::cout << std::hex << std::setfill('0') << std::setw(hex_width) << val.aval << std::dec;
+                                }
+                            }
                             else std::cout << val.aval;
                         }
                     }
@@ -313,16 +359,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
-        LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
-        std::string scoped_target = bp.scope + "." + nassign->target;
-        size_t net_id = engine.net_map.at(scoped_target);
-        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+        std::string scoped_target = bp.scope.empty() ? nassign->target : (bp.scope + "." + nassign->target);
+        size_t net_id = (size_t)-1;
+        if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(scoped_target);
+        } else if (engine.net_map.find(nassign->target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(nassign->target);
+        }
+        if (net_id != (size_t)-1) {
+            if (engine.netlist[net_id].has_procedural_assign) return;
+            LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
 
-        if (nassign->intra_delay > 0) {
-            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
-            engine.scheduler.queue_delayed_nba(wake_time, net_id, casted);
-        } else {
-            engine.scheduler.queue_nba(net_id, casted);
+            if (nassign->intra_delay > 0) {
+                uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                engine.scheduler.queue_delayed_nba(wake_time, net_id, casted);
+            } else {
+                engine.scheduler.queue_nba(net_id, casted);
+            }
         }
         return;
     }
@@ -370,12 +424,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     local->value = LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
                     shift += width;
                 } else {
-                    std::string scoped_target = bp.scope + "." + target_name;
-                    size_t net_id = engine.net_map.at(scoped_target);
-                    uint32_t width = engine.netlist[net_id].width;
-                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                    engine.netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
-                    shift += width;
+                    std::string scoped_target = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                    size_t net_id = (size_t)-1;
+                    if (engine.net_map.find(scoped_target) != engine.net_map.end()) net_id = engine.net_map.at(scoped_target);
+                    else if (engine.net_map.find(target_name) != engine.net_map.end()) net_id = engine.net_map.at(target_name);
+                    if (net_id != (size_t)-1) {
+                        uint32_t width = engine.netlist[net_id].width;
+                        if (!engine.netlist[net_id].has_procedural_assign) {
+                            uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                            engine.netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
+                        }
+                        shift += width;
+                    } else {
+                        shift += 32;
+                    }
                 }
             }
         } else {
@@ -398,9 +460,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
                 }
             } else {
-                std::string scoped_target = bp.scope + "." + target_name;
+                std::string scoped_target = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                size_t net_id = (size_t)-1;
                 if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
-                    size_t net_id = engine.net_map.at(scoped_target);
+                    net_id = engine.net_map.at(scoped_target);
+                } else if (engine.net_map.find(target_name) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(target_name);
+                }
+                if (net_id != (size_t)-1) {
+                    if (engine.netlist[net_id].has_procedural_assign) return;
                     if (assign->bit_idx) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
@@ -418,6 +486,68 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         engine.netlist[net_id].set(casted);
                     }
                 }
+            }
+        }
+        return;
+    }
+
+    // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignment
+    if (auto passign = dynamic_cast<ProceduralAssignNode*>(stmt)) {
+        size_t net_id = (size_t)-1;
+        std::string scoped_target = bp.scope.empty() ? passign->target : (bp.scope + "." + passign->target);
+        if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(scoped_target);
+        } else if (engine.net_map.find(passign->target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(passign->target);
+        } else {
+            for (const auto& kv : engine.net_map) {
+                if (kv.first.size() > passign->target.size() &&
+                    kv.first.rfind("." + passign->target) == kv.first.size() - (passign->target.size() + 1)) {
+                    net_id = kv.second;
+                    break;
+                }
+            }
+        }
+
+        if (net_id != (size_t)-1) {
+            LogicVal rhs_val = eval_expr(passign->rhs.get(), bp.scope);
+            auto connected = get_connected_nets(net_id);
+            for (size_t cid : connected) {
+                auto& net = engine.netlist[cid];
+                net.has_procedural_assign = true;
+                net.procedural_assign_rhs = passign->rhs.get();
+                net.procedural_assign_scope = bp.scope;
+                LogicVal casted = LogicOps::cast_width(rhs_val, net.width, net.is_signed);
+                net.set(casted);
+            }
+        }
+        return;
+    }
+
+    if (auto pdeassign = dynamic_cast<ProceduralDeassignNode*>(stmt)) {
+        size_t net_id = (size_t)-1;
+        std::string scoped_target = bp.scope.empty() ? pdeassign->target : (bp.scope + "." + pdeassign->target);
+        if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(scoped_target);
+        } else if (engine.net_map.find(pdeassign->target) != engine.net_map.end()) {
+            net_id = engine.net_map.at(pdeassign->target);
+        } else {
+            for (const auto& kv : engine.net_map) {
+                if (kv.first.size() > pdeassign->target.size() &&
+                    kv.first.rfind("." + pdeassign->target) == kv.first.size() - (pdeassign->target.size() + 1)) {
+                    net_id = kv.second;
+                    break;
+                }
+            }
+        }
+
+        if (net_id != (size_t)-1) {
+            auto connected = get_connected_nets(net_id);
+            for (size_t cid : connected) {
+                auto& net = engine.netlist[cid];
+                net.has_procedural_assign = false;
+                net.procedural_assign_rhs = nullptr;
+                net.procedural_assign_scope = "";
             }
         }
         return;

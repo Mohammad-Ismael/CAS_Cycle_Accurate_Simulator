@@ -3,6 +3,8 @@
 #include <string>
 #include <cstdint>
 
+struct ExpressionNode;
+
 struct Net {
     std::string name;
     uint32_t width;
@@ -11,6 +13,9 @@ struct Net {
     LogicVal prev_value;
     bool modified;
     std::string vcd_id;
+    bool has_procedural_assign = false;
+    ExpressionNode* procedural_assign_rhs = nullptr;
+    std::string procedural_assign_scope = "";
 
     Net(std::string n, uint32_t w, bool s = false)
         : name(std::move(n)), width(w), is_signed(s),

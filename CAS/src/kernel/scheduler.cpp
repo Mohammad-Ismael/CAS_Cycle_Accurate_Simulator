@@ -37,7 +37,9 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     auto it = delayed_nba_queue.find(target_time);
     if (it != delayed_nba_queue.end()) {
         for (const auto& item : it->second) {
-            engine.netlist[item.net_id].set(item.val);
+            if (!engine.netlist[item.net_id].has_procedural_assign) {
+                engine.netlist[item.net_id].set(item.val);
+            }
             nba_commits_count++;
         }
         delayed_nba_queue.erase(it);
@@ -61,8 +63,10 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
             std::string scoped_target = b_item.scope + "." + b_item.target_name;
             if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
                 size_t net_id = engine.net_map.at(scoped_target);
-                LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
-                engine.netlist[net_id].set(casted);
+                if (!engine.netlist[net_id].has_procedural_assign) {
+                    LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    engine.netlist[net_id].set(casted);
+                }
             }
             // Resume the waiting process
             step_process(b_item.pid);
@@ -85,6 +89,7 @@ void StratifiedScheduler::propagate_comb() {
         changed = false;
 
         for (auto& bind : engine.slice_bindings) {
+            if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
             LogicVal src_val = engine.evaluator.read_slice(bind.src);
             LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
             if (src_val != dst_val) {
@@ -115,11 +120,24 @@ void StratifiedScheduler::propagate_comb() {
         }
 
         for (auto& ca : engine.continuous_assigns) {
+            if (engine.netlist[ca.target.net_id].has_procedural_assign) continue;
             LogicVal val = engine.evaluator.eval_expr(ca.rhs, ca.scope);
             LogicVal cur = engine.evaluator.read_slice(ca.target);
             if (cur != val) {
                 engine.evaluator.write_slice(ca.target, val);
                 changed = true;
+            }
+        }
+
+        // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignments propagate whenever operands change
+        for (auto& net : engine.netlist) {
+            if (net.has_procedural_assign && net.procedural_assign_rhs) {
+                LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
+                LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+                if (net.value != casted) {
+                    net.set(casted);
+                    changed = true;
+                }
             }
         }
 
@@ -170,7 +188,9 @@ bool StratifiedScheduler::commit_nba_updates() {
 
     nba_commits_count++;
     for (const auto& update : nba_queue) {
-        engine.netlist[update.net_id].set(update.val);
+        if (!engine.netlist[update.net_id].has_procedural_assign) {
+            engine.netlist[update.net_id].set(update.val);
+        }
     }
     nba_queue.clear();
 

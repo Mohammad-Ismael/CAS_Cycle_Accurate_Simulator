@@ -364,13 +364,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             if (match(TokenType::TOKEN_ALWAYS_COMB)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+                proc->is_always_comb = true;
+                proc->body = parse_statement_or_block();
+                mod->processes.push_back(std::move(proc));
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_ALWAYS_LATCH)) {
+                auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+                proc->is_always_latch = true;
                 proc->body = parse_statement_or_block();
                 mod->processes.push_back(std::move(proc));
                 continue;
             }
 
             if (match(TokenType::TOKEN_ALWAYS_FF)) {
-                mod->processes.push_back(parse_always_ff());
+                auto proc = parse_always_ff();
+                proc->is_always_ff = true;
+                mod->processes.push_back(std::move(proc));
                 continue;
             }
 

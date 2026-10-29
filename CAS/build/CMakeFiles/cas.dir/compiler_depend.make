@@ -1235,9 +1235,11 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/bits/errno.h \
   /usr/include/bits/limits.h \
   /usr/include/bits/stdint.h \
+  /usr/include/c++/13.2.1/array \
   /usr/include/c++/13.2.1/backward/auto_ptr.h \
   /usr/include/c++/13.2.1/backward/binders.h \
   /usr/include/c++/13.2.1/bit \
+  /usr/include/c++/13.2.1/bits/algorithmfwd.h \
   /usr/include/c++/13.2.1/bits/align.h \
   /usr/include/c++/13.2.1/bits/alloc_traits.h \
   /usr/include/c++/13.2.1/bits/allocated_ptr.h \
@@ -1255,6 +1257,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/deque.tcc \
   /usr/include/c++/13.2.1/bits/enable_special_members.h \
   /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
@@ -1292,14 +1295,19 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
   /usr/include/c++/13.2.1/bits/std_abs.h \
+  /usr/include/c++/13.2.1/bits/std_function.h \
+  /usr/include/c++/13.2.1/bits/stl_algo.h \
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
   /usr/include/c++/13.2.1/bits/stl_bvector.h \
   /usr/include/c++/13.2.1/bits/stl_construct.h \
+  /usr/include/c++/13.2.1/bits/stl_deque.h \
   /usr/include/c++/13.2.1/bits/stl_function.h \
+  /usr/include/c++/13.2.1/bits/stl_heap.h \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
+  /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
@@ -1308,8 +1316,10 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/bits/streambuf_iterator.h \
   /usr/include/c++/13.2.1/bits/string_view.tcc \
   /usr/include/c++/13.2.1/bits/stringfwd.h \
+  /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
   /usr/include/c++/13.2.1/bits/unique_ptr.h \
   /usr/include/c++/13.2.1/bits/unordered_map.h \
+  /usr/include/c++/13.2.1/bits/unordered_set.h \
   /usr/include/c++/13.2.1/bits/uses_allocator.h \
   /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
   /usr/include/c++/13.2.1/bits/utility.h \
@@ -1317,6 +1327,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/cctype \
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
   /usr/include/c++/13.2.1/cstdio \
@@ -1325,6 +1336,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/cwctype \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
+  /usr/include/c++/13.2.1/deque \
   /usr/include/c++/13.2.1/exception \
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
@@ -1334,6 +1346,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/ext/string_conversions.h \
   /usr/include/c++/13.2.1/ext/type_traits.h \
   /usr/include/c++/13.2.1/fstream \
+  /usr/include/c++/13.2.1/functional \
   /usr/include/c++/13.2.1/initializer_list \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
@@ -1345,6 +1358,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/pstl/execution_defs.h \
   /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
   /usr/include/c++/13.2.1/pstl/pstl_config.h \
+  /usr/include/c++/13.2.1/queue \
   /usr/include/c++/13.2.1/stdexcept \
   /usr/include/c++/13.2.1/streambuf \
   /usr/include/c++/13.2.1/string \
@@ -1354,6 +1368,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
   /usr/include/c++/13.2.1/unordered_map \
+  /usr/include/c++/13.2.1/unordered_set \
   /usr/include/c++/13.2.1/vector \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
@@ -1509,6 +1524,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
   /usr/include/c++/13.2.1/bits/unique_ptr.h \
   /usr/include/c++/13.2.1/bits/unordered_map.h \
+  /usr/include/c++/13.2.1/bits/unordered_set.h \
   /usr/include/c++/13.2.1/bits/uses_allocator.h \
   /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
   /usr/include/c++/13.2.1/bits/utility.h \
@@ -1564,6 +1580,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
   /usr/include/c++/13.2.1/unordered_map \
+  /usr/include/c++/13.2.1/unordered_set \
   /usr/include/c++/13.2.1/vector \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
@@ -2674,8 +2691,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/locale:
 
-/usr/include/c++/13.2.1/bits/stl_algo.h:
-
 /usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc:
 
 /app/CAS/include/kernel/logic_ops.hpp:
@@ -2683,6 +2698,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/src/kernel/execution_context.cpp:
 
 /app/CAS/src/kernel/evaluator.cpp:
+
+/usr/include/c++/13.2.1/bits/unordered_set.h:
+
+/usr/include/c++/13.2.1/bits/stl_algo.h:
+
+/usr/include/c++/13.2.1/bits/std_function.h:
 
 /app/CAS/src/kernel/elaborator.cpp:
 
@@ -2703,6 +2724,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/wchar.h:
 
 /usr/include/time.h:
+
+/usr/include/c++/13.2.1/array:
 
 /usr/include/strings.h:
 
@@ -2807,6 +2830,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/hashtable_policy.h:
 
 /usr/include/c++/13.2.1/bits/hash_bytes.h:
+
+/usr/include/c++/13.2.1/unordered_set:
 
 /usr/include/c++/13.2.1/bits/exception_ptr.h:
 
@@ -2968,6 +2993,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/messages_members.h:
 
+/usr/include/c++/13.2.1/compare:
+
 /usr/include/c++/13.2.1/bits/functional_hash.h:
 
 /usr/include/c++/13.2.1/bits/ostream.tcc:
@@ -2981,6 +3008,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/stl_deque.h:
 
 /usr/include/c++/13.2.1/bits/locale_classes.h:
+
+/usr/include/c++/13.2.1/functional:
 
 /usr/include/c++/13.2.1/bits/stl_bvector.h:
 

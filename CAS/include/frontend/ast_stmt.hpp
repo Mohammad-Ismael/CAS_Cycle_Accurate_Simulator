@@ -73,6 +73,21 @@ struct MemAssignNode : public StatementNode {
           rhs(std::move(r)), is_non_blocking(nba), intra_delay(delay) {}
 };
 
+struct ProceduralAssignNode : public StatementNode {
+    std::string target;
+    std::unique_ptr<ExpressionNode> rhs;
+
+    ProceduralAssignNode(std::string t, std::unique_ptr<ExpressionNode> r)
+        : target(std::move(t)), rhs(std::move(r)) {}
+};
+
+struct ProceduralDeassignNode : public StatementNode {
+    std::string target;
+
+    explicit ProceduralDeassignNode(std::string t)
+        : target(std::move(t)) {}
+};
+
 struct IfStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> condition;
     std::vector<std::unique_ptr<StatementNode>> then_branch;

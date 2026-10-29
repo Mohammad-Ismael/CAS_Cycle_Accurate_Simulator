@@ -20,4 +20,5 @@ public:
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void check_monitor();
+    std::vector<size_t> get_connected_nets(size_t start_id);
 };

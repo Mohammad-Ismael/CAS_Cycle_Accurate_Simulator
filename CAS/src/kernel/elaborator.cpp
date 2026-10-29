@@ -1,6 +1,9 @@
 #include "../../include/kernel/elaborator.hpp"
 #include "../../include/tracer/vcd_dumper.hpp"
 #include <stdexcept>
+#include <unordered_set>
+#include <queue>
+#include <functional>
 
 size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed) {
     if (result.net_map.find(scoped_name) != result.net_map.end()) {
@@ -291,5 +294,157 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     }
 
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
+
+    // IEEE Std 1800-2023 §9.2.2.4: Driver Exclusivity & ICPD Check
+    struct NetDriverInfo {
+        std::unordered_set<size_t> writing_procs;
+        bool driven_by_always_ff_comb_latch = false;
+        bool targeted_by_pca = false;
+        bool has_continuous_assign = false;
+        std::string var_name = "";
+    };
+    std::vector<NetDriverInfo> net_drivers(result.netlist.size());
+
+    auto resolve_target_net_id = [&](const std::string& target, const std::string& scope) -> size_t {
+        std::string scoped = scope.empty() ? target : (scope + "." + target);
+        if (result.net_map.find(scoped) != result.net_map.end()) {
+            return result.net_map.at(scoped);
+        }
+        if (result.net_map.find(target) != result.net_map.end()) {
+            return result.net_map.at(target);
+        }
+        for (const auto& kv : result.net_map) {
+            if (kv.first.size() > target.size() &&
+                kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
+                return kv.second;
+            }
+        }
+        return (size_t)-1;
+    };
+
+    auto get_connected_net_ids = [&](size_t start_id) -> std::vector<size_t> {
+        std::vector<size_t> res;
+        std::unordered_set<size_t> visited;
+        std::queue<size_t> q;
+        q.push(start_id);
+        visited.insert(start_id);
+        while (!q.empty()) {
+            size_t curr = q.front();
+            q.pop();
+            res.push_back(curr);
+            for (const auto& bind : result.slice_bindings) {
+                if (bind.src.net_id == curr && visited.find(bind.dst.net_id) == visited.end()) {
+                    visited.insert(bind.dst.net_id);
+                    q.push(bind.dst.net_id);
+                }
+                if (bind.dst.net_id == curr && visited.find(bind.src.net_id) == visited.end()) {
+                    visited.insert(bind.src.net_id);
+                    q.push(bind.src.net_id);
+                }
+            }
+        }
+        return res;
+    };
+
+    std::function<void(StatementNode*, std::vector<std::string>&, std::vector<std::string>&)> collect_writes =
+        [&](StatementNode* stmt, std::vector<std::string>& norm_targets, std::vector<std::string>& pca_targets) {
+            if (!stmt) return;
+            if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+                for (auto& s : blk->statements) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto if_s = dynamic_cast<IfStatementNode*>(stmt)) {
+                for (auto& s : if_s->then_branch) collect_writes(s.get(), norm_targets, pca_targets);
+                for (auto& s : if_s->else_branch) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto for_s = dynamic_cast<ForStatementNode*>(stmt)) {
+                collect_writes(for_s->init_stmt.get(), norm_targets, pca_targets);
+                collect_writes(for_s->step_stmt.get(), norm_targets, pca_targets);
+                for (auto& s : for_s->body) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto wh_s = dynamic_cast<WhileStatementNode*>(stmt)) {
+                for (auto& s : wh_s->body) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto rep_s = dynamic_cast<RepeatStatementNode*>(stmt)) {
+                for (auto& s : rep_s->body) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto fo_s = dynamic_cast<ForeverStatementNode*>(stmt)) {
+                for (auto& s : fo_s->body) collect_writes(s.get(), norm_targets, pca_targets);
+            } else if (auto cs_s = dynamic_cast<CaseStatementNode*>(stmt)) {
+                for (auto& item : cs_s->items) {
+                    for (auto& s : item.statements) collect_writes(s.get(), norm_targets, pca_targets);
+                }
+            } else if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
+                for (const auto& t : ba->lhs_targets) norm_targets.push_back(t);
+            } else if (auto nba = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+                norm_targets.push_back(nba->target);
+            } else if (auto mem = dynamic_cast<MemAssignNode*>(stmt)) {
+                norm_targets.push_back(mem->mem_name);
+            } else if (auto pa = dynamic_cast<ProceduralAssignNode*>(stmt)) {
+                pca_targets.push_back(pa->target);
+            } else if (auto pda = dynamic_cast<ProceduralDeassignNode*>(stmt)) {
+                pca_targets.push_back(pda->target);
+            }
+        };
+
+    for (size_t i = 0; i < result.processes.size(); ++i) {
+        auto& bp = result.processes[i];
+        bool is_strict_proc = bp.proc->is_always_ff || bp.proc->is_always_comb || bp.proc->is_always_latch;
+        std::vector<std::string> norm_targets, pca_targets;
+        for (auto& s : bp.proc->body) {
+            collect_writes(s.get(), norm_targets, pca_targets);
+        }
+
+        for (const auto& t : norm_targets) {
+            size_t nid = resolve_target_net_id(t, bp.scope);
+            if (nid != (size_t)-1) {
+                auto conn = get_connected_net_ids(nid);
+                for (size_t cid : conn) {
+                    net_drivers[cid].writing_procs.insert(i);
+                    if (is_strict_proc) {
+                        net_drivers[cid].driven_by_always_ff_comb_latch = true;
+                        if (net_drivers[cid].var_name.empty()) {
+                            std::string v = t;
+                            auto dot_pos = v.rfind('.');
+                            net_drivers[cid].var_name = (dot_pos != std::string::npos) ? v.substr(dot_pos + 1) : v;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const auto& t : pca_targets) {
+            size_t nid = resolve_target_net_id(t, bp.scope);
+            if (nid != (size_t)-1) {
+                auto conn = get_connected_net_ids(nid);
+                for (size_t cid : conn) {
+                    net_drivers[cid].targeted_by_pca = true;
+                    if (net_drivers[cid].var_name.empty()) {
+                        std::string v = t;
+                        auto dot_pos = v.rfind('.');
+                        net_drivers[cid].var_name = (dot_pos != std::string::npos) ? v.substr(dot_pos + 1) : v;
+                    }
+                }
+            }
+        }
+    }
+
+    for (const auto& ca : result.continuous_assigns) {
+        auto conn = get_connected_net_ids(ca.target.net_id);
+        for (size_t cid : conn) {
+            net_drivers[cid].has_continuous_assign = true;
+        }
+    }
+
+    for (size_t nid = 0; nid < result.netlist.size(); ++nid) {
+        const auto& d = net_drivers[nid];
+        if (d.driven_by_always_ff_comb_latch) {
+            if (d.writing_procs.size() > 1 || d.targeted_by_pca || d.has_continuous_assign) {
+                std::string var_name = d.var_name;
+                if (var_name.empty()) {
+                    var_name = result.netlist[nid].name;
+                    auto dot_pos = var_name.rfind('.');
+                    if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);
+                }
+                throw std::runtime_error("[CAS-ICPD] Illegal combination of procedural drivers: variable '" + 
+                                         var_name + "' written in always_ff/always_comb/always_latch cannot be driven by any other process or procedural assign.");
+            }
+        }
+    }
+
     return std::move(result);
 }

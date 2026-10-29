@@ -243,6 +243,31 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return case_node;
     }
 
+    // 13.5. Procedural Continuous Assignments (IEEE Std 1800-2023 §10.4.2)
+    if (match(TokenType::TOKEN_ASSIGN)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected target variable identifier in procedural assign");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in procedural assign target");
+        }
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' in procedural assign");
+        auto rhs = parse_expression();
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after procedural assign");
+        return std::make_unique<ProceduralAssignNode>(target, std::move(rhs));
+    }
+
+    if (match(TokenType::TOKEN_DEASSIGN)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected target variable identifier in procedural deassign");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in procedural deassign target");
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after procedural deassign");
+        return std::make_unique<ProceduralDeassignNode>(target);
+    }
+
     // 14. Multi-target concatenation assignment ({a, b} = expr;)
     if (match(TokenType::TOKEN_LBRACE)) {
         std::vector<std::string> targets;
@@ -270,6 +295,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string ident = current.text;
         advance();
+        while (match(TokenType::TOKEN_DOT)) {
+            ident += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+        }
 
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto idx_expr = parse_expression();
@@ -365,6 +394,7 @@ std::unique_ptr<ProcessNode> Parser::parse_always_ff() {
     expect(TokenType::TOKEN_LPAREN, "Expected '(' in sensitivity list");
 
     auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
+    proc->is_always_ff = true;
 
     while (true) {
         EdgeType edge = EdgeType::LEVEL;
