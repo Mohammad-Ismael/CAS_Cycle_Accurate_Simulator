@@ -2,6 +2,7 @@
 #include "../common/types.hpp"
 #include <string>
 #include <cstdint>
+#include <vector>
 
 struct ExpressionNode;
 
@@ -62,4 +63,10 @@ struct NetSliceRef {
 struct SliceBinding {
     NetSliceRef src;
     NetSliceRef dst;
+};
+
+struct NamedEvent {
+    std::string name;
+    uint64_t last_triggered_time = (uint64_t)-1;
+    std::vector<size_t> waiting_pids;
 };

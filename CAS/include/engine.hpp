@@ -40,6 +40,8 @@ private:
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
+    std::vector<NamedEvent> named_events;
+    std::unordered_map<std::string, size_t> named_event_map;
 
     MonitorSession monitor_session;
 

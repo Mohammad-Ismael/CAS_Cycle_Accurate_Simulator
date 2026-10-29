@@ -198,6 +198,20 @@ struct WaitForkStatementNode : public StatementNode {
     WaitForkStatementNode() = default;
 };
 
+struct EventTriggerStatementNode : public StatementNode {
+    std::string event_name;
+    bool is_nonblocking = false;
+
+    EventTriggerStatementNode(std::string name, bool nb = false)
+        : event_name(std::move(name)), is_nonblocking(nb) {}
+};
+
+struct WaitEventTriggeredStatementNode : public StatementNode {
+    std::string event_name;
+    explicit WaitEventTriggeredStatementNode(std::string name)
+        : event_name(std::move(name)) {}
+};
+
 struct TaskCallNode : public StatementNode {
     std::string task_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;

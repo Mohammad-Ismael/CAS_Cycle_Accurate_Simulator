@@ -149,7 +149,18 @@ Token Lexer::next_token() {
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
     if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line, 0}; }
     if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, cur_file, cur_line, 0}; }
-    if (c == '-') { advance(); return {TokenType::TOKEN_MINUS, "-", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '-') {
+        advance();
+        if (peek() == '>') {
+            advance();
+            if (peek() == '>') {
+                advance();
+                return {TokenType::TOKEN_NONBLOCKING_TRIGGER, "->>", 0, 0, cur_file, cur_line, 0};
+            }
+            return {TokenType::TOKEN_TRIGGER, "->", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_MINUS, "-", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == '*') { advance(); return {TokenType::TOKEN_STAR, "*", 0, 0, cur_file, cur_line, 0}; }
 
     // Multi-character Operators
@@ -307,6 +318,7 @@ Token Lexer::next_token() {
         if (ident == "join_none") return {TokenType::TOKEN_JOIN_NONE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "disable") return {TokenType::TOKEN_DISABLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "wait") return {TokenType::TOKEN_WAIT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "event") return {TokenType::TOKEN_EVENT, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line, 0};

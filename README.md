@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v2.3.0.0`  
-**Status:** Production Milestone v2.3.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v2.4.0.0`  
+**Status:** Production Milestone v2.4.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -31,11 +31,12 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§12.5** | **Selection & Wildcard Statements** | Exact `case`, `casez` (high-Z/`?` don't-cares), `casex` (X/Z/`?` don't-cares), with standard priority resolution. |
 | **§12.7, §13.4** | **Procedural Loops & Subroutines** | `for`, `while`, `repeat`, `forever` loops, procedural `task` blocks, and typed `function` subroutines. |
 | **§13.4.2, §13.5.1** | **Automatic Routines & Call Frames** | `automatic` functions with recursive activation frames, concurrent re-entrant tasks with local frame isolation across `#delay` intervals. |
+| **§15** | **Named Events & Triggers** | `event` data type, immediate active trigger (`-> e`), non-blocking trigger (`->> e`), event control wait (`@e`), and persistent triggered check (`wait(e.triggered)`). |
 | **§21.2** | **System Tasks & I/O** | `$display`, `$monitor` (Postponed region), `$time`, `$finish`, `$dumpfile`, `$dumpvars` with 4-state hex/bin formatters. |
 
 ---
 
-## Milestone Regression Pass Matrix (14 / 14 PASS)
+## Milestone Regression Pass Matrix (15 / 15 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -55,6 +56,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v2.1.0.0** | `projects/v2_1_0_0_automatic_routines` | Automatic Functions, Re-entrant Tasks, & Call Frames (§13.4.2, §13.5.1) | **PASS** | 100% VCS |
 | **v2.2.0.0** | `projects/v2_2_0_0_fork_join` | Parallel Blocks (`fork ... join`, `join_any`, `join_none`) (§9.3.2) | **PASS** | 100% VCS |
 | **v2.3.0.0** | `projects/v2_3_0_0_process_control` | Process Controls (`disable fork`, `wait fork`) (§9.6.2, §9.6.3) | **PASS** | 100% VCS |
+| **v2.4.0.0** | `projects/v2_4_0_0_named_events` | Named Events & Triggers (`->`, `->>`, `@e`, `wait(e.triggered)`) (§15) | **PASS** | 100% VCS |
 
 ---
 

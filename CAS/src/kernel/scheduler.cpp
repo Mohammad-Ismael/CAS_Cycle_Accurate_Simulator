@@ -280,7 +280,7 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
 }
 
 bool StratifiedScheduler::commit_nba_updates() {
-    if (nba_queue.empty() && nba_mem_queue.empty()) return false;
+    if (nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
 
     nba_commits_count++;
     for (const auto& update : nba_queue) {
@@ -297,6 +297,15 @@ bool StratifiedScheduler::commit_nba_updates() {
         }
     }
     nba_mem_queue.clear();
+
+    if (!nba_event_queue.empty()) {
+        std::vector<NBAEventItem> current_events = std::move(nba_event_queue);
+        nba_event_queue.clear();
+        for (const auto& ev_item : current_events) {
+            trigger_named_event_id(ev_item.event_id);
+        }
+    }
+
     return true;
 }
 
@@ -513,6 +522,39 @@ void StratifiedScheduler::terminate_process_tree(size_t target_pid) {
     p.wait_target.active = false;
     p.fork_barrier.active = false;
     p.is_waiting_fork = false;
+    p.waiting_event_id = (size_t)-1;
+}
+
+void StratifiedScheduler::trigger_named_event_id(size_t ev_id) {
+    if (ev_id >= engine.named_events.size()) return;
+    auto& ev = engine.named_events[ev_id];
+    ev.last_triggered_time = current_sim_time;
+    std::vector<size_t> pids_to_wake = std::move(ev.waiting_pids);
+    ev.waiting_pids.clear();
+    for (size_t w_pid : pids_to_wake) {
+        if (w_pid < engine.processes.size() && !engine.processes[w_pid].completed) {
+            engine.processes[w_pid].waiting_event_id = (size_t)-1;
+            step_process(w_pid);
+        }
+    }
+}
+
+void StratifiedScheduler::trigger_named_event(const std::string& ev_name, const std::string& scope, bool is_nonblocking) {
+    std::string scoped_name = scope.empty() ? ev_name : (scope + "." + ev_name);
+    size_t ev_id = (size_t)-1;
+    if (engine.named_event_map.find(scoped_name) != engine.named_event_map.end()) {
+        ev_id = engine.named_event_map.at(scoped_name);
+    } else if (engine.named_event_map.find(ev_name) != engine.named_event_map.end()) {
+        ev_id = engine.named_event_map.at(ev_name);
+    }
+
+    if (ev_id == (size_t)-1) return;
+
+    if (is_nonblocking) {
+        nba_event_queue.push_back({ev_id});
+    } else {
+        trigger_named_event_id(ev_id);
+    }
 }
 
 void StratifiedScheduler::disable_fork(size_t caller_pid) {
@@ -576,14 +618,14 @@ void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     if (pid >= engine.processes.size()) return;
     auto& initial_bp = engine.processes[pid];
-    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork) return;
+    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1) return;
 
     engine.evaluator.set_current_process(&initial_bp);
 
     while (simulation_active) {
         if (pid >= engine.processes.size()) break;
         auto& bp = engine.processes[pid];
-        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork) break;
+        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1) break;
         engine.evaluator.set_current_process(&bp);
 
         // A. Execution within an active task activation frame
@@ -625,6 +667,19 @@ void StratifiedScheduler::step_process(size_t pid) {
             // Procedural Event Control inside task: @(...)
             if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
                 std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                size_t ev_id = (size_t)-1;
+                if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(scoped_sig);
+                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                }
+                if (ev_id != (size_t)-1) {
+                    cur_frame.pc++;
+                    bp.waiting_event_id = ev_id;
+                    engine.named_events[ev_id].waiting_pids.push_back(pid);
+                    break;
+                }
+
                 size_t net_id = (size_t)-1;
                 if (engine.net_map.find(scoped_sig) != engine.net_map.end()) net_id = engine.net_map.at(scoped_sig);
                 else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) net_id = engine.net_map.at(ev_stmt->signal_name);
@@ -637,6 +692,36 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
                 cur_frame.pc++;
+                continue;
+            }
+
+            // Event Trigger inside task: -> e or ->> e (IEEE 1800-2023 §15.4)
+            if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
+                continue;
+            }
+
+            // wait(e.triggered) inside task: (IEEE 1800-2023 §15.5)
+            if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
+                std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
+                size_t ev_id = (size_t)-1;
+                if (engine.named_event_map.find(scoped_ev) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(scoped_ev);
+                } else if (engine.named_event_map.find(we->event_name) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(we->event_name);
+                }
+                cur_frame.pc++;
+                if (ev_id != (size_t)-1) {
+                    auto& ev = engine.named_events[ev_id];
+                    if (ev.last_triggered_time == current_sim_time) {
+                        continue;
+                    } else {
+                        bp.waiting_event_id = ev_id;
+                        ev.waiting_pids.push_back(pid);
+                        break;
+                    }
+                }
                 continue;
             }
 
@@ -699,6 +784,19 @@ void StratifiedScheduler::step_process(size_t pid) {
             // 1. Procedural In-Body Event Control: @(...)
             if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
                 std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                size_t ev_id = (size_t)-1;
+                if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(scoped_sig);
+                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                }
+                if (ev_id != (size_t)-1) {
+                    bp.pc++;
+                    bp.waiting_event_id = ev_id;
+                    engine.named_events[ev_id].waiting_pids.push_back(pid);
+                    break;
+                }
+
                 size_t net_id = (size_t)-1;
                 if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
                     net_id = engine.net_map.at(scoped_sig);
@@ -715,6 +813,36 @@ void StratifiedScheduler::step_process(size_t pid) {
                 bp.wait_target.signal_name = ev_stmt->signal_name;
                 bp.wait_target.net_id = net_id;
                 break;
+            }
+
+            // Event Trigger: -> e or ->> e (IEEE 1800-2023 §15.4)
+            if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
+                bp.pc++;
+                trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
+                continue;
+            }
+
+            // wait(e.triggered): (IEEE 1800-2023 §15.5)
+            if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
+                std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
+                size_t ev_id = (size_t)-1;
+                if (engine.named_event_map.find(scoped_ev) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(scoped_ev);
+                } else if (engine.named_event_map.find(we->event_name) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(we->event_name);
+                }
+                bp.pc++;
+                if (ev_id != (size_t)-1) {
+                    auto& ev = engine.named_events[ev_id];
+                    if (ev.last_triggered_time == current_sim_time) {
+                        continue;
+                    } else {
+                        bp.waiting_event_id = ev_id;
+                        ev.waiting_pids.push_back(pid);
+                        break;
+                    }
+                }
+                continue;
             }
 
             // 2. Procedural Delay: #delay
@@ -835,6 +963,19 @@ void StratifiedScheduler::step_process(size_t pid) {
         // 1. Procedural In-Body Event Control: @(...)
         if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
             std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+            size_t ev_id = (size_t)-1;
+            if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
+                ev_id = engine.named_event_map.at(scoped_sig);
+            } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
+                ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+            }
+            if (ev_id != (size_t)-1) {
+                bp.pc++;
+                bp.waiting_event_id = ev_id;
+                engine.named_events[ev_id].waiting_pids.push_back(pid);
+                break;
+            }
+
             size_t net_id = (size_t)-1;
             if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
                 net_id = engine.net_map.at(scoped_sig);
@@ -851,6 +992,36 @@ void StratifiedScheduler::step_process(size_t pid) {
             bp.wait_target.signal_name = ev_stmt->signal_name;
             bp.wait_target.net_id = net_id;
             break;
+        }
+
+        // Event Trigger: -> e or ->> e (IEEE 1800-2023 §15.4)
+        if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
+            bp.pc++;
+            trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
+            continue;
+        }
+
+        // wait(e.triggered): (IEEE 1800-2023 §15.5)
+        if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
+            std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
+            size_t ev_id = (size_t)-1;
+            if (engine.named_event_map.find(scoped_ev) != engine.named_event_map.end()) {
+                ev_id = engine.named_event_map.at(scoped_ev);
+            } else if (engine.named_event_map.find(we->event_name) != engine.named_event_map.end()) {
+                ev_id = engine.named_event_map.at(we->event_name);
+            }
+            bp.pc++;
+            if (ev_id != (size_t)-1) {
+                auto& ev = engine.named_events[ev_id];
+                if (ev.last_triggered_time == current_sim_time) {
+                    continue;
+                } else {
+                    bp.waiting_event_id = ev_id;
+                    ev.waiting_pids.push_back(pid);
+                    break;
+                }
+            }
+            continue;
         }
 
         // 2. Procedural Delay: #delay

@@ -236,6 +236,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_EVENT) {
+                advance();
+                while (true) {
+                    std::string ev_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier");
+                    mod->events.push_back(ev_name);
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after event declaration");
+                continue;
+            }
+
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||

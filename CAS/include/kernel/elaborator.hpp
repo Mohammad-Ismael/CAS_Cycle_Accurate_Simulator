@@ -88,6 +88,7 @@ struct BoundProcess {
     bool is_delayed = false;
     std::vector<size_t> active_children;
     bool is_waiting_fork = false;
+    size_t waiting_event_id = (size_t)-1;
 
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
@@ -105,6 +106,8 @@ struct ElaborationResult {
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
     std::vector<BoundProcess> processes;
+    std::vector<NamedEvent> named_events;
+    std::unordered_map<std::string, size_t> named_event_map;
 };
 
 class Elaborator {

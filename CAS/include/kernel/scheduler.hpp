@@ -46,6 +46,10 @@ struct IntraEventBlockingItem {
     uint64_t reg_time;
 };
 
+struct NBAEventItem {
+    size_t event_id;
+};
+
 class StratifiedScheduler {
 private:
     Engine& engine;
@@ -82,6 +86,9 @@ private:
     bool has_active_descendants(size_t pid);
     void disable_fork(size_t caller_pid);
     void terminate_process_tree(size_t target_pid);
+    std::vector<NBAEventItem> nba_event_queue;
+    void trigger_named_event(const std::string& ev_name, const std::string& scope, bool is_nonblocking);
+    void trigger_named_event_id(size_t ev_id);
 
 public:
     explicit StratifiedScheduler(Engine& eng);

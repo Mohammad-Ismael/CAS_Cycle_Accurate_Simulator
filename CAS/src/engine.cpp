@@ -29,6 +29,8 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     param_map = std::move(elab_res.param_map);
     processes = std::move(elab_res.processes);
     function_map = std::move(elab_res.function_map);
+    named_events = std::move(elab_res.named_events);
+    named_event_map = std::move(elab_res.named_event_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

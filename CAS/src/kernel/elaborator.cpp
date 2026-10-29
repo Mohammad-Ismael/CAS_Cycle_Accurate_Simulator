@@ -221,6 +221,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.function_map[f->name] = f.get();
     }
 
+    for (const auto& ev_name : mod->events) {
+        std::string scoped_ev = scope + "." + ev_name;
+        size_t ev_id = result.named_events.size();
+        result.named_events.push_back({scoped_ev, (uint64_t)-1, {}});
+        result.named_event_map[scoped_ev] = ev_id;
+        if (result.named_event_map.find(ev_name) == result.named_event_map.end()) {
+            result.named_event_map[ev_name] = ev_id;
+        }
+    }
+
     for (auto& proc : mod->processes) {
         result.processes.push_back({scope, proc.get(), 0, false});
     }

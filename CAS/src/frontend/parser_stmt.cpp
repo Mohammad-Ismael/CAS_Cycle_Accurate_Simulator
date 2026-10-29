@@ -71,18 +71,33 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
-    // 3. Procedural Event Control: @(posedge clk), @(negedge clk), @(signal)
+    // 3. Procedural Event Control: @(posedge clk), @(negedge clk), @(signal), @event
     if (match(TokenType::TOKEN_AT)) {
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
         EdgeType edge = EdgeType::LEVEL;
-        if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
-        else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+        std::string sig;
+        if (match(TokenType::TOKEN_LPAREN)) {
+            if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+            else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
 
-        std::string sig = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
-        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event control");
-        match(TokenType::TOKEN_SEMICOLON);
-        return std::make_unique<EventControlStatementNode>(edge, sig);
+            sig = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event control");
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            sig = current.text;
+            advance();
+        } else {
+            throw std::runtime_error("Expected identifier or '(' after '@'");
+        }
+
+        if (match(TokenType::TOKEN_SEMICOLON)) {
+            return std::make_unique<EventControlStatementNode>(edge, sig);
+        }
+
+        auto target_stmt = parse_statement();
+        std::vector<std::unique_ptr<StatementNode>> stmts;
+        stmts.push_back(std::make_unique<EventControlStatementNode>(edge, sig));
+        stmts.push_back(std::move(target_stmt));
+        return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
     // 4. Forever Loop
@@ -131,11 +146,37 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisableForkStatementNode>();
     }
 
-    // wait fork (IEEE 1800-2023 §9.6.3)
+    // wait fork (IEEE 1800-2023 §9.6.3) or wait (e.triggered) (IEEE 1800-2023 §15.5)
     if (match(TokenType::TOKEN_WAIT)) {
-        expect(TokenType::TOKEN_FORK, "Expected 'fork' after 'wait'");
+        if (match(TokenType::TOKEN_FORK)) {
+            match(TokenType::TOKEN_SEMICOLON);
+            return std::make_unique<WaitForkStatementNode>();
+        }
+        if (match(TokenType::TOKEN_LPAREN)) {
+            std::string ev_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier in wait(...)");
+            expect(TokenType::TOKEN_DOT, "Expected '.' in wait(event.triggered)");
+            std::string prop = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected 'triggered' property after '.'");
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing wait(...)");
+            match(TokenType::TOKEN_SEMICOLON);
+            return std::make_unique<WaitEventTriggeredStatementNode>(ev_name);
+        }
+        throw std::runtime_error("Expected 'fork' or '(' after 'wait'");
+    }
+
+    // Event Trigger: -> e; or ->> e; (IEEE 1800-2023 §15.4)
+    if (match(TokenType::TOKEN_TRIGGER)) {
+        std::string ev_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier after '->'");
         match(TokenType::TOKEN_SEMICOLON);
-        return std::make_unique<WaitForkStatementNode>();
+        return std::make_unique<EventTriggerStatementNode>(ev_name, /*is_nonblocking=*/false);
+    }
+    if (match(TokenType::TOKEN_NONBLOCKING_TRIGGER)) {
+        std::string ev_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier after '->>'");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<EventTriggerStatementNode>(ev_name, /*is_nonblocking=*/true);
     }
 
     // 5. For Loop

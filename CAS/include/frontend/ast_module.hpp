@@ -140,6 +140,7 @@ struct ModuleNode : public ASTNode {
     std::vector<ParameterDef> parameters;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
+    std::vector<std::string> events;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::unique_ptr<ProcessNode>> processes;
