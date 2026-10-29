@@ -15,6 +15,14 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         current.type == TokenType::TOKEN_BIT) {
         if (current.type == TokenType::TOKEN_INTEGER) func->return_signed = true;
         advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
+        if (current.text == "string") func->return_width = 64;
+        else if (current.text == "void") func->return_width = 0;
+        else if (current.text == "byte") func->return_width = 8;
+        else if (current.text == "shortint") func->return_width = 16;
+        else if (current.text == "int") func->return_width = 32;
+        else if (current.text == "longint") func->return_width = 64;
+        advance();
     }
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
 

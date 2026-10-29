@@ -252,3 +252,18 @@ struct ClassNewNode : public ExpressionNode {
         return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args));
     }
 };
+
+struct SysCastCallNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> dest_expr;
+    std::unique_ptr<ExpressionNode> src_expr;
+
+    SysCastCallNode(std::unique_ptr<ExpressionNode> d, std::unique_ptr<ExpressionNode> s)
+        : dest_expr(std::move(d)), src_expr(std::move(s)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<SysCastCallNode>(
+            dest_expr ? dest_expr->clone() : nullptr,
+            src_expr ? src_expr->clone() : nullptr
+        );
+    }
+};

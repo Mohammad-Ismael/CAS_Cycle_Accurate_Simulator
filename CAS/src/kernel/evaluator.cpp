@@ -336,6 +336,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto sc = dynamic_cast<SysCastStatementNode*>(stmt)) {
+        SysCastCallNode call(sc->dest_expr ? sc->dest_expr->clone() : nullptr,
+                             sc->src_expr ? sc->src_expr->clone() : nullptr);
+        LogicVal res = expr_eval.eval(&call, bp.scope);
+        if (res.aval == 0) {
+            throw std::runtime_error("[CAS-CAST-ERR] Runtime error: $cast failed (incompatible class types or invalid handle)");
+        }
+        return;
+    }
+
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         std::string tname = tcall->task_name;
         auto dot = tname.rfind('.');
@@ -344,7 +354,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             std::string method = tname.substr(dot + 1);
 
             ClassObject* cl_obj = nullptr;
-            if (var_name == "this") {
+            if (var_name == "this" || var_name == "super") {
                 cl_obj = expr_eval.get_current_this();
             } else {
                 if (expr_eval.get_context().has_active_frame()) {
@@ -370,7 +380,65 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
             if (cl_obj) {
-                TaskNode* task_node = cl_obj->class_def ? cl_obj->class_def->find_task(method) : nullptr;
+                if (var_name == "super" && method == "new") {
+                    FunctionNode* base_ctor = (cl_obj->class_def && cl_obj->class_def->base_class) ?
+                                              cl_obj->class_def->base_class->get_constructor() : nullptr;
+                    if (base_ctor) {
+                        std::vector<LogicVal> arg_vals;
+                        for (auto& a : tcall->args) {
+                            arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+                        }
+                        LogicVal dummy;
+                        expr_eval.eval_class_method(cl_obj, base_ctor, arg_vals, dummy);
+                    }
+                    return;
+                }
+
+                TaskNode* task_node = nullptr;
+                FunctionNode* func_node = nullptr;
+                if (var_name == "super") {
+                    if (cl_obj->class_def && cl_obj->class_def->base_class) {
+                        task_node = cl_obj->class_def->base_class->find_task(method);
+                        if (!task_node) func_node = cl_obj->class_def->base_class->find_function(method);
+                    }
+                } else {
+                    std::string static_type = "";
+                    if (var_name == "this") static_type = cl_obj->class_type_name;
+                    else {
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                            if (local && local->is_class_handle) static_type = local->class_type_name;
+                        }
+                        if (static_type.empty() && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* local = it->local_frame.get_var(var_name);
+                                if (local && local->is_class_handle) { static_type = local->class_type_name; break; }
+                            }
+                        }
+                        if (static_type.empty()) {
+                            size_t nid = engine.get_net_id(bp.scope, var_name);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                                static_type = engine.get_class_type(var_name, bp.scope);
+                            }
+                        }
+                    }
+                    const ClassNode* static_def = !static_type.empty() ? engine.get_class_def(static_type) : cl_obj->class_def;
+                    bool is_virt = false;
+                    if (static_def) is_virt = static_def->is_method_virtual(method);
+                    else if (cl_obj->class_def) is_virt = cl_obj->class_def->is_method_virtual(method);
+
+                    if (is_virt && cl_obj->class_def) {
+                        task_node = cl_obj->class_def->dispatch_task(method);
+                        if (!task_node) func_node = cl_obj->class_def->dispatch_function(method);
+                    } else if (static_def) {
+                        task_node = static_def->find_task(method);
+                        if (!task_node) func_node = static_def->find_function(method);
+                    } else if (cl_obj->class_def) {
+                        task_node = cl_obj->class_def->find_task(method);
+                        if (!task_node) func_node = cl_obj->class_def->find_function(method);
+                    }
+                }
+
                 if (task_node) {
                     ClassObject* prev_this = expr_eval.get_current_this();
                     expr_eval.set_current_this(cl_obj);
@@ -401,6 +469,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     expr_eval.get_context().pop_frame();
                     expr_eval.set_current_this(prev_this);
+                    return;
+                }
+                if (func_node) {
+                    std::vector<LogicVal> arg_vals;
+                    for (auto& a : tcall->args) {
+                        arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+                    }
+                    LogicVal dummy;
+                    expr_eval.eval_class_method(cl_obj, func_node, arg_vals, dummy);
                     return;
                 }
             }
@@ -612,9 +689,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     check_mon_expr(idx->msb_expr.get());
                     check_mon_expr(idx->lsb_expr.get());
                 } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
-                    if (engine.is_class_handle(ma->var_name, bp.scope) || ma->var_name == "this") {
+                    if (engine.is_class_handle(ma->var_name, bp.scope) || ma->var_name == "this" || ma->var_name == "super") {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class property '" + ma->var_name + "." + ma->member_name + "' used in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
                     }
+                } else if (dynamic_cast<SysCastCallNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: '$cast' used directly in $monitor per IEEE 1800-2023 section 8.16 & 21.2.3");
                 } else if (dynamic_cast<NullNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'null' literal used directly in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
                 } else if (dynamic_cast<ClassNewNode*>(expr)) {
@@ -1079,7 +1158,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             if (!member_name.empty()) {
                 ClassObject* obj = nullptr;
-                if (base_var == "this") {
+                if (base_var == "this" || base_var == "super") {
                     obj = expr_eval.get_current_this();
                 } else {
                     LocalVar* h_local = nullptr;

@@ -569,6 +569,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
                 if (is_int) is_signed_sig = true;
 
+                bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
                 NetKind sig_kind = NetKind::WIRE;
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int) {
                     sig_kind = NetKind::VAR;
@@ -603,6 +604,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
+                    if (is_bit_type) sig.type_name = "bit";
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
@@ -706,14 +708,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            bool is_virt = false;
+            if (match(TokenType::TOKEN_VIRTUAL)) is_virt = true;
             // Function declaration parsed by parser_function.cpp
             if (match(TokenType::TOKEN_FUNCTION)) {
-                mod->functions.push_back(parse_function());
+                auto fn = parse_function();
+                if (fn) {
+                    fn->is_virtual = is_virt;
+                    mod->functions.push_back(std::move(fn));
+                }
                 continue;
             }
 
             if (match(TokenType::TOKEN_TASK)) {
-                mod->tasks.push_back(parse_task());
+                auto t = parse_task();
+                if (t) {
+                    t->is_virtual = is_virt;
+                    mod->tasks.push_back(std::move(t));
+                }
                 continue;
             }
 
@@ -1063,19 +1075,34 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
     expect(TokenType::TOKEN_CLASS, "Expected 'class'");
     std::string class_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
+    std::string base_class_name = "";
+    if (match(TokenType::TOKEN_EXTENDS)) {
+        base_class_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
+    }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
 
-    auto cls = std::make_unique<ClassNode>(class_name);
+    auto cls = std::make_unique<ClassNode>(class_name, base_class_name);
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
+        bool is_virt = false;
+        if (match(TokenType::TOKEN_VIRTUAL)) {
+            is_virt = true;
+        }
         if (current.type == TokenType::TOKEN_FUNCTION) {
             advance();
             auto fn = parse_function();
-            if (fn) cls->add_function(std::move(fn));
+            if (fn) {
+                fn->is_virtual = is_virt;
+                cls->add_function(std::move(fn));
+            }
         } else if (current.type == TokenType::TOKEN_TASK) {
             advance();
             auto t = parse_task();
-            if (t) cls->add_task(std::move(t));
+            if (t) {
+                t->is_virtual = is_virt;
+                cls->add_task(std::move(t));
+            }
         } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
                    current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
                    current.type == TokenType::TOKEN_INTEGER ||

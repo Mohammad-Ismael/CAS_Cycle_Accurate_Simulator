@@ -131,7 +131,11 @@ enum class TokenType {
     TOKEN_NULL,
     TOKEN_THIS,
     TOKEN_BIT,
-    TOKEN_RETURN
+    TOKEN_RETURN,
+    TOKEN_EXTENDS,
+    TOKEN_SUPER,
+    TOKEN_VIRTUAL,
+    TOKEN_CAST
 };
 
 struct Token {

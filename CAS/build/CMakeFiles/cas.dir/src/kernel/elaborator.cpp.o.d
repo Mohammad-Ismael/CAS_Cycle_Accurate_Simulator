@@ -162,10 +162,10 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /usr/include/c++/13.2.1/bits/stl_multimap.h \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/class_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/clocking_types.hpp \
- /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
- /app/CAS/src/kernel/../../include/kernel/execution_context.hpp \
  /usr/include/c++/13.2.1/unordered_set \
  /usr/include/c++/13.2.1/bits/unordered_set.h \
+ /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
+ /app/CAS/src/kernel/../../include/kernel/execution_context.hpp \
  /app/CAS/src/kernel/../../include/tracer/vcd_dumper.hpp \
  /usr/include/c++/13.2.1/fstream \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \

@@ -281,3 +281,11 @@ struct ReturnStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> expr;
     explicit ReturnStatementNode(std::unique_ptr<ExpressionNode> e = nullptr) : expr(std::move(e)) {}
 };
+
+struct SysCastStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> dest_expr;
+    std::unique_ptr<ExpressionNode> src_expr;
+
+    SysCastStatementNode(std::unique_ptr<ExpressionNode> d, std::unique_ptr<ExpressionNode> s)
+        : dest_expr(std::move(d)), src_expr(std::move(s)) {}
+};

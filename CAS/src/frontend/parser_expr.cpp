@@ -31,6 +31,43 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<NullNode>();
     }
 
+    if (match(TokenType::TOKEN_CAST)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $cast");
+        auto dest = parse_expression();
+        expect(TokenType::TOKEN_COMMA, "Expected ',' in $cast(dest, src)");
+        auto src = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $cast");
+        return std::make_unique<SysCastCallNode>(std::move(dest), std::move(src));
+    }
+
+    if (match(TokenType::TOKEN_SUPER)) {
+        if (match(TokenType::TOKEN_DOT)) {
+            std::string sub_name;
+            if (current.type == TokenType::TOKEN_NEW) {
+                sub_name = "new";
+                advance();
+            } else {
+                sub_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after 'super.'");
+            }
+            if (match(TokenType::TOKEN_LPAREN)) {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        args.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
+                return std::make_unique<MethodCallNode>("super", sub_name, std::move(args));
+            } else {
+                return std::make_unique<MemberAccessNode>("super", sub_name);
+            }
+        }
+        return std::make_unique<IdentifierNode>("super");
+    }
+
     if (match(TokenType::TOKEN_THIS)) {
         if (match(TokenType::TOKEN_DOT)) {
             std::string sub_name = current.text;

@@ -134,6 +134,68 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(64, 0, 0);
     }
 
+    if (auto cast_call = dynamic_cast<SysCastCallNode*>(expr)) {
+        std::string dest_name;
+        if (auto id = dynamic_cast<IdentifierNode*>(cast_call->dest_expr.get())) {
+            dest_name = id->name;
+        } else {
+            return LogicVal::make_known(32, 0);
+        }
+
+        LocalVar* dest_local = nullptr;
+        if (context.has_active_frame()) {
+            dest_local = context.lookup_local(dest_name);
+        }
+        if (!dest_local && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                dest_local = it->local_frame.get_var(dest_name);
+                if (dest_local) break;
+            }
+        }
+        std::string dest_class_type;
+        size_t dest_nid = (size_t)-1;
+        if (dest_local && dest_local->is_class_handle) {
+            dest_class_type = dest_local->class_type_name;
+        } else {
+            dest_nid = engine.get_net_id(scope, dest_name);
+            if (dest_nid != (size_t)-1 && engine.netlist[dest_nid].is_class_handle) {
+                dest_class_type = engine.get_class_type(dest_name, scope);
+            }
+        }
+
+        if (dest_class_type.empty()) {
+            return LogicVal::make_known(32, 0);
+        }
+
+        LogicVal src_val = eval(cast_call->src_expr.get(), scope);
+        uint64_t src_handle = src_val.aval;
+
+        if (src_handle == 0) {
+            if (dest_local) {
+                dest_local->value = LogicVal(64, 0, 0);
+            } else if (dest_nid != (size_t)-1) {
+                engine.netlist[dest_nid].set(LogicVal(64, 0, 0));
+            }
+            return LogicVal::make_known(32, 1);
+        }
+
+        auto src_obj = engine.get_class_object(src_handle);
+        if (!src_obj) {
+            return LogicVal::make_known(32, 0);
+        }
+
+        if (src_obj->is_instance_of(dest_class_type)) {
+            if (dest_local) {
+                dest_local->value = LogicVal(64, src_handle, 0);
+            } else if (dest_nid != (size_t)-1) {
+                engine.netlist[dest_nid].set(LogicVal(64, src_handle, 0));
+            }
+            return LogicVal::make_known(32, 1);
+        } else {
+            return LogicVal::make_known(32, 0);
+        }
+    }
+
     if (auto cnew = dynamic_cast<ClassNewNode*>(expr)) {
         if (!cnew->class_type_name.empty()) {
             auto obj = engine.allocate_class_object(cnew->class_type_name);
@@ -188,7 +250,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
         std::string var_name = method_node->var_name;
         ClassObject* cl_obj = nullptr;
-        if (var_name == "this") {
+        if (var_name == "this" || var_name == "super") {
             cl_obj = current_this;
         } else {
             if (context.has_active_frame()) {
@@ -214,7 +276,46 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         if (cl_obj) {
-            FunctionNode* fn = cl_obj->class_def ? cl_obj->class_def->find_function(method_node->method_name) : nullptr;
+            FunctionNode* fn = nullptr;
+            if (var_name == "super") {
+                if (cl_obj->class_def && cl_obj->class_def->base_class) {
+                    fn = cl_obj->class_def->base_class->find_function(method_node->method_name);
+                }
+            } else {
+                std::string static_type = "";
+                if (var_name == "this") static_type = cl_obj->class_type_name;
+                else {
+                    if (context.has_active_frame()) {
+                        LocalVar* local = context.lookup_local(var_name);
+                        if (local && local->is_class_handle) static_type = local->class_type_name;
+                    }
+                    if (static_type.empty() && current_bp && !current_bp->call_stack.empty()) {
+                        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(var_name);
+                            if (local && local->is_class_handle) { static_type = local->class_type_name; break; }
+                        }
+                    }
+                    if (static_type.empty()) {
+                        size_t nid = engine.get_net_id(scope, var_name);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                            static_type = engine.get_class_type(var_name, scope);
+                        }
+                    }
+                }
+                const ClassNode* static_def = !static_type.empty() ? engine.get_class_def(static_type) : cl_obj->class_def;
+                bool is_virt = false;
+                if (static_def) is_virt = static_def->is_method_virtual(method_node->method_name);
+                else if (cl_obj->class_def) is_virt = cl_obj->class_def->is_method_virtual(method_node->method_name);
+
+                if (is_virt && cl_obj->class_def) {
+                    fn = cl_obj->class_def->dispatch_function(method_node->method_name);
+                } else if (static_def) {
+                    fn = static_def->find_function(method_node->method_name);
+                } else if (cl_obj->class_def) {
+                    fn = cl_obj->class_def->find_function(method_node->method_name);
+                }
+            }
+
             if (fn) {
                 std::vector<LogicVal> arg_vals;
                 for (auto& a : method_node->args) arg_vals.push_back(eval(a.get(), scope));
@@ -559,7 +660,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string member_name = member_node->member_name;
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
-        if (var_name == "this") {
+        if (var_name == "this" || var_name == "super") {
             if (current_this) return current_this->get_property(member_name);
             return LogicVal::make_x(32);
         }

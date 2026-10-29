@@ -181,8 +181,16 @@ public:
         const ClassNode* def = get_class_def(class_type);
         auto obj = std::make_shared<ClassObject>(id, class_type, def);
         if (def) {
-            for (const auto& m : def->member_vars) {
-                obj->properties[m.name] = LogicVal(m.width, 0, 0);
+            std::vector<const ClassNode*> hierarchy;
+            const ClassNode* cur = def;
+            while (cur) {
+                hierarchy.push_back(cur);
+                cur = cur->base_class;
+            }
+            for (auto it = hierarchy.rbegin(); it != hierarchy.rend(); ++it) {
+                for (const auto& m : (*it)->member_vars) {
+                    obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                }
             }
         }
         heap[id] = obj;

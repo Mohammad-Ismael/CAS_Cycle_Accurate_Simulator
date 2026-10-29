@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <unordered_set>
 
 struct PortNode : public ASTNode {
     std::string name;
@@ -82,6 +83,7 @@ struct TaskNode : public ASTNode {
     std::string name;
     std::string scope = "";
     bool is_automatic = false;
+    bool is_virtual = false;
     std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
 
@@ -94,6 +96,7 @@ struct FunctionNode : public ASTNode {
     std::string name;
     std::string scope = "";
     bool is_automatic = false;
+    bool is_virtual = false;
     uint32_t return_width = 32;
     bool return_signed = false;
     std::vector<PortNode> inputs;
@@ -235,14 +238,27 @@ struct ClassMemberVar {
 
 struct ClassNode : public ASTNode {
     std::string name;
+    std::string base_class_name;
+    ClassNode* base_class = nullptr;
     std::vector<ClassMemberVar> member_vars;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, TaskNode*> task_map;
 
+    std::unordered_map<std::string, FunctionNode*> vtable_functions;
+    std::unordered_map<std::string, TaskNode*> vtable_tasks;
+    std::unordered_set<std::string> virtual_method_names;
+
     ClassNode() = default;
-    explicit ClassNode(std::string n) : name(std::move(n)) {}
+    explicit ClassNode(std::string n, std::string base_n = "")
+        : name(std::move(n)), base_class_name(std::move(base_n)) {}
+
+    bool is_subclass_of(const std::string& target_type) const {
+        if (name == target_type) return true;
+        if (base_class) return base_class->is_subclass_of(target_type);
+        return false;
+    }
 
     void add_member_var(ClassMemberVar var) {
         member_vars.push_back(std::move(var));
@@ -263,21 +279,48 @@ struct ClassNode : public ASTNode {
     FunctionNode* get_constructor() const {
         auto it = function_map.find("new");
         if (it != function_map.end()) return it->second;
+        if (base_class) return base_class->get_constructor();
         return nullptr;
     }
 
     FunctionNode* find_function(const std::string& fname) const {
         auto it = function_map.find(fname);
         if (it != function_map.end()) return it->second;
+        if (base_class) return base_class->find_function(fname);
         return nullptr;
     }
 
     TaskNode* find_task(const std::string& tname) const {
         auto it = task_map.find(tname);
         if (it != task_map.end()) return it->second;
+        if (base_class) return base_class->find_task(tname);
         return nullptr;
     }
+
+    bool is_method_virtual(const std::string& mname) const {
+        if (virtual_method_names.count(mname)) return true;
+        if (base_class) return base_class->is_method_virtual(mname);
+        return false;
+    }
+
+    FunctionNode* dispatch_function(const std::string& fname) const {
+        auto it = vtable_functions.find(fname);
+        if (it != vtable_functions.end()) return it->second;
+        return find_function(fname);
+    }
+
+    TaskNode* dispatch_task(const std::string& tname) const {
+        auto it = vtable_tasks.find(tname);
+        if (it != vtable_tasks.end()) return it->second;
+        return find_task(tname);
+    }
 };
+
+inline bool ClassObject::is_instance_of(const std::string& target_type) const {
+    if (class_type_name == target_type) return true;
+    if (class_def) return class_def->is_subclass_of(target_type);
+    return false;
+}
 
 struct ModuleNode : public ASTNode {
     std::string name;

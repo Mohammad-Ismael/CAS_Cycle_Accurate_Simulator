@@ -288,6 +288,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.var_to_class_type[scope + "." + s.name] = s.class_type_name;
                 result.var_to_class_type[s.name] = s.class_type_name;
             }
+            if (s.type_name == "bit") {
+                result.netlist[sid].type_name = "bit";
+                result.netlist[sid].value = LogicVal(w, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(w, 0, 0);
+            }
             if (!s.type_name.empty()) {
                 result.netlist[sid].type_name = s.type_name;
                 result.var_to_enum_type[scope + "." + s.name] = s.type_name;
@@ -340,9 +345,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 std::string s_id = scope + "." + ma->var_name;
                 if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
                     result.class_handle_names.find(ma->var_name) != result.class_handle_names.end() ||
-                    ma->var_name == "this") {
+                    ma->var_name == "this" || ma->var_name == "super") {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class property '" + ma->var_name + "." + ma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 8.4");
                 }
+            } else if (dynamic_cast<SysCastCallNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: '$cast' used in continuous assignment per IEEE 1800-2023 section 8.16");
             } else if (dynamic_cast<NullNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'null' literal used in continuous assignment per IEEE 1800-2023 section 8.4");
             } else if (dynamic_cast<ClassNewNode*>(expr)) {
@@ -649,6 +656,55 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         for (auto& cls : mod->classes) {
             result.class_defs[cls->name] = cls.get();
         }
+    }
+
+    for (auto& kv : result.class_defs) {
+        ClassNode* cls = const_cast<ClassNode*>(kv.second);
+        if (!cls->base_class_name.empty()) {
+            auto it = result.class_defs.find(cls->base_class_name);
+            if (it == result.class_defs.end()) {
+                throw std::runtime_error("Class '" + cls->name + "' extends unknown base class '" + cls->base_class_name + "'");
+            }
+            cls->base_class = const_cast<ClassNode*>(it->second);
+
+            const ClassNode* cur = cls->base_class;
+            while (cur) {
+                if (cur == cls) {
+                    throw std::runtime_error("Circular inheritance detected for class '" + cls->name + "'");
+                }
+                cur = cur->base_class;
+            }
+        }
+    }
+
+    std::unordered_set<ClassNode*> visited_classes;
+    std::function<void(ClassNode*)> build_vtable = [&](ClassNode* cls) {
+        if (!cls || visited_classes.count(cls)) return;
+        if (cls->base_class) {
+            build_vtable(cls->base_class);
+            cls->virtual_method_names = cls->base_class->virtual_method_names;
+            cls->vtable_functions = cls->base_class->vtable_functions;
+            cls->vtable_tasks = cls->base_class->vtable_tasks;
+        }
+        for (auto& fn : cls->functions) {
+            if (fn->is_virtual || cls->virtual_method_names.count(fn->name)) {
+                cls->virtual_method_names.insert(fn->name);
+                cls->vtable_functions[fn->name] = fn.get();
+                fn->is_virtual = true;
+            }
+        }
+        for (auto& t : cls->tasks) {
+            if (t->is_virtual || cls->virtual_method_names.count(t->name)) {
+                cls->virtual_method_names.insert(t->name);
+                cls->vtable_tasks[t->name] = t.get();
+                t->is_virtual = true;
+            }
+        }
+        visited_classes.insert(cls);
+    };
+
+    for (auto& kv : result.class_defs) {
+        build_vtable(const_cast<ClassNode*>(kv.second));
     }
 
     std::unordered_map<std::string, ModuleNode*> module_defs;

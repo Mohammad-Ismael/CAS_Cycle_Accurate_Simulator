@@ -387,6 +387,14 @@ Token Lexer::next_token() {
         if (ident == "this") return {TokenType::TOKEN_THIS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "bit") return {TokenType::TOKEN_BIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "return") return {TokenType::TOKEN_RETURN, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
 
 
 

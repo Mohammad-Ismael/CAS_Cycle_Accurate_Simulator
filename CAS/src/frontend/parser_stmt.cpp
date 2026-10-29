@@ -528,13 +528,28 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return node;
     }
 
+    if (match(TokenType::TOKEN_CAST)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $cast");
+        auto dest = parse_expression();
+        expect(TokenType::TOKEN_COMMA, "Expected ',' in $cast(dest, src)");
+        auto src = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $cast");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $cast statement");
+        return std::make_unique<SysCastStatementNode>(std::move(dest), std::move(src));
+    }
+
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
-    if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS) {
+    if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS || current.type == TokenType::TOKEN_SUPER) {
         std::string ident = current.text;
         advance();
         while (match(TokenType::TOKEN_DOT)) {
-            ident += "." + current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+            if (current.type == TokenType::TOKEN_NEW) {
+                ident += ".new";
+                advance();
+            } else {
+                ident += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+            }
         }
 
         if (match(TokenType::TOKEN_LBRACKET)) {

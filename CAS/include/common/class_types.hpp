@@ -31,4 +31,6 @@ struct ClassObject {
     void set_property(const std::string& name, const LogicVal& val) {
         properties[name] = val;
     }
+
+    bool is_instance_of(const std::string& target_type) const;
 };
