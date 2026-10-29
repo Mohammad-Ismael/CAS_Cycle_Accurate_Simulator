@@ -34,6 +34,7 @@ private:
 
     std::vector<SliceBinding> slice_bindings;
     std::vector<ContinuousAssignBinding> continuous_assigns;
+    std::vector<ResolvedContinuousAssign> resolved_continuous_assigns;
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, TaskNode*> task_map;

@@ -7,6 +7,22 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     net_map = std::move(elab_res.net_map);
     slice_bindings = std::move(elab_res.slice_bindings);
     continuous_assigns = std::move(elab_res.continuous_assigns);
+    resolved_continuous_assigns.clear();
+    std::unordered_map<uint64_t, size_t> slice_to_rca;
+    for (const auto& ca : continuous_assigns) {
+        uint64_t key = ((uint64_t)ca.target.net_id << 32) | ((uint64_t)ca.target.offset << 16) | (uint64_t)ca.target.width;
+        auto it = slice_to_rca.find(key);
+        if (it == slice_to_rca.end()) {
+            size_t idx = resolved_continuous_assigns.size();
+            slice_to_rca[key] = idx;
+            ResolvedContinuousAssign rca;
+            rca.target = ca.target;
+            rca.drivers.push_back({ca.scope, ca.rhs});
+            resolved_continuous_assigns.push_back(std::move(rca));
+        } else {
+            resolved_continuous_assigns[it->second].drivers.push_back({ca.scope, ca.rhs});
+        }
+    }
     gates = std::move(elab_res.gates);
     memory_map = std::move(elab_res.memory_map);
     task_map = std::move(elab_res.task_map);

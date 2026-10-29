@@ -5,12 +5,20 @@
 #include <queue>
 #include <functional>
 
-size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed) {
+size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed, NetKind kind) {
     if (result.net_map.find(scoped_name) != result.net_map.end()) {
-        return result.net_map[scoped_name];
+        size_t existing_id = result.net_map[scoped_name];
+        if (result.netlist[existing_id].kind == NetKind::WIRE && kind != NetKind::WIRE) {
+            result.netlist[existing_id].kind = kind;
+            if (kind == NetKind::VAR) {
+                result.netlist[existing_id].value = LogicVal::make_x(width);
+                result.netlist[existing_id].prev_value = LogicVal::make_x(width);
+            }
+        }
+        return existing_id;
     }
     size_t id = result.netlist.size();
-    result.netlist.emplace_back(scoped_name, width, is_signed);
+    result.netlist.emplace_back(scoped_name, width, is_signed, kind);
     result.netlist.back().vcd_id = VcdDumper::generate_vcd_id(id);
     result.net_map[scoped_name] = id;
     return id;
@@ -156,7 +164,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
-        get_or_create_net(scope + "." + p.name, w, p.is_signed);
+        get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
     }
 
     for (auto& s : mod->signals) {
@@ -182,7 +190,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                            << " [" << w << "-bit x " << depth << " words]\n";
             }
         } else {
-            get_or_create_net(scope + "." + s.name, w, s.is_signed);
+            get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
         }
     }
 
@@ -301,6 +309,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         bool driven_by_always_ff_comb_latch = false;
         bool targeted_by_pca = false;
         bool has_continuous_assign = false;
+        size_t continuous_assign_count = 0;
         std::string var_name = "";
     };
     std::vector<NetDriverInfo> net_drivers(result.netlist.size());
@@ -424,6 +433,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     }
 
     for (const auto& ca : result.continuous_assigns) {
+        net_drivers[ca.target.net_id].continuous_assign_count++;
         auto conn = get_connected_net_ids(ca.target.net_id);
         for (size_t cid : conn) {
             net_drivers[cid].has_continuous_assign = true;
@@ -432,16 +442,28 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
     for (size_t nid = 0; nid < result.netlist.size(); ++nid) {
         const auto& d = net_drivers[nid];
+        const auto& net = result.netlist[nid];
         if (d.driven_by_always_ff_comb_latch) {
             if (d.writing_procs.size() > 1 || d.targeted_by_pca || d.has_continuous_assign) {
                 std::string var_name = d.var_name;
                 if (var_name.empty()) {
-                    var_name = result.netlist[nid].name;
+                    var_name = net.name;
                     auto dot_pos = var_name.rfind('.');
                     if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);
                 }
                 throw std::runtime_error("[CAS-ICPD] Illegal combination of procedural drivers: variable '" + 
                                          var_name + "' written in always_ff/always_comb/always_latch cannot be driven by any other process or procedural assign.");
+            }
+        }
+
+        // IEEE 1800-2023 §6.5 & §10.3.2: Variables cannot have multiple continuous drivers
+        if (net.kind == NetKind::VAR) {
+            if (d.continuous_assign_count > 1) {
+                std::string var_name = net.name;
+                auto dot_pos = var_name.rfind('.');
+                if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);
+                throw std::runtime_error("[CAS-MCD] Illegal combination of continuous drivers: variable '" + 
+                                         var_name + "' cannot be driven by multiple continuous assignments.");
             }
         }
     }

@@ -138,4 +138,5 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc \
  /usr/include/c++/13.2.1/bits/locale_conv.h \
  /usr/include/c++/13.2.1/bits/quoted_string.h \
+ /app/CAS/src/frontend/../../include/frontend/../common/net_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp

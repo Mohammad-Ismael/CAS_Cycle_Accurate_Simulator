@@ -190,12 +190,30 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        for (auto& ca : engine.continuous_assigns) {
-            if (engine.netlist[ca.target.net_id].has_procedural_assign) continue;
-            LogicVal val = engine.evaluator.eval_expr(ca.rhs, ca.scope);
-            LogicVal cur = engine.evaluator.read_slice(ca.target);
-            if (cur != val) {
-                engine.evaluator.write_slice(ca.target, val);
+        // IEEE 1800-2023 §6.5 & §10.3 / §10.4.1: Multi-Driver Continuous Assignment Resolution
+        for (auto& rca : engine.resolved_continuous_assigns) {
+            if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
+
+            LogicVal resolved;
+            if (rca.drivers.empty()) {
+                resolved = LogicVal::make_z(rca.target.width);
+            } else if (rca.drivers.size() == 1) {
+                resolved = engine.evaluator.eval_expr(rca.drivers[0].rhs, rca.drivers[0].scope);
+                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+            } else {
+                resolved = engine.evaluator.eval_expr(rca.drivers[0].rhs, rca.drivers[0].scope);
+                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                NetKind kind = engine.netlist[rca.target.net_id].kind;
+                for (size_t i = 1; i < rca.drivers.size(); ++i) {
+                    LogicVal d_val = engine.evaluator.eval_expr(rca.drivers[i].rhs, rca.drivers[i].scope);
+                    d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                    resolved = LogicOps::resolve_net(kind, resolved, d_val);
+                }
+            }
+
+            LogicVal cur = engine.evaluator.read_slice(rca.target);
+            if (cur != resolved) {
+                engine.evaluator.write_slice(rca.target, resolved);
                 changed = true;
             }
         }

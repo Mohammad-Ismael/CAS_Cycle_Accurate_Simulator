@@ -9,6 +9,7 @@ struct Net {
     std::string name;
     uint32_t width;
     bool is_signed;
+    NetKind kind = NetKind::WIRE;
     LogicVal value;
     LogicVal prev_value;
     bool modified;
@@ -17,10 +18,10 @@ struct Net {
     ExpressionNode* procedural_assign_rhs = nullptr;
     std::string procedural_assign_scope = "";
 
-    Net(std::string n, uint32_t w, bool s = false)
-        : name(std::move(n)), width(w), is_signed(s),
-          value(LogicVal::make_x(w)),
-          prev_value(LogicVal::make_x(w)),
+    Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
+        : name(std::move(n)), width(w), is_signed(s), kind(k),
+          value((k == NetKind::VAR) ? LogicVal::make_x(w) : LogicVal::make_z(w)),
+          prev_value((k == NetKind::VAR) ? LogicVal::make_x(w) : LogicVal::make_z(w)),
           modified(false), vcd_id("") {}
 
     void set(const LogicVal& val) {

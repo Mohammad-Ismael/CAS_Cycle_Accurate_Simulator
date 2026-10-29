@@ -17,16 +17,18 @@ struct PortNode : public ASTNode {
     bool is_array = false;
     std::unique_ptr<ExpressionNode> bound1_expr;
     std::unique_ptr<ExpressionNode> bound2_expr;
+    NetKind net_kind = NetKind::WIRE;
 
     PortNode() = default;
 
     PortNode(std::string n, std::string dir,
              std::unique_ptr<ExpressionNode> msb = nullptr,
              std::unique_ptr<ExpressionNode> lsb = nullptr,
-             bool signed_flag = false)
+             bool signed_flag = false,
+             NetKind kind = NetKind::WIRE)
         : name(std::move(n)), direction(std::move(dir)),
           msb_expr(std::move(msb)), lsb_expr(std::move(lsb)),
-          is_signed(signed_flag) {}
+          is_signed(signed_flag), net_kind(kind) {}
 };
 
 struct ParameterDef {

@@ -2,3 +2,4 @@
 #include "edge_types.hpp"
 #include "gate_types.hpp"
 #include "logic_val.hpp"
+#include "net_types.hpp"

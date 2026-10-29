@@ -253,4 +253,97 @@ public:
         uint64_t new_b = ~(same_known_0 | same_known_1);
         return LogicVal(w, new_a, new_b);
     }
+
+    // IEEE 1800-2023 §6.5 & Table 6-1: wire / tri resolution function
+    static LogicVal resolve_wire(const LogicVal& a, const LogicVal& b) {
+        uint32_t w = std::max(a.width, b.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal ea = cast_width(a, w, false);
+        LogicVal eb = cast_width(b, w, false);
+
+        uint64_t is_z_a = (~ea.aval) & ea.bval & mask;
+        uint64_t is_z_b = (~eb.aval) & eb.bval & mask;
+
+        uint64_t both_z = is_z_a & is_z_b;
+        uint64_t only_z_a = is_z_a & (~is_z_b);
+        uint64_t only_z_b = (~is_z_a) & is_z_b;
+        uint64_t neither_z = (~is_z_a) & (~is_z_b) & mask;
+
+        uint64_t same_known = neither_z & (~ea.bval) & (~eb.bval) & (~(ea.aval ^ eb.aval)) & mask;
+        uint64_t conflict_or_x = neither_z & (~same_known) & mask;
+
+        uint64_t res_a = ((only_z_a & eb.aval) | (only_z_b & ea.aval) | (same_known & ea.aval) | conflict_or_x) & mask;
+        uint64_t res_b = (both_z | (only_z_a & eb.bval) | (only_z_b & ea.bval) | conflict_or_x) & mask;
+
+        return LogicVal(w, res_a, res_b);
+    }
+
+    // IEEE 1800-2023 §6.5 & Table 6-2: wand / triand resolution function
+    static LogicVal resolve_wand(const LogicVal& a, const LogicVal& b) {
+        uint32_t w = std::max(a.width, b.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal ea = cast_width(a, w, false);
+        LogicVal eb = cast_width(b, w, false);
+
+        uint64_t is_zero_a = (~ea.aval) & (~ea.bval) & mask;
+        uint64_t is_zero_b = (~eb.aval) & (~eb.bval) & mask;
+        uint64_t any_zero = (is_zero_a | is_zero_b) & mask;
+
+        uint64_t not_zero = (~any_zero) & mask;
+        uint64_t is_z_a = not_zero & (~ea.aval) & ea.bval;
+        uint64_t is_z_b = not_zero & (~eb.aval) & eb.bval;
+
+        uint64_t both_z = is_z_a & is_z_b;
+        uint64_t only_z_a = is_z_a & (~is_z_b);
+        uint64_t only_z_b = (~is_z_a) & is_z_b;
+        uint64_t active = not_zero & (~is_z_a) & (~is_z_b) & mask;
+
+        uint64_t both_one = active & ea.aval & (~ea.bval) & eb.aval & (~eb.bval) & mask;
+        uint64_t is_x = active & (~both_one) & mask;
+
+        uint64_t res_a = ((only_z_a & eb.aval) | (only_z_b & ea.aval) | both_one | is_x) & mask;
+        uint64_t res_b = (both_z | (only_z_a & eb.bval) | (only_z_b & ea.bval) | is_x) & mask;
+
+        return LogicVal(w, res_a, res_b);
+    }
+
+    // IEEE 1800-2023 §6.5 & Table 6-3: wor / trior resolution function
+    static LogicVal resolve_wor(const LogicVal& a, const LogicVal& b) {
+        uint32_t w = std::max(a.width, b.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal ea = cast_width(a, w, false);
+        LogicVal eb = cast_width(b, w, false);
+
+        uint64_t is_one_a = ea.aval & (~ea.bval) & mask;
+        uint64_t is_one_b = eb.aval & (~eb.bval) & mask;
+        uint64_t any_one = (is_one_a | is_one_b) & mask;
+
+        uint64_t not_one = (~any_one) & mask;
+        uint64_t is_z_a = not_one & (~ea.aval) & ea.bval;
+        uint64_t is_z_b = not_one & (~eb.aval) & eb.bval;
+
+        uint64_t both_z = is_z_a & is_z_b;
+        uint64_t only_z_a = is_z_a & (~is_z_b);
+        uint64_t only_z_b = (~is_z_a) & is_z_b;
+        uint64_t active = not_one & (~is_z_a) & (~is_z_b) & mask;
+
+        uint64_t both_zero = active & (~ea.aval) & (~ea.bval) & (~eb.aval) & (~eb.bval) & mask;
+        uint64_t is_x = active & (~both_zero) & mask;
+
+        uint64_t res_a = (any_one | (only_z_a & eb.aval) | (only_z_b & ea.aval) | is_x) & mask;
+        uint64_t res_b = (both_z | (only_z_a & eb.bval) | (only_z_b & ea.bval) | is_x) & mask;
+
+        return LogicVal(w, res_a, res_b);
+    }
+
+    // Unified resolution dispatch based on NetKind
+    static LogicVal resolve_net(NetKind kind, const LogicVal& a, const LogicVal& b) {
+        switch (kind) {
+            case NetKind::WAND: return resolve_wand(a, b);
+            case NetKind::WOR:  return resolve_wor(a, b);
+            case NetKind::WIRE:
+            case NetKind::TRI:
+            default:            return resolve_wire(a, b);
+        }
+    }
 };

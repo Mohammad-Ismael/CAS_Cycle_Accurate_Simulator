@@ -83,9 +83,23 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     is_signed_port = true;
                     advance();
                 }
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
-                    current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                    current.type == TokenType::TOKEN_INTEGER) {
+                    port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WIRE) {
+                    port_kind = NetKind::WIRE;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WAND) {
+                    port_kind = NetKind::WAND;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WOR) {
+                    port_kind = NetKind::WOR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_TRI) {
+                    port_kind = NetKind::TRI;
                     advance();
                 }
                 if (current.type == TokenType::TOKEN_SIGNED) {
@@ -105,13 +119,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
-                    PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port);
+                    PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
-                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_REG || 
-                            current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED) {
+                            current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+                            current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
+                            current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED) {
                             break;
                         }
                         continue;
@@ -164,9 +179,23 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     is_signed_port = true;
                     advance();
                 }
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
-                    current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER) {
+                NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                    current.type == TokenType::TOKEN_INTEGER) {
+                    port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WIRE) {
+                    port_kind = NetKind::WIRE;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WAND) {
+                    port_kind = NetKind::WAND;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_WOR) {
+                    port_kind = NetKind::WOR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_TRI) {
+                    port_kind = NetKind::TRI;
                     advance();
                 }
                 if (current.type == TokenType::TOKEN_SIGNED) {
@@ -190,6 +219,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (p.name == pname) {
                             p.direction = dir;
                             p.is_signed = is_signed_port;
+                            p.net_kind = port_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
                             found = true;
@@ -197,7 +227,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     }
                     if (!found) {
-                        mod->ports.emplace_back(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port);
+                        mod->ports.emplace_back(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -207,7 +237,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
-                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || 
+                current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
+                current.type == TokenType::TOKEN_TRI   ||
+                current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_SIGNED) {
                 
                 bool is_signed_sig = false;
@@ -217,6 +249,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
                 if (is_int) is_signed_sig = true;
+
+                NetKind sig_kind = NetKind::WIRE;
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || is_int) {
+                    sig_kind = NetKind::VAR;
+                } else if (current.type == TokenType::TOKEN_WAND) {
+                    sig_kind = NetKind::WAND;
+                } else if (current.type == TokenType::TOKEN_WOR) {
+                    sig_kind = NetKind::WOR;
+                } else if (current.type == TokenType::TOKEN_TRI) {
+                    sig_kind = NetKind::TRI;
+                } else if (current.type == TokenType::TOKEN_WIRE) {
+                    sig_kind = NetKind::WIRE;
+                }
                 advance();
 
                 if (current.type == TokenType::TOKEN_SIGNED) {
@@ -238,7 +283,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
                         sig.is_array = true;
@@ -260,6 +305,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     for (auto& p : mod->ports) {
                         if (p.name == signame) {
                             p.is_signed = is_signed_sig;
+                            p.net_kind = sig_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
                             is_port = true;
