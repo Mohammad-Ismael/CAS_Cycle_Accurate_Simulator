@@ -8,4 +8,5 @@
 #include "queue_types.hpp"
 #include "dynamic_array_types.hpp"
 #include "assoc_array_types.hpp"
+#include "class_types.hpp"
 #include "clocking_types.hpp"

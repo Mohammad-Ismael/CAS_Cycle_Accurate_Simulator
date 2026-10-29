@@ -44,6 +44,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     clocking_blocks = std::move(elab_res.clocking_blocks);
     clocking_block_map = std::move(elab_res.clocking_block_map);
     default_clocking_map = std::move(elab_res.default_clocking_map);
+    class_defs = std::move(elab_res.class_defs);
+    class_handle_names = std::move(elab_res.class_handle_names);
+    var_to_class_type = std::move(elab_res.var_to_class_type);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

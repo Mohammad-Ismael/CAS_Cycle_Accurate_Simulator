@@ -381,6 +381,12 @@ Token Lexer::next_token() {
         if (ident == "clocking") return {TokenType::TOKEN_CLOCKING, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endclocking") return {TokenType::TOKEN_ENDCLOCKING, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "1step") return {TokenType::TOKEN_1STEP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "class") return {TokenType::TOKEN_CLASS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endclass") return {TokenType::TOKEN_ENDCLASS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "null") return {TokenType::TOKEN_NULL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "this") return {TokenType::TOKEN_THIS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "bit") return {TokenType::TOKEN_BIT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "return") return {TokenType::TOKEN_RETURN, ident, 0, 0, cur_file, cur_line, 0};
 
 
 

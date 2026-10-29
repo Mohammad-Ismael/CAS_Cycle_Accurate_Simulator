@@ -125,7 +125,13 @@ enum class TokenType {
     TOKEN_CLOCKING,
     TOKEN_ENDCLOCKING,
     TOKEN_CYCLE_DELAY,
-    TOKEN_1STEP
+    TOKEN_1STEP,
+    TOKEN_CLASS,
+    TOKEN_ENDCLASS,
+    TOKEN_NULL,
+    TOKEN_THIS,
+    TOKEN_BIT,
+    TOKEN_RETURN
 };
 
 struct Token {

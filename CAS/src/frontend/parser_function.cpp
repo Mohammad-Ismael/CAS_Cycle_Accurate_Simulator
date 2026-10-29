@@ -11,7 +11,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
 
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
     if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER) {
+        current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
+        current.type == TokenType::TOKEN_BIT) {
         if (current.type == TokenType::TOKEN_INTEGER) func->return_signed = true;
         advance();
     }
@@ -29,16 +30,22 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         }
     }
 
-    func->name = current.text;
-    expect(TokenType::TOKEN_IDENTIFIER, "Expected function name");
+    if (current.type == TokenType::TOKEN_NEW) {
+        func->name = "new";
+        advance();
+    } else {
+        func->name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected function name");
+    }
 
     if (match(TokenType::TOKEN_LPAREN)) {
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-            expect(TokenType::TOKEN_INPUT, "Expected 'input' in function argument");
+            match(TokenType::TOKEN_INPUT);
             bool is_s = false;
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-                current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER) {
+                current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
+                current.type == TokenType::TOKEN_BIT) {
                 if (current.type == TokenType::TOKEN_INTEGER) is_s = true;
                 advance();
             }
@@ -58,7 +65,11 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
 
             std::string arg_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected argument name");
-            func->inputs.emplace_back(arg_name, "input", std::move(msb), std::move(lsb), is_s);
+            PortNode pnode(arg_name, "input", std::move(msb), std::move(lsb), is_s);
+            if (match(TokenType::TOKEN_EQUAL)) {
+                pnode.default_value = parse_expression();
+            }
+            func->inputs.push_back(std::move(pnode));
             if (match(TokenType::TOKEN_COMMA)) continue;
             break;
         }
@@ -70,5 +81,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         func->body.push_back(parse_statement());
     }
     expect(TokenType::TOKEN_ENDFUNCTION, "Expected 'endfunction'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) advance();
+    }
     return func;
 }

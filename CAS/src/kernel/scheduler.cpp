@@ -807,7 +807,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
-                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope)) {
+                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || var_name == "this") {
                         engine.evaluator.execute_statement(stmt, bp);
                         cur_frame.pc++;
                         continue;
@@ -947,7 +947,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
-                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope)) {
+                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || var_name == "this") {
                         engine.evaluator.execute_statement(stmt, bp);
                         bp.pc++;
                         continue;
@@ -1150,7 +1150,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             auto dot = tname.rfind('.');
             if (dot != std::string::npos) {
                 std::string var_name = tname.substr(0, dot);
-                if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope)) {
+                if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || var_name == "this") {
                     engine.evaluator.execute_statement(stmt, bp);
                     bp.pc++;
                     continue;

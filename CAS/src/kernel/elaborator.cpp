@@ -279,6 +279,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         } else {
             size_t sid = get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
+            if (s.is_class_handle) {
+                result.netlist[sid].is_class_handle = true;
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.class_handle_names.insert(scope + "." + s.name);
+                result.class_handle_names.insert(s.name);
+                result.var_to_class_type[scope + "." + s.name] = s.class_type_name;
+                result.var_to_class_type[s.name] = s.class_type_name;
+            }
             if (!s.type_name.empty()) {
                 result.netlist[sid].type_name = s.type_name;
                 result.var_to_enum_type[scope + "." + s.name] = s.type_name;
@@ -291,6 +300,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
+        if (result.class_handle_names.find(scoped_target) != result.class_handle_names.end() ||
+            result.class_handle_names.find(ca->target_name) != result.class_handle_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to class handle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 8.4");
+        }
         if (result.queue_map.find(scoped_target) != result.queue_map.end() ||
             result.queue_map.find(ca->target_name) != result.queue_map.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to queue '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 7.10.4");
@@ -307,6 +320,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
                 std::string s_id = scope + "." + id->name;
+                if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
+                    result.class_handle_names.find(id->name) != result.class_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class handle '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 8.4");
+                }
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||
                     result.queue_map.find(id->name) != result.queue_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
@@ -319,6 +336,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.assoc_array_map.find(id->name) != result.assoc_array_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.8");
                 }
+            } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+                std::string s_id = scope + "." + ma->var_name;
+                if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
+                    result.class_handle_names.find(ma->var_name) != result.class_handle_names.end() ||
+                    ma->var_name == "this") {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class property '" + ma->var_name + "." + ma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 8.4");
+                }
+            } else if (dynamic_cast<NullNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'null' literal used in continuous assignment per IEEE 1800-2023 section 8.4");
+            } else if (dynamic_cast<ClassNewNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class constructor 'new()' used in continuous assignment per IEEE 1800-2023 section 8.7");
+            } else if (dynamic_cast<ThisNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'this' used in continuous assignment per IEEE 1800-2023 section 8.11");
             } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                 std::string s_id = scope + "." + idx->name;
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||
@@ -337,6 +367,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 check_expr(idx->lsb_expr.get());
             } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                 std::string s_id = scope + "." + mc->var_name;
+                if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
+                    result.class_handle_names.find(mc->var_name) != result.class_handle_names.end() ||
+                    mc->var_name == "this") {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 8.5");
+                }
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||
                     result.queue_map.find(mc->var_name) != result.queue_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
@@ -609,6 +644,12 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                                        std::ostream* debug_out) {
     if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     result = ElaborationResult();
+
+    for (auto& mod : modules) {
+        for (auto& cls : mod->classes) {
+            result.class_defs[cls->name] = cls.get();
+        }
+    }
 
     std::unordered_map<std::string, ModuleNode*> module_defs;
     for (auto& mod : modules) {

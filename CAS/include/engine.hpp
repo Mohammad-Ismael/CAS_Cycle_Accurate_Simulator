@@ -56,6 +56,11 @@ private:
     std::vector<ClockingBlockInstance> clocking_blocks;
     std::unordered_map<std::string, size_t> clocking_block_map;
     std::unordered_map<std::string, size_t> default_clocking_map;
+    std::unordered_map<std::string, const ClassNode*> class_defs;
+    std::unordered_set<std::string> class_handle_names;
+    std::unordered_map<std::string, std::string> var_to_class_type;
+    std::unordered_map<uint64_t, std::shared_ptr<ClassObject>> heap;
+    uint64_t next_handle_id = 1;
 
     MonitorSession monitor_session;
 
@@ -146,6 +151,48 @@ public:
                 break;
             }
         }
+        return nullptr;
+    }
+
+    bool is_class_handle(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (class_handle_names.find(scoped) != class_handle_names.end()) return true;
+        if (class_handle_names.find(name) != class_handle_names.end()) return true;
+        return false;
+    }
+
+    std::string get_class_type(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        auto it = var_to_class_type.find(scoped);
+        if (it != var_to_class_type.end()) return it->second;
+        it = var_to_class_type.find(name);
+        if (it != var_to_class_type.end()) return it->second;
+        return "";
+    }
+
+    const ClassNode* get_class_def(const std::string& class_name) const {
+        auto it = class_defs.find(class_name);
+        if (it != class_defs.end()) return it->second;
+        return nullptr;
+    }
+
+    std::shared_ptr<ClassObject> allocate_class_object(const std::string& class_type) {
+        uint64_t id = next_handle_id++;
+        const ClassNode* def = get_class_def(class_type);
+        auto obj = std::make_shared<ClassObject>(id, class_type, def);
+        if (def) {
+            for (const auto& m : def->member_vars) {
+                obj->properties[m.name] = LogicVal(m.width, 0, 0);
+            }
+        }
+        heap[id] = obj;
+        return obj;
+    }
+
+    std::shared_ptr<ClassObject> get_class_object(uint64_t handle_id) {
+        if (handle_id == 0) return nullptr;
+        auto it = heap.find(handle_id);
+        if (it != heap.end()) return it->second;
         return nullptr;
     }
 

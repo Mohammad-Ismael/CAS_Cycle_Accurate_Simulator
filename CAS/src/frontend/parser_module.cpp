@@ -44,6 +44,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_CLASS) {
+            auto cls = parse_class();
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                global_classes.push_back(scls);
+            }
+            continue;
+        }
+
         bool is_iface = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
@@ -68,6 +78,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         for (const auto& gt : global_typedefs) {
             if (gt->enum_type) mod->typedefs.push_back(std::make_unique<TypedefNode>(gt->type_name, gt->enum_type));
             else if (gt->struct_type) mod->typedefs.push_back(std::make_unique<TypedefNode>(gt->type_name, gt->struct_type));
+        }
+
+        for (const auto& gc : global_classes) {
+            mod->classes.push_back(gc);
+            mod->class_map[gc->name] = gc.get();
         }
 
         if (match(TokenType::TOKEN_HASH)) {
@@ -146,7 +161,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
-                    current.type == TokenType::TOKEN_INTEGER) {
+                    current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
                     advance();
@@ -367,7 +382,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
-                    current.type == TokenType::TOKEN_INTEGER) {
+                    current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
                     advance();
@@ -449,6 +464,26 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                std::string class_type = current.text;
+                advance();
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected class handle identifier");
+                    auto msb = std::make_unique<NumberNode>(63, 32);
+                    auto lsb = std::make_unique<NumberNode>(0, 32);
+                    PortNode sig(signame, "internal", std::move(msb), std::move(lsb), false, NetKind::VAR);
+                    sig.is_class_handle = true;
+                    sig.class_type_name = class_type;
+                    sig.type_name = class_type;
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class handle declaration");
+                continue;
+            }
+
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
                 std::string type_name = current.text;
                 auto enum_info = is_enum_typedef(type_name) ? typedef_map[type_name] : nullptr;
@@ -523,6 +558,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
+                current.type == TokenType::TOKEN_BIT   ||
                 current.type == TokenType::TOKEN_SIGNED) {
                 
                 bool is_signed_sig = false;
@@ -534,7 +570,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (is_int) is_signed_sig = true;
 
                 NetKind sig_kind = NetKind::WIRE;
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || is_int) {
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int) {
                     sig_kind = NetKind::VAR;
                 } else if (current.type == TokenType::TOKEN_WAND) {
                     sig_kind = NetKind::WAND;
@@ -1021,4 +1057,82 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
 
     typedef_map[type_name] = enum_node;
     return std::make_unique<TypedefNode>(type_name, enum_node);
+}
+
+std::unique_ptr<ClassNode> Parser::parse_class() {
+    expect(TokenType::TOKEN_CLASS, "Expected 'class'");
+    std::string class_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
+
+    auto cls = std::make_unique<ClassNode>(class_name);
+
+    while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_FUNCTION) {
+            advance();
+            auto fn = parse_function();
+            if (fn) cls->add_function(std::move(fn));
+        } else if (current.type == TokenType::TOKEN_TASK) {
+            advance();
+            auto t = parse_task();
+            if (t) cls->add_task(std::move(t));
+        } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+                   current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+                   current.type == TokenType::TOKEN_INTEGER ||
+                   (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+            bool is_s = (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")));
+            advance();
+            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            uint32_t width = is_s ? 32 : 1;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                auto lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                auto msb_n = dynamic_cast<NumberNode*>(msb.get());
+                auto lsb_n = dynamic_cast<NumberNode*>(lsb.get());
+                if (msb_n && lsb_n) {
+                    width = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+                }
+            }
+            while (true) {
+                std::string var_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                std::unique_ptr<ExpressionNode> def_val = nullptr;
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    def_val = parse_expression();
+                }
+                ClassMemberVar mvar;
+                mvar.name = var_name;
+                mvar.width = width;
+                mvar.is_signed = is_s;
+                mvar.default_expr = std::move(def_val);
+                cls->add_member_var(std::move(mvar));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+            advance();
+            while (true) {
+                std::string var_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                ClassMemberVar mvar;
+                mvar.name = var_name;
+                mvar.width = 64;
+                mvar.is_signed = false;
+                cls->add_member_var(std::move(mvar));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member handle declaration");
+        } else {
+            advance();
+        }
+    }
+    expect(TokenType::TOKEN_ENDCLASS, "Expected 'endclass'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    }
+    return cls;
 }

@@ -167,6 +167,9 @@ struct ElaborationResult {
     std::vector<ClockingBlockInstance> clocking_blocks;
     std::unordered_map<std::string, size_t> clocking_block_map;
     std::unordered_map<std::string, size_t> default_clocking_map;
+    std::unordered_map<std::string, const ClassNode*> class_defs;
+    std::unordered_set<std::string> class_handle_names;
+    std::unordered_map<std::string, std::string> var_to_class_type;
 };
 
 class Elaborator {

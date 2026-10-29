@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.3.0.0`  
-**Status:** Production Milestone v3.3.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.4.0.0`  
+**Status:** Production Milestone v3.4.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 26.1%`
+`[██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 27.5%`
 
-*Current Baseline (v3.3.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed-size unpacked arrays/memories, queues, dynamic arrays, SystemVerilog interfaces, interface modports, clocking blocks, and associative arrays with sparse indexing and traversal methods.
-*Upcoming Domains:* OOP Classes & Polymorphism, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
+*Current Baseline (v3.4.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed-size unpacked arrays/memories, queues, dynamic arrays, SystemVerilog interfaces, interface modports, clocking blocks, associative arrays with sparse indexing and traversal methods, and OOP classes (§8) with handles, constructors `new()`, member properties, methods, `this` self-reference, `null` handles, and `[CAS-DTINPCIL]` context enforcement.
+*Upcoming Domains:* OOP Inheritance & Polymorphism, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
 
 ---
 
@@ -34,6 +34,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§7.5** | **Dynamic Arrays & Allocation** | Dynamic array declarations (`[]`), runtime dynamic allocation (`new[size]`), resize with copy constructor (`new[size](arr)`), built-in methods (`.size()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
 | **§7.8, §7.8.4** | **Associative Arrays & Traversal Methods** | Associative array declarations (`arr[index_type]`), dynamic sparse key allocation, built-in methods (`.num()`, `.size()`, `.exists(key)`, `.first(ref key)`, `.last(ref key)`, `.next(ref key)`, `.prev(ref key)`, `.delete(key)`, `.delete()`), default 4-state `'x` reading for uninitialized keys, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
 | **§7.10, §7.10.4** | **Bounded & Unbounded Queues & Methods** | Unbounded (`[$]`) and bounded (`[$:N]`) queue declarations, dynamic methods (`.size()`, `.push_back()`, `.push_front()`, `.pop_front()`, `.pop_back()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
+| **§8, §8.3, §8.4, §8.5, §8.7, §8.11** | **OOP Classes, Objects & Methods** | Class definitions (`class ... endclass`), object handles, instantiation via constructor (`new(...)`), member properties, member tasks and functions, `this` self-reference, `null` handles, and dynamic type context restrictions (`[CAS-DTINPCIL]`). |
 | **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§25.5.3** | **Interface Modports & Directional Bindings** | `modport` declarations (`input`, `output`, `inout`), modport directional port typing (`interface_name.modport_name port_name`), modport connection binding (`.port(inst.modport)`), and hierarchical port mapping. |
 | **§14, §14.3, §14.11, §14.16** | **Clocking Blocks & Cycle Delays** | `clocking ... endclocking` declarations, default clocking, cycle delay statements (`##N`), synchronous output drives (`cb.sig <= expr`), Preponed input sampling (`#1step`), and diagnostic `[CAS-DCNS]`. |
@@ -55,7 +56,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (24 / 24 PASS)
+## Milestone Regression Pass Matrix (25 / 25 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -85,6 +86,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.1.0.0** | `projects/v3_1_0_0_modports` | Interface Modports, Directional Modport Port Typings, & Connection Bindings (§25.5.3) | **PASS** | 100% VCS |
 | **v3.2.0.0** | `projects/v3_2_0_0_clocking_blocks` | Clocking Blocks, Default Clocking, Cycle Delays ##N, & Preponed Sampling (§14) | **PASS** | 100% VCS |
 | **v3.3.0.0** | `projects/v3_3_0_0_associative_arrays` | Associative Arrays, Dynamic Sparse Indexing, & Built-in Methods (§7.8) | **PASS** | 100% VCS |
+| **v3.4.0.0** | `projects/v3_4_0_0_classes` | OOP Classes, Handles, Constructors `new()`, and Member Methods (§8) | **PASS** | 100% VCS |
 
 ---
 

@@ -220,3 +220,35 @@ struct NewArrayNode : public ExpressionNode {
         );
     }
 };
+
+struct NullNode : public ExpressionNode {
+    NullNode() = default;
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<NullNode>();
+    }
+};
+
+struct ThisNode : public ExpressionNode {
+    ThisNode() = default;
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<ThisNode>();
+    }
+};
+
+struct ClassNewNode : public ExpressionNode {
+    std::string class_type_name;
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    ClassNewNode(std::string type_name, std::vector<std::unique_ptr<ExpressionNode>> a)
+        : class_type_name(std::move(type_name)), args(std::move(a)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> cloned_args;
+        for (const auto& arg : args) {
+            cloned_args.push_back(arg ? arg->clone() : nullptr);
+        }
+        return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args));
+    }
+};

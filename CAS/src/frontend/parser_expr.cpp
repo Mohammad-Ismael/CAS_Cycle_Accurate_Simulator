@@ -3,15 +3,54 @@
 
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::TOKEN_NEW)) {
-        expect(TokenType::TOKEN_LBRACKET, "Expected '[' after 'new'");
-        auto size_expr = parse_expression();
-        expect(TokenType::TOKEN_RBRACKET, "Expected ']' after size in 'new[]'");
-        std::unique_ptr<ExpressionNode> copy_src = nullptr;
-        if (match(TokenType::TOKEN_LPAREN)) {
-            copy_src = parse_expression();
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing copy constructor source");
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto size_expr = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' after size in 'new[]'");
+            std::unique_ptr<ExpressionNode> copy_src = nullptr;
+            if (match(TokenType::TOKEN_LPAREN)) {
+                copy_src = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing copy constructor source");
+            }
+            return std::make_unique<NewArrayNode>(std::move(size_expr), std::move(copy_src));
         }
-        return std::make_unique<NewArrayNode>(std::move(size_expr), std::move(copy_src));
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        if (match(TokenType::TOKEN_LPAREN)) {
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                while (true) {
+                    args.push_back(parse_expression());
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing constructor arguments");
+        }
+        return std::make_unique<ClassNewNode>("", std::move(args));
+    }
+
+    if (match(TokenType::TOKEN_NULL)) {
+        return std::make_unique<NullNode>();
+    }
+
+    if (match(TokenType::TOKEN_THIS)) {
+        if (match(TokenType::TOKEN_DOT)) {
+            std::string sub_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after 'this.'");
+            if (match(TokenType::TOKEN_LPAREN)) {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        args.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
+                return std::make_unique<MethodCallNode>("this", sub_name, std::move(args));
+            } else {
+                return std::make_unique<MemberAccessNode>("this", sub_name);
+            }
+        }
+        return std::make_unique<ThisNode>();
     }
 
     if (current.type == TokenType::TOKEN_STRING) {

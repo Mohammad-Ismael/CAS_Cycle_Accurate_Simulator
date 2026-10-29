@@ -13,6 +13,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
+    // Return Statement (§13.4.1)
+    if (match(TokenType::TOKEN_RETURN)) {
+        std::unique_ptr<ExpressionNode> ret_expr = nullptr;
+        if (current.type != TokenType::TOKEN_SEMICOLON) {
+            ret_expr = parse_expression();
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after return");
+        return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
+    }
+
+    // Class Handle Variable Declaration (§8.4)
+    if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+        std::string class_type = current.text;
+        advance();
+        std::string vname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, class_type);
+        var_stmt->is_class_handle = true;
+        var_stmt->class_type_name = class_type;
+        return var_stmt;
+    }
+
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
     if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
         std::string type_name = current.text;
@@ -52,15 +75,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
-        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE) {
+        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+        current.type == TokenType::TOKEN_BIT) {
         bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER);
+        bool is_int = is_signed_var;
         advance();
         if (current.type == TokenType::TOKEN_SIGNED) {
             is_signed_var = true;
             advance();
         }
 
-        uint32_t width = 32;
+        uint32_t width = is_int ? 32 : 1;
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto msb_e = parse_expression();
             expect(TokenType::TOKEN_COLON, "Expected ':' in range");
@@ -504,7 +529,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
-    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+    if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS) {
         std::string ident = current.text;
         advance();
         while (match(TokenType::TOKEN_DOT)) {

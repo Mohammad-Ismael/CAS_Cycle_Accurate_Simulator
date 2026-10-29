@@ -6,6 +6,8 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/tracer/vcd_dumper.hpp \
   /app/CAS/include/ast.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -462,6 +464,8 @@ CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: /app/CAS/src/frontend/numbe
   /usr/include/wchar.h
 
 CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -557,9 +561,12 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -602,6 +609,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -657,6 +665,8 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_expr.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -752,9 +762,12 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -797,6 +810,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -852,6 +866,8 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/parser_function.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -947,9 +963,12 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -992,6 +1011,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1047,6 +1067,8 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parser_module.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -1142,9 +1164,12 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1187,6 +1212,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1242,6 +1268,8 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_stmt.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -1337,9 +1365,12 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1382,6 +1413,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1437,6 +1469,8 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_task.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -1532,9 +1566,12 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1577,6 +1614,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1632,6 +1670,8 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -1732,10 +1772,13 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_queue.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -1781,6 +1824,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -1844,6 +1888,8 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/ast.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -2063,6 +2109,8 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execution_context.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -2154,9 +2202,12 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
   /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -2198,6 +2249,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
@@ -2258,6 +2310,8 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -2472,6 +2526,8 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -2696,6 +2752,8 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/tracer/vcd_dumper.hpp \
   /app/CAS/include/ast.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -3068,6 +3126,8 @@ CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: /app/CAS/src/profiler/profiler.c
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.cpp \
+  /app/CAS/include/common/assoc_array_types.hpp \
+  /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
   /app/CAS/include/common/dynamic_array_types.hpp \
   /app/CAS/include/common/edge_types.hpp \
@@ -3086,11 +3146,16 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/bits/limits.h \
   /usr/include/bits/stdint.h \
   /usr/include/c++/13.2.1/algorithm \
+  /usr/include/c++/13.2.1/backward/auto_ptr.h \
   /usr/include/c++/13.2.1/backward/binders.h \
   /usr/include/c++/13.2.1/bit \
   /usr/include/c++/13.2.1/bits/algorithmfwd.h \
+  /usr/include/c++/13.2.1/bits/align.h \
   /usr/include/c++/13.2.1/bits/alloc_traits.h \
+  /usr/include/c++/13.2.1/bits/allocated_ptr.h \
   /usr/include/c++/13.2.1/bits/allocator.h \
+  /usr/include/c++/13.2.1/bits/atomic_base.h \
+  /usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h \
   /usr/include/c++/13.2.1/bits/basic_ios.h \
   /usr/include/c++/13.2.1/bits/basic_ios.tcc \
   /usr/include/c++/13.2.1/bits/basic_string.h \
@@ -3140,6 +3205,9 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/bits/range_access.h \
   /usr/include/c++/13.2.1/bits/refwrap.h \
   /usr/include/c++/13.2.1/bits/requires_hosted.h \
+  /usr/include/c++/13.2.1/bits/shared_ptr.h \
+  /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
+  /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/stl_algo.h \
@@ -3152,8 +3220,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/bits/stl_iterator.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/13.2.1/bits/stl_iterator_base_types.h \
+  /usr/include/c++/13.2.1/bits/stl_map.h \
+  /usr/include/c++/13.2.1/bits/stl_multimap.h \
   /usr/include/c++/13.2.1/bits/stl_pair.h \
+  /usr/include/c++/13.2.1/bits/stl_raw_storage_iter.h \
   /usr/include/c++/13.2.1/bits/stl_tempbuf.h \
+  /usr/include/c++/13.2.1/bits/stl_tree.h \
   /usr/include/c++/13.2.1/bits/stl_uninitialized.h \
   /usr/include/c++/13.2.1/bits/stl_vector.h \
   /usr/include/c++/13.2.1/bits/streambuf.tcc \
@@ -3161,6 +3233,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/bits/string_view.tcc \
   /usr/include/c++/13.2.1/bits/stringfwd.h \
   /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
+  /usr/include/c++/13.2.1/bits/unique_ptr.h \
   /usr/include/c++/13.2.1/bits/unordered_map.h \
   /usr/include/c++/13.2.1/bits/uses_allocator.h \
   /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
@@ -3183,6 +3256,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
   /usr/include/c++/13.2.1/ext/atomicity.h \
+  /usr/include/c++/13.2.1/ext/concurrence.h \
   /usr/include/c++/13.2.1/ext/numeric_traits.h \
   /usr/include/c++/13.2.1/ext/string_conversions.h \
   /usr/include/c++/13.2.1/ext/type_traits.h \
@@ -3194,10 +3268,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
   /usr/include/c++/13.2.1/locale \
+  /usr/include/c++/13.2.1/map \
+  /usr/include/c++/13.2.1/memory \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
   /usr/include/c++/13.2.1/pstl/execution_defs.h \
   /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
+  /usr/include/c++/13.2.1/pstl/glue_memory_defs.h \
   /usr/include/c++/13.2.1/pstl/pstl_config.h \
   /usr/include/c++/13.2.1/sstream \
   /usr/include/c++/13.2.1/stdexcept \
@@ -3414,12 +3491,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/cctype:
 
-/app/CAS/src/kernel/scheduler.cpp:
-
-/usr/include/c++/13.2.1/bits/exception_defines.h:
-
-/usr/include/c++/13.2.1/bits/stl_function.h:
-
 /app/CAS/src/frontend/parser_task.cpp:
 
 /usr/include/c++/13.2.1/iosfwd:
@@ -3488,37 +3559,11 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/common/logic_val.hpp:
 
-/usr/include/fortify/string.h:
-
-/usr/include/c++/13.2.1/bits/istream.tcc:
-
 /usr/include/c++/13.2.1/streambuf:
 
 /app/CAS/include/kernel/time_wheel.hpp:
 
 /app/CAS/include/kernel/expr_evaluator.hpp:
-
-/usr/include/c++/13.2.1/bits/deque.tcc:
-
-/usr/include/string.h:
-
-/usr/include/c++/13.2.1/algorithm:
-
-/usr/include/c++/13.2.1/bits/locale_facets.tcc:
-
-/usr/include/c++/13.2.1/bits/basic_string.h:
-
-/usr/include/c++/13.2.1/bits/basic_ios.tcc:
-
-/usr/include/c++/13.2.1/bits/invoke.h:
-
-/app/CAS/include/common/dynamic_array_types.hpp:
-
-/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/cpu_defines.h:
-
-/usr/include/c++/13.2.1/backward/binders.h:
-
-/usr/include/c++/13.2.1/bits/concept_check.h:
 
 /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h:
 
@@ -3527,12 +3572,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/pstl/pstl_config.h:
 
 /app/CAS/include/common/clocking_types.hpp:
-
-/usr/include/c++/13.2.1/cstddef:
-
-/usr/include/c++/13.2.1/bits/algorithmfwd.h:
-
-/usr/include/c++/13.2.1/bits/ptr_traits.h:
 
 /usr/include/c++/13.2.1/vector:
 
@@ -3550,19 +3589,53 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/locale_facets.h:
 
-/usr/include/c++/13.2.1/bits/stl_iterator.h:
+/usr/include/c++/13.2.1/bits/basic_string.h:
 
-/usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h:
+/app/CAS/include/common/net_types.hpp:
+
+/usr/include/bits/alltypes.h:
+
+/app/CAS/include/frontend/ast_module.hpp:
+
+/usr/include/c++/13.2.1/bits/deque.tcc:
+
+/usr/include/string.h:
+
+/usr/include/c++/13.2.1/algorithm:
+
+/usr/include/c++/13.2.1/bits/locale_facets.tcc:
+
+/usr/include/c++/13.2.1/bits/basic_ios.tcc:
+
+/usr/include/c++/13.2.1/bits/uses_allocator.h:
+
+/usr/include/c++/13.2.1/bits/fstream.tcc:
+
+/usr/include/c++/13.2.1/bits/invoke.h:
+
+/app/CAS/include/common/dynamic_array_types.hpp:
+
+/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/cpu_defines.h:
+
+/usr/include/c++/13.2.1/backward/binders.h:
+
+/usr/include/c++/13.2.1/bits/concept_check.h:
+
+/usr/include/fortify/string.h:
+
+/usr/include/c++/13.2.1/bits/istream.tcc:
+
+/app/CAS/include/common/assoc_array_types.hpp:
 
 /app/CAS/include/common/enum_types.hpp:
 
 /app/CAS/include/common/queue_types.hpp:
 
-/app/CAS/include/tracer/vcd_dumper.hpp:
+/usr/include/c++/13.2.1/bits/chrono.h:
 
-/app/CAS/include/profiler/profiler.hpp:
+/usr/include/wctype.h:
 
-/usr/include/c++/13.2.1/bits/align.h:
+/usr/include/bits/errno.h:
 
 /app/CAS/include/common/edge_types.hpp:
 
@@ -3570,9 +3643,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/common/struct_types.hpp:
 
-/usr/include/wctype.h:
+/app/CAS/src/engine.cpp:
 
-/usr/include/bits/errno.h:
+/app/CAS/include/profiler/profiler.hpp:
+
+/app/CAS/include/tracer/vcd_dumper.hpp:
+
+/usr/include/c++/13.2.1/bits/align.h:
 
 /usr/include/c++/13.2.1/bits/charconv.h:
 
@@ -3584,23 +3661,33 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/frontend/ast_stmt.hpp:
 
+/usr/include/c++/13.2.1/bits/uses_allocator_args.h:
+
+/usr/include/c++/13.2.1/bits/cxxabi_forced.h:
+
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h:
 
 /app/CAS/include/engine.hpp:
 
 /usr/include/c++/13.2.1/bits/shared_ptr.h:
 
-/usr/include/c++/13.2.1/bits/chrono.h:
-
-/app/CAS/src/engine.cpp:
-
 /app/CAS/include/kernel/execution_context.hpp:
 
-/app/CAS/include/common/net_types.hpp:
+/usr/include/c++/13.2.1/cstddef:
 
-/app/CAS/include/frontend/ast_module.hpp:
+/usr/include/c++/13.2.1/bits/algorithmfwd.h:
 
-/usr/include/bits/alltypes.h:
+/usr/include/c++/13.2.1/bits/ptr_traits.h:
+
+/usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h:
+
+/usr/include/c++/13.2.1/bits/stl_iterator.h:
+
+/app/CAS/src/kernel/scheduler.cpp:
+
+/usr/include/c++/13.2.1/bits/exception_defines.h:
+
+/usr/include/c++/13.2.1/bits/stl_function.h:
 
 /usr/include/c++/13.2.1/unordered_set:
 
@@ -3621,6 +3708,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/functional_hash.h:
 
 /usr/include/c++/13.2.1/bits/ostream.tcc:
+
+/app/CAS/include/common/class_types.hpp:
 
 /usr/include/c++/13.2.1/bits/move.h:
 
@@ -3718,9 +3807,9 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/stdexcept:
 
-/app/CAS/include/kernel/evaluator.hpp:
-
 /usr/include/c++/13.2.1/bits/stl_multimap.h:
+
+/app/CAS/include/kernel/evaluator.hpp:
 
 /usr/include/c++/13.2.1/bits/stl_tree.h:
 
@@ -3741,11 +3830,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/string_view.tcc:
 
 /usr/include/c++/13.2.1/bits/unordered_set.h:
-
-/usr/include/c++/13.2.1/bits/fstream.tcc:
-
-/usr/include/c++/13.2.1/bits/uses_allocator.h:
-
-/usr/include/c++/13.2.1/bits/cxxabi_forced.h:
-
-/usr/include/c++/13.2.1/bits/uses_allocator_args.h:

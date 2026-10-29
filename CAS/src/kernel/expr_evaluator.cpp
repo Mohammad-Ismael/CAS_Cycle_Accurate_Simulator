@@ -61,8 +61,93 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     return true;
 }
 
+
+bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
+    if (!obj || !fn) return false;
+
+    ClassObject* prev_this = current_this;
+    current_this = obj;
+
+    std::string frame_name = obj->class_type_name + "::" + fn->name + "__call";
+    context.push_frame(frame_name);
+    if (context.current_frame()) {
+        context.current_frame()->func_return_name = fn->name;
+    }
+
+    // 1. Declare and initialize function return variable
+    context.declare_local(fn->name, fn->return_width, fn->return_signed);
+
+    // 2. Declare and initialize input parameters
+    for (size_t i = 0; i < fn->inputs.size(); ++i) {
+        const auto& in_p = fn->inputs[i];
+        uint32_t w = 1;
+        if (in_p.msb_expr && in_p.lsb_expr) {
+            auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
+            auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
+            if (msb_n && lsb_n) {
+                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+            }
+        } else {
+            w = 32;
+        }
+        context.declare_local(in_p.name, w, in_p.is_signed);
+        if (i < arg_vals.size()) {
+            context.set_local_value(in_p.name, arg_vals[i]);
+        } else if (in_p.default_value) {
+            LogicVal def_val = eval(in_p.default_value.get(), "");
+            context.set_local_value(in_p.name, def_val);
+        }
+    }
+
+    // 3. Execute body statements directly through Evaluator
+    BoundProcess* prev_bp = current_bp;
+    BoundProcess bp{frame_name, nullptr, 0, false};
+    for (auto& s : fn->body) {
+        if (context.current_frame() && context.current_frame()->returned) break;
+        engine.evaluator.execute_statement(s.get(), bp);
+    }
+    engine.evaluator.set_current_process(prev_bp);
+    set_current_process(prev_bp);
+
+    // 4. Retrieve return variable
+    LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(fn->name) : nullptr;
+    if (ret_var) {
+        result_out = ret_var->value;
+    } else {
+        result_out = LogicVal(fn->return_width, 0, 0);
+    }
+
+    context.pop_frame();
+    current_this = prev_this;
+    return true;
+}
+
 LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
+
+    if (dynamic_cast<NullNode*>(expr)) {
+        return LogicVal(64, 0, 0);
+    }
+
+    if (dynamic_cast<ThisNode*>(expr)) {
+        if (current_this) return LogicVal(64, current_this->handle_id, 0);
+        return LogicVal(64, 0, 0);
+    }
+
+    if (auto cnew = dynamic_cast<ClassNewNode*>(expr)) {
+        if (!cnew->class_type_name.empty()) {
+            auto obj = engine.allocate_class_object(cnew->class_type_name);
+            FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
+            if (ctor) {
+                std::vector<LogicVal> arg_vals;
+                for (auto& a : cnew->args) arg_vals.push_back(eval(a.get(), scope));
+                LogicVal dummy;
+                eval_class_method(obj.get(), ctor, arg_vals, dummy);
+            }
+            return LogicVal(64, obj->handle_id, 0);
+        }
+        return LogicVal(64, 0, 0);
+    }
 
     if (auto str_node = dynamic_cast<StringNode*>(expr)) {
         return LogicVal::make_string(str_node->value);
@@ -102,6 +187,43 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
         std::string var_name = method_node->var_name;
+        ClassObject* cl_obj = nullptr;
+        if (var_name == "this") {
+            cl_obj = current_this;
+        } else {
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_class_handle) {
+                    cl_obj = engine.get_class_object(local->value.aval).get();
+                }
+            }
+            if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_class_handle) {
+                        cl_obj = engine.get_class_object(local->value.aval).get();
+                        break;
+                    }
+                }
+            }
+            if (!cl_obj) {
+                size_t nid = engine.get_net_id(scope, var_name);
+                if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                    cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                }
+            }
+        }
+        if (cl_obj) {
+            FunctionNode* fn = cl_obj->class_def ? cl_obj->class_def->find_function(method_node->method_name) : nullptr;
+            if (fn) {
+                std::vector<LogicVal> arg_vals;
+                for (auto& a : method_node->args) arg_vals.push_back(eval(a.get(), scope));
+                LogicVal res;
+                if (eval_class_method(cl_obj, fn, arg_vals, res)) {
+                    return res;
+                }
+            }
+        }
         QueueObject* q = nullptr;
         if (context.has_active_frame()) {
             LocalVar* local = context.lookup_local(var_name);
@@ -437,6 +559,37 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string member_name = member_node->member_name;
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
+        if (var_name == "this") {
+            if (current_this) return current_this->get_property(member_name);
+            return LogicVal::make_x(32);
+        }
+
+        ClassObject* cl_obj = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && local->is_class_handle) {
+                cl_obj = engine.get_class_object(local->value.aval).get();
+            }
+        }
+        if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_class_handle) {
+                    cl_obj = engine.get_class_object(local->value.aval).get();
+                    break;
+                }
+            }
+        }
+        if (!cl_obj) {
+            size_t cl_nid = engine.get_net_id(scope, var_name);
+            if (cl_nid != (size_t)-1 && engine.netlist[cl_nid].is_class_handle) {
+                cl_obj = engine.get_class_object(engine.netlist[cl_nid].value.aval).get();
+            }
+        }
+        if (cl_obj) {
+            return cl_obj->get_property(member_name);
+        }
+
         size_t cb_id = engine.get_clocking_block_id(var_name, scope);
         if (cb_id != (size_t)-1) {
             const auto& cb = engine.clocking_blocks[cb_id];
@@ -550,6 +703,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 LocalVar* local = it->local_frame.get_var(ident->name);
                 if (local) return local->value;
             }
+        }
+
+        if (current_this && current_this->has_property(ident->name)) {
+            return current_this->get_property(ident->name);
         }
 
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);

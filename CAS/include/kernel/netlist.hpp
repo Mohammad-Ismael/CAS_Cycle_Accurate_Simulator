@@ -19,6 +19,7 @@ struct Net {
     ExpressionNode* procedural_assign_rhs = nullptr;
     std::string procedural_assign_scope = "";
     std::string type_name = "";
+    bool is_class_handle = false;
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),

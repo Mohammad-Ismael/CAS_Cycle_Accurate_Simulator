@@ -160,6 +160,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /usr/include/c++/13.2.1/map /usr/include/c++/13.2.1/bits/stl_tree.h \
  /usr/include/c++/13.2.1/bits/stl_map.h \
  /usr/include/c++/13.2.1/bits/stl_multimap.h \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/../common/class_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/clocking_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
  /app/CAS/src/kernel/../../include/kernel/execution_context.hpp \

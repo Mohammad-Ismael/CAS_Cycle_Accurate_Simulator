@@ -28,6 +28,9 @@ struct PortNode : public ASTNode {
     std::unique_ptr<ExpressionNode> queue_bound_expr;
     NetKind net_kind = NetKind::WIRE;
     std::string type_name = "";
+    bool is_class_handle = false;
+    std::string class_type_name = "";
+    std::unique_ptr<ExpressionNode> default_value = nullptr;
 
     PortNode() = default;
 
@@ -222,6 +225,60 @@ struct ClockingBlockNode : public ASTNode {
     }
 };
 
+
+struct ClassMemberVar {
+    std::string name;
+    uint32_t width = 32;
+    bool is_signed = false;
+    std::unique_ptr<ExpressionNode> default_expr;
+};
+
+struct ClassNode : public ASTNode {
+    std::string name;
+    std::vector<ClassMemberVar> member_vars;
+    std::vector<std::unique_ptr<FunctionNode>> functions;
+    std::vector<std::unique_ptr<TaskNode>> tasks;
+    std::unordered_map<std::string, FunctionNode*> function_map;
+    std::unordered_map<std::string, TaskNode*> task_map;
+
+    ClassNode() = default;
+    explicit ClassNode(std::string n) : name(std::move(n)) {}
+
+    void add_member_var(ClassMemberVar var) {
+        member_vars.push_back(std::move(var));
+    }
+
+    void add_function(std::unique_ptr<FunctionNode> fn) {
+        FunctionNode* ptr = fn.get();
+        functions.push_back(std::move(fn));
+        function_map[ptr->name] = ptr;
+    }
+
+    void add_task(std::unique_ptr<TaskNode> t) {
+        TaskNode* ptr = t.get();
+        tasks.push_back(std::move(t));
+        task_map[ptr->name] = ptr;
+    }
+
+    FunctionNode* get_constructor() const {
+        auto it = function_map.find("new");
+        if (it != function_map.end()) return it->second;
+        return nullptr;
+    }
+
+    FunctionNode* find_function(const std::string& fname) const {
+        auto it = function_map.find(fname);
+        if (it != function_map.end()) return it->second;
+        return nullptr;
+    }
+
+    TaskNode* find_task(const std::string& tname) const {
+        auto it = task_map.find(tname);
+        if (it != task_map.end()) return it->second;
+        return nullptr;
+    }
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -243,6 +300,8 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<ClockingBlockNode>> clocking_blocks;
     std::unordered_map<std::string, ClockingBlockNode*> clocking_block_map;
     std::string default_clocking_name = "";
+    std::vector<std::shared_ptr<ClassNode>> classes;
+    std::unordered_map<std::string, ClassNode*> class_map;
 
     ModuleNode() = default;
 };

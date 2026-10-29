@@ -162,6 +162,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /usr/include/c++/13.2.1/map /usr/include/c++/13.2.1/bits/stl_tree.h \
  /usr/include/c++/13.2.1/bits/stl_map.h \
  /usr/include/c++/13.2.1/bits/stl_multimap.h \
+ /app/CAS/src/frontend/../../include/frontend/../common/class_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/clocking_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp \
  /usr/include/c++/13.2.1/unordered_set \

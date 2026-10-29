@@ -20,6 +20,9 @@ public:
     BoundProcess* get_current_process() const { return current_bp; }
     ExprEvaluator& get_expr_eval() { return expr_eval; }
 
+    void set_current_this(ClassObject* obj) { expr_eval.set_current_this(obj); }
+    ClassObject* get_current_this() const { return expr_eval.get_current_this(); }
+
     LogicVal read_slice(const NetSliceRef& ref);
     void write_slice(const NetSliceRef& ref, const LogicVal& val);
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);

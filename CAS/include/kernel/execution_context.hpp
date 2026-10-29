@@ -17,6 +17,8 @@ struct LocalVar {
     DynamicArrayObject dyn_array_data;
     bool is_associative_array = false;
     AssociativeArrayObject assoc_array_data;
+    bool is_class_handle = false;
+    std::string class_type_name = "";
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),
@@ -30,6 +32,8 @@ struct LocalVar {
 struct ScopeFrame {
     std::string scope_name;
     std::unordered_map<std::string, LocalVar> locals;
+    bool returned = false;
+    std::string func_return_name = "";
 
     explicit ScopeFrame(std::string name) : scope_name(std::move(name)) {}
 

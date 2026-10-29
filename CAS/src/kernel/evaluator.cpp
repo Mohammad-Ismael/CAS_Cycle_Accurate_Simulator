@@ -156,7 +156,26 @@ void Evaluator::check_monitor() {
 }
 
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
+    if (!stmt) return;
     set_current_process(&bp);
+
+    if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().current_frame()->returned) {
+        return;
+    }
+
+    if (auto ret_node = dynamic_cast<ReturnStatementNode*>(stmt)) {
+        if (expr_eval.get_context().has_active_frame()) {
+            ScopeFrame* frame = expr_eval.get_context().current_frame();
+            if (frame) {
+                if (ret_node->expr) {
+                    LogicVal ret_val = eval_expr(ret_node->expr.get(), bp.scope);
+                    expr_eval.get_context().set_local_value(frame->func_return_name, ret_val);
+                }
+                frame->returned = true;
+            }
+        }
+        return;
+    }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
             execute_statement(s.get(), bp);
@@ -187,6 +206,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (lv) {
                     lv->is_associative_array = true;
                     lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                }
+            }
+            if (vdecl->is_class_handle) {
+                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+                if (lv) {
+                    lv->is_class_handle = true;
+                    lv->class_type_name = vdecl->class_type_name;
+                    lv->value = LogicVal(64, 0, 0);
                 }
             }
             return;
@@ -315,6 +342,68 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (dot != std::string::npos) {
             std::string var_name = tname.substr(0, dot);
             std::string method = tname.substr(dot + 1);
+
+            ClassObject* cl_obj = nullptr;
+            if (var_name == "this") {
+                cl_obj = expr_eval.get_current_this();
+            } else {
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_class_handle) {
+                        cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                }
+                if (!cl_obj && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_class_handle) {
+                            cl_obj = engine.get_class_object(local->value.aval).get();
+                            break;
+                        }
+                    }
+                }
+                if (!cl_obj) {
+                    size_t nid = engine.get_net_id(bp.scope, var_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                        cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                    }
+                }
+            }
+            if (cl_obj) {
+                TaskNode* task_node = cl_obj->class_def ? cl_obj->class_def->find_task(method) : nullptr;
+                if (task_node) {
+                    ClassObject* prev_this = expr_eval.get_current_this();
+                    expr_eval.set_current_this(cl_obj);
+                    std::string frame_name = cl_obj->class_type_name + "::" + task_node->name + "__call";
+                    expr_eval.get_context().push_frame(frame_name);
+                    for (size_t i = 0; i < task_node->ports.size(); ++i) {
+                        const auto& p = task_node->ports[i];
+                        uint32_t w = 32;
+                        if (p.msb_expr && p.lsb_expr) {
+                            auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
+                            auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
+                            if (msb_n && lsb_n) {
+                                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+                            }
+                        }
+                        expr_eval.get_context().declare_local(p.name, w, p.is_signed);
+                        if (i < tcall->args.size()) {
+                            LogicVal arg_v = eval_expr(tcall->args[i].get(), bp.scope);
+                            expr_eval.get_context().set_local_value(p.name, arg_v);
+                        } else if (p.default_value) {
+                            LogicVal def_v = eval_expr(p.default_value.get(), bp.scope);
+                            expr_eval.get_context().set_local_value(p.name, def_v);
+                        }
+                    }
+                    for (auto& s : task_node->body) {
+                        if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                        execute_statement(s.get(), bp);
+                    }
+                    expr_eval.get_context().pop_frame();
+                    expr_eval.set_current_this(prev_this);
+                    return;
+                }
+            }
             QueueObject* q = nullptr;
             if (expr_eval.get_context().has_active_frame()) {
                 LocalVar* local = expr_eval.get_context().lookup_local(var_name);
@@ -498,6 +587,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             std::function<void(ExpressionNode*)> check_mon_expr = [&](ExpressionNode* expr) {
                 if (!expr) return;
                 if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+                    if (engine.is_class_handle(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class handle '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
+                    }
                     if (engine.is_queue(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
                     }
@@ -519,7 +611,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     check_mon_expr(idx->msb_expr.get());
                     check_mon_expr(idx->lsb_expr.get());
+                } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+                    if (engine.is_class_handle(ma->var_name, bp.scope) || ma->var_name == "this") {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class property '" + ma->var_name + "." + ma->member_name + "' used in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
+                    }
+                } else if (dynamic_cast<NullNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'null' literal used directly in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
+                } else if (dynamic_cast<ClassNewNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class constructor 'new()' used in $monitor per IEEE 1800-2023 section 8.7 & 21.2.3");
+                } else if (dynamic_cast<ThisNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'this' used directly in $monitor per IEEE 1800-2023 section 8.11 & 21.2.3");
                 } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+                    if (engine.is_class_handle(mc->var_name, bp.scope) || mc->var_name == "this") {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 8.5 & 21.2.3");
+                    }
                     if (engine.is_queue(mc->var_name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
                     }
@@ -935,6 +1040,75 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                     local = it->local_frame.get_var(base_var);
                     if (local) break;
+                }
+            }
+
+            if (auto new_node = dynamic_cast<ClassNewNode*>(assign->rhs.get())) {
+                std::string class_type = "";
+                if (local && local->is_class_handle) {
+                    class_type = local->class_type_name;
+                } else {
+                    size_t nid = engine.get_net_id(bp.scope, target_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                        class_type = engine.get_class_type(target_name, bp.scope);
+                    }
+                }
+                if (!class_type.empty()) {
+                    auto obj = engine.allocate_class_object(class_type);
+                    FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
+                    if (ctor) {
+                        std::vector<LogicVal> arg_vals;
+                        for (auto& a : new_node->args) {
+                            arg_vals.push_back(eval_expr(a.get(), bp.scope));
+                        }
+                        LogicVal dummy;
+                        expr_eval.eval_class_method(obj.get(), ctor, arg_vals, dummy);
+                    }
+                    LogicVal handle_val(64, obj->handle_id, 0);
+                    if (local) {
+                        local->value = handle_val;
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, target_name);
+                        if (nid != (size_t)-1) {
+                            engine.netlist[nid].set(handle_val);
+                        }
+                    }
+                    return;
+                }
+            }
+
+            if (!member_name.empty()) {
+                ClassObject* obj = nullptr;
+                if (base_var == "this") {
+                    obj = expr_eval.get_current_this();
+                } else {
+                    LocalVar* h_local = nullptr;
+                    if (expr_eval.get_context().has_active_frame()) h_local = expr_eval.get_context().lookup_local(base_var);
+                    if (!h_local && !bp.call_stack.empty()) {
+                        for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                            h_local = it->local_frame.get_var(base_var);
+                            if (h_local) break;
+                        }
+                    }
+                    if (h_local && h_local->is_class_handle) {
+                        obj = engine.get_class_object(h_local->value.aval).get();
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, base_var);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                            obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (obj) {
+                    obj->set_property(member_name, rhs_val);
+                    return;
+                }
+            }
+
+            if (member_name.empty() && !local) {
+                if (expr_eval.get_current_this() && expr_eval.get_current_this()->has_property(base_var)) {
+                    expr_eval.get_current_this()->set_property(base_var, rhs_val);
+                    return;
                 }
             }
 
