@@ -47,6 +47,8 @@ enum class TokenType {
     TOKEN_EVENT,
     TOKEN_TRIGGER,
     TOKEN_NONBLOCKING_TRIGGER,
+    TOKEN_TYPEDEF,
+    TOKEN_ENUM,
     TOKEN_GATE_AND,
     TOKEN_GATE_OR,
     TOKEN_GATE_XOR,
@@ -111,7 +113,8 @@ enum class TokenType {
     TOKEN_LOGICAL_AND,
     TOKEN_LOGICAL_OR,
     TOKEN_QUESTION,
-    TOKEN_COLON
+    TOKEN_COLON,
+    TOKEN_APOSTROPHE
 };
 
 struct Token {

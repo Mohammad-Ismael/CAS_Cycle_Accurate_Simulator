@@ -108,6 +108,9 @@ struct ElaborationResult {
     std::vector<BoundProcess> processes;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
+    std::unordered_map<std::string, EnumType> enum_types;
+    std::unordered_map<std::string, std::string> var_to_enum_type;
+    std::unordered_map<std::string, LogicVal> enum_constant_map;
 };
 
 class Elaborator {

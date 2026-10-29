@@ -38,6 +38,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_TYPEDEF) {
+            parse_typedef();
+            continue;
+        }
+
         expect(TokenType::TOKEN_MODULE, "Expected 'module', 'parameter', or 'localparam' keyword");
         auto mod = std::make_unique<ModuleNode>();
         mod->defined_in_file = current.filename;
@@ -246,6 +251,75 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     break;
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after event declaration");
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_TYPEDEF) {
+                auto td = parse_typedef();
+                if (td && td->enum_type) {
+                    for (const auto& m : td->enum_type->members) {
+                        ParameterDef pdef;
+                        pdef.name = m.first;
+                        pdef.default_expr = std::make_unique<NumberNode>(m.second.aval, m.second.bval, td->enum_type->base_width);
+                        mod->parameters.push_back(std::move(pdef));
+                    }
+                }
+                mod->typedefs.push_back(std::move(td));
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                std::string type_name = current.text;
+                auto enum_info = typedef_map[type_name];
+                advance();
+
+                uint32_t width = enum_info ? enum_info->base_width : 32;
+                bool is_signed_sig = enum_info ? enum_info->is_signed : false;
+
+                auto msb = std::make_unique<NumberNode>(width > 0 ? width - 1 : 0, 32);
+                auto lsb = std::make_unique<NumberNode>(0, 32);
+
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
+                    sig.type_name = type_name;
+
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        sig.is_array = true;
+                        sig.bound1_expr = parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            sig.bound2_expr = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in memory dimension");
+                    }
+
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        auto init_expr = parse_expression();
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
+                    }
+
+                    bool is_port = false;
+                    for (auto& p : mod->ports) {
+                        if (p.name == signame) {
+                            p.is_signed = is_signed_sig;
+                            p.net_kind = NetKind::VAR;
+                            p.type_name = type_name;
+                            if (msb) p.msb_expr = msb->clone();
+                            if (lsb) p.lsb_expr = lsb->clone();
+                            is_port = true;
+                            break;
+                        }
+                    }
+                    if (!is_port) {
+                        mod->signals.push_back(std::move(sig));
+                    }
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
                 continue;
             }
 
@@ -518,4 +592,105 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
     }
 
     return modules;
+}
+std::unique_ptr<TypedefNode> Parser::parse_typedef() {
+    expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
+    expect(TokenType::TOKEN_ENUM, "Expected 'enum' in typedef");
+
+    uint32_t width = 32;
+    bool is_signed = true;
+    std::string base_type_name = "int";
+
+    // Optional base type
+    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+        current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
+        current.type == TokenType::TOKEN_SIGNED ||
+        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit"))) {
+
+        if (current.type == TokenType::TOKEN_SIGNED) {
+            is_signed = true;
+            advance();
+        } else {
+            is_signed = false;
+        }
+
+        if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+            width = 32;
+            is_signed = true;
+            base_type_name = "int";
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+            width = 8;
+            is_signed = true;
+            base_type_name = "byte";
+            advance();
+        } else {
+            base_type_name = current.text;
+            width = 1;
+            advance();
+        }
+
+        if (current.type == TokenType::TOKEN_SIGNED) {
+            is_signed = true;
+            advance();
+        }
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in base type range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in base type range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+    } else if (match(TokenType::TOKEN_LBRACKET)) {
+        auto msb_e = parse_expression();
+        expect(TokenType::TOKEN_COLON, "Expected ':' in base type range");
+        auto lsb_e = parse_expression();
+        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in base type range");
+        if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+            if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+            }
+        }
+        is_signed = false;
+        base_type_name = "logic";
+    }
+
+    expect(TokenType::TOKEN_LBRACE, "Expected '{' in enum declaration");
+    auto enum_node = std::make_shared<EnumTypeNode>();
+    enum_node->base_width = width;
+    enum_node->is_signed = is_signed;
+    enum_node->base_type_name = base_type_name;
+
+    uint64_t current_val = 0;
+    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+        std::string mname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
+
+        if (match(TokenType::TOKEN_EQUAL)) {
+            auto val_expr = parse_expression();
+            if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
+                current_val = num->aval;
+            }
+        }
+
+        LogicVal mval(width, current_val, 0);
+        enum_node->members.push_back({mname, mval});
+        current_val++;
+
+        if (match(TokenType::TOKEN_COMMA)) continue;
+        break;
+    }
+    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing enum member list");
+
+    std::string type_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+
+    typedef_map[type_name] = enum_node;
+    return std::make_unique<TypedefNode>(type_name, enum_node);
 }

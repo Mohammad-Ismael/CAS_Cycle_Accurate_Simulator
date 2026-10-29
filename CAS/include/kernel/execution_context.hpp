@@ -10,10 +10,11 @@ struct LocalVar {
     uint32_t width;
     bool is_signed;
     LogicVal value;
+    std::string type_name = "";
 
-    LocalVar(std::string n, uint32_t w, bool s = false)
+    LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "")
         : name(std::move(n)), width(w), is_signed(s),
-          value(LogicVal::make_x(w)) {}
+          value(LogicVal::make_x(w)), type_name(std::move(t)) {}
 };
 
 struct ScopeFrame {
@@ -31,8 +32,8 @@ struct ScopeFrame {
         return (it != locals.end()) ? &it->second : nullptr;
     }
 
-    void declare_var(const std::string& name, uint32_t width, bool is_signed) {
-        locals.emplace(name, LocalVar(name, width, is_signed));
+    void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "") {
+        locals.emplace(name, LocalVar(name, width, is_signed, type));
     }
 };
 
@@ -50,7 +51,7 @@ public:
     ScopeFrame* current_frame();
     const ScopeFrame* current_frame() const;
 
-    bool declare_local(const std::string& name, uint32_t width, bool is_signed);
+    bool declare_local(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "");
     LocalVar* lookup_local(const std::string& name);
     bool set_local_value(const std::string& name, const LogicVal& val);
 };

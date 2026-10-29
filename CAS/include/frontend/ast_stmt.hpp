@@ -33,9 +33,10 @@ struct VarDeclStatementNode : public StatementNode {
     std::string var_name;
     uint32_t width = 32;
     bool is_signed = false;
+    std::string type_name = "";
 
-    VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false)
-        : var_name(std::move(n)), width(w), is_signed(s) {}
+    VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "")
+        : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)) {}
 };
 
 struct BlockingAssignNode : public StatementNode {

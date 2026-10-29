@@ -155,3 +155,40 @@ struct TernaryOpNode : public ExpressionNode {
         );
     }
 };
+
+struct MethodCallNode : public ExpressionNode {
+    std::string var_name;
+    std::string method_name;
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    MethodCallNode(std::string v, std::string m, std::vector<std::unique_ptr<ExpressionNode>> a = {})
+        : var_name(std::move(v)), method_name(std::move(m)), args(std::move(a)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
+        return std::make_unique<MethodCallNode>(var_name, method_name, std::move(c_args));
+    }
+};
+
+struct CastNode : public ExpressionNode {
+    std::string target_type;
+    std::unique_ptr<ExpressionNode> expr;
+
+    CastNode(std::string t, std::unique_ptr<ExpressionNode> e)
+        : target_type(std::move(t)), expr(std::move(e)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<CastNode>(target_type, expr ? expr->clone() : nullptr);
+    }
+};
+
+struct StringNode : public ExpressionNode {
+    std::string value;
+
+    explicit StringNode(std::string val) : value(std::move(val)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<StringNode>(value);
+    }
+};

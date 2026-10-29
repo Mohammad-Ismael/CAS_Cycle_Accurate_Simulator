@@ -18,6 +18,7 @@ struct PortNode : public ASTNode {
     std::unique_ptr<ExpressionNode> bound1_expr;
     std::unique_ptr<ExpressionNode> bound2_expr;
     NetKind net_kind = NetKind::WIRE;
+    std::string type_name = "";
 
     PortNode() = default;
 
@@ -133,6 +134,22 @@ struct GatePrimitiveNode : public ASTNode {
         : type(t), instance_name(std::move(inst)), out_expr(std::move(out)), in_exprs(std::move(ins)) {}
 };
 
+struct EnumTypeNode : public ASTNode {
+    uint32_t base_width = 32;
+    bool is_signed = false;
+    std::string base_type_name = "int";
+    std::vector<std::pair<std::string, LogicVal>> members;
+};
+
+struct TypedefNode : public ASTNode {
+    std::string type_name;
+    std::shared_ptr<EnumTypeNode> enum_type;
+
+    TypedefNode() = default;
+    TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
+        : type_name(std::move(name)), enum_type(std::move(et)) {}
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     std::string defined_in_file = "";
@@ -141,6 +158,7 @@ struct ModuleNode : public ASTNode {
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
     std::vector<std::string> events;
+    std::vector<std::unique_ptr<TypedefNode>> typedefs;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::unique_ptr<ProcessNode>> processes;

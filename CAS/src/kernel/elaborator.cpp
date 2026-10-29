@@ -37,6 +37,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (result.param_map.find(id->name) != result.param_map.end()) {
             return result.param_map.at(id->name);
         }
+        if (result.enum_constant_map.find(scoped_id) != result.enum_constant_map.end()) {
+            return result.enum_constant_map.at(scoped_id).aval;
+        }
+        if (result.enum_constant_map.find(id->name) != result.enum_constant_map.end()) {
+            return result.enum_constant_map.at(id->name).aval;
+        }
         return 0;
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
@@ -128,6 +134,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
 
+    for (const auto& td : mod->typedefs) {
+        if (td && td->enum_type) {
+            EnumType et;
+            et.name = td->type_name;
+            et.width = td->enum_type->base_width;
+            et.is_signed = td->enum_type->is_signed;
+            for (const auto& m : td->enum_type->members) {
+                et.members.push_back({m.first, m.second});
+                result.enum_constant_map[m.first] = m.second;
+                result.enum_constant_map[scope + "." + m.first] = m.second;
+            }
+            result.enum_types[td->type_name] = et;
+            result.enum_types[scope + "." + td->type_name] = et;
+        }
+    }
+
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
@@ -164,7 +186,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
-        get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
+        size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
+        if (!p.type_name.empty()) {
+            result.netlist[pid].type_name = p.type_name;
+            result.var_to_enum_type[scope + "." + p.name] = p.type_name;
+            result.var_to_enum_type[p.name] = p.type_name;
+        }
     }
 
     for (auto& s : mod->signals) {
@@ -190,7 +217,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                            << " [" << w << "-bit x " << depth << " words]\n";
             }
         } else {
-            get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
+            size_t sid = get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
+            if (!s.type_name.empty()) {
+                result.netlist[sid].type_name = s.type_name;
+                result.var_to_enum_type[scope + "." + s.name] = s.type_name;
+                result.var_to_enum_type[s.name] = s.type_name;
+            }
         }
     }
 

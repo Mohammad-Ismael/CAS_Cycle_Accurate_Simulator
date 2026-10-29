@@ -41,10 +41,13 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     }
 
     // 3. Execute body statements directly through Evaluator
+    BoundProcess* prev_bp = current_bp;
     BoundProcess bp{target_fn->scope.empty() ? frame_name : target_fn->scope, nullptr, 0, false};
     for (auto& s : target_fn->body) {
         engine.evaluator.execute_statement(s.get(), bp);
     }
+    engine.evaluator.set_current_process(prev_bp);
+    set_current_process(prev_bp);
 
     // 4. Retrieve return variable
     LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(target_fn->name) : nullptr;
@@ -61,8 +64,105 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
 
+    if (auto str_node = dynamic_cast<StringNode*>(expr)) {
+        return LogicVal::make_string(str_node->value);
+    }
+
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         return LogicVal(num->width, num->aval, num->bval);
+    }
+
+    if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
+        LogicVal val = eval(cast_node->expr.get(), scope);
+        std::string scoped_type = scope.empty() ? cast_node->target_type : (scope + "." + cast_node->target_type);
+        const EnumType* et = nullptr;
+        if (engine.enum_types.find(scoped_type) != engine.enum_types.end()) {
+            et = &engine.enum_types.at(scoped_type);
+        } else if (engine.enum_types.find(cast_node->target_type) != engine.enum_types.end()) {
+            et = &engine.enum_types.at(cast_node->target_type);
+        }
+        if (et) {
+            return LogicOps::cast_width(val, et->width, et->is_signed);
+        }
+        return val;
+    }
+
+    if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
+        std::string var_name = method_node->var_name;
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+
+        std::string type_name = "";
+        if (current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && !local->type_name.empty()) {
+                    type_name = local->type_name;
+                    break;
+                }
+            }
+        }
+        if (type_name.empty() && context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && !local->type_name.empty()) type_name = local->type_name;
+        }
+        if (type_name.empty()) {
+            if (engine.var_to_enum_type.find(scoped_var) != engine.var_to_enum_type.end()) {
+                type_name = engine.var_to_enum_type.at(scoped_var);
+            } else if (engine.var_to_enum_type.find(var_name) != engine.var_to_enum_type.end()) {
+                type_name = engine.var_to_enum_type.at(var_name);
+            } else if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
+                type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
+            } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
+                type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+            }
+        }
+
+        const EnumType* et = nullptr;
+        std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
+        if (!type_name.empty()) {
+            if (engine.enum_types.find(scoped_type) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(scoped_type);
+            } else if (engine.enum_types.find(type_name) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(type_name);
+            }
+        }
+        if (!et) {
+            if (engine.enum_types.find(scoped_var) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(scoped_var);
+            } else if (engine.enum_types.find(var_name) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(var_name);
+            }
+        }
+
+        if (!et) return LogicVal::make_x(1);
+
+        IdentifierNode id_expr(var_name);
+        LogicVal cur_val = eval(&id_expr, scope);
+
+        std::string mname = method_node->method_name;
+        if (mname == "name") {
+            std::string name_str = et->get_name(cur_val);
+            return LogicVal::make_string(name_str);
+        } else if (mname == "first") {
+            return et->first();
+        } else if (mname == "last") {
+            return et->last();
+        } else if (mname == "next") {
+            int64_t n = 1;
+            if (!method_node->args.empty() && method_node->args[0]) {
+                LogicVal n_val = eval(method_node->args[0].get(), scope);
+                n = (int64_t)n_val.aval;
+            }
+            return et->next(cur_val, n);
+        } else if (mname == "prev") {
+            int64_t n = 1;
+            if (!method_node->args.empty() && method_node->args[0]) {
+                LogicVal n_val = eval(method_node->args[0].get(), scope);
+                n = (int64_t)n_val.aval;
+            }
+            return et->prev(cur_val, n);
+        }
+        return LogicVal::make_x(et->width);
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
@@ -101,6 +201,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
+        if (engine.enum_constant_map.find(scoped_ident) != engine.enum_constant_map.end()) {
+            return engine.enum_constant_map.at(scoped_ident);
+        }
+        if (engine.enum_constant_map.find(ident->name) != engine.enum_constant_map.end()) {
+            return engine.enum_constant_map.at(ident->name);
+        }
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
         }
@@ -292,6 +398,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "<<")  return LogicOps::shift_left(l, r);
         if (bin->op == ">>")  return LogicOps::shift_right(l, r);
         if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, l_signed);
+        if (l.is_string || r.is_string) {
+            if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
+            if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (l.str_val != r.str_val) ? 1 : 0);
+        }
         if (bin->op == "==")  return LogicOps::logical_eq(l, r);
         if (bin->op == "!=")  return LogicOps::logical_neq(l, r);
         if (bin->op == "===") return LogicOps::case_eq(l, r);

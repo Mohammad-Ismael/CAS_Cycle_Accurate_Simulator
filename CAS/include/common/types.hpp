@@ -3,3 +3,4 @@
 #include "gate_types.hpp"
 #include "logic_val.hpp"
 #include "net_types.hpp"
+#include "enum_types.hpp"

@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 class Parser {
 private:
@@ -19,6 +20,12 @@ private:
     void expect(TokenType type, const std::string& err_msg);
 
 public:
+    std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> typedef_map;
+    bool is_typedef(const std::string& name) const {
+        return typedef_map.find(name) != typedef_map.end();
+    }
+    std::unique_ptr<TypedefNode> parse_typedef();
+
     explicit Parser(Lexer& lex);
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();

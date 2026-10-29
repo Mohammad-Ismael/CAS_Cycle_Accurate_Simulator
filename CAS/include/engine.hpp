@@ -16,6 +16,7 @@ struct MonitorSession {
     std::string scope;
     std::string format_string;
     std::vector<std::string> args;
+    std::vector<std::unique_ptr<ExpressionNode>> arg_exprs;
     std::vector<LogicVal> prev_values;
     bool has_leading_time = false;
     std::string src_file = "";
@@ -42,6 +43,9 @@ private:
     std::unordered_map<std::string, uint64_t> param_map;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
+    std::unordered_map<std::string, EnumType> enum_types;
+    std::unordered_map<std::string, std::string> var_to_enum_type;
+    std::unordered_map<std::string, LogicVal> enum_constant_map;
 
     MonitorSession monitor_session;
 

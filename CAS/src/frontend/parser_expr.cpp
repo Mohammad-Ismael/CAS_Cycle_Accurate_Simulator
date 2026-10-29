@@ -2,6 +2,12 @@
 #include <stdexcept>
 
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
+    if (current.type == TokenType::TOKEN_STRING) {
+        std::string s = current.text;
+        advance();
+        return std::make_unique<StringNode>(s);
+    }
+
     if (current.type == TokenType::TOKEN_NUMBER) {
         uint64_t a = current.num_val;
         uint64_t b = current.bval;
@@ -13,6 +19,31 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string name = current.text;
         advance();
+
+        // Cast expression: identifier followed by ''' then '('
+        if (match(TokenType::TOKEN_APOSTROPHE)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+            return std::make_unique<CastNode>(name, std::move(cast_expr));
+        }
+
+        // Method call: identifier followed by '.' then method identifier then '('
+        if (match(TokenType::TOKEN_DOT)) {
+            std::string method_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected method identifier");
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after method name");
+            std::vector<std::unique_ptr<ExpressionNode>> args;
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                while (true) {
+                    args.push_back(parse_expression());
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
+            return std::make_unique<MethodCallNode>(name, method_name, std::move(args));
+        }
 
         // Function call: identifier followed immediately by '('
         if (match(TokenType::TOKEN_LPAREN)) {

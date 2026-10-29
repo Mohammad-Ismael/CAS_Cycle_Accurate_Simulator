@@ -25,9 +25,9 @@ const ScopeFrame* ExecutionContext::current_frame() const {
     return &call_stack.back();
 }
 
-bool ExecutionContext::declare_local(const std::string& name, uint32_t width, bool is_signed) {
+bool ExecutionContext::declare_local(const std::string& name, uint32_t width, bool is_signed, const std::string& type) {
     if (call_stack.empty()) return false;
-    call_stack.back().declare_var(name, width, is_signed);
+    call_stack.back().declare_var(name, width, is_signed, type);
     return true;
 }
 

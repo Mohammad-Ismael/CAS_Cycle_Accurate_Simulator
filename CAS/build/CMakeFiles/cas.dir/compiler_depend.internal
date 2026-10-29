@@ -8,6 +8,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o
  /app/CAS/include/ast.hpp
  /app/CAS/include/engine.hpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -455,6 +456,7 @@ CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser.cpp.o
  /app/CAS/src/frontend/parser.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -490,12 +492,16 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -512,6 +518,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -543,6 +550,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -588,6 +596,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -627,6 +636,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
  /app/CAS/src/frontend/parser_expr.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -662,12 +672,16 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -684,6 +698,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -715,6 +730,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -760,6 +776,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -799,6 +816,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
  /app/CAS/src/frontend/parser_function.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -834,12 +852,16 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -856,6 +878,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -887,6 +910,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -932,6 +956,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -971,6 +996,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
  /app/CAS/src/frontend/parser_module.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -1006,12 +1032,16 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -1028,6 +1058,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -1059,6 +1090,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -1104,6 +1136,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -1143,6 +1176,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
  /app/CAS/src/frontend/parser_stmt.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -1178,12 +1212,16 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -1200,6 +1238,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -1231,6 +1270,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -1276,6 +1316,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -1315,6 +1356,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
  /app/CAS/src/frontend/parser_task.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -1350,12 +1392,16 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
  /usr/include/c++/13.2.1/bits/cpp_type_traits.h
  /usr/include/c++/13.2.1/bits/cxxabi_forced.h
  /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h
+ /usr/include/c++/13.2.1/bits/enable_special_members.h
+ /usr/include/c++/13.2.1/bits/erase_if.h
  /usr/include/c++/13.2.1/bits/exception.h
  /usr/include/c++/13.2.1/bits/exception_defines.h
  /usr/include/c++/13.2.1/bits/exception_ptr.h
  /usr/include/c++/13.2.1/bits/functexcept.h
  /usr/include/c++/13.2.1/bits/functional_hash.h
  /usr/include/c++/13.2.1/bits/hash_bytes.h
+ /usr/include/c++/13.2.1/bits/hashtable.h
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h
  /usr/include/c++/13.2.1/bits/invoke.h
  /usr/include/c++/13.2.1/bits/ios_base.h
  /usr/include/c++/13.2.1/bits/istream.tcc
@@ -1372,6 +1418,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
  /usr/include/c++/13.2.1/bits/move.h
  /usr/include/c++/13.2.1/bits/nested_exception.h
  /usr/include/c++/13.2.1/bits/new_allocator.h
+ /usr/include/c++/13.2.1/bits/node_handle.h
  /usr/include/c++/13.2.1/bits/ostream.tcc
  /usr/include/c++/13.2.1/bits/ostream_insert.h
  /usr/include/c++/13.2.1/bits/postypes.h
@@ -1403,6 +1450,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
  /usr/include/c++/13.2.1/bits/string_view.tcc
  /usr/include/c++/13.2.1/bits/stringfwd.h
  /usr/include/c++/13.2.1/bits/unique_ptr.h
+ /usr/include/c++/13.2.1/bits/unordered_map.h
  /usr/include/c++/13.2.1/bits/uses_allocator.h
  /usr/include/c++/13.2.1/bits/uses_allocator_args.h
  /usr/include/c++/13.2.1/bits/utility.h
@@ -1448,6 +1496,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
  /usr/include/c++/13.2.1/tuple
  /usr/include/c++/13.2.1/type_traits
  /usr/include/c++/13.2.1/typeinfo
+ /usr/include/c++/13.2.1/unordered_map
  /usr/include/c++/13.2.1/vector
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h
@@ -1487,6 +1536,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o
  /app/CAS/src/kernel/elaborator.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -1693,6 +1743,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o
  /app/CAS/include/engine.hpp
  /app/CAS/include/frontend/ast_module.hpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -1904,6 +1955,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o
  /app/CAS/src/kernel/execution_context.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -2091,6 +2143,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o
  /app/CAS/include/frontend/ast_module.hpp
  /app/CAS/include/frontend/ast_stmt.hpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -2299,6 +2352,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o
  /app/CAS/src/kernel/scheduler.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -2517,6 +2571,7 @@ CMakeFiles/cas.dir/src/main.cpp.o
  /app/CAS/include/ast.hpp
  /app/CAS/include/engine.hpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp
@@ -2879,6 +2934,7 @@ CMakeFiles/cas.dir/src/profiler/profiler.cpp.o
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o
  /app/CAS/src/tracer/vcd_dumper.cpp
  /app/CAS/include/common/edge_types.hpp
+ /app/CAS/include/common/enum_types.hpp
  /app/CAS/include/common/gate_types.hpp
  /app/CAS/include/common/logic_val.hpp
  /app/CAS/include/common/net_types.hpp

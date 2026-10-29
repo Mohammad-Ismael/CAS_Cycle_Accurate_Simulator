@@ -13,7 +13,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
-    // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp;)
+    // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
+    if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+        std::string type_name = current.text;
+        auto enum_info = typedef_map[type_name];
+        advance();
+        uint32_t width = enum_info ? enum_info->base_width : 32;
+        bool is_signed_var = enum_info ? enum_info->is_signed : false;
+
+        std::string vname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name);
+    }
+
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE) {
         bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER);

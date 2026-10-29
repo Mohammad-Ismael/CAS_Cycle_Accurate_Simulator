@@ -1,13 +1,23 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v2.4.0.0`  
-**Status:** Production Milestone v2.4.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v2.5.0.0`  
+**Status:** Production Milestone v2.5.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
 CAS (Cycle-Accurate Simulator) is an independent, ground-up discrete-event RTL simulator and integrated verification development environment implemented in modular C++17. Operating independently of external compiler toolchains (such as LLVM, GCC intermediate compilation, or transpilation to C++), CAS parses SystemVerilog directly into an in-memory Abstract Syntax Tree (AST), elaborates hierarchical design topologies of arbitrary depth, and executes discrete-event simulations using an IEEE Std 1800-2023 stratified event scheduler.
 
 The system includes a containerized execution environment paired with a Monaco-based multi-file IDE, interactive waveform viewer, source-linked diagnostic console, and hardware profiler.
+
+---
+
+## IEEE Std 1800-2023 Compliance & Simulator Maturity
+
+**Roadmap to Full Synopsys VCS Parity:**
+`[███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 14.5%`
+
+*Current Baseline (v2.5.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls (disable/wait fork), named events, and enum types.
+*Upcoming Domains:* Structures & Unions, Interfaces & Modports, OOP Classes & Polymorphism, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
 
 ---
 
@@ -18,6 +28,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§4** | **Stratified Event Scheduler** | Pre-Active, Active, Inactive, NBA, Observed, Reactive, and Postponed regions with deterministic delta loops. |
 | **§6.5, §10.3, §10.4.1** | **Net Types & Multi-Driver Resolution** | Net keywords `wire`, `wand`, `wor`, `tri` with bitwise 4-state resolution functions (Tables 6-1, 6-2, 6-3). Concurrent continuous assignments resolve dynamically. Un-driven nets float to `'z'`. |
 | **§6.5, §10.3.2** | **Variable Exclusivity Enforcement** | Variables (`logic`, `reg`, `var`) reject multiple continuous assignment drivers with `[CAS-MCD]`. |
+| **§6.19** | **Enumerated Types & Methods** | `typedef enum` declarations with base types, automatic ordinal increments, constant member expressions, built-in methods (`.first()`, `.last()`, `.next()`, `.prev()`, `.name()`), and static type casting (`type'(expr)`). |
 | **§6.7** | **4-State Logic System** | Dual-rail 64-bit integer vectors (`aval` data, `bval` control) supporting `0`, `1`, `X`, and `Z`. |
 | **§9.2.2.4** | **Driver Exclusivity Enforcement** | Variables driven inside `always_ff`, `always_comb`, or `always_latch` reject multi-process or continuous drives (`[CAS-ICPD]`). |
 | **§9.3.2** | **Parallel Blocks (`fork ... join`)** | `fork ... join` (all complete), `fork ... join_any` (any completes, background continuation), `fork ... join_none` (non-blocking concurrent dispatch). Dynamic thread tree with inherited lexical scopes and call frames. |
@@ -36,7 +47,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (15 / 15 PASS)
+## Milestone Regression Pass Matrix (16 / 16 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -57,6 +68,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v2.2.0.0** | `projects/v2_2_0_0_fork_join` | Parallel Blocks (`fork ... join`, `join_any`, `join_none`) (§9.3.2) | **PASS** | 100% VCS |
 | **v2.3.0.0** | `projects/v2_3_0_0_process_control` | Process Controls (`disable fork`, `wait fork`) (§9.6.2, §9.6.3) | **PASS** | 100% VCS |
 | **v2.4.0.0** | `projects/v2_4_0_0_named_events` | Named Events & Triggers (`->`, `->>`, `@e`, `wait(e.triggered)`) (§15) | **PASS** | 100% VCS |
+| **v2.5.0.0** | `projects/v2_5_0_0_enum_types` | Enumerated Types & Methods (`first`, `last`, `next`, `prev`, `name`) (§6.19) | **PASS** | 100% VCS |
 
 ---
 

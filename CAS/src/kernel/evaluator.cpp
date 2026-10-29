@@ -67,25 +67,18 @@ LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
 
 void Evaluator::check_monitor() {
     if (!engine.monitor_session.active) return;
+    set_current_process(nullptr);
+    expr_eval.set_current_process(nullptr);
 
     bool values_changed = false;
     std::vector<LogicVal> current_values;
-    bool has_active_signals = false;
 
-    for (const auto& arg_name : engine.monitor_session.args) {
-        if (arg_name == "$time") {
-            current_values.push_back(LogicVal::make_known(64, engine.get_sim_time()));
-        } else {
-            has_active_signals = true;
-            std::string scoped_arg = engine.monitor_session.scope.empty() ? arg_name : (engine.monitor_session.scope + "." + arg_name);
-            if (engine.net_map.find(scoped_arg) != engine.net_map.end()) {
-                current_values.push_back(engine.netlist[engine.net_map.at(scoped_arg)].value);
-            } else if (engine.net_map.find(arg_name) != engine.net_map.end()) {
-                current_values.push_back(engine.netlist[engine.net_map.at(arg_name)].value);
-            } else {
-                current_values.push_back(LogicVal::make_x(1));
-            }
+    for (const auto& expr : engine.monitor_session.arg_exprs) {
+        if (!expr) {
+            current_values.push_back(LogicVal::make_x(1));
+            continue;
         }
+        current_values.push_back(eval_expr(expr.get(), engine.monitor_session.scope));
     }
 
     if (engine.monitor_session.prev_values.empty()) {
@@ -93,8 +86,10 @@ void Evaluator::check_monitor() {
     } else {
         // IEEE 1800-2023 §21.2.2: Only watched signals trigger $monitor, NOT $time
         for (size_t i = 0; i < current_values.size(); ++i) {
-            if (i < engine.monitor_session.args.size() && engine.monitor_session.args[i] == "$time") {
-                continue;
+            if (i < engine.monitor_session.arg_exprs.size()) {
+                if (auto id = dynamic_cast<IdentifierNode*>(engine.monitor_session.arg_exprs[i].get())) {
+                    if (id->name == "$time") continue;
+                }
             }
             if (current_values[i] != engine.monitor_session.prev_values[i]) {
                 values_changed = true;
@@ -130,7 +125,7 @@ void Evaluator::check_monitor() {
                 bool unpadded = false;
                 if (spec == '0' && i + 1 < fmt_len) {
                     char next_spec = engine.monitor_session.format_string[i + 1];
-                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
+                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's') {
                         spec = next_spec;
                         unpadded = true;
                         ++i;
@@ -139,7 +134,10 @@ void Evaluator::check_monitor() {
 
                 if (arg_idx < current_values.size()) {
                     const auto& val = current_values[arg_idx++];
-                    if (val.is_unknown() && (spec == 'd' || spec == 't')) {
+                    if (spec == 's') {
+                        if (val.is_string) std::cout << val.str_val;
+                        else std::cout << val.aval;
+                    } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                         std::cout << "x";
                     } else {
                         if (spec == 'd' || spec == 't') std::cout << val.aval;
@@ -168,15 +166,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
-            expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
             return;
         }
         if (!bp.call_stack.empty()) {
-            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
             return;
         }
         expr_eval.get_context().push_frame(bp.scope);
-        expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed);
+        expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
         return;
     }
 
@@ -290,10 +288,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.scope = bp.scope;
             engine.monitor_session.format_string = disp->format_string;
             engine.monitor_session.args.clear();
+            engine.monitor_session.arg_exprs.clear();
             for (auto& arg : disp->arg_exprs) {
                 if (auto id = dynamic_cast<IdentifierNode*>(arg.get())) {
                     engine.monitor_session.args.push_back(id->name);
                 }
+                engine.monitor_session.arg_exprs.push_back(arg ? arg->clone() : nullptr);
             }
             engine.monitor_session.has_leading_time = disp->has_leading_time;
             engine.monitor_session.src_file = disp->src_file;
@@ -323,7 +323,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     bool unpadded = false;
                     if (spec == '0' && i + 1 < fmt_len) {
                         char next_spec = disp->format_string[i + 1];
-                        if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b') {
+                        if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's') {
                             spec = next_spec;
                             unpadded = true;
                             ++i;
@@ -332,7 +332,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     if (arg_idx < disp->arg_exprs.size()) {
                         LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
-                        if (val.is_unknown() && (spec == 'd' || spec == 't')) {
+                        if (spec == 's') {
+                            if (val.is_string) std::cout << val.str_val;
+                            else std::cout << val.aval;
+                        } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else {
                             if (spec == 'd' || spec == 't') std::cout << val.aval;

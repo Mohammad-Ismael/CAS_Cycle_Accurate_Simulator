@@ -220,10 +220,16 @@ Token Lexer::next_token() {
 
     // Unbased literals: '0, '1, 'x, 'z
     if (c == '\'') {
+        if (peek_next() == '0' || peek_next() == '1' || 
+            peek_next() == 'x' || peek_next() == 'X' || 
+            peek_next() == 'z' || peek_next() == 'Z') {
+            advance();
+            char lit = advance();
+            auto pnum = NumberParser::parse_unbased_literal(lit);
+            return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
+        }
         advance();
-        char lit = advance();
-        auto pnum = NumberParser::parse_unbased_literal(lit);
-        return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
+        return {TokenType::TOKEN_APOSTROPHE, "'", 0, 0, cur_file, cur_line, 0};
     }
 
     // Numeric Literals
@@ -319,6 +325,8 @@ Token Lexer::next_token() {
         if (ident == "disable") return {TokenType::TOKEN_DISABLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "wait") return {TokenType::TOKEN_WAIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "event") return {TokenType::TOKEN_EVENT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "typedef") return {TokenType::TOKEN_TYPEDEF, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "enum") return {TokenType::TOKEN_ENUM, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line, 0};

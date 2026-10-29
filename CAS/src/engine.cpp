@@ -31,6 +31,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     function_map = std::move(elab_res.function_map);
     named_events = std::move(elab_res.named_events);
     named_event_map = std::move(elab_res.named_event_map);
+    enum_types = std::move(elab_res.enum_types);
+    var_to_enum_type = std::move(elab_res.var_to_enum_type);
+    enum_constant_map = std::move(elab_res.enum_constant_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
