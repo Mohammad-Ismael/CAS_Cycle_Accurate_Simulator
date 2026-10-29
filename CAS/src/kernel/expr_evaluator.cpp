@@ -178,6 +178,184 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_known(32, 0);
             }
         }
+
+        AssociativeArrayObject* assoc = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+        }
+        if (!assoc && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_associative_array) {
+                    assoc = &local->assoc_array_data;
+                    break;
+                }
+            }
+        }
+        if (!assoc) {
+            assoc = engine.get_assoc_array(var_name, scope);
+        }
+
+        if (assoc) {
+            std::string method = method_node->method_name;
+            if (method == "size" || method == "num") {
+                return LogicVal::make_known(32, assoc->size());
+            } else if (method == "exists") {
+                if (!method_node->args.empty()) {
+                    LogicVal k = eval(method_node->args[0].get(), scope);
+                    if (assoc->is_string_key) {
+                        return LogicVal::make_known(1, assoc->exists(k.str_val) ? 1 : 0);
+                    } else {
+                        uint64_t key = k.aval;
+                        if (assoc->key_width < 64 && assoc->key_width > 0) {
+                            key &= ((1ULL << assoc->key_width) - 1);
+                        }
+                        return LogicVal::make_known(1, assoc->exists(key) ? 1 : 0);
+                    }
+                }
+                return LogicVal::make_known(1, 0);
+            } else if (method == "first" || method == "last") {
+                bool is_first = (method == "first");
+                if (assoc->is_string_key) {
+                    std::string out_k;
+                    bool ok = is_first ? assoc->first(out_k) : assoc->last(out_k);
+                    if (ok && !method_node->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            LogicVal sv;
+                            sv.is_string = true;
+                            sv.str_val = out_k;
+                            if (context.has_active_frame()) {
+                                LocalVar* lv = context.lookup_local(id->name);
+                                if (lv) lv->value = sv;
+                            } else if (current_bp && !current_bp->call_stack.empty()) {
+                                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                    LocalVar* lv = it->local_frame.get_var(id->name);
+                                    if (lv) { lv->value = sv; break; }
+                                }
+                            }
+                        }
+                    }
+                    return LogicVal::make_known(1, ok ? 1 : 0);
+                } else {
+                    uint64_t out_k = 0;
+                    bool ok = is_first ? assoc->first(out_k) : assoc->last(out_k);
+                    if (ok && !method_node->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            bool written = false;
+                            if (context.has_active_frame()) {
+                                LocalVar* lv = context.lookup_local(id->name);
+                                if (lv) {
+                                    lv->value = LogicOps::cast_width(LogicVal(64, out_k, 0), lv->width, lv->is_signed);
+                                    written = true;
+                                }
+                            }
+                            if (!written && current_bp && !current_bp->call_stack.empty()) {
+                                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                    LocalVar* lv = it->local_frame.get_var(id->name);
+                                    if (lv) {
+                                        lv->value = LogicOps::cast_width(LogicVal(64, out_k, 0), lv->width, lv->is_signed);
+                                        written = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!written) {
+                                size_t net_id = engine.get_net_id(scope, id->name);
+                                if (net_id != (size_t)-1) {
+                                    LogicVal casted = LogicOps::cast_width(LogicVal(64, out_k, 0), engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                                    engine.netlist[net_id].set(casted);
+                                }
+                            }
+                        }
+                    }
+                    return LogicVal::make_known(1, ok ? 1 : 0);
+                }
+            } else if (method == "next" || method == "prev") {
+                bool is_next = (method == "next");
+                if (assoc->is_string_key) {
+                    std::string in_out_k;
+                    if (!method_node->args.empty()) {
+                        LogicVal kv = eval(method_node->args[0].get(), scope);
+                        in_out_k = kv.str_val;
+                    }
+                    bool ok = is_next ? assoc->next(in_out_k) : assoc->prev(in_out_k);
+                    if (ok && !method_node->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            LogicVal sv;
+                            sv.is_string = true;
+                            sv.str_val = in_out_k;
+                            if (context.has_active_frame()) {
+                                LocalVar* lv = context.lookup_local(id->name);
+                                if (lv) lv->value = sv;
+                            } else if (current_bp && !current_bp->call_stack.empty()) {
+                                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                    LocalVar* lv = it->local_frame.get_var(id->name);
+                                    if (lv) { lv->value = sv; break; }
+                                }
+                            }
+                        }
+                    }
+                    return LogicVal::make_known(1, ok ? 1 : 0);
+                } else {
+                    uint64_t in_out_k = 0;
+                    if (!method_node->args.empty()) {
+                        LogicVal kv = eval(method_node->args[0].get(), scope);
+                        in_out_k = kv.aval;
+                        if (assoc->key_width < 64 && assoc->key_width > 0) {
+                            in_out_k &= ((1ULL << assoc->key_width) - 1);
+                        }
+                    }
+                    bool ok = is_next ? assoc->next(in_out_k) : assoc->prev(in_out_k);
+                    if (ok && !method_node->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            bool written = false;
+                            if (context.has_active_frame()) {
+                                LocalVar* lv = context.lookup_local(id->name);
+                                if (lv) {
+                                    lv->value = LogicOps::cast_width(LogicVal(64, in_out_k, 0), lv->width, lv->is_signed);
+                                    written = true;
+                                }
+                            }
+                            if (!written && current_bp && !current_bp->call_stack.empty()) {
+                                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                    LocalVar* lv = it->local_frame.get_var(id->name);
+                                    if (lv) {
+                                        lv->value = LogicOps::cast_width(LogicVal(64, in_out_k, 0), lv->width, lv->is_signed);
+                                        written = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!written) {
+                                size_t net_id = engine.get_net_id(scope, id->name);
+                                if (net_id != (size_t)-1) {
+                                    LogicVal casted = LogicOps::cast_width(LogicVal(64, in_out_k, 0), engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                                    engine.netlist[net_id].set(casted);
+                                }
+                            }
+                        }
+                    }
+                    return LogicVal::make_known(1, ok ? 1 : 0);
+                }
+            } else if (method == "delete") {
+                if (method_node->args.empty()) {
+                    assoc->delete_all();
+                } else {
+                    LogicVal k = eval(method_node->args[0].get(), scope);
+                    if (assoc->is_string_key) {
+                        assoc->delete_key(k.str_val);
+                    } else {
+                        uint64_t key = k.aval;
+                        if (assoc->key_width < 64 && assoc->key_width > 0) {
+                            key &= ((1ULL << assoc->key_width) - 1);
+                        }
+                        assoc->delete_key(key);
+                    }
+                }
+                return LogicVal::make_known(32, 0);
+            }
+        }
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         std::string type_name = "";
@@ -494,6 +672,39 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             int64_t idx = (int64_t)addr_val.aval;
             return da->get_elem(idx);
+        }
+
+        AssociativeArrayObject* assoc = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* lassoc = context.lookup_local(idx_node->name);
+            if (lassoc && lassoc->is_associative_array) assoc = &lassoc->assoc_array_data;
+        }
+        if (!assoc && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* lassoc = it->local_frame.get_var(idx_node->name);
+                if (lassoc && lassoc->is_associative_array) {
+                    assoc = &lassoc->assoc_array_data;
+                    break;
+                }
+            }
+        }
+        if (!assoc) {
+            assoc = engine.get_assoc_array(idx_node->name, scope);
+        }
+        if (assoc) {
+            LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
+            if (addr_val.is_unknown()) {
+                return LogicVal::make_x(assoc->val_width);
+            }
+            if (assoc->is_string_key) {
+                return assoc->get(addr_val.str_val);
+            } else {
+                uint64_t key = addr_val.aval;
+                if (assoc->key_width < 64 && assoc->key_width > 0) {
+                    key &= ((1ULL << assoc->key_width) - 1);
+                }
+                return assoc->get(key);
+            }
         }
 
         LogicVal target_val = LogicVal::make_x(1);

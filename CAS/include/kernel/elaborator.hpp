@@ -149,6 +149,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;
+    std::unordered_map<std::string, AssociativeArrayObject> assoc_array_map;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;

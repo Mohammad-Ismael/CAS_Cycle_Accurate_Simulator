@@ -26,6 +26,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         bool is_q = false;
         bool is_dyn = false;
+        bool is_assoc = false;
+        std::string assoc_key_type = "";
+        uint32_t assoc_key_width = 32;
         if (match(TokenType::TOKEN_LBRACKET)) {
             if (match(TokenType::TOKEN_DOLLAR)) {
                 is_q = true;
@@ -35,13 +38,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             } else if (match(TokenType::TOKEN_RBRACKET)) {
                 is_dyn = true;
+            } else if (is_assoc_key_token(current)) {
+                is_assoc = true;
+                parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
             } else {
                 parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             }
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q, is_dyn);
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
     }
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
@@ -70,6 +77,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         bool is_q = false;
         bool is_dyn = false;
+        bool is_assoc = false;
+        std::string assoc_key_type = "";
+        uint32_t assoc_key_width = 32;
         if (match(TokenType::TOKEN_LBRACKET)) {
             if (match(TokenType::TOKEN_DOLLAR)) {
                 is_q = true;
@@ -79,13 +89,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             } else if (match(TokenType::TOKEN_RBRACKET)) {
                 is_dyn = true;
+            } else if (is_assoc_key_token(current)) {
+                is_assoc = true;
+                parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
             } else {
                 parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             }
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q, is_dyn);
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
     }
 
     // Cycle Delay Statement (##N; or ##(expr);)

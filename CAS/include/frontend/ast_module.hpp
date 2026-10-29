@@ -19,6 +19,9 @@ struct PortNode : public ASTNode {
     std::unique_ptr<ExpressionNode> bound2_expr;
     bool is_queue = false;
     bool is_dynamic_array = false;
+    bool is_associative_array = false;
+    std::string assoc_key_type = "";
+    uint32_t assoc_key_width = 32;
     bool is_interface = false;
     std::string interface_type_name = "";
     std::string modport_name = "";

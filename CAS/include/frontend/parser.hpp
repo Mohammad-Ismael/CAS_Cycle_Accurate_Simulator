@@ -44,6 +44,25 @@ public:
     std::unique_ptr<TypedefNode> parse_typedef();
     std::string parse_skew_spec();
 
+    bool is_assoc_key_token(const Token& tok) const {
+        if (tok.type == TokenType::TOKEN_LOGIC || tok.type == TokenType::TOKEN_REG ||
+            tok.type == TokenType::TOKEN_WIRE || tok.type == TokenType::TOKEN_INTEGER ||
+            tok.type == TokenType::TOKEN_STAR) {
+            return true;
+        }
+        if (tok.type == TokenType::TOKEN_IDENTIFIER) {
+            if (tok.text == "string" || tok.text == "int" || tok.text == "byte" ||
+                tok.text == "shortint" || tok.text == "longint" || tok.text == "bit") {
+                return true;
+            }
+            if (is_typedef(tok.text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    void parse_assoc_key_type(std::string& key_type, uint32_t& key_width);
+
     explicit Parser(Lexer& lex);
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();

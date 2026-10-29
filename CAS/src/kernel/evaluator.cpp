@@ -182,10 +182,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
                 }
             }
+            if (vdecl->is_associative_array) {
+                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+                if (lv) {
+                    lv->is_associative_array = true;
+                    lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                }
+            }
             return;
         }
         if (!bp.call_stack.empty()) {
-            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array);
+            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
             return;
         }
         expr_eval.get_context().push_frame(bp.scope);
@@ -202,6 +209,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (lv) {
                 lv->is_dynamic_array = true;
                 lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            }
+        }
+        if (vdecl->is_associative_array) {
+            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+            if (lv) {
+                lv->is_associative_array = true;
+                lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
             }
         }
         return;
@@ -370,6 +384,93 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
             }
+            AssociativeArrayObject* assoc = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+            }
+            if (!assoc && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_associative_array) {
+                        assoc = &local->assoc_array_data;
+                        break;
+                    }
+                }
+            }
+            if (!assoc) {
+                assoc = engine.get_assoc_array(var_name, bp.scope);
+            }
+            if (assoc) {
+                auto write_tcall_arg = [&](ExpressionNode* arg_expr, uint64_t k_val) {
+                    if (auto id = dynamic_cast<IdentifierNode*>(arg_expr)) {
+                        bool written = false;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* lv = expr_eval.get_context().lookup_local(id->name);
+                            if (lv) {
+                                lv->value = LogicOps::cast_width(LogicVal(64, k_val, 0), lv->width, lv->is_signed);
+                                written = true;
+                            }
+                        }
+                        if (!written && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* lv = it->local_frame.get_var(id->name);
+                                if (lv) {
+                                    lv->value = LogicOps::cast_width(LogicVal(64, k_val, 0), lv->width, lv->is_signed);
+                                    written = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!written) {
+                            size_t net_id = engine.get_net_id(bp.scope, id->name);
+                            if (net_id != (size_t)-1) {
+                                LogicVal casted = LogicOps::cast_width(LogicVal(64, k_val, 0), engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                                engine.netlist[net_id].set(casted);
+                            }
+                        }
+                    }
+                };
+
+                if (method == "delete") {
+                    if (tcall->args.empty()) {
+                        assoc->delete_all();
+                    } else {
+                        LogicVal k = eval_expr(tcall->args[0].get(), bp.scope);
+                        if (assoc->is_string_key) {
+                            assoc->delete_key(k.str_val);
+                        } else {
+                            uint64_t key = k.aval;
+                            if (assoc->key_width < 64 && assoc->key_width > 0) {
+                                key &= ((1ULL << assoc->key_width) - 1);
+                            }
+                            assoc->delete_key(key);
+                        }
+                    }
+                    return;
+                } else if (method == "first" || method == "last") {
+                    uint64_t out_k = 0;
+                    bool ok = (method == "first") ? assoc->first(out_k) : assoc->last(out_k);
+                    if (ok && !tcall->args.empty()) {
+                        write_tcall_arg(tcall->args[0].get(), out_k);
+                    }
+                    return;
+                } else if (method == "next" || method == "prev") {
+                    uint64_t in_out_k = 0;
+                    if (!tcall->args.empty()) {
+                        LogicVal k_val = eval_expr(tcall->args[0].get(), bp.scope);
+                        in_out_k = k_val.aval;
+                        if (assoc->key_width < 64 && assoc->key_width > 0) {
+                            in_out_k &= ((1ULL << assoc->key_width) - 1);
+                        }
+                    }
+                    bool ok = (method == "next") ? assoc->next(in_out_k) : assoc->prev(in_out_k);
+                    if (ok && !tcall->args.empty()) {
+                        write_tcall_arg(tcall->args[0].get(), in_out_k);
+                    }
+                    return;
+                }
+            }
         }
 
         std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
@@ -403,12 +504,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_dynamic_array(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
                     }
+                    if (engine.is_assoc_array(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.8 & 21.2.3");
+                    }
                 } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                     if (engine.is_queue(idx->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
                     }
                     if (engine.is_dynamic_array(idx->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
+                    }
+                    if (engine.is_assoc_array(idx->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.8 & 21.2.3");
                     }
                     check_mon_expr(idx->msb_expr.get());
                     check_mon_expr(idx->lsb_expr.get());
@@ -418,6 +525,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     if (engine.is_dynamic_array(mc->var_name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
+                    }
+                    if (engine.is_assoc_array(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.8 & 21.2.3");
                     }
                     for (auto& a : mc->args) check_mon_expr(a.get());
                 } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
@@ -672,6 +782,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             return;
         }
+        AssociativeArrayObject* assoc = nullptr;
+        if (expr_eval.get_context().has_active_frame()) {
+            LocalVar* local = expr_eval.get_context().lookup_local(mem_assign->mem_name);
+            if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+        }
+        if (!assoc && !bp.call_stack.empty()) {
+            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(mem_assign->mem_name);
+                if (local && local->is_associative_array) {
+                    assoc = &local->assoc_array_data;
+                    break;
+                }
+            }
+        }
+        if (!assoc) {
+            assoc = engine.get_assoc_array(mem_assign->mem_name, bp.scope);
+        }
+        if (assoc) {
+            LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
+            LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
+            if (!addr_val.is_unknown()) {
+                if (assoc->is_string_key) {
+                    assoc->set(addr_val.str_val, rhs_val);
+                } else {
+                    uint64_t key = addr_val.aval;
+                    if (assoc->key_width < 64 && assoc->key_width > 0) {
+                        key &= ((1ULL << assoc->key_width) - 1);
+                    }
+                    assoc->set(key, rhs_val);
+                }
+            }
+            return;
+        }
         std::string scoped_mem = bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name);
         if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
             if (engine.memory_map.find(mem_assign->mem_name) != engine.memory_map.end()) {
@@ -813,6 +956,44 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             uint64_t new_a = (local->value.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
                             uint64_t new_b = (local->value.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
                             local->value = LogicVal(local->width, new_a, new_b);
+                            return;
+                        }
+                    }
+                }
+                if (local->is_associative_array) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            if (local->assoc_array_data.is_string_key) {
+                                local->assoc_array_data.set(idx_val.str_val, rhs_val);
+                            } else {
+                                uint64_t key = idx_val.aval;
+                                if (local->assoc_array_data.key_width < 64 && local->assoc_array_data.key_width > 0) {
+                                    key &= ((1ULL << local->assoc_array_data.key_width) - 1);
+                                }
+                                local->assoc_array_data.set(key, rhs_val);
+                            }
+                        }
+                        return;
+                    } else if (auto src_id = dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        AssociativeArrayObject* src_assoc = nullptr;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                            if (loc && loc->is_associative_array) src_assoc = &loc->assoc_array_data;
+                        }
+                        if (!src_assoc && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                if (loc && loc->is_associative_array) {
+                                    src_assoc = &loc->assoc_array_data;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_assoc) src_assoc = engine.get_assoc_array(src_id->name, bp.scope);
+                        if (src_assoc) {
+                            local->assoc_array_data.elements = src_assoc->elements;
+                            local->assoc_array_data.str_elements = src_assoc->str_elements;
                             return;
                         }
                     }
@@ -1000,6 +1181,61 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         if (src_da) {
                             da->elements = src_da->elements;
+                            return;
+                        }
+                    }
+                }
+                AssociativeArrayObject* assoc = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+                    if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+                }
+                if (!assoc && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(target_name);
+                        if (local && local->is_associative_array) {
+                            assoc = &local->assoc_array_data;
+                            break;
+                        }
+                    }
+                }
+                if (!assoc) {
+                    assoc = engine.get_assoc_array(target_name, bp.scope);
+                }
+                if (assoc) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            if (assoc->is_string_key) {
+                                assoc->set(idx_val.str_val, rhs_val);
+                            } else {
+                                uint64_t key = idx_val.aval;
+                                if (assoc->key_width < 64 && assoc->key_width > 0) {
+                                    key &= ((1ULL << assoc->key_width) - 1);
+                                }
+                                assoc->set(key, rhs_val);
+                            }
+                        }
+                        return;
+                    } else if (auto src_id = dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        AssociativeArrayObject* src_assoc = nullptr;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                            if (loc && loc->is_associative_array) src_assoc = &loc->assoc_array_data;
+                        }
+                        if (!src_assoc && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                if (loc && loc->is_associative_array) {
+                                    src_assoc = &loc->assoc_array_data;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_assoc) src_assoc = engine.get_assoc_array(src_id->name, bp.scope);
+                        if (src_assoc) {
+                            assoc->elements = src_assoc->elements;
+                            assoc->str_elements = src_assoc->str_elements;
                             return;
                         }
                     }

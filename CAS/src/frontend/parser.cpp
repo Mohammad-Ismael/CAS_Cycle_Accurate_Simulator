@@ -39,3 +39,59 @@ void Parser::expect(TokenType t, const std::string& err) {
     }
     advance();
 }
+
+void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
+    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+        current.type == TokenType::TOKEN_WIRE || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "bit")) {
+        key_type = current.text;
+        advance();
+        key_width = 1;
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    key_width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+    } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+        key_type = current.text;
+        key_width = 32;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+        key_type = "byte";
+        key_width = 8;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+        key_type = "shortint";
+        key_width = 16;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+        key_type = "longint";
+        key_width = 64;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string") {
+        key_type = "string";
+        key_width = 0;
+        advance();
+    } else if (current.type == TokenType::TOKEN_STAR) {
+        key_type = "*";
+        key_width = 64;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+        key_type = current.text;
+        if (is_enum_typedef(key_type)) {
+            key_width = typedef_map[key_type]->base_width;
+        } else if (is_struct_typedef(key_type)) {
+            key_width = struct_typedef_map[key_type]->total_width;
+        } else {
+            key_width = 32;
+        }
+        advance();
+    } else {
+        throw std::runtime_error("Unknown associative array index type: " + current.text);
+    }
+}

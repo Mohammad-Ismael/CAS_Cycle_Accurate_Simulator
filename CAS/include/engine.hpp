@@ -40,6 +40,7 @@ private:
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;
+    std::unordered_map<std::string, AssociativeArrayObject> assoc_array_map;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
@@ -108,6 +109,43 @@ public:
         if (it != dynamic_array_map.end()) return &it->second;
         it = dynamic_array_map.find(name);
         if (it != dynamic_array_map.end()) return &it->second;
+        return nullptr;
+    }
+
+    bool is_assoc_array(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (assoc_array_map.find(scoped) != assoc_array_map.end()) return true;
+        if (assoc_array_map.find(name) != assoc_array_map.end()) return true;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                if (assoc_array_map.find(cur_scope + "." + name) != assoc_array_map.end()) return true;
+            } else {
+                break;
+            }
+        }
+        return false;
+    }
+
+    AssociativeArrayObject* get_assoc_array(const std::string& name, const std::string& scope = "") {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        auto it = assoc_array_map.find(scoped);
+        if (it != assoc_array_map.end()) return &it->second;
+        it = assoc_array_map.find(name);
+        if (it != assoc_array_map.end()) return &it->second;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                it = assoc_array_map.find(cur_scope + "." + name);
+                if (it != assoc_array_map.end()) return &it->second;
+            } else {
+                break;
+            }
+        }
         return nullptr;
     }
 

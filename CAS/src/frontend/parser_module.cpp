@@ -476,6 +476,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
+                        } else if (is_assoc_key_token(current)) {
+                            sig.is_associative_array = true;
+                            parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
                         } else {
                             sig.is_array = true;
                             sig.bound1_expr = parse_expression();
@@ -573,6 +577,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
+                        } else if (is_assoc_key_token(current)) {
+                            sig.is_associative_array = true;
+                            parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
                         } else {
                             sig.is_array = true;
                             sig.bound1_expr = parse_expression();
