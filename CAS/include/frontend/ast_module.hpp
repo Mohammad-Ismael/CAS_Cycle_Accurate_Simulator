@@ -19,6 +19,8 @@ struct PortNode : public ASTNode {
     std::unique_ptr<ExpressionNode> bound2_expr;
     bool is_queue = false;
     bool is_dynamic_array = false;
+    bool is_interface = false;
+    std::string interface_type_name = "";
     std::unique_ptr<ExpressionNode> queue_bound_expr;
     NetKind net_kind = NetKind::WIRE;
     std::string type_name = "";
@@ -172,6 +174,7 @@ struct TypedefNode : public ASTNode {
 
 struct ModuleNode : public ASTNode {
     std::string name;
+    bool is_interface = false;
     std::string defined_in_file = "";
     size_t defined_on_line = 0;
     std::vector<ParameterDef> parameters;
@@ -187,4 +190,8 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;
 
     ModuleNode() = default;
+};
+
+struct InterfaceNode : public ModuleNode {
+    InterfaceNode() { is_interface = true; }
 };

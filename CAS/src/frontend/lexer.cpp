@@ -359,6 +359,8 @@ Token Lexer::next_token() {
         if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$") return {TokenType::TOKEN_DOLLAR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "new") return {TokenType::TOKEN_NEW, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "interface") return {TokenType::TOKEN_INTERFACE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endinterface") return {TokenType::TOKEN_ENDINTERFACE, ident, 0, 0, cur_file, cur_line, 0};
 
 
 

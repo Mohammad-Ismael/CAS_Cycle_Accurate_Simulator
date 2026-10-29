@@ -38,6 +38,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     enum_constant_map = std::move(elab_res.enum_constant_map);
     struct_types = std::move(elab_res.struct_types);
     var_to_struct_type = std::move(elab_res.var_to_struct_type);
+    interface_port_map = std::move(elab_res.interface_port_map);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
@@ -45,6 +46,40 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
                        std::ostream* debug_out) {
     Elaborator elaborator;
     load_elaboration(elaborator.elaborate(modules, top_module_name, debug_out));
+}
+
+std::string Engine::resolve_scoped_name(const std::string& scope, const std::string& name) const {
+    auto dot_pos = name.find('.');
+    if (dot_pos != std::string::npos) {
+        std::string prefix = name.substr(0, dot_pos);
+        std::string suffix = name.substr(dot_pos + 1);
+        std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
+
+        auto it = interface_port_map.find(scoped_prefix);
+        if (it != interface_port_map.end()) {
+            return it->second + "." + suffix;
+        }
+        auto it2 = interface_port_map.find(prefix);
+        if (it2 != interface_port_map.end()) {
+            return it2->second + "." + suffix;
+        }
+    }
+    return scope.empty() ? name : (scope + "." + name);
+}
+
+size_t Engine::get_net_id(const std::string& scope, const std::string& name) const {
+    std::string resolved = resolve_scoped_name(scope, name);
+    auto it = net_map.find(resolved);
+    if (it != net_map.end()) return it->second;
+
+    auto it2 = net_map.find(name);
+    if (it2 != net_map.end()) return it2->second;
+
+    std::string scoped = scope.empty() ? name : (scope + "." + name);
+    auto it3 = net_map.find(scoped);
+    if (it3 != net_map.end()) return it3->second;
+
+    return (size_t)-1;
 }
 
 

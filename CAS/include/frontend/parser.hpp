@@ -8,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 class Parser {
 private:
@@ -15,7 +16,10 @@ private:
     Token current;
     std::vector<ParameterDef> global_parameters;
 
+    bool has_peek = false;
+    Token peeked;
     void advance();
+    Token peek_token();
     bool match(TokenType type);
     void expect(TokenType type, const std::string& err_msg);
 
@@ -24,6 +28,10 @@ public:
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedef_map;
     std::vector<std::unique_ptr<TypedefNode>> global_typedefs;
 
+    std::unordered_set<std::string> known_interfaces;
+    bool is_interface_type(const std::string& name) const {
+        return known_interfaces.find(name) != known_interfaces.end();
+    }
     bool is_typedef(const std::string& name) const {
         return typedef_map.find(name) != typedef_map.end() || struct_typedef_map.find(name) != struct_typedef_map.end();
     }

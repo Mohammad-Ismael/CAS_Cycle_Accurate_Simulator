@@ -567,13 +567,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
-        size_t net_id = (size_t)-1;
+        size_t net_id = engine.get_net_id(bp.scope, target_name);
         bool is_member = false;
-        if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
-            net_id = engine.net_map.at(scoped_full);
-        } else if (engine.net_map.find(target_name) != engine.net_map.end()) {
-            net_id = engine.net_map.at(target_name);
-        } else if (!member_name.empty()) {
+        if (net_id == (size_t)-1 && !member_name.empty()) {
             std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
             if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
                 net_id = engine.net_map.at(scoped_base);
@@ -611,10 +607,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (sm) {
                         LogicVal casted = LogicOps::cast_width(rhs_val, sm->width, sm->is_signed);
                         if (nassign->has_intra_event) {
-                            size_t trig_net_id = (size_t)-1;
-                            std::string scoped_sig = bp.scope.empty() ? nassign->intra_signal : (bp.scope + "." + nassign->intra_signal);
-                            if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
-                            else if (engine.net_map.find(nassign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(nassign->intra_signal);
+                            size_t trig_net_id = engine.get_net_id(bp.scope, nassign->intra_signal);
 
                             if (trig_net_id != (size_t)-1) {
                                 engine.scheduler.queue_intra_event_nba(trig_net_id, nassign->intra_edge, net_id, casted, sm->offset, sm->width, true);
@@ -632,10 +625,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
             if (nassign->has_intra_event) {
-                size_t trig_net_id = (size_t)-1;
-                std::string scoped_sig = bp.scope.empty() ? nassign->intra_signal : (bp.scope + "." + nassign->intra_signal);
-                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
-                else if (engine.net_map.find(nassign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(nassign->intra_signal);
+                size_t trig_net_id = engine.get_net_id(bp.scope, nassign->intra_signal);
 
                 if (trig_net_id != (size_t)-1) {
                     engine.scheduler.queue_intra_event_nba(trig_net_id, nassign->intra_edge, net_id, casted);
@@ -978,13 +968,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 }
-                size_t net_id = (size_t)-1;
+                size_t net_id = engine.get_net_id(bp.scope, target_name);
                 bool is_member = false;
-                if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
-                    net_id = engine.net_map.at(scoped_full);
-                } else if (engine.net_map.find(target_name) != engine.net_map.end()) {
-                    net_id = engine.net_map.at(target_name);
-                } else if (!member_name.empty()) {
+                if (net_id == (size_t)-1 && !member_name.empty()) {
                     std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
                     if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
                         net_id = engine.net_map.at(scoped_base);

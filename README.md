@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v2.9.0.0`  
-**Status:** Production Milestone v2.9.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.0.0.0`  
+**Status:** Production Milestone v3.0.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 20.1%`
+`[███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 22.0%`
 
-*Current Baseline (v2.9.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed-size unpacked arrays/memories, bounded/unbounded queues with standard methods, and dynamic arrays with `new[]` allocation, copy constructors, `.size()`, and `.delete()`.
-*Upcoming Domains:* Interfaces & Modports, Clocking Blocks, OOP Classes, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
+*Current Baseline (v3.0.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed-size unpacked arrays/memories, queues, dynamic arrays, and SystemVerilog interfaces with port bundling and hierarchical member access.
+*Upcoming Domains:* Interface Modports, Clocking Blocks, OOP Classes & Polymorphism, SVA Assertions, Constrained Randomization, Functional Coverage, DPI-C.
 
 ---
 
@@ -33,6 +33,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§7.4, §7.4.6** | **Fixed-Size Unpacked Arrays & Memories** | Unpacked dimension declarations (`[start:end]`, `[size]`), asynchronous/combinational reads, synchronous NBA/blocking writes, multi-word register files/memories, and IEEE §7.4.6 4-state out-of-bounds safety semantics (`'x` on read, no-op on write). |
 | **§7.5** | **Dynamic Arrays & Allocation** | Dynamic array declarations (`[]`), runtime dynamic allocation (`new[size]`), resize with copy constructor (`new[size](arr)`), built-in methods (`.size()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
 | **§7.10, §7.10.4** | **Bounded & Unbounded Queues & Methods** | Unbounded (`[$]`) and bounded (`[$:N]`) queue declarations, dynamic methods (`.size()`, `.push_back()`, `.push_front()`, `.pop_front()`, `.pop_back()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
+| **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§6.7** | **4-State Logic System** | Dual-rail 64-bit integer vectors (`aval` data, `bval` control) supporting `0`, `1`, `X`, and `Z`. |
 | **§9.2.2.4** | **Driver Exclusivity Enforcement** | Variables driven inside `always_ff`, `always_comb`, or `always_latch` reject multi-process or continuous drives (`[CAS-ICPD]`). |
 | **§9.3.2** | **Parallel Blocks (`fork ... join`)** | `fork ... join` (all complete), `fork ... join_any` (any completes, background continuation), `fork ... join_none` (non-blocking concurrent dispatch). Dynamic thread tree with inherited lexical scopes and call frames. |
@@ -51,7 +52,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (20 / 20 PASS)
+## Milestone Regression Pass Matrix (21 / 21 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -77,6 +78,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v2.7.0.0** | `projects/v2_7_0_0_unpacked_arrays` | Fixed-Size Unpacked Arrays, Memory Element Indexing, & 4-State Out-of-Bounds Semantics (§7.4) | **PASS** | 100% VCS |
 | **v2.8.0.0** | `projects/v2_8_0_0_queues` | Bounded & Unbounded Queues, Built-in Methods, & `[CAS-DTINPCIL]` Context Restrictions (§7.10) | **PASS** | 100% VCS |
 | **v2.9.0.0** | `projects/v2_9_0_0_dynamic_arrays` | Dynamic Arrays, `new[]` Allocation, Copy Constructors, & Methods (§7.5) | **PASS** | 100% VCS |
+| **v3.0.0.0** | `projects/v3_0_0_0_interfaces` | SystemVerilog Interfaces, Interface Ports, & Hierarchical Member Driving (§25) | **PASS** | 100% VCS |
 
 ---
 

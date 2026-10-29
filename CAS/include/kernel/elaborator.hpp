@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <iostream>
 
@@ -155,6 +156,8 @@ struct ElaborationResult {
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
+    std::unordered_map<std::string, std::string> interface_port_map;
+    std::unordered_set<std::string> interface_instances;
 };
 
 class Elaborator {

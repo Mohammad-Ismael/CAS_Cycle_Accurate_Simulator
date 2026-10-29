@@ -6,7 +6,20 @@ Parser::Parser(Lexer& lex) : lexer(lex) {
 }
 
 void Parser::advance() {
-    current = lexer.next_token();
+    if (has_peek) {
+        current = peeked;
+        has_peek = false;
+    } else {
+        current = lexer.next_token();
+    }
+}
+
+Token Parser::peek_token() {
+    if (!has_peek) {
+        peeked = lexer.next_token();
+        has_peek = true;
+    }
+    return peeked;
 }
 
 bool Parser::match(TokenType t) {

@@ -118,7 +118,9 @@ enum class TokenType {
     TOKEN_COLON,
     TOKEN_APOSTROPHE,
     TOKEN_DOLLAR,
-    TOKEN_NEW
+    TOKEN_NEW,
+    TOKEN_INTERFACE,
+    TOKEN_ENDINTERFACE
 };
 
 struct Token {

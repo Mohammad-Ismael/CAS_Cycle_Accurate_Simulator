@@ -127,10 +127,18 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
             sig = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
+            while (match(TokenType::TOKEN_DOT)) {
+                sig += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
+            }
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event control");
         } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
             sig = current.text;
             advance();
+            while (match(TokenType::TOKEN_DOT)) {
+                sig += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
+            }
         } else {
             throw std::runtime_error("Expected identifier or '(' after '@'");
         }
@@ -591,6 +599,10 @@ std::unique_ptr<ProcessNode> Parser::parse_always_ff() {
 
         std::string sig = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+        while (match(TokenType::TOKEN_DOT)) {
+            sig += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+        }
         proc->sensitivity_list.push_back({edge, sig});
 
         if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;

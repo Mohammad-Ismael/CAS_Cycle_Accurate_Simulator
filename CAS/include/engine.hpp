@@ -50,6 +50,7 @@ private:
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
+    std::unordered_map<std::string, std::string> interface_port_map;
 
     MonitorSession monitor_session;
 
@@ -107,6 +108,9 @@ public:
     }
 
     uint64_t get_sim_time() const { return scheduler.get_sim_time(); }
+
+    std::string resolve_scoped_name(const std::string& scope, const std::string& name) const;
+    size_t get_net_id(const std::string& scope, const std::string& name) const;
 
     void load_elaboration(ElaborationResult&& elab_res);
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 

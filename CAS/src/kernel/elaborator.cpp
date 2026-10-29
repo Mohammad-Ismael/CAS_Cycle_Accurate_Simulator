@@ -387,6 +387,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         ModuleNode* submod = module_defs.at(inst->module_type);
 
+        if (submod->is_interface) {
+            result.interface_instances.insert(child_scope);
+            if (debug_out) {
+                *debug_out << "     * Interface instantiated: " << child_scope 
+                           << " (" << submod->name << ")\n";
+            }
+        }
+
         elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope, debug_out);
 
         for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
@@ -401,14 +409,51 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 target_port_name = conn.port_name;
             }
 
-            std::string dir = "input";
+            PortNode* formal_p = nullptr;
             for (auto& p : submod->ports) {
                 if (p.name == target_port_name) {
-                    dir = p.direction;
+                    formal_p = &p;
                     break;
                 }
             }
 
+            bool is_iface_port = false;
+            if (formal_p) {
+                if (formal_p->is_interface || formal_p->direction == "interface") {
+                    is_iface_port = true;
+                } else if (!formal_p->type_name.empty() && module_defs.count(formal_p->type_name) &&
+                           module_defs.at(formal_p->type_name)->is_interface) {
+                    is_iface_port = true;
+                } else if (!formal_p->interface_type_name.empty()) {
+                    is_iface_port = true;
+                }
+            }
+
+            if (is_iface_port) {
+                std::string actual_iface_name = "";
+                if (auto id = dynamic_cast<IdentifierNode*>(conn.expr.get())) {
+                    actual_iface_name = id->name;
+                }
+                std::string parent_port_key = scope.empty() ? actual_iface_name : (scope + "." + actual_iface_name);
+                std::string bound_target = "";
+                if (result.interface_port_map.find(parent_port_key) != result.interface_port_map.end()) {
+                    bound_target = result.interface_port_map.at(parent_port_key);
+                } else if (result.interface_instances.find(parent_port_key) != result.interface_instances.end()) {
+                    bound_target = parent_port_key;
+                } else {
+                    bound_target = parent_port_key;
+                }
+
+                std::string child_port_key = child_scope + "." + target_port_name;
+                result.interface_port_map[child_port_key] = bound_target;
+                if (debug_out) {
+                    *debug_out << "     * Bound interface port: " << child_port_key 
+                               << " -> " << bound_target << "\n";
+                }
+                continue;
+            }
+
+            std::string dir = formal_p ? formal_p->direction : "input";
             NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
             size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
             NetSliceRef child_ref = {child_net_id, 0, result.netlist[child_net_id].width};
@@ -445,11 +490,13 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     } else {
         std::unordered_map<std::string, bool> is_instantiated;
         for (auto& mod : modules) {
+            if (mod->is_interface) continue;
             for (auto& inst : mod->instantiations) {
                 is_instantiated[inst->module_type] = true;
             }
         }
         for (auto& mod : modules) {
+            if (mod->is_interface) continue;
             if (!is_instantiated[mod->name]) {
                 if (mod->name.rfind("tb_", 0) == 0 || mod->name.find("_tb") != std::string::npos || 
                     mod->name.find("testbench") != std::string::npos || mod->name.find("regression") != std::string::npos) {
@@ -460,10 +507,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
         if (!top) {
             for (auto& mod : modules) {
+                if (mod->is_interface) continue;
                 if (!is_instantiated[mod->name]) {
                     top = mod.get();
                     break;
                 }
+            }
+        }
+        if (!top) {
+            for (auto& mod : modules) {
+                if (!mod->is_interface) { top = mod.get(); break; }
             }
         }
         if (!top) top = modules.front().get();
@@ -484,12 +537,24 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     std::vector<NetDriverInfo> net_drivers(result.netlist.size());
 
     auto resolve_target_net_id = [&](const std::string& target, const std::string& scope) -> size_t {
-        std::string scoped = scope.empty() ? target : (scope + "." + target);
+        std::string resolved_target = target;
+        auto dot_pos_if = target.find('.');
+        if (dot_pos_if != std::string::npos) {
+            std::string prefix = target.substr(0, dot_pos_if);
+            std::string suffix = target.substr(dot_pos_if + 1);
+            std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
+            if (result.interface_port_map.find(scoped_prefix) != result.interface_port_map.end()) {
+                resolved_target = result.interface_port_map.at(scoped_prefix) + "." + suffix;
+            } else if (result.interface_port_map.find(prefix) != result.interface_port_map.end()) {
+                resolved_target = result.interface_port_map.at(prefix) + "." + suffix;
+            }
+        }
+        std::string scoped = scope.empty() ? resolved_target : (scope + "." + resolved_target);
         if (result.net_map.find(scoped) != result.net_map.end()) {
             return result.net_map.at(scoped);
         }
-        if (result.net_map.find(target) != result.net_map.end()) {
-            return result.net_map.at(target);
+        if (result.net_map.find(resolved_target) != result.net_map.end()) {
+            return result.net_map.at(resolved_target);
         }
         for (const auto& kv : result.net_map) {
             if (kv.first.size() > target.size() &&

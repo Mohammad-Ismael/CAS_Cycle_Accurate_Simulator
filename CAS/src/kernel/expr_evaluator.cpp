@@ -260,12 +260,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         std::string full_hier = var_name + "." + member_name;
-        std::string scoped_full = scope.empty() ? full_hier : (scope + "." + full_hier);
-        if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
-            size_t nid = engine.net_map.at(scoped_full);
-            return engine.netlist[nid].value;
-        } else if (engine.net_map.find(full_hier) != engine.net_map.end()) {
-            size_t nid = engine.net_map.at(full_hier);
+        size_t nid = engine.get_net_id(scope, full_hier);
+        if (nid != (size_t)-1) {
             return engine.netlist[nid].value;
         }
 

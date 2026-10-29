@@ -84,10 +84,7 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
         else if (item.edge == EdgeType::LEVEL && trig_net.modified) event_matched = true;
 
         if (event_matched) {
-            std::string scoped_target = item.scope.empty() ? item.target_name : (item.scope + "." + item.target_name);
-            size_t net_id = (size_t)-1;
-            if (engine.net_map.find(scoped_target) != engine.net_map.end()) net_id = engine.net_map.at(scoped_target);
-            else if (engine.net_map.find(item.target_name) != engine.net_map.end()) net_id = engine.net_map.at(item.target_name);
+            size_t net_id = engine.get_net_id(item.scope, item.target_name);
 
             if (net_id != (size_t)-1) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
@@ -261,10 +258,9 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
 
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
-            std::string scoped_sig = bp.scope + "." + sens.signal_name;
-            auto it = engine.net_map.find(scoped_sig);
-            if (it == engine.net_map.end()) continue;
-            const auto& net = engine.netlist[it->second];
+            size_t net_id = engine.get_net_id(bp.scope, sens.signal_name);
+            if (net_id == (size_t)-1) continue;
+            const auto& net = engine.netlist[net_id];
 
             if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) { triggered = true; break; }
             else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) { triggered = true; break; }
@@ -691,9 +687,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
 
-                size_t net_id = (size_t)-1;
-                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) net_id = engine.net_map.at(scoped_sig);
-                else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) net_id = engine.net_map.at(ev_stmt->signal_name);
+                size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
                 if (net_id != (size_t)-1) {
                     cur_frame.pc++;
                     bp.wait_target.active = true;
@@ -818,12 +812,8 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
 
-                size_t net_id = (size_t)-1;
-                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
-                    net_id = engine.net_map.at(scoped_sig);
-                } else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) {
-                    net_id = engine.net_map.at(ev_stmt->signal_name);
-                } else {
+                size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                if (net_id == (size_t)-1) {
                     bp.pc++;
                     continue;
                 }
@@ -1007,12 +997,8 @@ void StratifiedScheduler::step_process(size_t pid) {
                 break;
             }
 
-            size_t net_id = (size_t)-1;
-            if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
-                net_id = engine.net_map.at(scoped_sig);
-            } else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) {
-                net_id = engine.net_map.at(ev_stmt->signal_name);
-            } else {
+            size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+            if (net_id == (size_t)-1) {
                 bp.pc++;
                 continue;
             }

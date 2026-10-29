@@ -44,12 +44,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
-        expect(TokenType::TOKEN_MODULE, "Expected 'module', 'parameter', or 'localparam' keyword");
-        auto mod = std::make_unique<ModuleNode>();
+        bool is_iface = false;
+        if (current.type == TokenType::TOKEN_INTERFACE) {
+            is_iface = true;
+            advance();
+        } else {
+            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'parameter', or 'localparam' keyword");
+        }
+        auto mod = is_iface ? std::make_unique<InterfaceNode>() : std::make_unique<ModuleNode>();
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
         mod->name = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected module name");
+        expect(TokenType::TOKEN_IDENTIFIER, is_iface ? "Expected interface name" : "Expected module name");
+        if (is_iface) known_interfaces.insert(mod->name);
 
         for (const auto& gp : global_parameters) {
             ParameterDef pcopy;
@@ -88,6 +95,32 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (current.type == TokenType::TOKEN_INPUT) { dir = "input"; advance(); }
                 else if (current.type == TokenType::TOKEN_OUTPUT) { dir = "output"; advance(); }
                 else if (current.type == TokenType::TOKEN_INOUT) { dir = "inout"; advance(); }
+                else if (current.type == TokenType::TOKEN_INTERFACE) {
+                    advance();
+                    std::string pname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected interface port identifier");
+                    PortNode port(pname, "interface");
+                    port.is_interface = true;
+                    mod->ports.push_back(std::move(port));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                if (dir.empty() && current.type == TokenType::TOKEN_IDENTIFIER) {
+                    Token next_tok = peek_token();
+                    if (next_tok.type == TokenType::TOKEN_IDENTIFIER) {
+                        std::string iface_type = current.text;
+                        advance();
+                        std::string pname = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
+                        PortNode port(pname, "interface");
+                        port.is_interface = true;
+                        port.interface_type_name = iface_type;
+                        port.type_name = iface_type;
+                        mod->ports.push_back(std::move(port));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
 
                 bool is_signed_port = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
@@ -137,7 +170,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
                             current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                             current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
-                            current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED) {
+                            current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED ||
+                            current.type == TokenType::TOKEN_INTERFACE ||
+                            (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER)) {
                             break;
                         }
                         continue;
@@ -156,7 +191,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after module header");
 
-        while (current.type != TokenType::TOKEN_ENDMODULE && current.type != TokenType::TOKEN_EOF) {
+        TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : TokenType::TOKEN_ENDMODULE;
+        while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "modport") {
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                    advance();
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+                continue;
+            }
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
@@ -540,6 +583,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                         std::string sig = current.text;
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                        while (match(TokenType::TOKEN_DOT)) {
+                            sig += "." + current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                        }
                         proc->sensitivity_list.push_back({edge, sig});
 
                         if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
@@ -614,7 +661,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             advance();
         }
-        expect(TokenType::TOKEN_ENDMODULE, "Expected 'endmodule'");
+        if (is_iface) {
+            expect(TokenType::TOKEN_ENDINTERFACE, "Expected 'endinterface'");
+        } else {
+            expect(TokenType::TOKEN_ENDMODULE, "Expected 'endmodule'");
+        }
+        if (match(TokenType::TOKEN_COLON)) {
+            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+        }
+        match(TokenType::TOKEN_SEMICOLON);
         modules.push_back(std::move(mod));
     }
 
