@@ -26,6 +26,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     gates = std::move(elab_res.gates);
     memory_map = std::move(elab_res.memory_map);
     queue_map = std::move(elab_res.queue_map);
+    dynamic_array_map = std::move(elab_res.dynamic_array_map);
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
     processes = std::move(elab_res.processes);

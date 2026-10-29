@@ -35,9 +35,10 @@ struct VarDeclStatementNode : public StatementNode {
     bool is_signed = false;
     std::string type_name = "";
     bool is_queue = false;
+    bool is_dynamic_array = false;
 
-    VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false)
-        : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q) {}
+    VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false)
+        : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn) {}
 };
 
 struct BlockingAssignNode : public StatementNode {

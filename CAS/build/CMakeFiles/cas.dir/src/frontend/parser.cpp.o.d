@@ -151,4 +151,11 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: \
  /app/CAS/src/frontend/../../include/frontend/../common/queue_types.hpp \
  /usr/include/c++/13.2.1/deque /usr/include/c++/13.2.1/bits/stl_deque.h \
  /usr/include/c++/13.2.1/bits/deque.tcc /usr/include/c++/13.2.1/iostream \
+ /app/CAS/src/frontend/../../include/frontend/../common/dynamic_array_types.hpp \
+ /usr/include/c++/13.2.1/algorithm \
+ /usr/include/c++/13.2.1/bits/stl_algo.h \
+ /usr/include/c++/13.2.1/bits/algorithmfwd.h \
+ /usr/include/c++/13.2.1/bits/stl_heap.h \
+ /usr/include/c++/13.2.1/bits/uniform_int_dist.h \
+ /usr/include/c++/13.2.1/pstl/glue_algorithm_defs.h \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp

@@ -204,3 +204,19 @@ struct StringNode : public ExpressionNode {
         return std::make_unique<StringNode>(value);
     }
 };
+
+
+struct NewArrayNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> size_expr;
+    std::unique_ptr<ExpressionNode> copy_source_expr;
+
+    NewArrayNode(std::unique_ptr<ExpressionNode> sz, std::unique_ptr<ExpressionNode> cp = nullptr)
+        : size_expr(std::move(sz)), copy_source_expr(std::move(cp)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<NewArrayNode>(
+            size_expr ? size_expr->clone() : nullptr,
+            copy_source_expr ? copy_source_expr->clone() : nullptr
+        );
+    }
+};

@@ -25,17 +25,23 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         bool is_q = false;
+        bool is_dyn = false;
         if (match(TokenType::TOKEN_LBRACKET)) {
             if (match(TokenType::TOKEN_DOLLAR)) {
                 is_q = true;
                 if (match(TokenType::TOKEN_COLON)) {
                     parse_expression();
                 }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+            } else if (match(TokenType::TOKEN_RBRACKET)) {
+                is_dyn = true;
+            } else {
+                parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             }
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q);
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q, is_dyn);
     }
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
@@ -63,17 +69,23 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         bool is_q = false;
+        bool is_dyn = false;
         if (match(TokenType::TOKEN_LBRACKET)) {
             if (match(TokenType::TOKEN_DOLLAR)) {
                 is_q = true;
                 if (match(TokenType::TOKEN_COLON)) {
                     parse_expression();
                 }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+            } else if (match(TokenType::TOKEN_RBRACKET)) {
+                is_dyn = true;
+            } else {
+                parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             }
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q);
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q, is_dyn);
     }
 
     // 2. Delay Statement (#5; or #delay_ticks; or #5 clk = ~clk;)

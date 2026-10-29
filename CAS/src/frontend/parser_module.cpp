@@ -298,14 +298,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
                             }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        } else if (match(TokenType::TOKEN_RBRACKET)) {
+                            sig.is_dynamic_array = true;
                         } else {
                             sig.is_array = true;
                             sig.bound1_expr = parse_expression();
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.bound2_expr = parse_expression();
                             }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         }
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {
@@ -392,14 +395,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
                             }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        } else if (match(TokenType::TOKEN_RBRACKET)) {
+                            sig.is_dynamic_array = true;
                         } else {
                             sig.is_array = true;
                             sig.bound1_expr = parse_expression();
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.bound2_expr = parse_expression();
                             }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         }
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {

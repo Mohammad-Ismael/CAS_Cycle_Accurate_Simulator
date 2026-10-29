@@ -2,6 +2,18 @@
 #include <stdexcept>
 
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
+    if (match(TokenType::TOKEN_NEW)) {
+        expect(TokenType::TOKEN_LBRACKET, "Expected '[' after 'new'");
+        auto size_expr = parse_expression();
+        expect(TokenType::TOKEN_RBRACKET, "Expected ']' after size in 'new[]'");
+        std::unique_ptr<ExpressionNode> copy_src = nullptr;
+        if (match(TokenType::TOKEN_LPAREN)) {
+            copy_src = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing copy constructor source");
+        }
+        return std::make_unique<NewArrayNode>(std::move(size_expr), std::move(copy_src));
+    }
+
     if (current.type == TokenType::TOKEN_STRING) {
         std::string s = current.text;
         advance();

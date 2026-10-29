@@ -72,6 +72,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(num->width, num->aval, num->bval);
     }
 
+    if (auto new_arr = dynamic_cast<NewArrayNode*>(expr)) {
+        return eval(new_arr->size_expr.get(), scope);
+    }
+
     if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
         LogicVal val = eval(cast_node->expr.get(), scope);
         std::string scoped_type = scope.empty() ? cast_node->target_type : (scope + "." + cast_node->target_type);
@@ -144,6 +148,34 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     q->push_front(v);
                 }
                 return LogicVal::make_known(32, q->size());
+            }
+        }
+
+        DynamicArrayObject* da = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+        }
+        if (!da && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_dynamic_array) {
+                    da = &local->dyn_array_data;
+                    break;
+                }
+            }
+        }
+        if (!da) {
+            da = engine.get_dynamic_array(var_name, scope);
+        }
+
+        if (da) {
+            std::string method = method_node->method_name;
+            if (method == "size") {
+                return LogicVal::make_known(32, da->size());
+            } else if (method == "delete") {
+                da->delete_all();
+                return LogicVal::make_known(32, 0);
             }
         }
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
@@ -426,6 +458,32 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             int64_t idx = (int64_t)addr_val.aval;
             return q->get_elem(idx);
+        }
+
+        DynamicArrayObject* da = nullptr;
+        if (context.has_active_frame()) {
+            LocalVar* lda = context.lookup_local(idx_node->name);
+            if (lda && lda->is_dynamic_array) da = &lda->dyn_array_data;
+        }
+        if (!da && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* lda = it->local_frame.get_var(idx_node->name);
+                if (lda && lda->is_dynamic_array) {
+                    da = &lda->dyn_array_data;
+                    break;
+                }
+            }
+        }
+        if (!da) {
+            da = engine.get_dynamic_array(idx_node->name, scope);
+        }
+        if (da) {
+            LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
+            if (addr_val.is_unknown()) {
+                return LogicVal::make_x(da->elem_width);
+            }
+            int64_t idx = (int64_t)addr_val.aval;
+            return da->get_elem(idx);
         }
 
         LogicVal target_val = LogicVal::make_x(1);

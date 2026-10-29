@@ -39,6 +39,7 @@ private:
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, QueueObject> queue_map;
+    std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
@@ -86,6 +87,22 @@ public:
         if (it != queue_map.end()) return &it->second;
         it = queue_map.find(name);
         if (it != queue_map.end()) return &it->second;
+        return nullptr;
+    }
+
+    bool is_dynamic_array(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (dynamic_array_map.find(scoped) != dynamic_array_map.end()) return true;
+        if (dynamic_array_map.find(name) != dynamic_array_map.end()) return true;
+        return false;
+    }
+
+    DynamicArrayObject* get_dynamic_array(const std::string& name, const std::string& scope = "") {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        auto it = dynamic_array_map.find(scoped);
+        if (it != dynamic_array_map.end()) return &it->second;
+        it = dynamic_array_map.find(name);
+        if (it != dynamic_array_map.end()) return &it->second;
         return nullptr;
     }
 

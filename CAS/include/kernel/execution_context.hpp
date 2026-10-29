@@ -13,11 +13,14 @@ struct LocalVar {
     std::string type_name = "";
     bool is_queue = false;
     QueueObject queue_data;
+    bool is_dynamic_array = false;
+    DynamicArrayObject dyn_array_data;
 
-    LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false)
+    LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false)
         : name(std::move(n)), width(w), is_signed(s),
-          value(LogicVal::make_x(w)), type_name(std::move(t)), is_queue(q) {
+          value(LogicVal::make_x(w)), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn) {
         if (is_queue) queue_data = QueueObject(name, width, is_signed);
+        if (is_dynamic_array) dyn_array_data = DynamicArrayObject(name, width, is_signed);
     }
 };
 
@@ -36,8 +39,8 @@ struct ScopeFrame {
         return (it != locals.end()) ? &it->second : nullptr;
     }
 
-    void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "", bool is_q = false) {
-        locals.emplace(name, LocalVar(name, width, is_signed, type, is_q));
+    void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "", bool is_q = false, bool is_dyn = false) {
+        locals.emplace(name, LocalVar(name, width, is_signed, type, is_q, is_dyn));
     }
 };
 

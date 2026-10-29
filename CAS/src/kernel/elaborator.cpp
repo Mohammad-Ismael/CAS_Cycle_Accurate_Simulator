@@ -233,7 +233,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
-        if (s.is_queue) {
+        if (s.is_dynamic_array) {
+            std::string da_scope = scope + "." + s.name;
+            result.dynamic_array_map[da_scope] = DynamicArrayObject(da_scope, w, s.is_signed);
+            if (debug_out) {
+                *debug_out << "     * Dynamic Array allocated: " << da_scope 
+                           << " [" << w << "-bit]\n";
+            }
+        } else if (s.is_queue) {
             int64_t max_bound = -1;
             if (s.queue_bound_expr) {
                 max_bound = (int64_t)eval_const_expr(s.queue_bound_expr.get(), scope);
@@ -281,6 +288,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.queue_map.find(ca->target_name) != result.queue_map.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to queue '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 7.10.4");
         }
+        if (result.dynamic_array_map.find(scoped_target) != result.dynamic_array_map.end() ||
+            result.dynamic_array_map.find(ca->target_name) != result.dynamic_array_map.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to dynamic array '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 7.5");
+        }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -289,11 +300,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.queue_map.find(id->name) != result.queue_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
                 }
+                if (result.dynamic_array_map.find(s_id) != result.dynamic_array_map.end() ||
+                    result.dynamic_array_map.find(id->name) != result.dynamic_array_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.5");
+                }
             } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                 std::string s_id = scope + "." + idx->name;
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||
                     result.queue_map.find(idx->name) != result.queue_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
+                }
+                if (result.dynamic_array_map.find(s_id) != result.dynamic_array_map.end() ||
+                    result.dynamic_array_map.find(idx->name) != result.dynamic_array_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array index select '" + idx->name + "[]' used in continuous assignment per IEEE 1800-2023 section 7.5");
                 }
                 check_expr(idx->msb_expr.get());
                 check_expr(idx->lsb_expr.get());
@@ -302,6 +321,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||
                     result.queue_map.find(mc->var_name) != result.queue_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.10.4");
+                }
+                if (result.dynamic_array_map.find(s_id) != result.dynamic_array_map.end() ||
+                    result.dynamic_array_map.find(mc->var_name) != result.dynamic_array_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.5");
                 }
                 for (auto& a : mc->args) check_expr(a.get());
             } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
@@ -428,8 +451,19 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
         for (auto& mod : modules) {
             if (!is_instantiated[mod->name]) {
-                top = mod.get();
-                break;
+                if (mod->name.rfind("tb_", 0) == 0 || mod->name.find("_tb") != std::string::npos || 
+                    mod->name.find("testbench") != std::string::npos || mod->name.find("regression") != std::string::npos) {
+                    top = mod.get();
+                    break;
+                }
+            }
+        }
+        if (!top) {
+            for (auto& mod : modules) {
+                if (!is_instantiated[mod->name]) {
+                    top = mod.get();
+                    break;
+                }
             }
         }
         if (!top) top = modules.front().get();

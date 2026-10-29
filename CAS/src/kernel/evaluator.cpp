@@ -175,10 +175,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
                 }
             }
+            if (vdecl->is_dynamic_array) {
+                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+                if (lv) {
+                    lv->is_dynamic_array = true;
+                    lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
+                }
+            }
             return;
         }
         if (!bp.call_stack.empty()) {
-            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue);
+            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array);
             return;
         }
         expr_eval.get_context().push_frame(bp.scope);
@@ -188,6 +195,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (lv) {
                 lv->is_queue = true;
                 lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            }
+        }
+        if (vdecl->is_dynamic_array) {
+            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+            if (lv) {
+                lv->is_dynamic_array = true;
+                lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
             }
         }
         return;
@@ -333,6 +347,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
             }
+            DynamicArrayObject* da = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+            }
+            if (!da && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_dynamic_array) {
+                        da = &local->dyn_array_data;
+                        break;
+                    }
+                }
+            }
+            if (!da) {
+                da = engine.get_dynamic_array(var_name, bp.scope);
+            }
+            if (da) {
+                if (method == "delete") {
+                    da->delete_all();
+                    return;
+                }
+            }
         }
 
         std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
@@ -363,15 +400,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_queue(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
                     }
+                    if (engine.is_dynamic_array(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
+                    }
                 } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                     if (engine.is_queue(idx->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
+                    }
+                    if (engine.is_dynamic_array(idx->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
                     }
                     check_mon_expr(idx->msb_expr.get());
                     check_mon_expr(idx->lsb_expr.get());
                 } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                     if (engine.is_queue(mc->var_name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
+                    }
+                    if (engine.is_dynamic_array(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: dynamic array method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.5 & 21.2.3");
                     }
                     for (auto& a : mc->args) check_mon_expr(a.get());
                 } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
@@ -730,7 +776,71 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                 }
-                if (assign->bit_idx) {
+                if (local->is_dynamic_array) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t idx = (int64_t)idx_val.aval;
+                            local->dyn_array_data.set_elem(idx, rhs_val);
+                        }
+                        return;
+                    } else if (auto new_arr = dynamic_cast<NewArrayNode*>(assign->rhs.get())) {
+                        LogicVal sz_val = eval_expr(new_arr->size_expr.get(), bp.scope);
+                        int64_t sz = sz_val.is_unknown() ? 0 : (int64_t)sz_val.aval;
+                        if (sz < 0) sz = 0;
+                        if (new_arr->copy_source_expr) {
+                            DynamicArrayObject* src_da = nullptr;
+                            if (auto src_id = dynamic_cast<IdentifierNode*>(new_arr->copy_source_expr.get())) {
+                                if (expr_eval.get_context().has_active_frame()) {
+                                    LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                                    if (loc && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                                }
+                                if (!src_da && !bp.call_stack.empty()) {
+                                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                        LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                        if (loc && loc->is_dynamic_array) {
+                                            src_da = &loc->dyn_array_data;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!src_da) {
+                                    src_da = engine.get_dynamic_array(src_id->name, bp.scope);
+                                }
+                            }
+                            if (src_da) {
+                                local->dyn_array_data.resize_and_copy((size_t)sz, *src_da);
+                            } else {
+                                local->dyn_array_data.allocate((size_t)sz);
+                            }
+                        } else {
+                            local->dyn_array_data.allocate((size_t)sz);
+                        }
+                        return;
+                    } else if (auto src_id = dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        DynamicArrayObject* src_da = nullptr;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                            if (loc && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                        }
+                        if (!src_da && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                if (loc && loc->is_dynamic_array) {
+                                    src_da = &loc->dyn_array_data;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_da) {
+                            src_da = engine.get_dynamic_array(src_id->name, bp.scope);
+                        }
+                        if (src_da) {
+                            local->dyn_array_data.elements = src_da->elements;
+                            return;
+                        }
+                    }
+                } else if (assign->bit_idx) {
                     LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                     if (!idx_val.is_unknown()) {
                         uint32_t bit = idx_val.aval;
@@ -770,6 +880,88 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         q->set_elem(idx, rhs_val);
                     }
                     return;
+                }
+                DynamicArrayObject* da = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+                    if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+                }
+                if (!da && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(target_name);
+                        if (local && local->is_dynamic_array) {
+                            da = &local->dyn_array_data;
+                            break;
+                        }
+                    }
+                }
+                if (!da) {
+                    da = engine.get_dynamic_array(target_name, bp.scope);
+                }
+                if (da) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t idx = (int64_t)idx_val.aval;
+                            da->set_elem(idx, rhs_val);
+                        }
+                        return;
+                    } else if (auto new_arr = dynamic_cast<NewArrayNode*>(assign->rhs.get())) {
+                        LogicVal sz_val = eval_expr(new_arr->size_expr.get(), bp.scope);
+                        int64_t sz = sz_val.is_unknown() ? 0 : (int64_t)sz_val.aval;
+                        if (sz < 0) sz = 0;
+                        if (new_arr->copy_source_expr) {
+                            DynamicArrayObject* src_da = nullptr;
+                            if (auto src_id = dynamic_cast<IdentifierNode*>(new_arr->copy_source_expr.get())) {
+                                if (expr_eval.get_context().has_active_frame()) {
+                                    LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                                    if (loc && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                                }
+                                if (!src_da && !bp.call_stack.empty()) {
+                                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                        LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                        if (loc && loc->is_dynamic_array) {
+                                            src_da = &loc->dyn_array_data;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!src_da) {
+                                    src_da = engine.get_dynamic_array(src_id->name, bp.scope);
+                                }
+                            }
+                            if (src_da) {
+                                da->resize_and_copy((size_t)sz, *src_da);
+                            } else {
+                                da->allocate((size_t)sz);
+                            }
+                        } else {
+                            da->allocate((size_t)sz);
+                        }
+                        return;
+                    } else if (auto src_id = dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        DynamicArrayObject* src_da = nullptr;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_id->name);
+                            if (loc && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                        }
+                        if (!src_da && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_id->name);
+                                if (loc && loc->is_dynamic_array) {
+                                    src_da = &loc->dyn_array_data;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_da) {
+                            src_da = engine.get_dynamic_array(src_id->name, bp.scope);
+                        }
+                        if (src_da) {
+                            da->elements = src_da->elements;
+                            return;
+                        }
+                    }
                 }
                 std::string scoped_mem = scoped_full;
                 if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
