@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <sstream>
+#include <iomanip>
 
 struct LogicVal {
     uint64_t aval; // Data bitplane
@@ -49,6 +51,44 @@ struct LogicVal {
         return !(*this == o);
     }
 
+    std::string to_hex_string(bool unpadded = false) const {
+        if (!is_unknown()) {
+            std::stringstream ss;
+            if (unpadded) {
+                ss << std::hex << aval << std::dec;
+            } else {
+                int hex_width = (width + 3) / 4;
+                ss << std::hex << std::setfill('0') << std::setw(hex_width) << aval << std::dec;
+            }
+            return ss.str();
+        }
+        int hex_width = (width + 3) / 4;
+        std::string s;
+        s.reserve(hex_width);
+        for (int nib = hex_width - 1; nib >= 0; --nib) {
+            int shift = nib * 4;
+            uint64_t a_nib = (aval >> shift) & 0xF;
+            uint64_t b_nib = (bval >> shift) & 0xF;
+            if (b_nib == 0) {
+                const char* hex_chars = "0123456789abcdef";
+                s += hex_chars[a_nib];
+            } else {
+                bool has_x = false;
+                for (int b = 0; b < 4; ++b) {
+                    if ((b_nib >> b) & 1) {
+                        if ((a_nib >> b) & 1) has_x = true;
+                    }
+                }
+                s += (has_x ? 'x' : 'z');
+            }
+        }
+        if (unpadded) {
+            size_t first = s.find_first_not_of('0');
+            if (first != std::string::npos) s = s.substr(first);
+            else s = "0";
+        }
+        return s;
+    }
     std::string to_bin_string() const {
         std::string s;
         for (int i = (int)width - 1; i >= 0; --i) {

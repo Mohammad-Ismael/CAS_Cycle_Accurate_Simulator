@@ -28,6 +28,24 @@ struct DelayedBlockingAssign {
     LogicVal val;
 };
 
+struct IntraEventNbaItem {
+    size_t net_id;
+    LogicVal val;
+    EdgeType edge;
+    size_t trigger_net_id;
+    uint64_t reg_time;
+};
+
+struct IntraEventBlockingItem {
+    size_t pid;
+    std::string target_name;
+    std::string scope;
+    LogicVal val;
+    EdgeType edge;
+    size_t trigger_net_id;
+    uint64_t reg_time;
+};
+
 class StratifiedScheduler {
 private:
     Engine& engine;
@@ -39,6 +57,11 @@ private:
     std::map<uint64_t, std::vector<NBAUpdate>> delayed_nba_queue;
     std::map<uint64_t, std::vector<NBAMemUpdate>> delayed_nba_mem_queue;
     std::map<uint64_t, std::vector<DelayedBlockingAssign>> delayed_blocking_queue;
+    std::vector<IntraEventNbaItem> intra_event_nba_queue;
+    std::vector<IntraEventBlockingItem> intra_event_blocking_queue;
+
+    bool trigger_intra_event_nbas();
+    bool trigger_intra_event_blocking();
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;
@@ -63,6 +86,8 @@ public:
     void queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val);
     void queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, uint32_t addr, const LogicVal& val);
     void queue_delayed_blocking(uint64_t wake_time, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);
+    void queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val);
+    void queue_intra_event_blocking(size_t trigger_net_id, EdgeType edge, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);
 
     void terminate();
     bool is_active() const { return simulation_active; }

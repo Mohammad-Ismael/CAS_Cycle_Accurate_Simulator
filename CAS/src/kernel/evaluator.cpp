@@ -118,6 +118,10 @@ void Evaluator::check_monitor() {
         for (size_t i = 0; i < fmt_len; ++i) {
             if (engine.monitor_session.format_string[i] == '%' && i + 1 < fmt_len) {
                 char spec = engine.monitor_session.format_string[++i];
+                if (spec == '%') {
+                    std::cout << '%';
+                    continue;
+                }
                 bool unpadded = false;
                 if (spec == '0' && i + 1 < fmt_len) {
                     char next_spec = engine.monitor_session.format_string[i + 1];
@@ -130,19 +134,12 @@ void Evaluator::check_monitor() {
 
                 if (arg_idx < current_values.size()) {
                     const auto& val = current_values[arg_idx++];
-                    if (val.is_unknown() && (spec == 'd' || spec == 't' || spec == 'h')) {
+                    if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                         std::cout << "x";
                     } else {
                         if (spec == 'd' || spec == 't') std::cout << val.aval;
                         else if (spec == 'b') std::cout << val.to_bin_string();
-                        else if (spec == 'h') {
-                            if (unpadded) {
-                                std::cout << std::hex << val.aval << std::dec;
-                            } else {
-                                int hex_width = (val.width + 3) / 4;
-                                std::cout << std::hex << std::setfill('0') << std::setw(hex_width) << val.aval << std::dec;
-                            }
-                        }
+                        else if (spec == 'h') std::cout << val.to_hex_string(unpadded);
                         else std::cout << val.aval;
                     }
                 }
@@ -307,6 +304,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             for (size_t i = 0; i < fmt_len; ++i) {
                 if (disp->format_string[i] == '%' && i + 1 < fmt_len) {
                     char spec = disp->format_string[++i];
+                    if (spec == '%') {
+                        std::cout << '%';
+                        continue;
+                    }
                     bool unpadded = false;
                     if (spec == '0' && i + 1 < fmt_len) {
                         char next_spec = disp->format_string[i + 1];
@@ -319,19 +320,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     if (arg_idx < disp->arg_exprs.size()) {
                         LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
-                        if (val.is_unknown() && (spec == 'd' || spec == 't' || spec == 'h')) {
+                        if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else {
                             if (spec == 'd' || spec == 't') std::cout << val.aval;
                             else if (spec == 'b') std::cout << val.to_bin_string();
-                            else if (spec == 'h') {
-                                if (unpadded) {
-                                    std::cout << std::hex << val.aval << std::dec;
-                                } else {
-                                    int hex_width = (val.width + 3) / 4;
-                                    std::cout << std::hex << std::setfill('0') << std::setw(hex_width) << val.aval << std::dec;
-                                }
-                            }
+                            else if (spec == 'h') std::cout << val.to_hex_string(unpadded);
                             else std::cout << val.aval;
                         }
                     }
@@ -371,7 +365,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
             LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
 
-            if (nassign->intra_delay > 0) {
+            if (nassign->has_intra_event) {
+                size_t trig_net_id = (size_t)-1;
+                std::string scoped_sig = bp.scope.empty() ? nassign->intra_signal : (bp.scope + "." + nassign->intra_signal);
+                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
+                else if (engine.net_map.find(nassign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(nassign->intra_signal);
+
+                if (trig_net_id != (size_t)-1) {
+                    engine.scheduler.queue_intra_event_nba(trig_net_id, nassign->intra_edge, net_id, casted);
+                }
+            } else if (nassign->intra_delay > 0) {
                 uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
                 engine.scheduler.queue_delayed_nba(wake_time, net_id, casted);
             } else {

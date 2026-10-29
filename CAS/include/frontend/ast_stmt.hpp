@@ -43,6 +43,15 @@ struct BlockingAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
     uint64_t intra_delay = 0;
+    bool has_intra_event = false;
+    EdgeType intra_edge = EdgeType::LEVEL;
+    std::string intra_signal = std::string();
+
+    void set_intra_event(EdgeType edge, std::string sig) {
+        has_intra_event = true;
+        intra_edge = edge;
+        intra_signal = std::move(sig);
+    }
 
     explicit BlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, std::unique_ptr<ExpressionNode> idx = nullptr, uint64_t delay = 0)
         : rhs(std::move(r)), bit_idx(std::move(idx)), intra_delay(delay) { lhs_targets.push_back(std::move(t)); }
@@ -55,6 +64,15 @@ struct NonBlockingAssignNode : public StatementNode {
     std::string target;
     std::unique_ptr<ExpressionNode> rhs;
     uint64_t intra_delay = 0;
+    bool has_intra_event = false;
+    EdgeType intra_edge = EdgeType::LEVEL;
+    std::string intra_signal = std::string();
+
+    void set_intra_event(EdgeType edge, std::string sig) {
+        has_intra_event = true;
+        intra_edge = edge;
+        intra_signal = std::move(sig);
+    }
 
     NonBlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
         : target(std::move(t)), rhs(std::move(r)), intra_delay(delay) {}
@@ -66,6 +84,15 @@ struct MemAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> rhs;
     bool is_non_blocking = false;
     uint64_t intra_delay = 0;
+    bool has_intra_event = false;
+    EdgeType intra_edge = EdgeType::LEVEL;
+    std::string intra_signal = std::string();
+
+    void set_intra_event(EdgeType edge, std::string sig) {
+        has_intra_event = true;
+        intra_edge = edge;
+        intra_signal = std::move(sig);
+    }
 
     MemAssignNode(std::string name, std::unique_ptr<ExpressionNode> addr,
                   std::unique_ptr<ExpressionNode> r, bool nba = false, uint64_t delay = 0)

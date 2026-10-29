@@ -268,6 +268,25 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ProceduralDeassignNode>(target);
     }
 
+    auto parse_intra_timing = [&](uint64_t& intra_delay, bool& has_intra_ev, EdgeType& intra_edge, std::string& intra_sig) {
+        if (match(TokenType::TOKEN_HASH)) {
+            intra_delay = current.num_val;
+            expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+        } else if (match(TokenType::TOKEN_AT)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@' in intra-assignment event control");
+            if (match(TokenType::TOKEN_POSEDGE)) intra_edge = EdgeType::POSEDGE;
+            else if (match(TokenType::TOKEN_NEGEDGE)) intra_edge = EdgeType::NEGEDGE;
+            intra_sig = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in intra-assignment event control");
+            while (match(TokenType::TOKEN_DOT)) {
+                intra_sig += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in intra-assignment event control");
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing intra-assignment event control");
+            has_intra_ev = true;
+        }
+    };
+
     // 14. Multi-target concatenation assignment ({a, b} = expr;)
     if (match(TokenType::TOKEN_LBRACE)) {
         std::vector<std::string> targets;
@@ -281,14 +300,16 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation blocking assignment");
         
         uint64_t intra_delay = 0;
-        if (match(TokenType::TOKEN_HASH)) {
-            intra_delay = current.num_val;
-            expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
-        }
+        bool has_intra_ev = false;
+        EdgeType intra_edge = EdgeType::LEVEL;
+        std::string intra_sig = "";
+        parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
 
         auto rhs = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after concatenation assignment");
-        return std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
+        auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
+        if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+        return node;
     }
 
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
@@ -306,46 +327,58 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
             if (match(TokenType::TOKEN_EQUAL)) {
                 uint64_t intra_delay = 0;
-                if (match(TokenType::TOKEN_HASH)) {
-                    intra_delay = current.num_val;
-                    expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
-                }
+                bool has_intra_ev = false;
+                EdgeType intra_edge = EdgeType::LEVEL;
+                std::string intra_sig = "";
+                parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
-                return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr), intra_delay);
+                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr), intra_delay);
+                if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                return node;
             }
             if (match(TokenType::TOKEN_LE)) {
                 uint64_t intra_delay = 0;
-                if (match(TokenType::TOKEN_HASH)) {
-                    intra_delay = current.num_val;
-                    expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
-                }
+                bool has_intra_ev = false;
+                EdgeType intra_edge = EdgeType::LEVEL;
+                std::string intra_sig = "";
+                parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-                return std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
+                auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
+                if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                return node;
             }
         }
 
         if (match(TokenType::TOKEN_EQUAL)) {
             uint64_t intra_delay = 0;
-            if (match(TokenType::TOKEN_HASH)) {
-                intra_delay = current.num_val;
-                expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
-            }
+            bool has_intra_ev = false;
+            EdgeType intra_edge = EdgeType::LEVEL;
+            std::string intra_sig = "";
+            parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
             auto rhs = parse_expression();
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after blocking assignment");
-            return std::make_unique<BlockingAssignNode>(ident, std::move(rhs), nullptr, intra_delay);
+            auto node = std::make_unique<BlockingAssignNode>(ident, std::move(rhs), nullptr, intra_delay);
+            if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+            return node;
         }
 
         if (match(TokenType::TOKEN_LE)) {
             uint64_t intra_delay = 0;
-            if (match(TokenType::TOKEN_HASH)) {
-                intra_delay = current.num_val;
-                expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
-            }
+            bool has_intra_ev = false;
+            EdgeType intra_edge = EdgeType::LEVEL;
+            std::string intra_sig = "";
+            parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
             auto rhs = parse_expression();
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-            return std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs), intra_delay);
+            auto node = std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs), intra_delay);
+            if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+            return node;
         }
 
         if (match(TokenType::TOKEN_LPAREN)) {

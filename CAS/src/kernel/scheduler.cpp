@@ -32,6 +32,77 @@ void StratifiedScheduler::queue_delayed_blocking(uint64_t wake_time, size_t pid,
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
+void StratifiedScheduler::queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val) {
+    intra_event_nba_queue.push_back({net_id, val, edge, trigger_net_id, current_sim_time});
+}
+
+void StratifiedScheduler::queue_intra_event_blocking(size_t trigger_net_id, EdgeType edge, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val) {
+    intra_event_blocking_queue.push_back({pid, target_name, scope, val, edge, trigger_net_id, current_sim_time});
+}
+
+bool StratifiedScheduler::trigger_intra_event_nbas() {
+    if (intra_event_nba_queue.empty()) return false;
+    std::vector<IntraEventNbaItem> current_items;
+    current_items.swap(intra_event_nba_queue);
+    bool triggered_any = false;
+    for (const auto& item : current_items) {
+        if (item.reg_time >= current_sim_time) {
+            intra_event_nba_queue.push_back(item);
+            continue;
+        }
+        const auto& trig_net = engine.netlist[item.trigger_net_id];
+        bool event_matched = false;
+        if (item.edge == EdgeType::POSEDGE && trig_net.is_posedge()) event_matched = true;
+        else if (item.edge == EdgeType::NEGEDGE && trig_net.is_negedge()) event_matched = true;
+        else if (item.edge == EdgeType::LEVEL && trig_net.modified) event_matched = true;
+
+        if (event_matched) {
+            queue_nba(item.net_id, item.val);
+            triggered_any = true;
+        } else {
+            intra_event_nba_queue.push_back(item);
+        }
+    }
+    return triggered_any;
+}
+
+bool StratifiedScheduler::trigger_intra_event_blocking() {
+    if (intra_event_blocking_queue.empty()) return false;
+    std::vector<IntraEventBlockingItem> current_items;
+    current_items.swap(intra_event_blocking_queue);
+    bool triggered_any = false;
+    for (const auto& item : current_items) {
+        if (item.reg_time >= current_sim_time) {
+            intra_event_blocking_queue.push_back(item);
+            continue;
+        }
+        const auto& trig_net = engine.netlist[item.trigger_net_id];
+        bool event_matched = false;
+        if (item.edge == EdgeType::POSEDGE && trig_net.is_posedge()) event_matched = true;
+        else if (item.edge == EdgeType::NEGEDGE && trig_net.is_negedge()) event_matched = true;
+        else if (item.edge == EdgeType::LEVEL && trig_net.modified) event_matched = true;
+
+        if (event_matched) {
+            std::string scoped_target = item.scope.empty() ? item.target_name : (item.scope + "." + item.target_name);
+            size_t net_id = (size_t)-1;
+            if (engine.net_map.find(scoped_target) != engine.net_map.end()) net_id = engine.net_map.at(scoped_target);
+            else if (engine.net_map.find(item.target_name) != engine.net_map.end()) net_id = engine.net_map.at(item.target_name);
+
+            if (net_id != (size_t)-1) {
+                if (!engine.netlist[net_id].has_procedural_assign) {
+                    LogicVal casted = LogicOps::cast_width(item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    engine.netlist[net_id].set(casted);
+                }
+            }
+            step_process(item.pid);
+            triggered_any = true;
+        } else {
+            intra_event_blocking_queue.push_back(item);
+        }
+    }
+    return triggered_any;
+}
+
 void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     // 1. Commit due delayed NBAs directly so they are immediately visible in this time slot
     auto it = delayed_nba_queue.find(target_time);
@@ -320,6 +391,25 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
+        // IEEE 1800-2023 §10.6.2: Blocking Assignment with Intra-Assignment Event Control
+        if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+            if (assign->has_intra_event) {
+                LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
+                std::string target_name = assign->lhs_targets[0];
+                bp.pc++;
+
+                size_t trig_net_id = (size_t)-1;
+                std::string scoped_sig = bp.scope.empty() ? assign->intra_signal : (bp.scope + "." + assign->intra_signal);
+                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
+                else if (engine.net_map.find(assign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(assign->intra_signal);
+
+                if (trig_net_id != (size_t)-1) {
+                    queue_intra_event_blocking(trig_net_id, assign->intra_edge, pid, target_name, bp.scope, rhs_val);
+                }
+                return;
+            }
+        }
+
         // 4. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->intra_delay > 0) {
@@ -365,6 +455,15 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
         propagate_comb();
         evaluate_sequential_blocks();
 
+        if (trigger_intra_event_nbas()) {
+            activity = true;
+        }
+
+        if (trigger_intra_event_blocking()) {
+            activity = true;
+            propagate_comb();
+        }
+
         if (commit_nba_updates()) {
             activity = true;
             propagate_comb();
@@ -398,6 +497,7 @@ void StratifiedScheduler::run_simulation() {
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
+            propagate_comb();
         }
     }
 
