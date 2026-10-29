@@ -321,12 +321,195 @@ bool StratifiedScheduler::resume_waiting_processes() {
     return resumed_any;
 }
 
+static void flatten_task_statements(StatementNode* stmt, std::vector<StatementNode*>& out) {
+    if (!stmt) return;
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        for (auto& s : blk->statements) {
+            flatten_task_statements(s.get(), out);
+        }
+    } else {
+        out.push_back(stmt);
+    }
+}
+
+void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
+    TaskNode* target_task = nullptr;
+    std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
+    if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
+        target_task = engine.task_map.at(scoped_tname);
+    } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+        target_task = engine.task_map.at(tcall->task_name);
+    }
+
+    if (!target_task) {
+        throw std::runtime_error("Unknown task called: " + tcall->task_name);
+    }
+
+    TaskActivationFrame frame(tcall->task_name, target_task);
+
+    // 1. Formal port bindings & argument passing
+    for (size_t i = 0; i < target_task->ports.size(); ++i) {
+        const auto& p = target_task->ports[i];
+        uint32_t w = 32;
+        if (p.msb_expr && p.lsb_expr) {
+            auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
+            auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
+            if (msb_n && lsb_n) {
+                w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
+            }
+        }
+        frame.local_frame.declare_var(p.name, w, p.is_signed);
+
+        if (p.direction == "input" || p.direction == "inout") {
+            if (i < tcall->args.size()) {
+                LogicVal arg_val = engine.evaluator.eval_expr(tcall->args[i].get(), bp.scope);
+                frame.local_frame.get_var(p.name)->value = LogicOps::cast_width(arg_val, w, p.is_signed);
+            }
+        }
+
+        if (p.direction == "output" || p.direction == "inout") {
+            if (i < tcall->args.size()) {
+                if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[i].get())) {
+                    frame.output_bindings.push_back({p.name, id->name});
+                }
+            }
+        }
+    }
+
+    // 2. Flatten task body statements
+    for (auto& s : target_task->body) {
+        flatten_task_statements(s.get(), frame.flattened_body);
+    }
+
+    // 3. Pre-declare task locals
+    for (auto* s : frame.flattened_body) {
+        if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(s)) {
+            frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+        }
+    }
+
+    frame.pc = 0;
+    bp.call_stack.push_back(std::move(frame));
+}
+
+void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val) {
+    if (bp.call_stack.size() > 1) {
+        auto& caller_frame = bp.call_stack[bp.call_stack.size() - 2];
+        LocalVar* lv = caller_frame.local_frame.get_var(actual_name);
+        if (lv) {
+            lv->value = LogicOps::cast_width(val, lv->width, lv->is_signed);
+            return;
+        }
+    }
+
+    std::string scoped_target = bp.scope.empty() ? actual_name : (bp.scope + "." + actual_name);
+    size_t net_id = (size_t)-1;
+    if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
+        net_id = engine.net_map.at(scoped_target);
+    } else if (engine.net_map.find(actual_name) != engine.net_map.end()) {
+        net_id = engine.net_map.at(actual_name);
+    }
+
+    if (net_id != (size_t)-1) {
+        auto& net = engine.netlist[net_id];
+        LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+        net.set(casted);
+    }
+}
 void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     auto& bp = engine.processes[pid];
     if (bp.completed || bp.wait_target.active) return;
 
-    while (bp.pc < bp.proc->body.size()) {
+    engine.evaluator.set_current_process(&bp);
+
+    while (simulation_active && !bp.completed && !bp.wait_target.active) {
+        // A. Execution within an active task activation frame
+        if (!bp.call_stack.empty()) {
+            auto& cur_frame = bp.call_stack.back();
+            if (cur_frame.pc >= cur_frame.flattened_body.size()) {
+                // Task body finished: write back output bindings and pop frame
+                for (const auto& binding : cur_frame.output_bindings) {
+                    LocalVar* lv = cur_frame.local_frame.get_var(binding.first);
+                    if (lv) {
+                        write_task_output(bp, binding.second, lv->value);
+                    }
+                }
+                bp.call_stack.pop_back();
+                if (bp.call_stack.empty()) {
+                    bp.pc++;
+                } else {
+                    bp.call_stack.back().pc++;
+                }
+                continue;
+            }
+
+            StatementNode* stmt = cur_frame.flattened_body[cur_frame.pc];
+
+            // Procedural Delay inside task: #delay
+            if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                uint64_t d = delay->delay;
+                if (delay->delay_expr) {
+                    LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
+                    d = dval.is_unknown() ? 0 : dval.aval;
+                }
+                uint64_t wake_time = current_sim_time + d;
+                time_wheel.schedule(wake_time, (uint32_t)pid);
+                break;
+            }
+
+            // Procedural Event Control inside task: @(...)
+            if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
+                std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                size_t net_id = (size_t)-1;
+                if (engine.net_map.find(scoped_sig) != engine.net_map.end()) net_id = engine.net_map.at(scoped_sig);
+                else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) net_id = engine.net_map.at(ev_stmt->signal_name);
+                if (net_id != (size_t)-1) {
+                    cur_frame.pc++;
+                    bp.wait_target.active = true;
+                    bp.wait_target.edge = ev_stmt->edge;
+                    bp.wait_target.signal_name = ev_stmt->signal_name;
+                    bp.wait_target.net_id = net_id;
+                    break;
+                }
+                cur_frame.pc++;
+                continue;
+            }
+
+            // Sub-task invocation inside task
+            if (auto sub_tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+                invoke_task(bp, sub_tcall);
+                continue;
+            }
+
+            // Var declaration inside task
+            if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
+                cur_frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+                cur_frame.pc++;
+                continue;
+            }
+
+            // Standard statement execution inside task
+            engine.evaluator.execute_statement(stmt, bp);
+            cur_frame.pc++;
+            continue;
+        }
+
+        // B. Top-level Process Body Execution
+        if (bp.pc >= bp.proc->body.size()) {
+            if (bp.is_looping) {
+                bp.pc = bp.loop_start_pc;
+                if (bp.pc < bp.proc->body.size()) continue;
+            } else if (bp.proc->type == ProcessType::ALWAYS) {
+                bp.pc = 0;
+                if (!bp.proc->body.empty()) continue;
+            } else {
+                bp.completed = true;
+            }
+            break;
+        }
+
         auto stmt = bp.proc->body[bp.pc].get();
 
         // 0. Unwrap any embedded BlockStatementNode in place
@@ -347,8 +530,8 @@ void StratifiedScheduler::step_process(size_t pid) {
 
         // 1. Procedural In-Body Event Control: @(...)
         if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
-            std::string scoped_sig = bp.scope + "." + ev_stmt->signal_name;
-            size_t net_id = 0;
+            std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+            size_t net_id = (size_t)-1;
             if (engine.net_map.find(scoped_sig) != engine.net_map.end()) {
                 net_id = engine.net_map.at(scoped_sig);
             } else if (engine.net_map.find(ev_stmt->signal_name) != engine.net_map.end()) {
@@ -363,18 +546,29 @@ void StratifiedScheduler::step_process(size_t pid) {
             bp.wait_target.edge = ev_stmt->edge;
             bp.wait_target.signal_name = ev_stmt->signal_name;
             bp.wait_target.net_id = net_id;
-            return;
+            break;
         }
 
         // 2. Procedural Delay: #delay
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
-            uint64_t wake_time = current_sim_time + delay->delay;
+            uint64_t d = delay->delay;
+            if (delay->delay_expr) {
+                LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
+                d = dval.is_unknown() ? 0 : dval.aval;
+            }
+            uint64_t wake_time = current_sim_time + d;
             time_wheel.schedule(wake_time, (uint32_t)pid);
-            return;
+            break;
         }
 
-        // 3. Forever Loop: Inline body and set loop anchor
+        // 3. Task Invocation: invoke task activation frame
+        if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+            invoke_task(bp, tcall);
+            continue;
+        }
+
+        // 4. Forever Loop: Inline body and set loop anchor
         if (auto forever_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
             std::vector<std::unique_ptr<StatementNode>> new_body;
             for (size_t i = 0; i < bp.pc; ++i) {
@@ -424,42 +618,29 @@ void StratifiedScheduler::step_process(size_t pid) {
                 if (trig_net_id != (size_t)-1) {
                     queue_intra_event_blocking(trig_net_id, assign->intra_edge, pid, target_name, bp.scope, rhs_val);
                 }
-                return;
+                break;
             }
         }
 
-        // 4. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
+        // 5. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->intra_delay > 0) {
-                // Sample RHS immediately at current sim time
                 LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
                 std::string target_name = assign->lhs_targets[0];
-                bp.pc++; // Advance PC so upon resumption it executes the next statement
+                bp.pc++;
                 uint64_t wake_time = current_sim_time + assign->intra_delay;
                 queue_delayed_blocking(wake_time, pid, target_name, bp.scope, rhs_val);
-                return; // Process suspends cleanly
+                break;
             }
         }
 
-        // 5. Standard Statement Execution
+        // 6. Standard Statement Execution
         engine.evaluator.execute_statement(stmt, bp);
-        if (!simulation_active) return;
+        if (!simulation_active) break;
         bp.pc++;
     }
 
-    if (bp.is_looping) {
-        bp.pc = bp.loop_start_pc;
-        if (bp.pc < bp.proc->body.size()) {
-            step_process(pid);
-        }
-    } else if (bp.proc->type == ProcessType::ALWAYS) {
-        bp.pc = 0;
-        if (!bp.proc->body.empty()) {
-            step_process(pid);
-        }
-    } else {
-        bp.completed = true;
-    }
+    engine.evaluator.set_current_process(nullptr);
 }
 
 void StratifiedScheduler::execute_time_slot_delta_loop() {

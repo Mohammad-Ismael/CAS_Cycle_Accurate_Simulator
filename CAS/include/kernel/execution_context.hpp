@@ -46,6 +46,7 @@ public:
     void push_frame(const std::string& scope_name);
     void pop_frame();
     bool has_active_frame() const;
+    size_t depth() const { return call_stack.size(); }
     ScopeFrame* current_frame();
     const ScopeFrame* current_frame() const;
 

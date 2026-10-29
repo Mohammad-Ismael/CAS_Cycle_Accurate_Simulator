@@ -7,7 +7,12 @@
 #include <queue>
 
 Evaluator::Evaluator(Engine& eng) 
-    : engine(eng), expr_eval(eng) {}
+    : engine(eng), expr_eval(eng), current_bp(nullptr) {}
+
+void Evaluator::set_current_process(BoundProcess* bp) {
+    current_bp = bp;
+    expr_eval.set_current_process(bp);
+}
 
 std::vector<size_t> Evaluator::get_connected_nets(size_t start_id) {
     std::vector<size_t> result;
@@ -152,6 +157,7 @@ void Evaluator::check_monitor() {
 }
 
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
+    set_current_process(&bp);
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
             execute_statement(s.get(), bp);
@@ -161,9 +167,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
-        if (!expr_eval.get_context().has_active_frame()) {
-            expr_eval.get_context().push_frame(bp.scope);
+        if (expr_eval.get_context().has_active_frame()) {
+            expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            return;
         }
+        if (!bp.call_stack.empty()) {
+            bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            return;
+        }
+        expr_eval.get_context().push_frame(bp.scope);
         expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed);
         return;
     }
@@ -353,6 +365,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        LocalVar* local = nullptr;
+        if (expr_eval.get_context().has_active_frame()) {
+            local = expr_eval.get_context().lookup_local(nassign->target);
+        }
+        if (!local && !bp.call_stack.empty()) {
+            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                local = it->local_frame.get_var(nassign->target);
+                if (local) break;
+            }
+        }
+        if (local) {
+            LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+            return;
+        }
+
         std::string scoped_target = bp.scope.empty() ? nassign->target : (bp.scope + "." + nassign->target);
         size_t net_id = (size_t)-1;
         if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
@@ -420,7 +448,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             int shift = 0;
             for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
                 std::string target_name = assign->lhs_targets[i];
-                LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+                LocalVar* local = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    local = expr_eval.get_context().lookup_local(target_name);
+                }
+                if (!local && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        local = it->local_frame.get_var(target_name);
+                        if (local) break;
+                    }
+                }
                 if (local) {
                     uint32_t width = local->width;
                     uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
@@ -445,7 +482,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         } else {
             std::string target_name = assign->lhs_targets[0];
-            LocalVar* local = expr_eval.get_context().lookup_local(target_name);
+            LocalVar* local = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                local = expr_eval.get_context().lookup_local(target_name);
+            }
+            if (!local && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    local = it->local_frame.get_var(target_name);
+                    if (local) break;
+                }
+            }
 
             if (local) {
                 if (assign->bit_idx) {

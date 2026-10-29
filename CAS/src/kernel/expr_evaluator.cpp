@@ -14,6 +14,11 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 
     std::string frame_name = func_name + "__call";
     context.push_frame(frame_name);
+    if (context.depth() > 100) {
+        result_out = LogicVal::make_x(target_fn->return_width);
+        context.pop_frame();
+        return true;
+    }
 
     // 1. Declare and initialize function return variable
     context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed);
@@ -36,13 +41,13 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     }
 
     // 3. Execute body statements directly through Evaluator
-    BoundProcess bp{frame_name, nullptr, 0, false};
+    BoundProcess bp{target_fn->scope.empty() ? frame_name : target_fn->scope, nullptr, 0, false};
     for (auto& s : target_fn->body) {
         engine.evaluator.execute_statement(s.get(), bp);
     }
 
     // 4. Retrieve return variable
-    LocalVar* ret_var = context.lookup_local(target_fn->name);
+    LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(target_fn->name) : nullptr;
     if (ret_var) {
         result_out = ret_var->value;
     } else {
@@ -81,9 +86,19 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
 
-        // Check local activation frame first
-        LocalVar* local = context.lookup_local(ident->name);
-        if (local) return local->value;
+        // Check local activation frame of function call first
+        if (context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(ident->name);
+            if (local) return local->value;
+        }
+
+        // Check task activation frame on current process
+        if (current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(ident->name);
+                if (local) return local->value;
+            }
+        }
 
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
@@ -144,7 +159,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         LogicVal target_val = LogicVal::make_x(1);
 
-        LocalVar* local = context.lookup_local(idx_node->name);
+        LocalVar* local = nullptr;
+        if (context.has_active_frame()) local = context.lookup_local(idx_node->name);
+        if (!local && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                local = it->local_frame.get_var(idx_node->name);
+                if (local) break;
+            }
+        }
         if (local) {
             target_val = local->value;
         } else {

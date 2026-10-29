@@ -67,14 +67,20 @@ struct ProcessNode : public ASTNode {
 
 struct TaskNode : public ASTNode {
     std::string name;
+    std::string scope = "";
+    bool is_automatic = false;
+    std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
 
     TaskNode() = default;
-    explicit TaskNode(std::string n) : name(std::move(n)) {}
+    explicit TaskNode(std::string n, bool autom = false)
+        : name(std::move(n)), is_automatic(autom) {}
 };
 
 struct FunctionNode : public ASTNode {
     std::string name;
+    std::string scope = "";
+    bool is_automatic = false;
     uint32_t return_width = 32;
     bool return_signed = false;
     std::vector<PortNode> inputs;

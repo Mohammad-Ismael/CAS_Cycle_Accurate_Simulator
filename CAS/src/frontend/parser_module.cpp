@@ -380,24 +380,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_TASK)) {
-                auto t = std::make_unique<TaskNode>();
-                t->name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected task name");
-                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after task name");
-                
-                if (match(TokenType::TOKEN_BEGIN)) {
-                    while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
-                        t->body.push_back(parse_statement());
-                    }
-                    expect(TokenType::TOKEN_END, "Expected 'end' closing task begin block");
-                    match(TokenType::TOKEN_SEMICOLON);
-                } else {
-                    while (current.type != TokenType::TOKEN_ENDTASK && current.type != TokenType::TOKEN_EOF) {
-                        t->body.push_back(parse_statement());
-                    }
-                }
-                expect(TokenType::TOKEN_ENDTASK, "Expected 'endtask'");
-                mod->tasks.push_back(std::move(t));
+                mod->tasks.push_back(parse_task());
                 continue;
             }
 

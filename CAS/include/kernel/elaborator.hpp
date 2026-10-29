@@ -1,6 +1,7 @@
 #pragma once
 #include "../frontend/ast_module.hpp"
 #include "netlist.hpp"
+#include "execution_context.hpp"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -49,6 +50,18 @@ struct EventWaitTarget {
     size_t net_id = 0;
 };
 
+struct TaskActivationFrame {
+    std::string task_name;
+    TaskNode* task_node = nullptr;
+    size_t pc = 0;
+    std::vector<StatementNode*> flattened_body;
+    ScopeFrame local_frame;
+    std::vector<std::pair<std::string, std::string>> output_bindings;
+
+    TaskActivationFrame(std::string name, TaskNode* node)
+        : task_name(std::move(name)), task_node(node), local_frame(task_name) {}
+};
+
 struct BoundProcess {
     std::string scope;
     ProcessNode* proc;
@@ -58,6 +71,7 @@ struct BoundProcess {
     bool is_looping = false;
     size_t loop_start_pc = 0;
     bool fired_in_time_slot = false;
+    std::vector<TaskActivationFrame> call_stack;
 };
 
 struct ElaborationResult {

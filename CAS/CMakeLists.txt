@@ -22,5 +22,6 @@ add_executable(cas
     src/kernel/expr_evaluator.cpp
     src/kernel/execution_context.cpp
     src/frontend/parser_function.cpp
+    src/frontend/parser_task.cpp
     src/main.cpp
 )

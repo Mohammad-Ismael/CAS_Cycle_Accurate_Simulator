@@ -23,6 +23,7 @@ public:
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();
     std::unique_ptr<FunctionNode> parse_function();
+    std::unique_ptr<TaskNode> parse_task();
     std::unique_ptr<StatementNode> parse_statement();
     std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
     std::unique_ptr<ProcessNode> parse_always_ff();

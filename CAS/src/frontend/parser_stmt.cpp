@@ -42,18 +42,31 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var);
     }
 
-    // 2. Delay Statement (#5; or #5 clk = ~clk;)
+    // 2. Delay Statement (#5; or #delay_ticks; or #5 clk = ~clk;)
     if (match(TokenType::TOKEN_HASH)) {
-        uint64_t d = current.num_val;
-        expect(TokenType::TOKEN_NUMBER, "Expected numerical delay value after '#'");
-        
+        std::unique_ptr<ExpressionNode> delay_expr = nullptr;
+        uint64_t d = 0;
+        if (current.type == TokenType::TOKEN_NUMBER) {
+            d = current.num_val;
+            advance();
+        } else if (match(TokenType::TOKEN_LPAREN)) {
+            delay_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing delay expression");
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            std::string id_name = current.text;
+            advance();
+            delay_expr = std::make_unique<IdentifierNode>(id_name);
+        } else {
+            delay_expr = parse_expression();
+        }
+
         if (match(TokenType::TOKEN_SEMICOLON)) {
-            return std::make_unique<DelayStatementNode>(d);
+            return std::make_unique<DelayStatementNode>(d, std::move(delay_expr));
         }
 
         auto target_stmt = parse_statement();
         std::vector<std::unique_ptr<StatementNode>> stmts;
-        stmts.push_back(std::make_unique<DelayStatementNode>(d));
+        stmts.push_back(std::make_unique<DelayStatementNode>(d, std::move(delay_expr)));
         stmts.push_back(std::move(target_stmt));
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
@@ -381,11 +394,19 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             return node;
         }
 
+        std::vector<std::unique_ptr<ExpressionNode>> task_args;
         if (match(TokenType::TOKEN_LPAREN)) {
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                while (true) {
+                    task_args.push_back(parse_expression());
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+            }
             expect(TokenType::TOKEN_RPAREN, "Expected ')' in task call");
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after statement");
-        return std::make_unique<TaskCallNode>(ident);
+        return std::make_unique<TaskCallNode>(ident, std::move(task_args));
     }
 
     std::string loc = current.filename.empty() 

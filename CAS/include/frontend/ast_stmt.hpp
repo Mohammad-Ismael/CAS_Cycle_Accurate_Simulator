@@ -178,12 +178,18 @@ struct CaseStatementNode : public StatementNode {
 
 struct TaskCallNode : public StatementNode {
     std::string task_name;
-    explicit TaskCallNode(std::string name) : task_name(std::move(name)) {}
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {})
+        : task_name(std::move(name)), args(std::move(a)) {}
 };
 
 struct DelayStatementNode : public StatementNode {
     uint64_t delay;
-    explicit DelayStatementNode(uint64_t d) : delay(d) {}
+    std::unique_ptr<ExpressionNode> delay_expr = nullptr;
+
+    explicit DelayStatementNode(uint64_t d, std::unique_ptr<ExpressionNode> expr = nullptr)
+        : delay(d), delay_expr(std::move(expr)) {}
 };
 
 struct DisplayStatementNode : public StatementNode {

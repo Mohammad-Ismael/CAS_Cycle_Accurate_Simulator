@@ -3,7 +3,11 @@
 
 std::unique_ptr<FunctionNode> Parser::parse_function() {
     auto func = std::make_unique<FunctionNode>();
-    match(TokenType::TOKEN_AUTOMATIC);
+    if (match(TokenType::TOKEN_AUTOMATIC)) {
+        func->is_automatic = true;
+    } else if (match(TokenType::TOKEN_STATIC)) {
+        func->is_automatic = false;
+    }
 
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
     if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
@@ -47,6 +51,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 expect(TokenType::TOKEN_COLON, "Expected ':' in argument range");
                 lsb = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in argument range");
+            } else if (is_s) {
+                msb = std::make_unique<NumberNode>(31ULL, (uint32_t)32);
+                lsb = std::make_unique<NumberNode>(0ULL, (uint32_t)32);
             }
 
             std::string arg_name = current.text;

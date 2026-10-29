@@ -75,6 +75,8 @@ private:
     void execute_time_slot_delta_loop();
     bool resume_waiting_processes();
     void transfer_due_delayed_updates(uint64_t target_time);
+    void invoke_task(BoundProcess& bp, TaskCallNode* tcall);
+    void write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val);
 
 public:
     explicit StratifiedScheduler(Engine& eng);

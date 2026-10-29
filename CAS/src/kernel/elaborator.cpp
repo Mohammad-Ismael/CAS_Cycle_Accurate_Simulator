@@ -210,10 +210,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& t : mod->tasks) {
+        t->scope = scope;
         result.task_map[scope + "." + t->name] = t.get();
+        result.task_map[t->name] = t.get();
     }
 
     for (auto& f : mod->functions) {
+        f->scope = scope;
         result.function_map[scope + "." + f->name] = f.get();
         result.function_map[f->name] = f.get();
     }

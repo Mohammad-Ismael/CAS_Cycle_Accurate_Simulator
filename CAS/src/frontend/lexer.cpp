@@ -295,6 +295,7 @@ Token Lexer::next_token() {
         if (ident == "function") return {TokenType::TOKEN_FUNCTION, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endfunction") return {TokenType::TOKEN_ENDFUNCTION, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "automatic") return {TokenType::TOKEN_AUTOMATIC, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "static") return {TokenType::TOKEN_STATIC, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "for") return {TokenType::TOKEN_FOR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "while") return {TokenType::TOKEN_WHILE, ident, 0, 0, cur_file, cur_line, 0};

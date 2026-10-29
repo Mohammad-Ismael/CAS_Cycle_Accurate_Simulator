@@ -11,9 +11,14 @@ class Evaluator {
 private:
     Engine& engine;
     ExprEvaluator expr_eval;
+    BoundProcess* current_bp = nullptr;
 
 public:
     explicit Evaluator(Engine& eng);
+
+    void set_current_process(BoundProcess* bp);
+    BoundProcess* get_current_process() const { return current_bp; }
+    ExprEvaluator& get_expr_eval() { return expr_eval; }
 
     LogicVal read_slice(const NetSliceRef& ref);
     void write_slice(const NetSliceRef& ref, const LogicVal& val);
