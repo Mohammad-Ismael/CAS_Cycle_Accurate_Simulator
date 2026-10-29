@@ -148,6 +148,36 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.enum_types[td->type_name] = et;
             result.enum_types[scope + "." + td->type_name] = et;
         }
+        if (td && td->struct_type) {
+            PackedStructType st;
+            st.name = td->type_name;
+            st.is_signed = td->struct_type->is_signed;
+            st.total_width = td->struct_type->total_width;
+
+            size_t n = td->struct_type->members.size();
+            std::vector<uint32_t> offsets(n, 0);
+            uint32_t running_offset = 0;
+            for (int i = (int)n - 1; i >= 0; --i) {
+                offsets[i] = running_offset;
+                running_offset += td->struct_type->members[i].width;
+            }
+            if (st.total_width == 0) {
+                st.total_width = running_offset;
+            }
+
+            for (size_t i = 0; i < n; ++i) {
+                const auto& mn = td->struct_type->members[i];
+                StructMember sm;
+                sm.name = mn.name;
+                sm.width = mn.width;
+                sm.offset = offsets[i];
+                sm.is_signed = mn.is_signed;
+                sm.type_name = mn.type_name;
+                st.members.push_back(sm);
+            }
+            result.struct_types[td->type_name] = st;
+            result.struct_types[scope + "." + td->type_name] = st;
+        }
     }
 
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
@@ -191,6 +221,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.netlist[pid].type_name = p.type_name;
             result.var_to_enum_type[scope + "." + p.name] = p.type_name;
             result.var_to_enum_type[p.name] = p.type_name;
+            result.var_to_struct_type[scope + "." + p.name] = p.type_name;
+            result.var_to_struct_type[p.name] = p.type_name;
         }
     }
 
@@ -222,6 +254,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.netlist[sid].type_name = s.type_name;
                 result.var_to_enum_type[scope + "." + s.name] = s.type_name;
                 result.var_to_enum_type[s.name] = s.type_name;
+                result.var_to_struct_type[scope + "." + s.name] = s.type_name;
+                result.var_to_struct_type[s.name] = s.type_name;
             }
         }
     }
@@ -371,6 +405,17 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             if (kv.first.size() > target.size() &&
                 kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
                 return kv.second;
+            }
+        }
+        auto dot_pos = target.rfind('.');
+        if (dot_pos != std::string::npos) {
+            std::string base_target = target.substr(0, dot_pos);
+            std::string scoped_base = scope.empty() ? base_target : (scope + "." + base_target);
+            if (result.net_map.find(scoped_base) != result.net_map.end()) {
+                return result.net_map.at(scoped_base);
+            }
+            if (result.net_map.find(base_target) != result.net_map.end()) {
+                return result.net_map.at(base_target);
             }
         }
         return (size_t)-1;

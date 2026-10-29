@@ -21,8 +21,17 @@ private:
 
 public:
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> typedef_map;
+    std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedef_map;
+    std::vector<std::unique_ptr<TypedefNode>> global_typedefs;
+
     bool is_typedef(const std::string& name) const {
+        return typedef_map.find(name) != typedef_map.end() || struct_typedef_map.find(name) != struct_typedef_map.end();
+    }
+    bool is_enum_typedef(const std::string& name) const {
         return typedef_map.find(name) != typedef_map.end();
+    }
+    bool is_struct_typedef(const std::string& name) const {
+        return struct_typedef_map.find(name) != struct_typedef_map.end();
     }
     std::unique_ptr<TypedefNode> parse_typedef();
 

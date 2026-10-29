@@ -11,6 +11,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -456,6 +457,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -635,6 +637,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -993,6 +996,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -1172,6 +1176,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -1530,6 +1535,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -1736,6 +1742,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -2134,6 +2141,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -2342,6 +2350,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -2921,6 +2930,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /app/CAS/include/common/gate_types.hpp \
   /app/CAS/include/common/logic_val.hpp \
   /app/CAS/include/common/net_types.hpp \
+  /app/CAS/include/common/struct_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/kernel/netlist.hpp \
   /app/CAS/include/tracer/vcd_dumper.hpp \
@@ -3272,10 +3282,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/refwrap.h:
 
-/usr/include/c++/13.2.1/ext/atomicity.h:
-
-/app/CAS/include/common/logic_val.hpp:
-
 /usr/include/c++/13.2.1/system_error:
 
 /usr/include/c++/13.2.1/bits/char_traits.h:
@@ -3290,10 +3296,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/invoke.h:
 
-/app/CAS/include/common/edge_types.hpp:
-
-/usr/include/c++/13.2.1/bits/enable_special_members.h:
-
 /app/CAS/src/frontend/parser_expr.cpp:
 
 /usr/include/c++/13.2.1/bits/basic_string.tcc:
@@ -3306,11 +3308,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/locale_facets_nonio.h:
 
-/usr/include/c++/13.2.1/bits/align.h:
-
 /usr/include/c++/13.2.1/bit:
-
-/app/CAS/include/frontend/ast_expr.hpp:
 
 /usr/include/c++/13.2.1/vector:
 
@@ -3319,6 +3317,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/string_view:
 
 /usr/include/c++/13.2.1/bits/stl_uninitialized.h:
+
+/app/CAS/include/frontend/ast_expr.hpp:
 
 /usr/include/c++/13.2.1/bits/stl_iterator.h:
 
@@ -3333,6 +3333,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/pstl/glue_memory_defs.h:
 
 /usr/include/c++/13.2.1/bits/stl_map.h:
+
+/usr/include/c++/13.2.1/ext/atomicity.h:
+
+/app/CAS/include/common/logic_val.hpp:
 
 /usr/include/fortify/string.h:
 
@@ -3364,11 +3368,23 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/clocale:
 
-/usr/include/c++/13.2.1/bits/concept_check.h:
+/usr/include/c++/13.2.1/bits/align.h:
+
+/app/CAS/include/common/edge_types.hpp:
+
+/usr/include/c++/13.2.1/bits/enable_special_members.h:
+
+/app/CAS/include/common/struct_types.hpp:
+
+/usr/include/wctype.h:
+
+/usr/include/bits/errno.h:
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/cpu_defines.h:
 
 /usr/include/c++/13.2.1/backward/binders.h:
+
+/usr/include/c++/13.2.1/bits/concept_check.h:
 
 /usr/include/c++/13.2.1/cerrno:
 
@@ -3395,10 +3411,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/chrono.h:
 
 /app/CAS/src/engine.cpp:
-
-/usr/include/wctype.h:
-
-/usr/include/bits/errno.h:
 
 /app/CAS/include/common/net_types.hpp:
 
@@ -3439,6 +3451,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc:
 
 /usr/include/c++/13.2.1/bits/localefwd.h:
+
+/usr/include/c++/13.2.1/cstdio:
+
+/usr/include/alloca.h:
+
+/usr/include/c++/13.2.1/bits/memory_resource.h:
 
 /usr/include/c++/13.2.1/bits/locale_classes.tcc:
 
@@ -3567,9 +3585,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/cstddef:
 
 /usr/include/c++/13.2.1/cstdint:
-
-/usr/include/alloca.h:
-
-/usr/include/c++/13.2.1/bits/memory_resource.h:
-
-/usr/include/c++/13.2.1/cstdio:

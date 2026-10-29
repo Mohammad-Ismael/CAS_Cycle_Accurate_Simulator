@@ -141,13 +141,30 @@ struct EnumTypeNode : public ASTNode {
     std::vector<std::pair<std::string, LogicVal>> members;
 };
 
+struct StructMemberNode : public ASTNode {
+    std::string name;
+    uint32_t width = 1;
+    bool is_signed = false;
+    std::string type_name = "";
+};
+
+struct StructTypeNode : public ASTNode {
+    bool is_packed = true;
+    bool is_signed = false;
+    std::vector<StructMemberNode> members;
+    uint32_t total_width = 0;
+};
+
 struct TypedefNode : public ASTNode {
     std::string type_name;
     std::shared_ptr<EnumTypeNode> enum_type;
+    std::shared_ptr<StructTypeNode> struct_type;
 
     TypedefNode() = default;
     TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
         : type_name(std::move(name)), enum_type(std::move(et)) {}
+    TypedefNode(std::string name, std::shared_ptr<StructTypeNode> st)
+        : type_name(std::move(name)), struct_type(std::move(st)) {}
 };
 
 struct ModuleNode : public ASTNode {

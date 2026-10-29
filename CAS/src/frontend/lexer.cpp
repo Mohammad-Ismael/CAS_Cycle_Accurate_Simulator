@@ -327,6 +327,8 @@ Token Lexer::next_token() {
         if (ident == "event") return {TokenType::TOKEN_EVENT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "typedef") return {TokenType::TOKEN_TYPEDEF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "enum") return {TokenType::TOKEN_ENUM, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "struct") return {TokenType::TOKEN_STRUCT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "packed") return {TokenType::TOKEN_PACKED, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "or") return {TokenType::TOKEN_GATE_OR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "and") return {TokenType::TOKEN_GATE_AND, ident, 0, 0, cur_file, cur_line, 0};

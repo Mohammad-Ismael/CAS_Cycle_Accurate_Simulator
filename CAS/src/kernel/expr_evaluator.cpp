@@ -84,6 +84,15 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (et) {
             return LogicOps::cast_width(val, et->width, et->is_signed);
         }
+        const PackedStructType* st = nullptr;
+        if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+            st = &engine.struct_types.at(scoped_type);
+        } else if (engine.struct_types.find(cast_node->target_type) != engine.struct_types.end()) {
+            st = &engine.struct_types.at(cast_node->target_type);
+        }
+        if (st) {
+            return LogicOps::cast_width(val, st->total_width, st->is_signed);
+        }
         return val;
     }
 
@@ -165,6 +174,81 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal::make_x(et->width);
     }
 
+    if (auto member_node = dynamic_cast<MemberAccessNode*>(expr)) {
+        std::string var_name = member_node->var_name;
+        std::string member_name = member_node->member_name;
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+
+        std::string full_hier = var_name + "." + member_name;
+        std::string scoped_full = scope.empty() ? full_hier : (scope + "." + full_hier);
+        if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
+            size_t nid = engine.net_map.at(scoped_full);
+            return engine.netlist[nid].value;
+        } else if (engine.net_map.find(full_hier) != engine.net_map.end()) {
+            size_t nid = engine.net_map.at(full_hier);
+            return engine.netlist[nid].value;
+        }
+
+        IdentifierNode id_expr(var_name);
+        LogicVal var_val = eval(&id_expr, scope);
+
+        std::string type_name = "";
+        if (current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && !local->type_name.empty()) {
+                    type_name = local->type_name;
+                    break;
+                }
+            }
+        }
+        if (type_name.empty() && context.has_active_frame()) {
+            LocalVar* local = context.lookup_local(var_name);
+            if (local && !local->type_name.empty()) type_name = local->type_name;
+        }
+        if (type_name.empty()) {
+            if (engine.var_to_struct_type.find(scoped_var) != engine.var_to_struct_type.end()) {
+                type_name = engine.var_to_struct_type.at(scoped_var);
+            } else if (engine.var_to_struct_type.find(var_name) != engine.var_to_struct_type.end()) {
+                type_name = engine.var_to_struct_type.at(var_name);
+            } else if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
+                type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
+            } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
+                type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+            }
+        }
+
+        const PackedStructType* st = nullptr;
+        std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
+        if (!type_name.empty()) {
+            if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(scoped_type);
+            } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(type_name);
+            }
+        }
+        if (!st) {
+            if (engine.struct_types.find(scoped_var) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(scoped_var);
+            } else if (engine.struct_types.find(var_name) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(var_name);
+            }
+        }
+
+        if (!st) return LogicVal::make_x(1);
+
+        const StructMember* sm = st->get_member(member_name);
+        if (!sm) return LogicVal::make_x(1);
+
+        uint32_t w = sm->width;
+        uint32_t off = sm->offset;
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        uint64_t val_a = (var_val.aval >> off) & mask;
+        uint64_t val_b = (var_val.bval >> off) & mask;
+        LogicVal res(w, val_a, val_b);
+        return res;
+    }
+
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
         std::vector<LogicVal> evaluated_args;
         for (const auto& a : fn_call->args) {
@@ -218,6 +302,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (engine.net_map.find(ident->name) != engine.net_map.end()) {
             return engine.netlist[engine.net_map.at(ident->name)].value;
+        }
+        auto dot_pos = ident->name.rfind('.');
+        if (dot_pos != std::string::npos) {
+            std::string base_var = ident->name.substr(0, dot_pos);
+            std::string mem_name = ident->name.substr(dot_pos + 1);
+            MemberAccessNode man(base_var, mem_name);
+            return eval(&man, scope);
         }
         return LogicVal::make_x(1);
     }

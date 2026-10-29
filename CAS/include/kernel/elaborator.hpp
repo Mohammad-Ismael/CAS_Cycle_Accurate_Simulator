@@ -111,6 +111,8 @@ struct ElaborationResult {
     std::unordered_map<std::string, EnumType> enum_types;
     std::unordered_map<std::string, std::string> var_to_enum_type;
     std::unordered_map<std::string, LogicVal> enum_constant_map;
+    std::unordered_map<std::string, PackedStructType> struct_types;
+    std::unordered_map<std::string, std::string> var_to_struct_type;
 };
 
 class Elaborator {

@@ -34,6 +34,8 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     enum_types = std::move(elab_res.enum_types);
     var_to_enum_type = std::move(elab_res.var_to_enum_type);
     enum_constant_map = std::move(elab_res.enum_constant_map);
+    struct_types = std::move(elab_res.struct_types);
+    var_to_struct_type = std::move(elab_res.var_to_struct_type);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

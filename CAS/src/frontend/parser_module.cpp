@@ -39,7 +39,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
 
         if (current.type == TokenType::TOKEN_TYPEDEF) {
-            parse_typedef();
+            auto td = parse_typedef();
+            if (td) global_typedefs.push_back(std::move(td));
             continue;
         }
 
@@ -55,6 +56,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             pcopy.name = gp.name;
             pcopy.default_expr = gp.default_expr ? gp.default_expr->clone() : nullptr;
             mod->parameters.push_back(std::move(pcopy));
+        }
+
+        for (const auto& gt : global_typedefs) {
+            if (gt->enum_type) mod->typedefs.push_back(std::make_unique<TypedefNode>(gt->type_name, gt->enum_type));
+            else if (gt->struct_type) mod->typedefs.push_back(std::make_unique<TypedefNode>(gt->type_name, gt->struct_type));
         }
 
         if (match(TokenType::TOKEN_HASH)) {
@@ -270,11 +276,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
                 std::string type_name = current.text;
-                auto enum_info = typedef_map[type_name];
+                auto enum_info = is_enum_typedef(type_name) ? typedef_map[type_name] : nullptr;
+                auto struct_info = is_struct_typedef(type_name) ? struct_typedef_map[type_name] : nullptr;
                 advance();
 
-                uint32_t width = enum_info ? enum_info->base_width : 32;
-                bool is_signed_sig = enum_info ? enum_info->is_signed : false;
+                uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
+                bool is_signed_sig = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
 
                 auto msb = std::make_unique<NumberNode>(width > 0 ? width - 1 : 0, 32);
                 auto lsb = std::make_unique<NumberNode>(0, 32);
@@ -595,7 +602,89 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 }
 std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
-    expect(TokenType::TOKEN_ENUM, "Expected 'enum' in typedef");
+
+    if (match(TokenType::TOKEN_STRUCT)) {
+        bool is_packed = false;
+        if (match(TokenType::TOKEN_PACKED)) {
+            is_packed = true;
+        }
+        bool is_signed = false;
+        if (match(TokenType::TOKEN_SIGNED)) {
+            is_signed = true;
+        }
+
+        expect(TokenType::TOKEN_LBRACE, "Expected '{' in struct declaration");
+        auto struct_node = std::make_shared<StructTypeNode>();
+        struct_node->is_packed = is_packed;
+        struct_node->is_signed = is_signed;
+
+        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+            bool mem_signed = false;
+            std::string mem_type = "logic";
+            if (match(TokenType::TOKEN_SIGNED)) {
+                mem_signed = true;
+            }
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+                current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit"))) {
+                mem_type = current.text;
+                if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" || current.text == "byte") {
+                    mem_signed = true;
+                }
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                mem_type = current.text;
+                advance();
+            }
+            if (match(TokenType::TOKEN_SIGNED)) {
+                mem_signed = true;
+            }
+
+            uint32_t field_width = 1;
+            if (mem_type == "int" || mem_type == "integer") field_width = 32;
+            else if (mem_type == "byte") field_width = 8;
+            else if (is_enum_typedef(mem_type)) field_width = typedef_map[mem_type]->base_width;
+            else if (is_struct_typedef(mem_type)) field_width = struct_typedef_map[mem_type]->total_width;
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in struct member range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in struct member range");
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        field_width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
+                }
+            }
+
+            while (true) {
+                std::string mem_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member identifier in struct");
+                StructMemberNode sm;
+                sm.name = mem_name;
+                sm.width = field_width;
+                sm.is_signed = mem_signed;
+                sm.type_name = mem_type;
+                struct_node->members.push_back(sm);
+                struct_node->total_width += field_width;
+
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after struct member declaration");
+        }
+        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing struct declaration");
+
+        std::string type_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+
+        struct_typedef_map[type_name] = struct_node;
+        return std::make_unique<TypedefNode>(type_name, struct_node);
+    }
+
+    expect(TokenType::TOKEN_ENUM, "Expected 'enum' or 'struct' in typedef");
 
     uint32_t width = 32;
     bool is_signed = true;

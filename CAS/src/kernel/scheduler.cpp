@@ -10,16 +10,16 @@ void StratifiedScheduler::schedule_event(uint64_t wake_time, uint32_t pid) {
     time_wheel.schedule(wake_time, pid);
 }
 
-void StratifiedScheduler::queue_nba(size_t net_id, const LogicVal& val) {
-    nba_queue.push_back({net_id, val});
+void StratifiedScheduler::queue_nba(size_t net_id, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
+    nba_queue.push_back({net_id, val, offset, slice_width, is_slice});
 }
 
 void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, uint32_t addr, const LogicVal& val) {
     nba_mem_queue.push_back({scoped_mem, addr, val});
 }
 
-void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val) {
-    delayed_nba_queue[wake_time].push_back({net_id, val});
+void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
+    delayed_nba_queue[wake_time].push_back({net_id, val, offset, slice_width, is_slice});
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
@@ -33,8 +33,8 @@ void StratifiedScheduler::queue_delayed_blocking(uint64_t wake_time, size_t pid,
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
-void StratifiedScheduler::queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val) {
-    intra_event_nba_queue.push_back({net_id, val, edge, trigger_net_id, current_sim_time});
+void StratifiedScheduler::queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
+    intra_event_nba_queue.push_back({net_id, val, edge, trigger_net_id, current_sim_time, offset, slice_width, is_slice});
 }
 
 void StratifiedScheduler::queue_intra_event_blocking(size_t trigger_net_id, EdgeType edge, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val) {
@@ -58,7 +58,7 @@ bool StratifiedScheduler::trigger_intra_event_nbas() {
         else if (item.edge == EdgeType::LEVEL && trig_net.modified) event_matched = true;
 
         if (event_matched) {
-            queue_nba(item.net_id, item.val);
+            queue_nba(item.net_id, item.val, item.offset, item.slice_width, item.is_slice);
             triggered_any = true;
         } else {
             intra_event_nba_queue.push_back(item);
@@ -285,7 +285,18 @@ bool StratifiedScheduler::commit_nba_updates() {
     nba_commits_count++;
     for (const auto& update : nba_queue) {
         if (!engine.netlist[update.net_id].has_procedural_assign) {
-            engine.netlist[update.net_id].set(update.val);
+            if (update.is_slice) {
+                auto& net = engine.netlist[update.net_id];
+                uint32_t w = update.slice_width;
+                uint32_t off = update.offset;
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                uint64_t full_mask = mask << off;
+                uint64_t new_a = (net.value.aval & ~full_mask) | ((update.val.aval & mask) << off);
+                uint64_t new_b = (net.value.bval & ~full_mask) | ((update.val.bval & mask) << off);
+                net.set(LogicVal(net.width, new_a, new_b));
+            } else {
+                engine.netlist[update.net_id].set(update.val);
+            }
         }
     }
     nba_queue.clear();

@@ -16,10 +16,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
     if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
         std::string type_name = current.text;
-        auto enum_info = typedef_map[type_name];
+        auto enum_info = is_enum_typedef(type_name) ? typedef_map[type_name] : nullptr;
+        auto struct_info = is_struct_typedef(type_name) ? struct_typedef_map[type_name] : nullptr;
         advance();
-        uint32_t width = enum_info ? enum_info->base_width : 32;
-        bool is_signed_var = enum_info ? enum_info->is_signed : false;
+        uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
+        bool is_signed_var = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
 
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");

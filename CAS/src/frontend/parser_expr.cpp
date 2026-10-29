@@ -28,21 +28,24 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return std::make_unique<CastNode>(name, std::move(cast_expr));
         }
 
-        // Method call: identifier followed by '.' then method identifier then '('
+        // Method call or Member access: identifier followed by '.'
         if (match(TokenType::TOKEN_DOT)) {
-            std::string method_name = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected method identifier");
-            expect(TokenType::TOKEN_LPAREN, "Expected '(' after method name");
-            std::vector<std::unique_ptr<ExpressionNode>> args;
-            if (current.type != TokenType::TOKEN_RPAREN) {
-                while (true) {
-                    args.push_back(parse_expression());
-                    if (match(TokenType::TOKEN_COMMA)) continue;
-                    break;
+            std::string sub_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+            if (match(TokenType::TOKEN_LPAREN)) {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        args.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
                 }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
+                return std::make_unique<MethodCallNode>(name, sub_name, std::move(args));
+            } else {
+                return std::make_unique<MemberAccessNode>(name, sub_name);
             }
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
-            return std::make_unique<MethodCallNode>(name, method_name, std::move(args));
         }
 
         // Function call: identifier followed immediately by '('

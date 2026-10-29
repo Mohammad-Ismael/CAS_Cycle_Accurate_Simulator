@@ -4,3 +4,4 @@
 #include "logic_val.hpp"
 #include "net_types.hpp"
 #include "enum_types.hpp"
+#include "struct_types.hpp"

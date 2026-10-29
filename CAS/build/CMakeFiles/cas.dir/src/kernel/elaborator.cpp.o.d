@@ -145,6 +145,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /usr/include/c++/13.2.1/bits/enable_special_members.h \
  /usr/include/c++/13.2.1/bits/node_handle.h \
  /usr/include/c++/13.2.1/bits/erase_if.h \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/../common/struct_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
  /app/CAS/src/kernel/../../include/kernel/execution_context.hpp \
  /usr/include/c++/13.2.1/iostream \

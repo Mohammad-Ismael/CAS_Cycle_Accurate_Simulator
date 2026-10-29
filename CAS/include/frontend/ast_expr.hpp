@@ -171,6 +171,18 @@ struct MethodCallNode : public ExpressionNode {
     }
 };
 
+struct MemberAccessNode : public ExpressionNode {
+    std::string var_name;
+    std::string member_name;
+
+    MemberAccessNode(std::string v, std::string m)
+        : var_name(std::move(v)), member_name(std::move(m)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<MemberAccessNode>(var_name, member_name);
+    }
+};
+
 struct CastNode : public ExpressionNode {
     std::string target_type;
     std::unique_ptr<ExpressionNode> expr;

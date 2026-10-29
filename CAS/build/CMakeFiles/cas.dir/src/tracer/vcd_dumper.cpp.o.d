@@ -128,7 +128,9 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: \
  /usr/include/c++/13.2.1/ext/aligned_buffer.h \
  /usr/include/c++/13.2.1/bits/enable_special_members.h \
  /usr/include/c++/13.2.1/bits/node_handle.h \
- /usr/include/c++/13.2.1/bits/erase_if.h /usr/include/c++/13.2.1/fstream \
+ /usr/include/c++/13.2.1/bits/erase_if.h \
+ /app/CAS/src/tracer/../../include/tracer/../kernel/../common/struct_types.hpp \
+ /usr/include/c++/13.2.1/fstream \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++io.h \
  /usr/include/c++/13.2.1/bits/fstream.tcc

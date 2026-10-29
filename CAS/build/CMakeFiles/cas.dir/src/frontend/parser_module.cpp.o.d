@@ -147,4 +147,5 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: \
  /usr/include/c++/13.2.1/bits/enable_special_members.h \
  /usr/include/c++/13.2.1/bits/node_handle.h \
  /usr/include/c++/13.2.1/bits/erase_if.h \
+ /app/CAS/src/frontend/../../include/frontend/../common/struct_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp

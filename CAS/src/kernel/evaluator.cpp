@@ -368,34 +368,117 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        std::string target_name = nassign->target;
+        std::string base_var = target_name;
+        std::string member_name = "";
+        auto dot_pos = target_name.rfind('.');
+        if (dot_pos != std::string::npos) {
+            base_var = target_name.substr(0, dot_pos);
+            member_name = target_name.substr(dot_pos + 1);
+        }
+
         LocalVar* local = nullptr;
         if (expr_eval.get_context().has_active_frame()) {
-            local = expr_eval.get_context().lookup_local(nassign->target);
+            local = expr_eval.get_context().lookup_local(base_var);
         }
         if (!local && !bp.call_stack.empty()) {
             for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
-                local = it->local_frame.get_var(nassign->target);
+                local = it->local_frame.get_var(base_var);
                 if (local) break;
             }
         }
         if (local) {
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            if (!member_name.empty()) {
+                const PackedStructType* st = nullptr;
+                if (!local->type_name.empty()) {
+                    if (engine.struct_types.find(local->type_name) != engine.struct_types.end()) {
+                        st = &engine.struct_types.at(local->type_name);
+                    }
+                }
+                if (st) {
+                    const StructMember* sm = st->get_member(member_name);
+                    if (sm) {
+                        uint32_t w = sm->width;
+                        uint32_t off = sm->offset;
+                        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                        uint64_t full_mask = mask << off;
+                        uint64_t new_a = (local->value.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
+                        uint64_t new_b = (local->value.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
+                        local->value = LogicVal(local->width, new_a, new_b);
+                        return;
+                    }
+                }
+            }
             local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
             return;
         }
 
-        std::string scoped_target = bp.scope.empty() ? nassign->target : (bp.scope + "." + nassign->target);
+        std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
         size_t net_id = (size_t)-1;
-        if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
-            net_id = engine.net_map.at(scoped_target);
-        } else if (engine.net_map.find(nassign->target) != engine.net_map.end()) {
-            net_id = engine.net_map.at(nassign->target);
+        bool is_member = false;
+        if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
+            net_id = engine.net_map.at(scoped_full);
+        } else if (engine.net_map.find(target_name) != engine.net_map.end()) {
+            net_id = engine.net_map.at(target_name);
+        } else if (!member_name.empty()) {
+            std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+            if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
+                net_id = engine.net_map.at(scoped_base);
+                is_member = true;
+            } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
+                net_id = engine.net_map.at(base_var);
+                is_member = true;
+            }
         }
+
         if (net_id != (size_t)-1) {
             if (engine.netlist[net_id].has_procedural_assign) return;
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
-            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
 
+            if (is_member) {
+                const PackedStructType* st = nullptr;
+                std::string type_name = engine.netlist[net_id].type_name;
+                if (type_name.empty()) {
+                    std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+                    if (engine.var_to_struct_type.find(scoped_base) != engine.var_to_struct_type.end()) {
+                        type_name = engine.var_to_struct_type.at(scoped_base);
+                    } else if (engine.var_to_struct_type.find(base_var) != engine.var_to_struct_type.end()) {
+                        type_name = engine.var_to_struct_type.at(base_var);
+                    }
+                }
+                std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
+                if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+                    st = &engine.struct_types.at(scoped_type);
+                } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
+                    st = &engine.struct_types.at(type_name);
+                }
+
+                if (st) {
+                    const StructMember* sm = st->get_member(member_name);
+                    if (sm) {
+                        LogicVal casted = LogicOps::cast_width(rhs_val, sm->width, sm->is_signed);
+                        if (nassign->has_intra_event) {
+                            size_t trig_net_id = (size_t)-1;
+                            std::string scoped_sig = bp.scope.empty() ? nassign->intra_signal : (bp.scope + "." + nassign->intra_signal);
+                            if (engine.net_map.find(scoped_sig) != engine.net_map.end()) trig_net_id = engine.net_map.at(scoped_sig);
+                            else if (engine.net_map.find(nassign->intra_signal) != engine.net_map.end()) trig_net_id = engine.net_map.at(nassign->intra_signal);
+
+                            if (trig_net_id != (size_t)-1) {
+                                engine.scheduler.queue_intra_event_nba(trig_net_id, nassign->intra_edge, net_id, casted, sm->offset, sm->width, true);
+                            }
+                        } else if (nassign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                            engine.scheduler.queue_delayed_nba(wake_time, net_id, casted, sm->offset, sm->width, true);
+                        } else {
+                            engine.scheduler.queue_nba(net_id, casted, sm->offset, sm->width, true);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
             if (nassign->has_intra_event) {
                 size_t trig_net_id = (size_t)-1;
                 std::string scoped_sig = bp.scope.empty() ? nassign->intra_signal : (bp.scope + "." + nassign->intra_signal);
@@ -485,18 +568,47 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         } else {
             std::string target_name = assign->lhs_targets[0];
+            std::string base_var = target_name;
+            std::string member_name = "";
+            auto dot_pos = target_name.rfind('.');
+            if (dot_pos != std::string::npos) {
+                base_var = target_name.substr(0, dot_pos);
+                member_name = target_name.substr(dot_pos + 1);
+            }
+
             LocalVar* local = nullptr;
             if (expr_eval.get_context().has_active_frame()) {
-                local = expr_eval.get_context().lookup_local(target_name);
+                local = expr_eval.get_context().lookup_local(base_var);
             }
             if (!local && !bp.call_stack.empty()) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
-                    local = it->local_frame.get_var(target_name);
+                    local = it->local_frame.get_var(base_var);
                     if (local) break;
                 }
             }
 
             if (local) {
+                if (!member_name.empty()) {
+                    const PackedStructType* st = nullptr;
+                    if (!local->type_name.empty()) {
+                        if (engine.struct_types.find(local->type_name) != engine.struct_types.end()) {
+                            st = &engine.struct_types.at(local->type_name);
+                        }
+                    }
+                    if (st) {
+                        const StructMember* sm = st->get_member(member_name);
+                        if (sm) {
+                            uint32_t w = sm->width;
+                            uint32_t off = sm->offset;
+                            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                            uint64_t full_mask = mask << off;
+                            uint64_t new_a = (local->value.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
+                            uint64_t new_b = (local->value.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
+                            local->value = LogicVal(local->width, new_a, new_b);
+                            return;
+                        }
+                    }
+                }
                 if (assign->bit_idx) {
                     LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                     if (!idx_val.is_unknown()) {
@@ -512,15 +624,59 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
                 }
             } else {
-                std::string scoped_target = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
                 size_t net_id = (size_t)-1;
-                if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
-                    net_id = engine.net_map.at(scoped_target);
+                bool is_member = false;
+                if (engine.net_map.find(scoped_full) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(scoped_full);
                 } else if (engine.net_map.find(target_name) != engine.net_map.end()) {
                     net_id = engine.net_map.at(target_name);
+                } else if (!member_name.empty()) {
+                    std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+                    if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
+                        net_id = engine.net_map.at(scoped_base);
+                        is_member = true;
+                    } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
+                        net_id = engine.net_map.at(base_var);
+                        is_member = true;
+                    }
                 }
+
                 if (net_id != (size_t)-1) {
                     if (engine.netlist[net_id].has_procedural_assign) return;
+                    if (is_member) {
+                        const PackedStructType* st = nullptr;
+                        std::string type_name = engine.netlist[net_id].type_name;
+                        if (type_name.empty()) {
+                            std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+                            if (engine.var_to_struct_type.find(scoped_base) != engine.var_to_struct_type.end()) {
+                                type_name = engine.var_to_struct_type.at(scoped_base);
+                            } else if (engine.var_to_struct_type.find(base_var) != engine.var_to_struct_type.end()) {
+                                type_name = engine.var_to_struct_type.at(base_var);
+                            }
+                        }
+                        std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
+                        if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+                            st = &engine.struct_types.at(scoped_type);
+                        } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
+                            st = &engine.struct_types.at(type_name);
+                        }
+
+                        if (st) {
+                            const StructMember* sm = st->get_member(member_name);
+                            if (sm) {
+                                auto cur = engine.netlist[net_id].value;
+                                uint32_t w = sm->width;
+                                uint32_t off = sm->offset;
+                                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                                uint64_t full_mask = mask << off;
+                                uint64_t new_a = (cur.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
+                                uint64_t new_b = (cur.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
+                                engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+                                return;
+                            }
+                        }
+                    }
                     if (assign->bit_idx) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
