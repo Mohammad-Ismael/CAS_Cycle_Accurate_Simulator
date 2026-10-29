@@ -178,15 +178,45 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 default_item = &item;
                 continue;
             }
-            LogicVal item_val = eval_expr(item.match_expr.get(), bp.scope);
-            if (LogicOps::case_eq(sel_val, item_val).to_bool()) {
-                for (auto& s : item.statements) execute_statement(s.get(), bp);
+
+            auto test_match = [&](ExpressionNode* expr) -> bool {
+                if (!expr) return false;
+                LogicVal item_val = eval_expr(expr, bp.scope);
+                if (case_stmt->case_type == CaseType::CASEZ) {
+                    return LogicOps::casez_eq(sel_val, item_val).to_bool();
+                } else if (case_stmt->case_type == CaseType::CASEX) {
+                    return LogicOps::casex_eq(sel_val, item_val).to_bool();
+                } else {
+                    return LogicOps::case_eq(sel_val, item_val).to_bool();
+                }
+            };
+
+            bool item_matched = false;
+            if (!item.match_exprs.empty()) {
+                for (const auto& m_expr : item.match_exprs) {
+                    if (test_match(m_expr.get())) {
+                        item_matched = true;
+                        break;
+                    }
+                }
+            } else if (item.match_expr) {
+                item_matched = test_match(item.match_expr.get());
+            }
+
+            if (item_matched) {
+                for (auto& s : item.statements) {
+                    execute_statement(s.get(), bp);
+                    if (!engine.scheduler.is_active()) return;
+                }
                 branch_taken = true;
                 break;
             }
         }
         if (!branch_taken && default_item) {
-            for (auto& s : default_item->statements) execute_statement(s.get(), bp);
+            for (auto& s : default_item->statements) {
+                execute_statement(s.get(), bp);
+                if (!engine.scheduler.is_active()) return;
+            }
         }
         return;
     }

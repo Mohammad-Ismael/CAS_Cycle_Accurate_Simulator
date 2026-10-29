@@ -208,7 +208,31 @@ public:
     }
 
     static LogicVal case_eq(const LogicVal& l, const LogicVal& r) {
-        bool match = (l.aval == r.aval) && (l.bval == r.bval);
+        uint32_t w = std::max(l.width, r.width);
+        LogicVal el = cast_width(l, w, false);
+        LogicVal er = cast_width(r, w, false);
+        bool match = (el.aval == er.aval) && (el.bval == er.bval);
+        return LogicVal::make_known(1, match ? 1 : 0);
+    }
+
+    static LogicVal casez_eq(const LogicVal& l, const LogicVal& r) {
+        uint32_t w = std::max(l.width, r.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal el = cast_width(l, w, false);
+        LogicVal er = cast_width(r, w, false);
+        uint64_t care_mask = ~((~el.aval & el.bval) | (~er.aval & er.bval)) & mask;
+        bool match = ((el.aval & care_mask) == (er.aval & care_mask)) &&
+                     ((el.bval & care_mask) == (er.bval & care_mask));
+        return LogicVal::make_known(1, match ? 1 : 0);
+    }
+
+    static LogicVal casex_eq(const LogicVal& l, const LogicVal& r) {
+        uint32_t w = std::max(l.width, r.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal el = cast_width(l, w, false);
+        LogicVal er = cast_width(r, w, false);
+        uint64_t care_mask = ~(el.bval | er.bval) & mask;
+        bool match = ((el.aval & care_mask) == (er.aval & care_mask));
         return LogicVal::make_known(1, match ? 1 : 0);
     }
 

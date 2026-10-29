@@ -201,13 +201,22 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return if_node;
     }
 
-    // 13. Case Statement
-    if (match(TokenType::TOKEN_CASE)) {
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
+    // 13. Case / Casez / Casex Statement
+    if (current.type == TokenType::TOKEN_CASE ||
+        current.type == TokenType::TOKEN_CASEZ ||
+        current.type == TokenType::TOKEN_CASEX) {
+
+        TokenType case_tok = current.type;
+        advance();
+        CaseType ct = CaseType::CASE;
+        if (case_tok == TokenType::TOKEN_CASEZ) ct = CaseType::CASEZ;
+        else if (case_tok == TokenType::TOKEN_CASEX) ct = CaseType::CASEX;
+
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after case keyword");
         auto sel = parse_expression();
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing case selector");
 
-        auto case_node = std::make_unique<CaseStatementNode>(std::move(sel));
+        auto case_node = std::make_unique<CaseStatementNode>(std::move(sel), ct);
 
         while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
             CaseItem item;
@@ -215,7 +224,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 item.is_default = true;
                 match(TokenType::TOKEN_COLON);
             } else {
-                item.match_expr = parse_expression();
+                while (true) {
+                    auto expr = parse_expression();
+                    if (!item.match_expr) {
+                        item.match_expr = expr->clone();
+                    }
+                    item.match_exprs.push_back(std::move(expr));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
                 expect(TokenType::TOKEN_COLON, "Expected ':' after case match expression");
             }
             item.statements = parse_statement_or_block();

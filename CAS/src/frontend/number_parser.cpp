@@ -16,7 +16,7 @@ ParsedNumber NumberParser::parse_unbased_literal(char lit) {
     } else if (lit == 'x' || lit == 'X') {
         res.aval = ~0ULL;
         res.bval = ~0ULL;
-    } else if (lit == 'z' || lit == 'Z') {
+    } else if (lit == 'z' || lit == 'Z' || lit == '?') {
         res.aval = 0;
         res.bval = ~0ULL;
     }
@@ -52,7 +52,7 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
             } else if (ch == 'x' || ch == 'X') {
                 res.aval |= 1;
                 res.bval |= 1;
-            } else if (ch == 'z' || ch == 'Z') {
+            } else if (ch == 'z' || ch == 'Z' || ch == '?') {
                 res.bval |= 1;
             }
         }
@@ -69,14 +69,14 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
             } else if (ch == 'x' || ch == 'X') {
                 res.aval |= 0xF;
                 res.bval |= 0xF;
-            } else if (ch == 'z' || ch == 'Z') {
+            } else if (ch == 'z' || ch == 'Z' || ch == '?') {
                 res.bval |= 0xF;
             }
         }
     } else if (base == 'd' || base == 'D') {
         bool has_unk = false;
         for (char ch : digits) {
-            if (ch == 'x' || ch == 'X' || ch == 'z' || ch == 'Z') {
+            if (ch == 'x' || ch == 'X' || ch == 'z' || ch == 'Z' || ch == '?') {
                 has_unk = true;
                 break;
             }

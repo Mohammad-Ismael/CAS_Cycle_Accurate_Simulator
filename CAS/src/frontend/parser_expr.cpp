@@ -10,6 +10,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<NumberNode>(a, b, w);
     }
 
+    if (match(TokenType::TOKEN_QUESTION)) {
+        return std::make_unique<NumberNode>(0ULL, ~0ULL, 32U);
+    }
+
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
         std::string name = current.text;
         advance();

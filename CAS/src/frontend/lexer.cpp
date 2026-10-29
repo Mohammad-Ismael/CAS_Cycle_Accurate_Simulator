@@ -230,7 +230,7 @@ Token Lexer::next_token() {
             }
             char base = advance();
             std::string digits;
-            while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z') {
+            while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z' || peek() == '?') {
                 if (peek() != '_') digits += peek();
                 advance();
             }
@@ -310,6 +310,8 @@ Token Lexer::next_token() {
         if (ident == "if") return {TokenType::TOKEN_IF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "else") return {TokenType::TOKEN_ELSE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "case") return {TokenType::TOKEN_CASE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "casez") return {TokenType::TOKEN_CASEZ, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "casex") return {TokenType::TOKEN_CASEX, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endcase") return {TokenType::TOKEN_ENDCASE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "default") return {TokenType::TOKEN_DEFAULT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "begin") return {TokenType::TOKEN_BEGIN, ident, 0, 0, cur_file, cur_line, 0};

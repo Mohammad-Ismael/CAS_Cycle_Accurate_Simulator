@@ -113,17 +113,25 @@ struct RepeatStatementNode : public StatementNode {
         : count_expr(std::move(count)), body(std::move(b)) {}
 };
 
+enum class CaseType {
+    CASE,
+    CASEZ,
+    CASEX
+};
+
 struct CaseItem {
     std::unique_ptr<ExpressionNode> match_expr;
+    std::vector<std::unique_ptr<ExpressionNode>> match_exprs;
     std::vector<std::unique_ptr<StatementNode>> statements;
     bool is_default = false;
 };
 
 struct CaseStatementNode : public StatementNode {
+    CaseType case_type = CaseType::CASE;
     std::unique_ptr<ExpressionNode> selector;
     std::vector<CaseItem> items;
-    explicit CaseStatementNode(std::unique_ptr<ExpressionNode> sel)
-        : selector(std::move(sel)) {}
+    explicit CaseStatementNode(std::unique_ptr<ExpressionNode> sel, CaseType ct = CaseType::CASE)
+        : case_type(ct), selector(std::move(sel)) {}
 };
 
 struct TaskCallNode : public StatementNode {
