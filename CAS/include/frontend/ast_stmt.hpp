@@ -190,6 +190,14 @@ struct ForkStatementNode : public StatementNode {
         : join_type(jt), branches(std::move(b)) {}
 };
 
+struct DisableForkStatementNode : public StatementNode {
+    DisableForkStatementNode() = default;
+};
+
+struct WaitForkStatementNode : public StatementNode {
+    WaitForkStatementNode() = default;
+};
+
 struct TaskCallNode : public StatementNode {
     std::string task_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;

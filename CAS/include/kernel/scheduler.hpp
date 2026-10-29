@@ -79,6 +79,9 @@ private:
     void write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val);
     void invoke_fork(size_t pid, ForkStatementNode* fork_stmt);
     void notify_parent_child_completed(size_t child_pid);
+    bool has_active_descendants(size_t pid);
+    void disable_fork(size_t caller_pid);
+    void terminate_process_tree(size_t target_pid);
 
 public:
     explicit StratifiedScheduler(Engine& eng);

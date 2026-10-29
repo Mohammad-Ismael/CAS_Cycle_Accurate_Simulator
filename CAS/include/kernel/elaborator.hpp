@@ -86,6 +86,8 @@ struct BoundProcess {
     ForkBarrier fork_barrier;
     std::vector<StatementNode*> dynamic_statements;
     bool is_delayed = false;
+    std::vector<size_t> active_children;
+    bool is_waiting_fork = false;
 
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)

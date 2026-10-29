@@ -124,6 +124,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ForkStatementNode>(jt, std::move(branches));
     }
 
+    // disable fork (IEEE 1800-2023 §9.6.2)
+    if (match(TokenType::TOKEN_DISABLE)) {
+        expect(TokenType::TOKEN_FORK, "Expected 'fork' after 'disable'");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<DisableForkStatementNode>();
+    }
+
+    // wait fork (IEEE 1800-2023 §9.6.3)
+    if (match(TokenType::TOKEN_WAIT)) {
+        expect(TokenType::TOKEN_FORK, "Expected 'fork' after 'wait'");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<WaitForkStatementNode>();
+    }
+
     // 5. For Loop
     if (match(TokenType::TOKEN_FOR)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");

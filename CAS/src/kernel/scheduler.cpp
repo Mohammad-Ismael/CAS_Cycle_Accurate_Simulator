@@ -2,6 +2,7 @@
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
 #include <iostream>
+#include <algorithm>
 
 StratifiedScheduler::StratifiedScheduler(Engine& eng) : engine(eng) {}
 
@@ -459,6 +460,7 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         size_t child_pid = engine.processes.size();
         engine.processes.push_back(std::move(child_bp));
         engine.processes[pid].fork_barrier.child_pids.push_back(child_pid);
+        engine.processes[pid].active_children.push_back(child_pid);
     }
 
     // Step child processes in Active region
@@ -481,46 +483,107 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
     }
 }
 
+bool StratifiedScheduler::has_active_descendants(size_t pid) {
+    if (pid >= engine.processes.size()) return false;
+    for (size_t c_pid : engine.processes[pid].active_children) {
+        if (c_pid < engine.processes.size()) {
+            if (!engine.processes[c_pid].completed) {
+                return true;
+            }
+            if (has_active_descendants(c_pid)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void StratifiedScheduler::terminate_process_tree(size_t target_pid) {
+    if (target_pid >= engine.processes.size()) return;
+
+    std::vector<size_t> children = engine.processes[target_pid].active_children;
+    for (size_t c_pid : children) {
+        terminate_process_tree(c_pid);
+    }
+    engine.processes[target_pid].active_children.clear();
+
+    auto& p = engine.processes[target_pid];
+    p.completed = true;
+    p.is_delayed = false;
+    p.wait_target.active = false;
+    p.fork_barrier.active = false;
+    p.is_waiting_fork = false;
+}
+
+void StratifiedScheduler::disable_fork(size_t caller_pid) {
+    if (caller_pid >= engine.processes.size()) return;
+
+    std::vector<size_t> children = engine.processes[caller_pid].active_children;
+    for (size_t c_pid : children) {
+        terminate_process_tree(c_pid);
+    }
+    engine.processes[caller_pid].active_children.clear();
+}
+
 void StratifiedScheduler::notify_parent_child_completed(size_t child_pid) {
     if (child_pid >= engine.processes.size()) return;
     size_t ppid = engine.processes[child_pid].parent_pid;
     if (ppid == (size_t)-1 || ppid >= engine.processes.size()) return;
 
     auto& parent = engine.processes[ppid];
-    if (!parent.fork_barrier.active) return;
 
-    parent.fork_barrier.completed_children++;
+    // Remove child from direct parent's active_children
+    auto& act = parent.active_children;
+    act.erase(std::remove(act.begin(), act.end(), child_pid), act.end());
 
-    bool unblock = false;
-    if (parent.fork_barrier.join_type == JoinType::JOIN) {
-        if (parent.fork_barrier.completed_children >= parent.fork_barrier.total_children) {
-            unblock = true;
+    // 1. Check fork barrier (fork ... join / join_any)
+    if (parent.fork_barrier.active) {
+        parent.fork_barrier.completed_children++;
+
+        bool unblock = false;
+        if (parent.fork_barrier.join_type == JoinType::JOIN) {
+            if (parent.fork_barrier.completed_children >= parent.fork_barrier.total_children) {
+                unblock = true;
+            }
+        } else if (parent.fork_barrier.join_type == JoinType::JOIN_ANY) {
+            if (parent.fork_barrier.completed_children >= 1) {
+                unblock = true;
+            }
         }
-    } else if (parent.fork_barrier.join_type == JoinType::JOIN_ANY) {
-        if (parent.fork_barrier.completed_children >= 1) {
-            unblock = true;
+
+        if (unblock) {
+            parent.fork_barrier.active = false;
+            if (!parent.fork_barrier.in_fork_setup) {
+                step_process(ppid);
+            }
         }
     }
 
-    if (unblock) {
-        parent.fork_barrier.active = false;
-        if (!parent.fork_barrier.in_fork_setup) {
-            step_process(ppid);
+    // 2. Check wait fork on ancestor chain (§9.6.3)
+    size_t anc_pid = ppid;
+    while (anc_pid != (size_t)-1 && anc_pid < engine.processes.size()) {
+        auto& anc = engine.processes[anc_pid];
+        if (anc.is_waiting_fork) {
+            if (!has_active_descendants(anc_pid)) {
+                anc.is_waiting_fork = false;
+                step_process(anc_pid);
+            }
         }
+        anc_pid = anc.parent_pid;
     }
 }
 void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     if (pid >= engine.processes.size()) return;
     auto& initial_bp = engine.processes[pid];
-    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed) return;
+    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork) return;
 
     engine.evaluator.set_current_process(&initial_bp);
 
     while (simulation_active) {
         if (pid >= engine.processes.size()) break;
         auto& bp = engine.processes[pid];
-        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed) break;
+        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork) break;
         engine.evaluator.set_current_process(&bp);
 
         // A. Execution within an active task activation frame
@@ -600,6 +663,23 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
+            // Disable fork inside task: IEEE 1800-2023 §9.6.2
+            if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                disable_fork(pid);
+                continue;
+            }
+
+            // Wait fork inside task: IEEE 1800-2023 §9.6.3
+            if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                if (has_active_descendants(pid)) {
+                    engine.processes[pid].is_waiting_fork = true;
+                    break;
+                }
+                continue;
+            }
+
             // Standard statement execution inside task
             engine.evaluator.execute_statement(stmt, bp);
             cur_frame.pc++;
@@ -662,6 +742,23 @@ void StratifiedScheduler::step_process(size_t pid) {
                 bp.pc++;
                 invoke_fork(pid, fork_stmt);
                 if (engine.processes[pid].fork_barrier.active) {
+                    break;
+                }
+                continue;
+            }
+
+            // Disable fork in child: IEEE 1800-2023 §9.6.2
+            if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
+                bp.pc++;
+                disable_fork(pid);
+                continue;
+            }
+
+            // Wait fork in child: IEEE 1800-2023 §9.6.3
+            if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
+                bp.pc++;
+                if (has_active_descendants(pid)) {
+                    engine.processes[pid].is_waiting_fork = true;
                     break;
                 }
                 continue;
@@ -781,6 +878,23 @@ void StratifiedScheduler::step_process(size_t pid) {
             bp.pc++;
             invoke_fork(pid, fork_stmt);
             if (engine.processes[pid].fork_barrier.active) {
+                break;
+            }
+            continue;
+        }
+
+        // Disable fork: IEEE 1800-2023 §9.6.2
+        if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
+            bp.pc++;
+            disable_fork(pid);
+            continue;
+        }
+
+        // Wait fork: IEEE 1800-2023 §9.6.3
+        if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
+            bp.pc++;
+            if (has_active_descendants(pid)) {
+                engine.processes[pid].is_waiting_fork = true;
                 break;
             }
             continue;

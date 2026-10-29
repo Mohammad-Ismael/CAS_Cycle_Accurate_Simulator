@@ -42,6 +42,8 @@ enum class TokenType {
     TOKEN_JOIN,
     TOKEN_JOIN_ANY,
     TOKEN_JOIN_NONE,
+    TOKEN_DISABLE,
+    TOKEN_WAIT,
     TOKEN_GATE_AND,
     TOKEN_GATE_OR,
     TOKEN_GATE_XOR,
