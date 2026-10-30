@@ -133,8 +133,18 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
         if (!clk_triggered) continue;
         asrt.fired_in_time_slot = true;
 
+        auto& ch = sva_clock_history[asrt.clock_net_id];
+        if (ch.last_recorded_time != current_sim_time) {
+            ch.last_recorded_time = current_sim_time;
+            ch.snapshots.push_back(preponed_net_values);
+            if (ch.snapshots.size() > 256) {
+                ch.snapshots.pop_front();
+            }
+        }
+
         // OBSERVED REGION: evaluate property against preponed samples
         engine.evaluator.get_expr_eval().set_preponed_override(&preponed_net_values);
+        engine.evaluator.get_expr_eval().set_current_clock_history(&ch.snapshots);
 
         // Check disable iff
         bool disabled = false;
@@ -147,6 +157,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
 
         if (disabled) {
             asrt.threads.clear();
+            engine.evaluator.get_expr_eval().set_current_clock_history(nullptr);
             engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
             continue;
         }
@@ -201,6 +212,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
             }
         }
 
+        engine.evaluator.get_expr_eval().set_current_clock_history(nullptr);
         engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
 
         // REACTIVE REGION: execute action blocks for completed threads

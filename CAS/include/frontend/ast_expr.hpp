@@ -324,3 +324,29 @@ struct RandomizeCallNode : public ExpressionNode {
         );
     }
 };
+
+enum class SysSampledFuncType {
+    ROSE,
+    FELL,
+    STABLE,
+    PAST
+};
+
+struct SysSampledFuncNode : public ExpressionNode {
+    SysSampledFuncType func_type;
+    std::string func_name;
+    std::unique_ptr<ExpressionNode> expr;
+    std::unique_ptr<ExpressionNode> num_cycles_expr;
+
+    SysSampledFuncNode(SysSampledFuncType t, std::string name, std::unique_ptr<ExpressionNode> e, std::unique_ptr<ExpressionNode> cycles = nullptr)
+        : func_type(t), func_name(std::move(name)), expr(std::move(e)), num_cycles_expr(std::move(cycles)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<SysSampledFuncNode>(
+            func_type,
+            func_name,
+            expr ? expr->clone() : nullptr,
+            num_cycles_expr ? num_cycles_expr->clone() : nullptr
+        );
+    }
+};

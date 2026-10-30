@@ -134,6 +134,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(64, 0, 0);
     }
 
+    if (auto sfn = dynamic_cast<SysSampledFuncNode*>(expr)) {
+        return eval_sampled_func(sfn, scope);
+    }
+
     if (auto cast_call = dynamic_cast<SysCastCallNode*>(expr)) {
         std::string dest_name;
         if (auto id = dynamic_cast<IdentifierNode*>(cast_call->dest_expr.get())) {
@@ -1144,7 +1148,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     return LogicVal::make_x(1);
                 }
             }
-            target_val = engine.netlist[engine.net_map.at(scoped_ident)].value;
+            size_t nid = engine.net_map.at(scoped_ident);
+            if (preponed_override && nid < preponed_override->size()) {
+                target_val = (*preponed_override)[nid];
+            } else {
+                target_val = engine.netlist[nid].value;
+            }
         }
 
         if (!idx_node->is_part_select) {
@@ -1313,4 +1322,79 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     return LogicVal::make_x(1);
+}
+
+LogicVal ExprEvaluator::eval_sampled_func(SysSampledFuncNode* func, const std::string& scope) {
+    if (!func || !func->expr) {
+        return LogicVal(1, 0, 0);
+    }
+
+    if (!current_clock_history || current_clock_history->empty()) {
+        return LogicVal(1, 0, 0);
+    }
+
+    const auto& history = *current_clock_history;
+    size_t hist_len = history.size();
+
+    if (func->func_type == SysSampledFuncType::PAST) {
+        uint64_t cycles = 1;
+        if (func->num_cycles_expr) {
+            LogicVal c_val = eval(func->num_cycles_expr.get(), scope);
+            cycles = c_val.aval;
+        }
+        if (cycles == 0) {
+            const auto* saved_override = preponed_override;
+            preponed_override = &history.back();
+            LogicVal res = eval(func->expr.get(), scope);
+            preponed_override = saved_override;
+            return res;
+        }
+        if (hist_len <= cycles) {
+            const auto* saved_override = preponed_override;
+            preponed_override = &history.back();
+            LogicVal cur = eval(func->expr.get(), scope);
+            preponed_override = saved_override;
+            return LogicVal::make_x(cur.width ? cur.width : 1);
+        }
+        size_t target_idx = hist_len - 1 - cycles;
+        const auto* saved_override = preponed_override;
+        preponed_override = &history[target_idx];
+        LogicVal res = eval(func->expr.get(), scope);
+        preponed_override = saved_override;
+        return res;
+    }
+
+    const auto* saved_override = preponed_override;
+    preponed_override = &history.back();
+    LogicVal val_curr = eval(func->expr.get(), scope);
+
+    LogicVal val_prev;
+    if (hist_len >= 2) {
+        preponed_override = &history[hist_len - 2];
+        val_prev = eval(func->expr.get(), scope);
+    } else {
+        val_prev = LogicVal::make_x(val_curr.width ? val_curr.width : 1);
+    }
+    preponed_override = saved_override;
+
+    if (func->func_type == SysSampledFuncType::ROSE) {
+        bool cur_is_one = ((val_curr.aval & 1ULL) != 0 && (val_curr.bval & 1ULL) == 0);
+        bool prev_is_one = ((val_prev.aval & 1ULL) != 0 && (val_prev.bval & 1ULL) == 0);
+        bool rose = (!prev_is_one && cur_is_one);
+        return LogicVal(1, rose ? 1 : 0, 0);
+    }
+
+    if (func->func_type == SysSampledFuncType::FELL) {
+        bool cur_is_one = ((val_curr.aval & 1ULL) != 0 && (val_curr.bval & 1ULL) == 0);
+        bool prev_is_one = ((val_prev.aval & 1ULL) != 0 && (val_prev.bval & 1ULL) == 0);
+        bool fell = (prev_is_one && !cur_is_one);
+        return LogicVal(1, fell ? 1 : 0, 0);
+    }
+
+    if (func->func_type == SysSampledFuncType::STABLE) {
+        bool stable = (hist_len >= 2 && val_curr == val_prev);
+        return LogicVal(1, stable ? 1 : 0, 0);
+    }
+
+    return LogicVal(1, 0, 0);
 }

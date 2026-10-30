@@ -32,7 +32,8 @@ suites = [
     ("v3.6.0.0", "v3_6_0_0_constrained_randomization", ["design.sv", "testbench.sv"]),
     ("v3.7.0.0", "v3_7_0_0_functional_coverage", ["design.sv", "testbench.sv"]),
     ("v3.8.0.0", "v3_8_0_0_cross_coverage", ["design.sv", "testbench.sv"]),
-    ("v3.9.0.0", "v3_9_0_0_sva_concurrent", ["design.sv", "testbench.sv"])
+    ("v3.9.0.0", "v3_9_0_0_sva_concurrent", ["design.sv", "testbench.sv"]),
+    ("v3.10.0.0", "v3_10_0_0_sva_sampled_functions", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

@@ -40,6 +40,44 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<SysCastCallNode>(std::move(dest), std::move(src));
     }
 
+    if (current.type == TokenType::TOKEN_ROSE || current.type == TokenType::TOKEN_FELL ||
+        current.type == TokenType::TOKEN_STABLE || current.type == TokenType::TOKEN_PAST) {
+        TokenType fn_tok = current.type;
+        std::string fn_name = current.text;
+        advance();
+        SysSampledFuncType sft;
+        if (fn_tok == TokenType::TOKEN_ROSE) sft = SysSampledFuncType::ROSE;
+        else if (fn_tok == TokenType::TOKEN_FELL) sft = SysSampledFuncType::FELL;
+        else if (fn_tok == TokenType::TOKEN_STABLE) sft = SysSampledFuncType::STABLE;
+        else sft = SysSampledFuncType::PAST;
+
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after " + fn_name);
+        auto expr = parse_expression();
+        std::unique_ptr<ExpressionNode> cycles_expr = nullptr;
+        if (match(TokenType::TOKEN_COMMA)) {
+            if (current.type != TokenType::TOKEN_COMMA && current.type != TokenType::TOKEN_RPAREN) {
+                cycles_expr = parse_expression();
+            }
+            while (match(TokenType::TOKEN_COMMA)) {
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    if (match(TokenType::TOKEN_AT)) {
+                        if (match(TokenType::TOKEN_LPAREN)) {
+                            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+                            match(TokenType::TOKEN_RPAREN);
+                        } else {
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                        }
+                    } else {
+                        auto dummy = parse_expression();
+                        (void)dummy;
+                    }
+                }
+            }
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing " + fn_name);
+        return std::make_unique<SysSampledFuncNode>(sft, fn_name, std::move(expr), std::move(cycles_expr));
+    }
+
     if (match(TokenType::TOKEN_SUPER)) {
         if (match(TokenType::TOKEN_DOT)) {
             std::string sub_name;

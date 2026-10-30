@@ -3,6 +3,7 @@
 #include "netlist.hpp"
 #include "execution_context.hpp"
 #include <string>
+#include <deque>
 
 class Engine;
 struct BoundProcess;
@@ -15,12 +16,16 @@ private:
     BoundProcess* current_bp = nullptr;
     ClassObject* current_this = nullptr;
     const std::vector<LogicVal>* preponed_override = nullptr;
+    const std::deque<std::vector<LogicVal>>* current_clock_history = nullptr;
 
 public:
     explicit ExprEvaluator(Engine& eng);
 
     void set_preponed_override(const std::vector<LogicVal>* po) { preponed_override = po; }
     const std::vector<LogicVal>* get_preponed_override() const { return preponed_override; }
+
+    void set_current_clock_history(const std::deque<std::vector<LogicVal>>* hist) { current_clock_history = hist; }
+    const std::deque<std::vector<LogicVal>>* get_current_clock_history() const { return current_clock_history; }
 
     void set_current_process(BoundProcess* bp) { current_bp = bp; }
     BoundProcess* get_current_process() const { return current_bp; }
@@ -31,6 +36,7 @@ public:
     ClassObject* get_current_this() const { return current_this; }
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);
     bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
 };

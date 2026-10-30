@@ -154,7 +154,11 @@ enum class TokenType {
     TOKEN_ASSERT,
     TOKEN_IFF,
     TOKEN_OVERLAP_IMP,
-    TOKEN_NON_OVERLAP_IMP
+    TOKEN_NON_OVERLAP_IMP,
+    TOKEN_ROSE,
+    TOKEN_FELL,
+    TOKEN_STABLE,
+    TOKEN_PAST
 };
 
 struct Token {

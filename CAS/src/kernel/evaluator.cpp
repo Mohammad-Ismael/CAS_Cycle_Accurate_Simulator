@@ -814,6 +814,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     check_mon_expr(ter->condition.get());
                     check_mon_expr(ter->true_expr.get());
                     check_mon_expr(ter->false_expr.get());
+                } else if (auto sf = dynamic_cast<SysSampledFuncNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sampled value function '" + sf->func_name + "' used directly in $monitor per IEEE 1800-2023 section 16.9.3 & 21.2.3");
                 } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
                     for (auto& a : fc->args) check_mon_expr(a.get());
                 }

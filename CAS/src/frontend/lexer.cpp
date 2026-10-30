@@ -425,6 +425,10 @@ Token Lexer::next_token() {
         if (ident == "endsequence") return {TokenType::TOKEN_ENDSEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assert") return {TokenType::TOKEN_ASSERT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "iff") return {TokenType::TOKEN_IFF, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$rose") return {TokenType::TOKEN_ROSE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$fell") return {TokenType::TOKEN_FELL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$stable") return {TokenType::TOKEN_STABLE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$past") return {TokenType::TOKEN_PAST, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

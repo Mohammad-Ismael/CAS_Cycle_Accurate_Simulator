@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <deque>
+#include <unordered_map>
 #include "kernel/netlist.hpp"
 #include "kernel/evaluator.hpp"
 #include "kernel/time_wheel.hpp"
@@ -29,6 +31,11 @@ struct DelayedBlockingAssign {
     std::string target_name;
     std::string scope;
     LogicVal val;
+};
+
+struct SvaClockEdgeHistory {
+    uint64_t last_recorded_time = (uint64_t)-1;
+    std::deque<std::vector<LogicVal>> snapshots;
 };
 
 struct IntraEventNbaItem {
@@ -76,6 +83,7 @@ private:
     void capture_preponed_samples();
     bool evaluate_sva_assertions();
     std::vector<LogicVal> preponed_net_values;
+    std::unordered_map<size_t, SvaClockEdgeHistory> sva_clock_history;
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;
