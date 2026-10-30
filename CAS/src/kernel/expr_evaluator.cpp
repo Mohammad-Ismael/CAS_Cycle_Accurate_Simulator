@@ -309,6 +309,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+        std::string full_fn = smc->class_type_name + "::" + smc->method_name;
+        if (engine.function_map.find(full_fn) != engine.function_map.end() ||
+            engine.function_map.find(smc->method_name) != engine.function_map.end()) {
+            std::vector<LogicVal> evaluated_args;
+            for (auto& a : smc->args) evaluated_args.push_back(eval(a.get(), scope));
+            LogicVal ret(32, 0, 0);
+            if (eval_function(full_fn, evaluated_args, ret)) return ret;
+            if (eval_function(smc->method_name, evaluated_args, ret)) return ret;
+        }
+
         const ClassNode* cls_def = engine.get_class_def(smc->class_type_name);
         if (cls_def) {
             FunctionNode* fn = cls_def->get_function(smc->method_name);
@@ -324,6 +334,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+        std::string full_id = sma->class_type_name + "::" + sma->member_name;
+        if (engine.param_map.find(full_id) != engine.param_map.end()) {
+            return LogicVal::make_known(32, engine.param_map.at(full_id));
+        }
+        if (engine.enum_constant_map.find(full_id) != engine.enum_constant_map.end()) {
+            return engine.enum_constant_map.at(full_id);
+        }
+        if (engine.net_map.find(full_id) != engine.net_map.end()) {
+            return engine.netlist[engine.net_map.at(full_id)].value;
+        }
+        if (engine.package_defs.find(sma->class_type_name) != engine.package_defs.end()) {
+            const auto& pkg = engine.package_defs.at(sma->class_type_name);
+            if (pkg->param_constants.count(sma->member_name)) {
+                return LogicVal::make_known(32, pkg->param_constants.at(sma->member_name));
+            }
+            if (pkg->enum_constant_map.count(sma->member_name)) {
+                return pkg->enum_constant_map.at(sma->member_name);
+            }
+        }
         return engine.get_class_static_var(sma->class_type_name, sma->member_name);
     }
 

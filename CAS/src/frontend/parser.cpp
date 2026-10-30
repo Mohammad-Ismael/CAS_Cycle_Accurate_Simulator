@@ -1,6 +1,10 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
+std::unordered_map<std::string, std::shared_ptr<PackageNode>> Parser::global_packages;
+std::vector<std::string> Parser::global_wildcard_imports;
+std::unordered_map<std::string, std::pair<std::string, std::string>> Parser::global_explicit_imports;
+
 Parser::Parser(Lexer& lex) : lexer(lex) {
     advance();
 }
@@ -93,5 +97,18 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
         advance();
     } else {
         throw std::runtime_error("Unknown associative array index type: " + current.text);
+    }
+}
+
+void Parser::parse_packages_only() {
+    while (current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_PACKAGE) {
+            auto pkg = parse_package();
+            if (pkg) {
+                global_packages[pkg->name] = pkg;
+            }
+        } else {
+            advance();
+        }
     }
 }

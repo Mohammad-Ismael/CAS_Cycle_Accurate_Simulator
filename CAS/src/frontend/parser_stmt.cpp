@@ -78,11 +78,23 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
-    if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
-        std::string type_name = current.text;
-        auto enum_info = is_enum_typedef(type_name) ? typedef_map[type_name] : nullptr;
-        auto struct_info = is_struct_typedef(type_name) ? struct_typedef_map[type_name] : nullptr;
+    std::string proc_type_name = "";
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+        std::string p_name = current.text;
+        advance(); // consume package identifier
+        advance(); // consume '::'
+        std::string t_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
+        proc_type_name = p_name + "::" + t_name;
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+        proc_type_name = current.text;
         advance();
+    }
+
+    if (!proc_type_name.empty()) {
+        std::string type_name = proc_type_name;
+        auto enum_info = get_enum_typedef(type_name);
+        auto struct_info = get_struct_typedef(type_name);
         uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
         bool is_signed_var = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
 

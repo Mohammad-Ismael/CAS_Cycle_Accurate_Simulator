@@ -66,6 +66,14 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::unique_ptr<ModuleNode>> all_modules;
     size_t total_bytes = 0;
+    Parser::clear_global_packages();
+
+    struct FileSourceEntry {
+        std::string filename;
+        std::string content;
+        std::string base_dir;
+    };
+    std::vector<FileSourceEntry> file_sources;
 
     try {
         for (size_t f_idx = 0; f_idx < source_files.size(); ++f_idx) {
@@ -86,8 +94,19 @@ int main(int argc, char* argv[]) {
             if (verbose && f_idx > 0) {
                 debug_ss << "  [Source Accessed] #" << (f_idx + 1) << ": '" << file << "' (" << content.size() << " bytes)\n";
             }
+            file_sources.push_back({file, std::move(content), base_dir});
+        }
 
-            Lexer lexer(file, content, base_dir, debug_ptr);
+        // Pass 1: Discover and register all PackageNode definitions across all source files
+        for (const auto& entry : file_sources) {
+            Lexer lexer(entry.filename, entry.content, entry.base_dir, nullptr);
+            Parser parser(lexer);
+            parser.parse_packages_only();
+        }
+
+        // Pass 2: Full parsing of all modules, interfaces, and compilation units
+        for (const auto& entry : file_sources) {
+            Lexer lexer(entry.filename, entry.content, entry.base_dir, debug_ptr);
             Parser parser(lexer);
             auto mods = parser.parse_all();
             for (auto& m : mods) {
@@ -123,6 +142,7 @@ int main(int argc, char* argv[]) {
         engine.set_display_allowed(enable_display);
         engine.set_monitor_allowed(enable_monitor);
         engine.set_finish_msg_allowed(enable_finish_msg);
+        engine.package_defs = Parser::global_packages;
 
         engine.elaborate(all_modules, top_override, debug_ptr);
         engine.run(debug_ptr);

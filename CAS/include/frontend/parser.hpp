@@ -34,6 +34,19 @@ public:
     ModuleNode* current_parsing_module = nullptr;
 
     std::unordered_set<std::string> known_interfaces;
+    static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
+    static std::vector<std::string> global_wildcard_imports;
+    static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
+    static void clear_global_packages() {
+        global_packages.clear();
+        global_wildcard_imports.clear();
+        global_explicit_imports.clear();
+    }
+
+    bool is_package(const std::string& name) const {
+        return global_packages.find(name) != global_packages.end();
+    }
+
     bool is_class(const std::string& name) const {
         if (class_map.find(name) != class_map.end()) return true;
         auto hash_pos = name.find('#');
@@ -55,15 +68,102 @@ public:
     bool is_interface_type(const std::string& name) const {
         return known_interfaces.find(name) != known_interfaces.end();
     }
+
+    std::shared_ptr<EnumTypeNode> get_enum_typedef(const std::string& name) const {
+        auto it = typedef_map.find(name);
+        if (it != typedef_map.end()) return it->second;
+
+        auto colon_pos = name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string pkg = name.substr(0, colon_pos);
+            std::string type = name.substr(colon_pos + 2);
+            auto pit = global_packages.find(pkg);
+            if (pit != global_packages.end()) {
+                auto tit = pit->second->enum_typedefs.find(type);
+                if (tit != pit->second->enum_typedefs.end()) return tit->second;
+            }
+        }
+
+        if (current_parsing_module) {
+            auto eit = current_parsing_module->explicit_imports.find(name);
+            if (eit != current_parsing_module->explicit_imports.end()) {
+                auto pit = global_packages.find(eit->second.first);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->enum_typedefs.find(eit->second.second);
+                    if (tit != pit->second->enum_typedefs.end()) return tit->second;
+                }
+            }
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->enum_typedefs.find(name);
+                    if (tit != pit->second->enum_typedefs.end()) return tit->second;
+                }
+            }
+        }
+        for (const auto& pkg_name : global_wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                auto tit = pit->second->enum_typedefs.find(name);
+                if (tit != pit->second->enum_typedefs.end()) return tit->second;
+            }
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<StructTypeNode> get_struct_typedef(const std::string& name) const {
+        auto it = struct_typedef_map.find(name);
+        if (it != struct_typedef_map.end()) return it->second;
+
+        auto colon_pos = name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string pkg = name.substr(0, colon_pos);
+            std::string type = name.substr(colon_pos + 2);
+            auto pit = global_packages.find(pkg);
+            if (pit != global_packages.end()) {
+                auto tit = pit->second->struct_typedefs.find(type);
+                if (tit != pit->second->struct_typedefs.end()) return tit->second;
+            }
+        }
+
+        if (current_parsing_module) {
+            auto eit = current_parsing_module->explicit_imports.find(name);
+            if (eit != current_parsing_module->explicit_imports.end()) {
+                auto pit = global_packages.find(eit->second.first);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->struct_typedefs.find(eit->second.second);
+                    if (tit != pit->second->struct_typedefs.end()) return tit->second;
+                }
+            }
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->struct_typedefs.find(name);
+                    if (tit != pit->second->struct_typedefs.end()) return tit->second;
+                }
+            }
+        }
+        for (const auto& pkg_name : global_wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                auto tit = pit->second->struct_typedefs.find(name);
+                if (tit != pit->second->struct_typedefs.end()) return tit->second;
+            }
+        }
+        return nullptr;
+    }
+
     bool is_typedef(const std::string& name) const {
-        return typedef_map.find(name) != typedef_map.end() || struct_typedef_map.find(name) != struct_typedef_map.end();
+        return get_enum_typedef(name) != nullptr || get_struct_typedef(name) != nullptr;
     }
     bool is_enum_typedef(const std::string& name) const {
-        return typedef_map.find(name) != typedef_map.end();
+        return get_enum_typedef(name) != nullptr;
     }
     bool is_struct_typedef(const std::string& name) const {
-        return struct_typedef_map.find(name) != struct_typedef_map.end();
+        return get_struct_typedef(name) != nullptr;
     }
+    std::shared_ptr<PackageNode> parse_package();
+    void parse_packages_only();
     std::unique_ptr<TypedefNode> parse_typedef();
     std::string parse_skew_spec();
 

@@ -1,5 +1,6 @@
 #include "../../include/kernel/elaborator.hpp"
 #include "../../include/tracer/vcd_dumper.hpp"
+#include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 #include <unordered_set>
 #include <queue>
@@ -42,6 +43,22 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         }
         if (result.enum_constant_map.find(id->name) != result.enum_constant_map.end()) {
             return result.enum_constant_map.at(id->name).aval;
+        }
+        return 0;
+    }
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+        std::string full_id = sma->class_type_name + "::" + sma->member_name;
+        if (result.param_map.find(full_id) != result.param_map.end()) {
+            return result.param_map.at(full_id);
+        }
+        if (result.enum_constant_map.find(full_id) != result.enum_constant_map.end()) {
+            return result.enum_constant_map.at(full_id).aval;
+        }
+        if (result.param_map.find(sma->member_name) != result.param_map.end()) {
+            return result.param_map.at(sma->member_name);
+        }
+        if (result.enum_constant_map.find(sma->member_name) != result.enum_constant_map.end()) {
+            return result.enum_constant_map.at(sma->member_name).aval;
         }
         return 0;
     }
@@ -132,6 +149,56 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                  std::ostream* debug_out) {
     if (debug_out) {
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
+    }
+
+    // Bind wildcard package imports
+    for (const auto& pkg_name : mod->wildcard_imports) {
+        auto it = Parser::global_packages.find(pkg_name);
+        if (it != Parser::global_packages.end()) {
+            const auto& pkg = it->second;
+            for (const auto& p : pkg->param_constants) {
+                result.param_map[scope + "." + p.first] = p.second;
+                if (parent_scope.empty()) result.param_map[p.first] = p.second;
+            }
+            for (const auto& m : pkg->enum_constant_map) {
+                result.enum_constant_map[scope + "." + m.first] = m.second;
+                if (parent_scope.empty()) result.enum_constant_map[m.first] = m.second;
+            }
+            for (const auto& fn : pkg->functions) {
+                result.function_map[scope + "." + fn->name] = fn.get();
+                if (parent_scope.empty()) result.function_map[fn->name] = fn.get();
+            }
+            for (const auto& t : pkg->tasks) {
+                result.task_map[scope + "." + t->name] = t.get();
+                if (parent_scope.empty()) result.task_map[t->name] = t.get();
+            }
+        }
+    }
+
+    // Bind explicit package imports
+    for (const auto& kv : mod->explicit_imports) {
+        const std::string& item_name = kv.first;
+        const std::string& pkg_name = kv.second.first;
+        auto it = Parser::global_packages.find(pkg_name);
+        if (it != Parser::global_packages.end()) {
+            const auto& pkg = it->second;
+            if (pkg->param_constants.count(item_name)) {
+                result.param_map[scope + "." + item_name] = pkg->param_constants.at(item_name);
+                if (parent_scope.empty()) result.param_map[item_name] = pkg->param_constants.at(item_name);
+            }
+            if (pkg->enum_constant_map.count(item_name)) {
+                result.enum_constant_map[scope + "." + item_name] = pkg->enum_constant_map.at(item_name);
+                if (parent_scope.empty()) result.enum_constant_map[item_name] = pkg->enum_constant_map.at(item_name);
+            }
+            if (pkg->function_map.count(item_name)) {
+                result.function_map[scope + "." + item_name] = pkg->function_map.at(item_name);
+                if (parent_scope.empty()) result.function_map[item_name] = pkg->function_map.at(item_name);
+            }
+            if (pkg->task_map.count(item_name)) {
+                result.task_map[scope + "." + item_name] = pkg->task_map.at(item_name);
+                if (parent_scope.empty()) result.task_map[item_name] = pkg->task_map.at(item_name);
+            }
+        }
     }
 
     for (const auto& td : mod->typedefs) {
@@ -913,6 +980,86 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                                        std::ostream* debug_out) {
     if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     result = ElaborationResult();
+
+    for (const auto& kv : Parser::global_packages) {
+        const std::string& pkg_name = kv.first;
+        const auto& pkg = kv.second;
+
+        for (const auto& p : pkg->param_constants) {
+            result.param_map[pkg_name + "::" + p.first] = p.second;
+        }
+
+        for (const auto& et : pkg->enum_typedefs) {
+            EnumType e;
+            e.name = et.first;
+            e.width = et.second->base_width;
+            e.is_signed = et.second->is_signed;
+            for (const auto& m : et.second->members) {
+                e.members.push_back({m.first, m.second});
+                result.enum_constant_map[pkg_name + "::" + m.first] = m.second;
+                result.enum_constant_map[m.first] = m.second;
+            }
+            result.enum_types[pkg_name + "::" + et.first] = e;
+            result.enum_types[et.first] = e;
+        }
+
+        for (const auto& st : pkg->struct_typedefs) {
+            PackedStructType s;
+            s.name = st.first;
+            s.is_signed = st.second->is_signed;
+            s.total_width = st.second->total_width;
+
+            size_t n = st.second->members.size();
+            std::vector<uint32_t> offsets(n, 0);
+            uint32_t running_offset = 0;
+            for (int i = (int)n - 1; i >= 0; --i) {
+                offsets[i] = running_offset;
+                running_offset += st.second->members[i].width;
+            }
+            if (s.total_width == 0) {
+                s.total_width = running_offset;
+            }
+
+            for (size_t i = 0; i < n; ++i) {
+                const auto& mn = st.second->members[i];
+                StructMember sm;
+                sm.name = mn.name;
+                sm.width = mn.width;
+                sm.offset = offsets[i];
+                sm.is_signed = mn.is_signed;
+                sm.type_name = mn.type_name;
+                s.members.push_back(sm);
+            }
+
+            result.struct_types[pkg_name + "::" + st.first] = s;
+            result.struct_types[st.first] = s;
+        }
+
+        for (const auto& fn : pkg->functions) {
+            result.function_map[pkg_name + "::" + fn->name] = fn.get();
+            result.function_map[fn->name] = fn.get();
+        }
+
+        for (const auto& t : pkg->tasks) {
+            result.task_map[pkg_name + "::" + t->name] = t.get();
+            result.task_map[t->name] = t.get();
+        }
+
+        for (const auto& cls : pkg->classes) {
+            result.class_defs[pkg_name + "::" + cls->name] = cls.get();
+            result.class_defs[cls->name] = cls.get();
+        }
+
+        for (const auto& dpi : pkg->dpi_imports) {
+            result.dpi_import_map[pkg_name + "::" + dpi->sv_name] = dpi.get();
+            result.dpi_import_map[dpi->sv_name] = dpi.get();
+        }
+
+        for (const auto& exp : pkg->dpi_exports) {
+            result.dpi_export_map[pkg_name + "::" + exp->c_name] = exp.get();
+            result.dpi_export_map[exp->c_name] = exp.get();
+        }
+    }
 
     for (auto& mod : modules) {
         for (auto& cls : mod->classes) {

@@ -470,6 +470,8 @@ Token Lexer::next_token() {
         if (ident == "chandle") return {TokenType::TOKEN_CHANDLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "semaphore") return {TokenType::TOKEN_SEMAPHORE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "mailbox") return {TokenType::TOKEN_MAILBOX, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "package") return {TokenType::TOKEN_PACKAGE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endpackage") return {TokenType::TOKEN_ENDPACKAGE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

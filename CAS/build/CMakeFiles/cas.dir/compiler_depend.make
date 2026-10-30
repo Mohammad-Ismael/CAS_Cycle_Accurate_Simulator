@@ -8,6 +8,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/common/constraint_solver.hpp \
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/common/dpic_types.hpp \
+  /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
@@ -1679,6 +1680,8 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.cpp \
+  /app/CAS/include/frontend/lexer.hpp \
+  /app/CAS/include/frontend/parser.hpp \
   /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
@@ -1899,6 +1902,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/common/constraint_solver.hpp \
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/common/dpic_types.hpp \
+  /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/common/sva_types.hpp \
@@ -2325,6 +2329,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/common/constraint_solver.hpp \
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/common/dpic_types.hpp \
+  /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
@@ -2575,6 +2580,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/constraint_solver.hpp \
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/common/dpic_types.hpp \
+  /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/common/sva_types.hpp \
@@ -2787,6 +2793,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/common/constraint_solver.hpp \
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/common/dpic_types.hpp \
+  /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
@@ -3367,6 +3374,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/wctype.h
 
 
+/usr/include/sys/time.h:
+
 /usr/include/c++/13.2.1/bits/streambuf.tcc:
 
 /usr/include/c++/13.2.1/bits/postypes.h:
@@ -3389,9 +3398,9 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h:
 
-/usr/include/c++/13.2.1/bits/streambuf_iterator.h:
-
 /usr/include/c++/13.2.1/bits/exception.h:
+
+/usr/include/c++/13.2.1/bits/streambuf_iterator.h:
 
 /usr/include/c++/13.2.1/bits/stl_algo.h:
 
@@ -3407,11 +3416,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/ext/type_traits.h:
 
-/usr/include/c++/13.2.1/bits/requires_hosted.h:
+/usr/include/c++/13.2.1/bits/range_access.h:
 
 /usr/include/c++/13.2.1/bits/quoted_string.h:
 
-/usr/include/c++/13.2.1/bits/range_access.h:
+/usr/include/c++/13.2.1/bits/requires_hosted.h:
+
+/app/CAS/include/common/sync_types.hpp:
 
 /usr/include/c++/13.2.1/bits/stl_heap.h:
 
@@ -3491,6 +3502,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/uses_allocator_args.h:
 
+/usr/include/c++/13.2.1/bits/refwrap.h:
+
+/usr/include/c++/13.2.1/bits/ostream_insert.h:
+
+/usr/include/fortify/sys/select.h:
+
 /app/CAS/include/frontend/ast_stmt.hpp:
 
 /app/CAS/include/frontend/ast_base.hpp:
@@ -3508,6 +3525,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/src/engine.cpp:
 
 /usr/include/bits/errno.h:
+
+/usr/include/dlfcn.h:
+
+/app/CAS/include/kernel/time_wheel.hpp:
+
+/usr/include/c++/13.2.1/streambuf:
 
 /usr/include/c++/13.2.1/bits/basic_ios.tcc:
 
@@ -3549,8 +3572,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/ext/atomicity.h:
 
-/usr/include/dlfcn.h:
-
 /app/CAS/include/common/sva_types.hpp:
 
 /app/CAS/include/frontend/ast_module.hpp:
@@ -3586,10 +3607,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/invoke.h:
 
 /usr/include/c++/13.2.1/bits/fstream.tcc:
-
-/app/CAS/include/kernel/time_wheel.hpp:
-
-/usr/include/c++/13.2.1/streambuf:
 
 /usr/include/c++/13.2.1/bits/stl_uninitialized.h:
 
@@ -3668,12 +3685,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/char_traits.h:
 
 /usr/include/c++/13.2.1/system_error:
-
-/usr/include/c++/13.2.1/bits/refwrap.h:
-
-/usr/include/c++/13.2.1/bits/ostream_insert.h:
-
-/usr/include/fortify/sys/select.h:
 
 /app/CAS/src/frontend/parser_task.cpp:
 
@@ -3880,5 +3891,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/alloc_traits.h:
 
 /usr/include/sys/select.h:
-
-/usr/include/sys/time.h:

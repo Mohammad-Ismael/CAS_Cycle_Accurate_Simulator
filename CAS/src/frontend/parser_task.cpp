@@ -36,6 +36,13 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
                 is_s = true;
                 is_int = true;
                 advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                advance(); advance();
+                is_int = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                is_int = true;
+                advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
 

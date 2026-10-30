@@ -40,7 +40,8 @@ suites = [
     ("v3.14.0.0", "v3_14_0_0_dpic_chandle_open_arrays", ["design.sv", "testbench.sv"]),
     ("v3.15.0.0", "v3_15_0_0_dpic_open_arrays", ["design.sv", "testbench.sv"]),
     ("v3.16.0.0", "v3_16_0_0_parameterized_classes", ["design.sv", "testbench.sv"]),
-    ("v3.17.0.0", "v3_17_0_0_semaphores_mailboxes", ["design.sv", "testbench.sv"])
+    ("v3.17.0.0", "v3_17_0_0_semaphores_mailboxes", ["design.sv", "testbench.sv"]),
+    ("v3.18.0.0", "v3_18_0_0_packages", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

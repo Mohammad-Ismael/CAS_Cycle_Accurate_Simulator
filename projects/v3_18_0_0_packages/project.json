@@ -1,0 +1,12 @@
+{
+  "name": "v3_18_0_0_packages",
+  "version": "v3.18.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§26",
+  "description": "SystemVerilog Packages: 'package' / 'endpackage', Wildcard Import 'import pkg::*;', Explicit Import 'import pkg::item;', Package Scope Resolution 'pkg::symbol', Shared Types, Packed Structs, Enums, Package Functions, and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_18_0_0_regression"
+}

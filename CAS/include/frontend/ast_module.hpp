@@ -538,6 +538,32 @@ struct DpiExportNode : public ASTNode {
     DpiExportNode() = default;
 };
 
+struct PackageNode : public ASTNode {
+    std::string name;
+    std::string defined_in_file = "";
+    size_t defined_on_line = 0;
+    std::vector<ParameterDef> parameters;
+    std::unordered_map<std::string, uint64_t> param_constants;
+    std::vector<std::unique_ptr<TypedefNode>> typedefs;
+    std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
+    std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
+    std::unordered_map<std::string, LogicVal> enum_constant_map;
+    std::vector<std::unique_ptr<FunctionNode>> functions;
+    std::unordered_map<std::string, FunctionNode*> function_map;
+    std::vector<std::unique_ptr<TaskNode>> tasks;
+    std::unordered_map<std::string, TaskNode*> task_map;
+    std::vector<std::shared_ptr<ClassNode>> classes;
+    std::unordered_map<std::string, ClassNode*> class_map;
+    std::vector<std::shared_ptr<DpiImportNode>> dpi_imports;
+    std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
+    std::vector<std::shared_ptr<DpiExportNode>> dpi_exports;
+    std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
+    std::vector<std::string> wildcard_imports;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
+
+    PackageNode() = default;
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -572,6 +598,8 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
     std::vector<std::shared_ptr<DpiExportNode>> dpi_exports;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
+    std::vector<std::string> wildcard_imports;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
 
     ModuleNode() = default;
 };

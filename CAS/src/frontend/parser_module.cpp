@@ -80,12 +80,39 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_PACKAGE) {
+            auto pkg = parse_package();
+            if (pkg) {
+                global_packages[pkg->name] = pkg;
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_IMPORT) {
-            auto dpi = parse_dpi_import();
-            if (dpi) {
-                std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
-                dpi_import_map[sdpi->sv_name] = sdpi;
-                global_dpi_imports.push_back(sdpi);
+            if (peek_token().type == TokenType::TOKEN_STRING) {
+                auto dpi = parse_dpi_import();
+                if (dpi) {
+                    std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                    dpi_import_map[sdpi->sv_name] = sdpi;
+                    global_dpi_imports.push_back(sdpi);
+                }
+            } else {
+                advance(); // consume 'import'
+                while (true) {
+                    std::string pkg_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
+                    expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
+                    if (match(TokenType::TOKEN_STAR)) {
+                        global_wildcard_imports.push_back(pkg_name);
+                    } else {
+                        std::string item_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
+                        global_explicit_imports[item_name] = {pkg_name, item_name};
+                    }
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import declaration");
             }
             continue;
         }
@@ -106,10 +133,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             is_iface = true;
             advance();
         } else {
-            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'parameter', or 'localparam' keyword");
+            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'package', 'parameter', or 'localparam' keyword");
         }
         auto mod = is_iface ? std::make_unique<InterfaceNode>() : std::make_unique<ModuleNode>();
         current_parsing_module = mod.get();
+        for (const auto& w : global_wildcard_imports) {
+            mod->wildcard_imports.push_back(w);
+        }
+        for (const auto& kv : global_explicit_imports) {
+            mod->explicit_imports[kv.first] = kv.second;
+        }
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
         mod->name = current.text;
@@ -663,11 +696,23 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
-                std::string type_name = current.text;
-                auto enum_info = is_enum_typedef(type_name) ? typedef_map[type_name] : nullptr;
-                auto struct_info = is_struct_typedef(type_name) ? struct_typedef_map[type_name] : nullptr;
+            std::string mod_sig_type = "";
+            if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                std::string p_name = current.text;
+                advance(); // consume package identifier
+                advance(); // consume '::'
+                std::string t_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
+                mod_sig_type = p_name + "::" + t_name;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                mod_sig_type = current.text;
                 advance();
+            }
+
+            if (!mod_sig_type.empty()) {
+                std::string type_name = mod_sig_type;
+                auto enum_info = get_enum_typedef(type_name);
+                auto struct_info = get_struct_typedef(type_name);
 
                 uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
                 bool is_signed_sig = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
@@ -979,11 +1024,30 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (current.type == TokenType::TOKEN_IMPORT) {
-                auto dpi = parse_dpi_import();
-                if (dpi) {
-                    std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
-                    mod->dpi_imports.push_back(sdpi);
-                    mod->dpi_import_map[sdpi->sv_name] = sdpi.get();
+                if (peek_token().type == TokenType::TOKEN_STRING) {
+                    auto dpi = parse_dpi_import();
+                    if (dpi) {
+                        std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                        mod->dpi_imports.push_back(sdpi);
+                        mod->dpi_import_map[sdpi->sv_name] = sdpi.get();
+                    }
+                } else {
+                    advance(); // consume 'import'
+                    while (true) {
+                        std::string pkg_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
+                        expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
+                        if (match(TokenType::TOKEN_STAR)) {
+                            mod->wildcard_imports.push_back(pkg_name);
+                        } else {
+                            std::string item_name = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
+                            mod->explicit_imports[item_name] = {pkg_name, item_name};
+                        }
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import declaration");
                 }
                 continue;
             }
@@ -2431,4 +2495,167 @@ std::unique_ptr<DpiExportNode> Parser::parse_dpi_export() {
 
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after DPI export declaration");
     return node;
+}
+
+std::shared_ptr<PackageNode> Parser::parse_package() {
+    expect(TokenType::TOKEN_PACKAGE, "Expected 'package'");
+    auto pkg = std::make_shared<PackageNode>();
+    pkg->defined_in_file = current.filename;
+    pkg->defined_on_line = current.line;
+    pkg->name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected package name");
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after package name");
+
+    global_packages[pkg->name] = pkg;
+
+    while (current.type != TokenType::TOKEN_ENDPACKAGE && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE) {
+            std::string loc = current.filename.empty() 
+                ? ("line " + std::to_string(current.line)) 
+                : (current.filename + ":" + std::to_string(current.line));
+            throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Module or interface declarations and instantiations are illegal in package scope");
+        }
+
+        if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+            advance();
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                advance();
+            }
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in parameter range");
+                parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+            }
+
+            while (true) {
+                std::string pname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
+                auto val_expr = parse_expression();
+
+                uint64_t val = eval_const_expr_with_params(val_expr.get(), pkg->param_constants);
+                pkg->param_constants[pname] = val;
+
+                ParameterDef pdef;
+                pdef.name = pname;
+                pdef.default_expr = std::move(val_expr);
+                pkg->parameters.push_back(std::move(pdef));
+
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after parameter declaration");
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_TYPEDEF) {
+            auto td = parse_typedef();
+            if (td) {
+                if (td->enum_type) {
+                    pkg->enum_typedefs[td->type_name] = td->enum_type;
+                    for (const auto& m : td->enum_type->members) {
+                        pkg->enum_constant_map[m.first] = m.second;
+                    }
+                }
+                if (td->struct_type) {
+                    pkg->struct_typedefs[td->type_name] = td->struct_type;
+                }
+                pkg->typedefs.push_back(std::move(td));
+            }
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_FUNCTION)) {
+            auto fn = parse_function();
+            if (fn) {
+                pkg->function_map[fn->name] = fn.get();
+                pkg->functions.push_back(std::move(fn));
+            }
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_TASK)) {
+            auto t = parse_task();
+            if (t) {
+                pkg->task_map[t->name] = t.get();
+                pkg->tasks.push_back(std::move(t));
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_CLASS) {
+            auto cls = parse_class();
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                pkg->class_map[scls->name] = scls.get();
+                pkg->classes.push_back(scls);
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_IMPORT) {
+            if (peek_token().type == TokenType::TOKEN_STRING) {
+                auto dpi = parse_dpi_import();
+                if (dpi) {
+                    std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                    pkg->dpi_import_map[sdpi->sv_name] = sdpi.get();
+                    pkg->dpi_imports.push_back(sdpi);
+                }
+            } else {
+                advance(); // consume 'import'
+                while (true) {
+                    std::string imp_pkg_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
+                    expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
+                    if (match(TokenType::TOKEN_STAR)) {
+                        pkg->wildcard_imports.push_back(imp_pkg_name);
+                    } else {
+                        std::string item_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
+                        pkg->explicit_imports[item_name] = {imp_pkg_name, item_name};
+                    }
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import declaration");
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_EXPORT) {
+            auto exp = parse_dpi_export();
+            if (exp) {
+                std::shared_ptr<DpiExportNode> sexp = std::move(exp);
+                pkg->dpi_export_map[sexp->c_name] = sexp.get();
+                pkg->dpi_export_map[sexp->sv_name] = sexp.get();
+                pkg->dpi_exports.push_back(sexp);
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            Token next = peek_token();
+            if (next.type == TokenType::TOKEN_IDENTIFIER || next.type == TokenType::TOKEN_HASH) {
+                std::string loc = current.filename.empty() 
+                    ? ("line " + std::to_string(current.line)) 
+                    : (current.filename + ":" + std::to_string(current.line));
+                throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Module or interface declarations and instantiations are illegal in package scope");
+            }
+            advance();
+            continue;
+        }
+
+        advance();
+    }
+
+    expect(TokenType::TOKEN_ENDPACKAGE, "Expected 'endpackage'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            advance();
+        }
+    }
+    return pkg;
 }

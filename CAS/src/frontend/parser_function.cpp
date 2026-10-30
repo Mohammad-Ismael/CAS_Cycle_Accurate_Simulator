@@ -27,6 +27,22 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
         else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
         advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+        std::string p_name = current.text;
+        advance(); advance();
+        std::string t_name = current.text;
+        std::string full_t = p_name + "::" + t_name;
+        auto einfo = get_enum_typedef(full_t);
+        auto sinfo = get_struct_typedef(full_t);
+        func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+        func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+        auto einfo = get_enum_typedef(current.text);
+        auto sinfo = get_struct_typedef(current.text);
+        func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+        func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+        advance();
     }
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
 
@@ -71,6 +87,24 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 else if (current.text == "shortint") def_w = 16;
                 else if (current.text == "longint") def_w = 64;
                 else def_w = 32;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                std::string p_name = current.text;
+                advance(); advance();
+                std::string t_name = current.text;
+                std::string full_t = p_name + "::" + t_name;
+                auto einfo = get_enum_typedef(full_t);
+                auto sinfo = get_struct_typedef(full_t);
+                def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+                is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+                is_int = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                auto einfo = get_enum_typedef(current.text);
+                auto sinfo = get_struct_typedef(current.text);
+                def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+                is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+                is_int = true;
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;

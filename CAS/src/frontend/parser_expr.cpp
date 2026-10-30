@@ -212,6 +212,12 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method argument list");
                 return std::make_unique<StaticMethodCallNode>(name, member, std::move(args));
             }
+            if (match(TokenType::TOKEN_APOSTROPHE)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+                auto cast_expr = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+                return std::make_unique<CastNode>(name + "::" + member, std::move(cast_expr));
+            }
             return std::make_unique<StaticMemberAccessNode>(name, member);
         }
 
