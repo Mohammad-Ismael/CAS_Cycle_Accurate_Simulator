@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.15.0.0`  
-**Status:** Production Milestone v3.15.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.16.0.0`  
+**Status:** Production Milestone v3.16.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,9 +14,9 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[█████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░] 43.0%`
+`[██████████████████████░░░░░░░░░░░░░░░░░░░░░░░░] 44.4%`
 
-*Current Baseline (v3.15.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution), DPI-C opaque pointer storage (`chandle`, `null` comparisons, 64-bit pointer ABI marshalling), and DPI-C Open Arrays (`[]`, `const svOpenArrayHandle`, standard inquiry and element access APIs `svSize` and `svGetArrElemPtr1`).  
+*Current Baseline (v3.16.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution), DPI-C opaque pointer storage (`chandle`, `null` comparisons, 64-bit pointer ABI marshalling), DPI-C Open Arrays (`[]`, `const svOpenArrayHandle`, standard inquiry and element access APIs `svSize` and `svGetArrElemPtr1`), and Parameterized Classes (parameter declarations `#(...)`, class specialization instantiation `class_name #(args)`, static specialization scopes `class_name#(args)::member`, per-specialization independent static variables/methods, and context diagnostic `[CAS-DTINPCIL]`).  
 *Upcoming Domains:* Packed SV-to-C Struct Passing, DPI-C Memory Mapping.
 
 ---
@@ -36,6 +36,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§7.10, §7.10.4** | **Bounded & Unbounded Queues & Methods** | Unbounded (`[$]`) and bounded (`[$:N]`) queue declarations, dynamic methods (`.size()`, `.push_back()`, `.push_front()`, `.pop_front()`, `.pop_back()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
 | **§8, §8.3, §8.4, §8.5, §8.7, §8.11** | **OOP Classes, Objects & Methods** | Class definitions (`class ... endclass`), object handles, instantiation via constructor (`new(...)`), member properties, member tasks and functions, `this` self-reference, `null` handles, and dynamic type context restrictions (`[CAS-DTINPCIL]`). |
 | **§8.13–§8.20** | **OOP Class Inheritance, Virtual Methods & $cast** | Class inheritance (`extends`), constructor chaining (`super.new(...)`), virtual methods (`virtual function/task`), dynamic polymorphic dispatch via vtables, and runtime dynamic downcasting (`$cast(dest, src)`). |
+| **§8.25** | **Parameterized Classes & Specializations** | Parameter declarations (`class c #(parameter int W = 16)`), specialized instantiation (`c #(16, 10) obj`), static specialization scope resolution (`c#(16, 10)::get_count()`), independent per-specialization static member storage, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§18, §18.4, §18.5, §18.7, §18.14** | **Constrained Randomization** | Random modifiers (`rand`, `randc`), declarative `constraint` blocks, built-in `.randomize()` method, inline `with { ... }` constraints, containment ranges (`inside { ... }`), PRNG seeding via `.srandom()`, and contradiction diagnostic `[CAS-CNST-CIF]`. |
 | **§19, §19.3, §19.5, §19.8** | **Functional Coverage & Covergroups** | `covergroup ... endgroup` definitions, explicit coverpoints (`cp: coverpoint expr`), value and range bins (`bins b = {val}`, `bins r = {[lo:hi]}`), instantiation via constructor (`cg = new()`), manual sampling (`.sample()`), instance coverage querying (`.get_coverage()`), real-to-integer conversion (`$rtoi`), `real` datatype support, and dynamic type context restrictions (`[CAS-DTINPCIL]`). |
 | **§19.6, §19.6.1** | **Cross Coverage & Cartesian Bins** | Cross coverage specifications (`cross cp1, cp2`), multi-dimensional Cartesian product bin generation, cross sample tracking, and cumulative composite covergroup coverage calculation. |
@@ -66,7 +67,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (35 / 35 PASS)
+## Milestone Regression Pass Matrix (37 / 37 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -107,6 +108,8 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.12.0.0** | `projects/v3_12_0_0_dpic_foreign_interface` | Direct Programming Interface (DPI-C, C ABI Marshalling, Dynamic Linking) (§35) | **PASS** | 100% VCS |
 | **v3.13.0.0** | `projects/v3_13_0_0_dpic_export_context` | Direct Programming Interface (DPI-C Exports, Context Subroutines, svScope Resolution) (§35.5.3, §35.6, §35.7) | **PASS** | 100% VCS |
 | **v3.14.0.0** | `projects/v3_14_0_0_dpic_chandle_open_arrays` | Direct Programming Interface (DPI-C Chandle, Pointer Passing, Stateful Context) (§35.5.4) | **PASS** | 100% VCS |
+| **v3.15.0.0** | `projects/v3_15_0_0_dpic_open_arrays` | Direct Programming Interface (DPI-C Open Arrays, Formal Handles, svSize/svGetArrElemPtr1) (§35.5.6.1, Annex I.9) | **PASS** | 100% VCS |
+| **v3.16.0.0** | `projects/v3_16_0_0_parameterized_classes` | Parameterized Classes, Specialization Instantiation, Static Specialization Scopes & Independent Static Storage (§8.25) | **PASS** | 100% VCS |
 
 ---
 

@@ -16,6 +16,7 @@ private:
     ExecutionContext context;
     BoundProcess* current_bp = nullptr;
     ClassObject* current_this = nullptr;
+    const ClassNode* current_class_def = nullptr;
     const std::vector<LogicVal>* preponed_override = nullptr;
     const std::deque<std::vector<LogicVal>>* current_clock_history = nullptr;
 
@@ -35,6 +36,8 @@ public:
 
     void set_current_this(ClassObject* obj) { current_this = obj; }
     ClassObject* get_current_this() const { return current_this; }
+    void set_current_class_def(const ClassNode* cd) { current_class_def = cd; }
+    const ClassNode* get_current_class_def() const { return current_class_def; }
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
     LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);
@@ -42,4 +45,5 @@ public:
     LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope = "");
     bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
+    bool eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
 };

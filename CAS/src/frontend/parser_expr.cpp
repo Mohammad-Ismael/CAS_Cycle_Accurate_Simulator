@@ -173,8 +173,47 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        if (is_class(current.text)) {
+            std::string class_type = parse_class_type_and_specialize();
+            if (match(TokenType::TOKEN_COLON_COLON)) {
+                std::string member = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    std::vector<std::unique_ptr<ExpressionNode>> args;
+                    if (current.type != TokenType::TOKEN_RPAREN) {
+                        while (true) {
+                            args.push_back(parse_expression());
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method argument list");
+                    return std::make_unique<StaticMethodCallNode>(class_type, member, std::move(args));
+                }
+                return std::make_unique<StaticMemberAccessNode>(class_type, member);
+            }
+        }
+
         std::string name = current.text;
         advance();
+
+        if (match(TokenType::TOKEN_COLON_COLON)) {
+            std::string member = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+            if (match(TokenType::TOKEN_LPAREN)) {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        args.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method argument list");
+                return std::make_unique<StaticMethodCallNode>(name, member, std::move(args));
+            }
+            return std::make_unique<StaticMemberAccessNode>(name, member);
+        }
 
         if (name == "randomize") {
             if (match(TokenType::TOKEN_LPAREN)) {

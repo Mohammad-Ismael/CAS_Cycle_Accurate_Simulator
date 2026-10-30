@@ -1,0 +1,12 @@
+{
+  "name": "v3_16_0_0_parameterized_classes",
+  "version": "v3.16.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§8.25",
+  "description": "Parameterized Classes: class parameter declarations '#(...)', specialization instantiation 'class_name #(args)', static specialization scopes 'class_name#(args)::member', and context diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_16_0_0_regression"
+}

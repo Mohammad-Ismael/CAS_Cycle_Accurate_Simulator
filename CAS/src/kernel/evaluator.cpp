@@ -369,6 +369,59 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         std::string tname = tcall->task_name;
+        auto colons = tname.find("::");
+        if (colons != std::string::npos && tcall->class_type_name.empty()) {
+            tcall->class_type_name = tname.substr(0, colons);
+            tcall->task_name = tname.substr(colons + 2);
+        }
+
+        if (!tcall->class_type_name.empty()) {
+            const ClassNode* cls = engine.get_class_def(tcall->class_type_name);
+            if (cls) {
+                TaskNode* task_node = cls->get_task(tcall->task_name);
+                FunctionNode* func_node = cls->get_function(tcall->task_name);
+                if (func_node) {
+                    std::vector<LogicVal> arg_vals;
+                    for (auto& a : tcall->args) arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+                    LogicVal dummy;
+                    expr_eval.eval_static_class_method(tcall->class_type_name, func_node, arg_vals, dummy);
+                    return;
+                }
+                if (task_node) {
+                    const ClassNode* prev_cd = expr_eval.get_current_class_def();
+                    expr_eval.set_current_class_def(cls);
+                    std::string frame_name = tcall->class_type_name + "::" + task_node->name + "__call";
+                    expr_eval.get_context().push_frame(frame_name);
+                    for (size_t i = 0; i < task_node->ports.size(); ++i) {
+                        const auto& p = task_node->ports[i];
+                        uint32_t w = 32;
+                        if (p.msb_expr && p.lsb_expr) {
+                            auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
+                            auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
+                            if (msb_n && lsb_n) {
+                                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+                            }
+                        }
+                        expr_eval.get_context().declare_local(p.name, w, p.is_signed);
+                        if (i < tcall->args.size()) {
+                            LogicVal arg_v = eval_expr(tcall->args[i].get(), bp.scope);
+                            expr_eval.get_context().set_local_value(p.name, arg_v);
+                        } else if (p.default_value) {
+                            LogicVal def_v = eval_expr(p.default_value.get(), bp.scope);
+                            expr_eval.get_context().set_local_value(p.name, def_v);
+                        }
+                    }
+                    for (auto& s : task_node->get_body()) {
+                        if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                        execute_statement(s.get(), bp);
+                    }
+                    expr_eval.get_context().pop_frame();
+                    expr_eval.set_current_class_def(prev_cd);
+                    return;
+                }
+            }
+        }
+
         auto dot = tname.rfind('.');
         if (dot != std::string::npos) {
             std::string var_name = tname.substr(0, dot);
@@ -535,7 +588,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             expr_eval.get_context().set_local_value(p.name, def_v);
                         }
                     }
-                    for (auto& s : task_node->body) {
+                    for (auto& s : task_node->get_body()) {
                         if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
                         execute_statement(s.get(), bp);
                     }
@@ -828,6 +881,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'this' used directly in $monitor per IEEE 1800-2023 section 8.11 & 21.2.3");
                 } else if (dynamic_cast<RandomizeCallNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'randomize()' used directly in $monitor per IEEE 1800-2023 section 18 & 21.2.3");
+                } else if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: static class method '" + smc->class_type_name + "::" + smc->method_name + "()' used directly in $monitor per IEEE 1800-2023 section 8.25 & 21.2.3");
                 } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                     if (engine.is_covergroup_handle(mc->var_name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 19 & 21.2.3");
@@ -1197,6 +1252,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (!assign->lhs_targets.empty()) {
             std::string target_name = assign->lhs_targets[0];
+            auto colons = target_name.find("::");
+            if (colons != std::string::npos) {
+                std::string cls_type = target_name.substr(0, colons);
+                std::string s_var = target_name.substr(colons + 2);
+                engine.set_class_static_var(cls_type, s_var, rhs_val);
+                return;
+            }
             std::string base_var = target_name;
             std::string member_name = "";
             auto dot_pos = target_name.rfind('.');
@@ -1263,6 +1325,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         } else {
             std::string target_name = assign->lhs_targets[0];
+            auto colons = target_name.find("::");
+            if (colons != std::string::npos) {
+                std::string cls_type = target_name.substr(0, colons);
+                std::string s_var = target_name.substr(colons + 2);
+                engine.set_class_static_var(cls_type, s_var, rhs_val);
+                return;
+            }
             std::string base_var = target_name;
             std::string member_name = "";
             auto dot_pos = target_name.rfind('.');
@@ -1361,6 +1430,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 if (obj) {
+                    if (obj->class_def && obj->class_def->has_static_member(member_name)) {
+                        engine.set_class_static_var(obj->class_type_name, member_name, rhs_val);
+                        return;
+                    }
                     obj->set_property(member_name, rhs_val);
                     return;
                 }
@@ -1369,6 +1442,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (member_name.empty() && !local) {
                 if (expr_eval.get_current_this() && expr_eval.get_current_this()->has_property(base_var)) {
                     expr_eval.get_current_this()->set_property(base_var, rhs_val);
+                    return;
+                }
+                if (expr_eval.get_current_this() && expr_eval.get_current_this()->class_def && expr_eval.get_current_this()->class_def->has_static_member(base_var)) {
+                    engine.set_class_static_var(expr_eval.get_current_this()->class_type_name, base_var, rhs_val);
+                    return;
+                }
+                if (expr_eval.get_current_class_def() && expr_eval.get_current_class_def()->has_static_member(base_var)) {
+                    engine.set_class_static_var(expr_eval.get_current_class_def()->name, base_var, rhs_val);
                     return;
                 }
             }

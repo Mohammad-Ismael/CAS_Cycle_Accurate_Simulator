@@ -61,6 +61,7 @@ private:
     std::unordered_map<std::string, size_t> clocking_block_map;
     std::unordered_map<std::string, size_t> default_clocking_map;
     std::unordered_map<std::string, const ClassNode*> class_defs;
+    std::unordered_map<std::string, std::unordered_map<std::string, LogicVal>> class_static_mem;
     std::unordered_set<std::string> class_handle_names;
     std::unordered_map<std::string, std::string> var_to_class_type;
     std::unordered_map<uint64_t, std::shared_ptr<ClassObject>> heap;
@@ -214,7 +215,9 @@ public:
             }
             for (auto it = hierarchy.rbegin(); it != hierarchy.rend(); ++it) {
                 for (const auto& m : (*it)->member_vars) {
-                    obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                    if (!m.is_static) {
+                        obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                    }
                 }
             }
         }
@@ -227,6 +230,41 @@ public:
         auto it = heap.find(handle_id);
         if (it != heap.end()) return it->second;
         return nullptr;
+    }
+
+    LogicVal get_class_static_var(const std::string& class_type, const std::string& var_name) {
+        auto it_cls = class_static_mem.find(class_type);
+        if (it_cls != class_static_mem.end()) {
+            auto it_v = it_cls->second.find(var_name);
+            if (it_v != it_cls->second.end()) {
+                return it_v->second;
+            }
+        }
+        const ClassNode* def = get_class_def(class_type);
+        if (def) {
+            for (const auto& m : def->member_vars) {
+                if (m.name == var_name && m.is_static) {
+                    if (m.default_expr) {
+                        if (auto num = dynamic_cast<NumberNode*>(m.default_expr.get())) {
+                            LogicVal dval(m.width, num->aval, num->bval);
+                            class_static_mem[class_type][var_name] = dval;
+                            return dval;
+                        }
+                    }
+                    LogicVal zval(m.width, 0, 0);
+                    class_static_mem[class_type][var_name] = zval;
+                    return zval;
+                }
+            }
+            if (def->base_class) {
+                return get_class_static_var(def->base_class->name, var_name);
+            }
+        }
+        return LogicVal::make_known(32, 0);
+    }
+
+    void set_class_static_var(const std::string& class_type, const std::string& var_name, const LogicVal& val) {
+        class_static_mem[class_type][var_name] = val;
     }
 
     bool is_covergroup_handle(const std::string& name, const std::string& scope = "") const {

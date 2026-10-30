@@ -109,7 +109,7 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
     BoundProcess bp{frame_name, nullptr, 0, false};
-    for (auto& s : fn->body) {
+    for (auto& s : fn->get_body()) {
         if (context.current_frame() && context.current_frame()->returned) break;
         engine.evaluator.execute_statement(s.get(), bp);
     }
@@ -126,6 +126,66 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
 
     context.pop_frame();
     current_this = prev_this;
+    return true;
+}
+
+bool ExprEvaluator::eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
+    if (!fn) return false;
+
+    const ClassNode* prev_class_def = current_class_def;
+    current_class_def = engine.get_class_def(class_type);
+
+    std::string frame_name = class_type + "::" + fn->name + "__call";
+    context.push_frame(frame_name);
+    if (context.current_frame()) {
+        context.current_frame()->func_return_name = fn->name;
+    }
+
+    // 1. Declare and initialize function return variable
+    context.declare_local(fn->name, fn->return_width, fn->return_signed);
+
+    // 2. Declare and initialize input parameters
+    for (size_t i = 0; i < fn->inputs.size(); ++i) {
+        const auto& in_p = fn->inputs[i];
+        uint32_t w = 1;
+        if (in_p.msb_expr && in_p.lsb_expr) {
+            auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
+            auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
+            if (msb_n && lsb_n) {
+                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+            }
+        } else {
+            w = 32;
+        }
+        context.declare_local(in_p.name, w, in_p.is_signed);
+        if (i < arg_vals.size()) {
+            context.set_local_value(in_p.name, arg_vals[i]);
+        } else if (in_p.default_value) {
+            LogicVal def_val = eval(in_p.default_value.get(), "");
+            context.set_local_value(in_p.name, def_val);
+        }
+    }
+
+    // 3. Execute body statements directly through Evaluator
+    BoundProcess* prev_bp = current_bp;
+    BoundProcess bp{frame_name, nullptr, 0, false};
+    for (auto& s : fn->get_body()) {
+        if (context.current_frame() && context.current_frame()->returned) break;
+        engine.evaluator.execute_statement(s.get(), bp);
+    }
+    engine.evaluator.set_current_process(prev_bp);
+    set_current_process(prev_bp);
+
+    // 4. Retrieve return variable
+    LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(fn->name) : nullptr;
+    if (ret_var) {
+        result_out = ret_var->value;
+    } else {
+        result_out = LogicVal(fn->return_width, 0, 0);
+    }
+
+    context.pop_frame();
+    current_class_def = prev_class_def;
     return true;
 }
 
@@ -228,6 +288,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal(64, obj->handle_id, 0);
         }
         return LogicVal(64, 0, 0);
+    }
+
+    if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+        const ClassNode* cls_def = engine.get_class_def(smc->class_type_name);
+        if (cls_def) {
+            FunctionNode* fn = cls_def->get_function(smc->method_name);
+            if (fn) {
+                std::vector<LogicVal> arg_vals;
+                for (auto& a : smc->args) arg_vals.push_back(eval(a.get(), scope));
+                LogicVal res;
+                eval_static_class_method(smc->class_type_name, fn, arg_vals, res);
+                return res;
+            }
+        }
+        return LogicVal::make_known(32, 0);
+    }
+
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+        return engine.get_class_static_var(sma->class_type_name, sma->member_name);
     }
 
     if (auto inside_node = dynamic_cast<InsideNode*>(expr)) {
@@ -419,7 +498,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 std::vector<LogicVal> arg_vals;
                 for (auto& a : method_node->args) arg_vals.push_back(eval(a.get(), scope));
                 LogicVal res;
-                if (eval_class_method(cl_obj, fn, arg_vals, res)) {
+                if (fn->is_static) {
+                    if (eval_static_class_method(cl_obj->class_type_name, fn, arg_vals, res)) {
+                        return res;
+                    }
+                } else if (eval_class_method(cl_obj, fn, arg_vals, res)) {
                     return res;
                 }
             }
@@ -801,7 +884,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         if (var_name == "this" || var_name == "super") {
-            if (current_this) return current_this->get_property(member_name);
+            if (current_this) {
+                if (current_this->class_def && current_this->class_def->has_static_member(member_name)) {
+                    return engine.get_class_static_var(current_this->class_type_name, member_name);
+                }
+                return current_this->get_property(member_name);
+            }
             return LogicVal::make_x(32);
         }
 
@@ -828,6 +916,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         if (cl_obj) {
+            if (cl_obj->class_def && cl_obj->class_def->has_static_member(member_name)) {
+                return engine.get_class_static_var(cl_obj->class_type_name, member_name);
+            }
             return cl_obj->get_property(member_name);
         }
 
@@ -971,6 +1062,22 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         if (current_this && current_this->has_property(ident->name)) {
             return current_this->get_property(ident->name);
+        }
+        if (current_this && current_this->class_def) {
+            if (current_this->class_def->param_values.count(ident->name)) {
+                return LogicVal::make_known(32, current_this->class_def->param_values.at(ident->name));
+            }
+            if (current_this->class_def->has_static_member(ident->name)) {
+                return engine.get_class_static_var(current_this->class_type_name, ident->name);
+            }
+        }
+        if (current_class_def) {
+            if (current_class_def->param_values.count(ident->name)) {
+                return LogicVal::make_known(32, current_class_def->param_values.at(ident->name));
+            }
+            if (current_class_def->has_static_member(ident->name)) {
+                return engine.get_class_static_var(current_class_def->name, ident->name);
+            }
         }
 
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);

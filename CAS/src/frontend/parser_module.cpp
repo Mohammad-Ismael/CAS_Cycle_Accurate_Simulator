@@ -109,6 +109,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'parameter', or 'localparam' keyword");
         }
         auto mod = is_iface ? std::make_unique<InterfaceNode>() : std::make_unique<ModuleNode>();
+        current_parsing_module = mod.get();
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
         mod->name = current.text;
@@ -602,8 +603,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
-                std::string class_type = current.text;
-                advance();
+                std::string class_type = parse_class_type_and_specialize();
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected class handle identifier");
@@ -1106,6 +1106,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
         }
 
+        current_parsing_module = nullptr;
         modules.push_back(std::move(mod));
     }
 
@@ -1323,25 +1324,57 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
     expect(TokenType::TOKEN_CLASS, "Expected 'class'");
     std::string class_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
+
+    auto cls = std::make_unique<ClassNode>(class_name);
+
+    if (match(TokenType::TOKEN_HASH)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class parameter list");
+        cls->is_parameterized = true;
+        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+                current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG ||
+                current.type == TokenType::TOKEN_WIRE ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                advance();
+            }
+            std::string pname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+            std::unique_ptr<ExpressionNode> pexpr = nullptr;
+            if (match(TokenType::TOKEN_EQUAL)) {
+                pexpr = parse_expression();
+            }
+            cls->parameters.push_back(ParameterDef(pname, std::move(pexpr)));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing class parameter list");
+    }
+
     std::string base_class_name = "";
     if (match(TokenType::TOKEN_EXTENDS)) {
         base_class_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
-
-    auto cls = std::make_unique<ClassNode>(class_name, base_class_name);
+    cls->base_class_name = base_class_name;
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
         bool is_virt = false;
+        bool is_stat = false;
         if (match(TokenType::TOKEN_VIRTUAL)) {
             is_virt = true;
+        } else if (match(TokenType::TOKEN_STATIC)) {
+            is_stat = true;
         }
         if (current.type == TokenType::TOKEN_FUNCTION) {
             advance();
             auto fn = parse_function();
             if (fn) {
                 fn->is_virtual = is_virt;
+                fn->is_static = is_stat || fn->is_static;
                 cls->add_function(std::move(fn));
             }
         } else if (current.type == TokenType::TOKEN_TASK) {
@@ -1349,6 +1382,7 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
             auto t = parse_task();
             if (t) {
                 t->is_virtual = is_virt;
+                t->is_static = is_stat || t->is_static;
                 cls->add_task(std::move(t));
             }
         } else if (current.type == TokenType::TOKEN_CONSTRAINT) {
@@ -1383,6 +1417,8 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                 advance();
                 if (match(TokenType::TOKEN_SIGNED)) is_s = true;
                 uint32_t width = is_s ? 32 : 1;
+                std::unique_ptr<ExpressionNode> mvar_msb = nullptr;
+                std::unique_ptr<ExpressionNode> mvar_lsb = nullptr;
                 if (match(TokenType::TOKEN_LBRACKET)) {
                     auto msb = parse_expression();
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
@@ -1393,6 +1429,8 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                     if (msb_n && lsb_n) {
                         width = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
                     }
+                    mvar_msb = std::move(msb);
+                    mvar_lsb = std::move(lsb);
                 }
                 while (true) {
                     std::string var_name = current.text;
@@ -1408,6 +1446,9 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                     mvar.default_expr = std::move(def_val);
                     mvar.is_rand = is_rand;
                     mvar.is_randc = is_randc;
+                    mvar.is_static = is_stat;
+                    if (mvar_msb) mvar.msb_expr = mvar_msb->clone();
+                    if (mvar_lsb) mvar.lsb_expr = mvar_lsb->clone();
                     cls->add_member_var(std::move(mvar));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -1424,6 +1465,7 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                     mvar.is_signed = false;
                     mvar.is_rand = is_rand;
                     mvar.is_randc = is_randc;
+                    mvar.is_static = is_stat;
                     cls->add_member_var(std::move(mvar));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -1439,6 +1481,320 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
         if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
     return cls;
+}
+
+uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::unordered_map<std::string, uint64_t>& params) {
+    if (!expr) return 0;
+    if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        return num->aval;
+    }
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        auto it = params.find(id->name);
+        if (it != params.end()) return it->second;
+        return 0;
+    }
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        uint64_t val = eval_const_expr_with_params(un->operand.get(), params);
+        if (un->op == "-" || un->op == "NEG") return -val;
+        if (un->op == "~") return ~val;
+        if (un->op == "!") return !val;
+        return val;
+    }
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        uint64_t l = eval_const_expr_with_params(bin->lhs.get(), params);
+        uint64_t r = eval_const_expr_with_params(bin->rhs.get(), params);
+        if (bin->op == "+") return l + r;
+        if (bin->op == "-") return l - r;
+        if (bin->op == "*") return l * r;
+        if (bin->op == "/") return r != 0 ? (l / r) : 0;
+        if (bin->op == "%") return r != 0 ? (l % r) : 0;
+        if (bin->op == "<<" || bin->op == "<<<") return l << r;
+        if (bin->op == ">>" || bin->op == ">>>") return l >> r;
+        if (bin->op == "&") return l & r;
+        if (bin->op == "|") return l | r;
+        if (bin->op == "^") return l ^ r;
+        if (bin->op == "==" || bin->op == "===") return l == r;
+        if (bin->op == "!=" || bin->op == "!==") return l != r;
+        if (bin->op == "<") return l < r;
+        if (bin->op == "<=") return l <= r;
+        if (bin->op == ">") return l > r;
+        if (bin->op == ">=") return l >= r;
+        return l;
+    }
+    return 0;
+}
+
+uint64_t Parser::eval_const_expr(ExpressionNode* expr) {
+    std::unordered_map<std::string, uint64_t> empty_map;
+    return eval_const_expr_with_params(expr, empty_map);
+}
+
+std::string Parser::parse_class_type_and_specialize() {
+    std::string base_name = current.text;
+    auto hash_idx = base_name.find('#');
+    if (hash_idx != std::string::npos) {
+        base_name = base_name.substr(0, hash_idx);
+        while (!base_name.empty() && std::isspace(base_name.back())) base_name.pop_back();
+    }
+    advance();
+
+    auto it = class_map.find(base_name);
+    ClassNode* base_cls = (it != class_map.end()) ? it->second.get() : nullptr;
+
+    if (!base_cls) {
+        return base_name;
+    }
+
+    if (!match(TokenType::TOKEN_HASH)) {
+        if (!base_cls->is_parameterized) {
+            return base_name;
+        }
+        std::unordered_map<std::string, uint64_t> resolved;
+        for (const auto& p : base_cls->parameters) {
+            if (p.default_expr) resolved[p.name] = eval_const_expr(p.default_expr.get());
+            else resolved[p.name] = 0;
+        }
+        std::string canon_name = base_name + "#(";
+        for (size_t i = 0; i < base_cls->parameters.size(); ++i) {
+            if (i > 0) canon_name += ",";
+            canon_name += std::to_string(resolved[base_cls->parameters[i].name]);
+        }
+        canon_name += ")";
+
+        if (class_map.find(canon_name) == class_map.end()) {
+            auto spec_cls = std::make_unique<ClassNode>(canon_name, base_cls->base_class_name);
+            spec_cls->template_class_name = base_name;
+            spec_cls->param_values = resolved;
+            spec_cls->is_parameterized = false;
+            spec_cls->parameters = base_cls->parameters;
+
+            for (const auto& mv : base_cls->member_vars) {
+                ClassMemberVar smv;
+                smv.name = mv.name;
+                smv.is_signed = mv.is_signed;
+                smv.is_rand = mv.is_rand;
+                smv.is_randc = mv.is_randc;
+                smv.is_static = mv.is_static;
+                if (mv.default_expr) smv.default_expr = mv.default_expr->clone();
+                if (mv.msb_expr && mv.lsb_expr) {
+                    uint64_t m = eval_const_expr_with_params(mv.msb_expr.get(), resolved);
+                    uint64_t l = eval_const_expr_with_params(mv.lsb_expr.get(), resolved);
+                    smv.msb_expr = std::make_unique<NumberNode>(m, 32);
+                    smv.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                    smv.width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                } else {
+                    smv.width = mv.width;
+                }
+                spec_cls->add_member_var(std::move(smv));
+            }
+
+            for (const auto& fn : base_cls->functions) {
+                auto sfn = std::make_unique<FunctionNode>();
+                sfn->name = fn->name;
+                sfn->is_automatic = fn->is_automatic;
+                sfn->is_virtual = fn->is_virtual;
+                sfn->is_static = fn->is_static;
+                sfn->return_signed = fn->return_signed;
+                sfn->shared_body = &fn->body;
+                if (fn->return_msb_expr && fn->return_lsb_expr) {
+                    uint64_t m = eval_const_expr_with_params(fn->return_msb_expr.get(), resolved);
+                    uint64_t l = eval_const_expr_with_params(fn->return_lsb_expr.get(), resolved);
+                    sfn->return_msb_expr = std::make_unique<NumberNode>(m, 32);
+                    sfn->return_lsb_expr = std::make_unique<NumberNode>(l, 32);
+                    sfn->return_width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                } else {
+                    sfn->return_width = fn->return_width;
+                }
+                for (const auto& inp : fn->inputs) {
+                    PortNode sinp(inp.name, inp.direction);
+                    sinp.is_signed = inp.is_signed;
+                    if (inp.default_value) sinp.default_value = inp.default_value->clone();
+                    if (inp.msb_expr && inp.lsb_expr) {
+                        uint64_t m = eval_const_expr_with_params(inp.msb_expr.get(), resolved);
+                        uint64_t l = eval_const_expr_with_params(inp.lsb_expr.get(), resolved);
+                        sinp.msb_expr = std::make_unique<NumberNode>(m, 32);
+                        sinp.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                    }
+                    sfn->inputs.push_back(std::move(sinp));
+                }
+                spec_cls->add_function(std::move(sfn));
+            }
+
+            for (const auto& t : base_cls->tasks) {
+                auto st = std::make_unique<TaskNode>();
+                st->name = t->name;
+                st->is_automatic = t->is_automatic;
+                st->is_virtual = t->is_virtual;
+                st->is_static = t->is_static;
+                st->shared_body = &t->body;
+                for (const auto& port : t->ports) {
+                    PortNode sport(port.name, port.direction);
+                    sport.is_signed = port.is_signed;
+                    if (port.default_value) sport.default_value = port.default_value->clone();
+                    if (port.msb_expr && port.lsb_expr) {
+                        uint64_t m = eval_const_expr_with_params(port.msb_expr.get(), resolved);
+                        uint64_t l = eval_const_expr_with_params(port.lsb_expr.get(), resolved);
+                        sport.msb_expr = std::make_unique<NumberNode>(m, 32);
+                        sport.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                    }
+                    st->ports.push_back(std::move(sport));
+                }
+                spec_cls->add_task(std::move(st));
+            }
+
+            for (const auto& c : base_cls->constraints) {
+                std::vector<std::unique_ptr<ExpressionNode>> cexprs;
+                for (const auto& e : c->exprs) if (e) cexprs.push_back(e->clone());
+                spec_cls->add_constraint(std::make_unique<ConstraintBlockNode>(c->name, std::move(cexprs)));
+            }
+
+            std::shared_ptr<ClassNode> s_spec = std::move(spec_cls);
+            class_map[canon_name] = s_spec;
+            global_classes.push_back(s_spec);
+            if (current_parsing_module) {
+                current_parsing_module->classes.push_back(s_spec);
+                current_parsing_module->class_map[canon_name] = s_spec.get();
+            }
+        }
+        return canon_name;
+    }
+
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class specialization");
+    std::vector<std::pair<std::string, std::unique_ptr<ExpressionNode>>> named_args;
+    std::vector<std::unique_ptr<ExpressionNode>> pos_args;
+
+    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+        if (match(TokenType::TOKEN_DOT)) {
+            std::string pname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier after '.'");
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after parameter name");
+            auto pexpr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parameter value");
+            named_args.push_back({pname, std::move(pexpr)});
+        } else {
+            pos_args.push_back(parse_expression());
+        }
+        if (match(TokenType::TOKEN_COMMA)) continue;
+        break;
+    }
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing class specialization arguments");
+
+    std::unordered_map<std::string, uint64_t> resolved;
+    for (const auto& p : base_cls->parameters) {
+        if (p.default_expr) resolved[p.name] = eval_const_expr(p.default_expr.get());
+        else resolved[p.name] = 0;
+    }
+    for (size_t i = 0; i < pos_args.size() && i < base_cls->parameters.size(); ++i) {
+        resolved[base_cls->parameters[i].name] = eval_const_expr(pos_args[i].get());
+    }
+    for (const auto& na : named_args) {
+        resolved[na.first] = eval_const_expr(na.second.get());
+    }
+
+    std::string canon_name = base_name + "#(";
+    for (size_t i = 0; i < base_cls->parameters.size(); ++i) {
+        if (i > 0) canon_name += ",";
+        canon_name += std::to_string(resolved[base_cls->parameters[i].name]);
+    }
+    canon_name += ")";
+
+    if (class_map.find(canon_name) == class_map.end()) {
+        auto spec_cls = std::make_unique<ClassNode>(canon_name, base_cls->base_class_name);
+        spec_cls->template_class_name = base_name;
+        spec_cls->param_values = resolved;
+        spec_cls->is_parameterized = false;
+        spec_cls->parameters = base_cls->parameters;
+
+        for (const auto& mv : base_cls->member_vars) {
+            ClassMemberVar smv;
+            smv.name = mv.name;
+            smv.is_signed = mv.is_signed;
+            smv.is_rand = mv.is_rand;
+            smv.is_randc = mv.is_randc;
+            smv.is_static = mv.is_static;
+            if (mv.default_expr) smv.default_expr = mv.default_expr->clone();
+            if (mv.msb_expr && mv.lsb_expr) {
+                uint64_t m = eval_const_expr_with_params(mv.msb_expr.get(), resolved);
+                uint64_t l = eval_const_expr_with_params(mv.lsb_expr.get(), resolved);
+                smv.msb_expr = std::make_unique<NumberNode>(m, 32);
+                smv.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                smv.width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+            } else {
+                smv.width = mv.width;
+            }
+            spec_cls->add_member_var(std::move(smv));
+        }
+
+        for (const auto& fn : base_cls->functions) {
+            auto sfn = std::make_unique<FunctionNode>();
+            sfn->name = fn->name;
+            sfn->is_automatic = fn->is_automatic;
+            sfn->is_virtual = fn->is_virtual;
+            sfn->is_static = fn->is_static;
+            sfn->return_signed = fn->return_signed;
+            sfn->shared_body = &fn->body;
+            if (fn->return_msb_expr && fn->return_lsb_expr) {
+                uint64_t m = eval_const_expr_with_params(fn->return_msb_expr.get(), resolved);
+                uint64_t l = eval_const_expr_with_params(fn->return_lsb_expr.get(), resolved);
+                sfn->return_msb_expr = std::make_unique<NumberNode>(m, 32);
+                sfn->return_lsb_expr = std::make_unique<NumberNode>(l, 32);
+                sfn->return_width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+            } else {
+                sfn->return_width = fn->return_width;
+            }
+            for (const auto& inp : fn->inputs) {
+                PortNode sinp(inp.name, inp.direction);
+                sinp.is_signed = inp.is_signed;
+                if (inp.default_value) sinp.default_value = inp.default_value->clone();
+                if (inp.msb_expr && inp.lsb_expr) {
+                    uint64_t m = eval_const_expr_with_params(inp.msb_expr.get(), resolved);
+                    uint64_t l = eval_const_expr_with_params(inp.lsb_expr.get(), resolved);
+                    sinp.msb_expr = std::make_unique<NumberNode>(m, 32);
+                    sinp.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                }
+                sfn->inputs.push_back(std::move(sinp));
+            }
+            spec_cls->add_function(std::move(sfn));
+        }
+
+        for (const auto& t : base_cls->tasks) {
+            auto st = std::make_unique<TaskNode>();
+            st->name = t->name;
+            st->is_automatic = t->is_automatic;
+            st->is_virtual = t->is_virtual;
+            st->is_static = t->is_static;
+            st->shared_body = &t->body;
+            for (const auto& port : t->ports) {
+                PortNode sport(port.name, port.direction);
+                sport.is_signed = port.is_signed;
+                if (port.default_value) sport.default_value = port.default_value->clone();
+                if (port.msb_expr && port.lsb_expr) {
+                    uint64_t m = eval_const_expr_with_params(port.msb_expr.get(), resolved);
+                    uint64_t l = eval_const_expr_with_params(port.lsb_expr.get(), resolved);
+                    sport.msb_expr = std::make_unique<NumberNode>(m, 32);
+                    sport.lsb_expr = std::make_unique<NumberNode>(l, 32);
+                }
+                st->ports.push_back(std::move(sport));
+            }
+            spec_cls->add_task(std::move(st));
+        }
+
+        for (const auto& c : base_cls->constraints) {
+            std::vector<std::unique_ptr<ExpressionNode>> cexprs;
+            for (const auto& e : c->exprs) if (e) cexprs.push_back(e->clone());
+            spec_cls->add_constraint(std::make_unique<ConstraintBlockNode>(c->name, std::move(cexprs)));
+        }
+
+        std::shared_ptr<ClassNode> s_spec = std::move(spec_cls);
+        class_map[canon_name] = s_spec;
+        global_classes.push_back(s_spec);
+        if (current_parsing_module) {
+            current_parsing_module->classes.push_back(s_spec);
+            current_parsing_module->class_map[canon_name] = s_spec.get();
+        }
+    }
+
+    return canon_name;
 }
 
 

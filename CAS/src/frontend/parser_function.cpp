@@ -7,6 +7,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         func->is_automatic = true;
     } else if (match(TokenType::TOKEN_STATIC)) {
         func->is_automatic = false;
+        func->is_static = true;
     }
 
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
@@ -39,6 +40,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 func->return_width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
             }
         }
+        func->return_msb_expr = std::move(msb);
+        func->return_lsb_expr = std::move(lsb);
     }
 
     if (current.type == TokenType::TOKEN_NEW) {

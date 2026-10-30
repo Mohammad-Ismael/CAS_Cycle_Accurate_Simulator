@@ -31,12 +31,23 @@ public:
     std::vector<std::shared_ptr<ClassNode>> global_classes;
     std::unordered_map<std::string, std::shared_ptr<CovergroupNode>> covergroup_map;
     std::vector<std::shared_ptr<CovergroupNode>> global_covergroups;
+    ModuleNode* current_parsing_module = nullptr;
 
     std::unordered_set<std::string> known_interfaces;
     bool is_class(const std::string& name) const {
-        return class_map.find(name) != class_map.end();
+        if (class_map.find(name) != class_map.end()) return true;
+        auto hash_pos = name.find('#');
+        if (hash_pos != std::string::npos) {
+            std::string base = name.substr(0, hash_pos);
+            while (!base.empty() && std::isspace(base.back())) base.pop_back();
+            if (class_map.find(base) != class_map.end()) return true;
+        }
+        return false;
     }
     std::unique_ptr<ClassNode> parse_class();
+    std::string parse_class_type_and_specialize();
+    uint64_t eval_const_expr(ExpressionNode* expr);
+    uint64_t eval_const_expr_with_params(ExpressionNode* expr, const std::unordered_map<std::string, uint64_t>& params);
     bool is_covergroup(const std::string& name) const {
         return covergroup_map.find(name) != covergroup_map.end();
     }

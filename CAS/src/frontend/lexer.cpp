@@ -167,7 +167,14 @@ Token Lexer::next_token() {
     }
     if (c == '@') { advance(); return {TokenType::TOKEN_AT, "@", 0, 0, cur_file, cur_line, 0}; }
     if (c == '?') { advance(); return {TokenType::TOKEN_QUESTION, "?", 0, 0, cur_file, cur_line, 0}; }
-    if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0}; }
+    if (c == ':') {
+        advance();
+        if (peek() == ':') {
+            advance();
+            return {TokenType::TOKEN_COLON_COLON, "::", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
     if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line, 0}; }
     if (c == '+') {

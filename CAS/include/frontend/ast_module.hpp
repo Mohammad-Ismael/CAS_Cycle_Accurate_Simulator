@@ -52,6 +52,19 @@ struct PortNode : public ASTNode {
 struct ParameterDef {
     std::string name;
     std::unique_ptr<ExpressionNode> default_expr;
+
+    ParameterDef() = default;
+    ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e) : name(std::move(n)), default_expr(std::move(e)) {}
+    ParameterDef(const ParameterDef& other) : name(other.name), default_expr(other.default_expr ? other.default_expr->clone() : nullptr) {}
+    ParameterDef& operator=(const ParameterDef& other) {
+        if (this != &other) {
+            name = other.name;
+            default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
+        }
+        return *this;
+    }
+    ParameterDef(ParameterDef&&) = default;
+    ParameterDef& operator=(ParameterDef&&) = default;
 };
 
 struct ParamOverride {
@@ -88,8 +101,14 @@ struct TaskNode : public ASTNode {
     std::string scope = "";
     bool is_automatic = false;
     bool is_virtual = false;
+    bool is_static = false;
     std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
+    const std::vector<std::unique_ptr<StatementNode>>* shared_body = nullptr;
+
+    const std::vector<std::unique_ptr<StatementNode>>& get_body() const {
+        return shared_body ? *shared_body : body;
+    }
 
     TaskNode() = default;
     explicit TaskNode(std::string n, bool autom = false)
@@ -101,10 +120,18 @@ struct FunctionNode : public ASTNode {
     std::string scope = "";
     bool is_automatic = false;
     bool is_virtual = false;
+    bool is_static = false;
     uint32_t return_width = 32;
     bool return_signed = false;
+    std::unique_ptr<ExpressionNode> return_msb_expr;
+    std::unique_ptr<ExpressionNode> return_lsb_expr;
     std::vector<PortNode> inputs;
     std::vector<std::unique_ptr<StatementNode>> body;
+    const std::vector<std::unique_ptr<StatementNode>>* shared_body = nullptr;
+
+    const std::vector<std::unique_ptr<StatementNode>>& get_body() const {
+        return shared_body ? *shared_body : body;
+    }
 
     FunctionNode() = default;
 };
@@ -240,6 +267,42 @@ struct ClassMemberVar {
     std::unique_ptr<ExpressionNode> default_expr;
     bool is_rand = false;
     bool is_randc = false;
+    bool is_static = false;
+    std::unique_ptr<ExpressionNode> msb_expr;
+    std::unique_ptr<ExpressionNode> lsb_expr;
+
+    ClassMemberVar() = default;
+    ClassMemberVar(ClassMemberVar&&) = default;
+    ClassMemberVar& operator=(ClassMemberVar&&) = default;
+    ClassMemberVar(const ClassMemberVar& other) {
+        name = other.name;
+        width = other.width;
+        is_signed = other.is_signed;
+        if (other.default_expr) default_expr = other.default_expr->clone();
+        is_rand = other.is_rand;
+        is_randc = other.is_randc;
+        is_static = other.is_static;
+        if (other.msb_expr) msb_expr = other.msb_expr->clone();
+        if (other.lsb_expr) lsb_expr = other.lsb_expr->clone();
+    }
+    ClassMemberVar& operator=(const ClassMemberVar& other) {
+        if (this != &other) {
+            name = other.name;
+            width = other.width;
+            is_signed = other.is_signed;
+            default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
+            is_rand = other.is_rand;
+            is_randc = other.is_randc;
+            is_static = other.is_static;
+            msb_expr = other.msb_expr ? other.msb_expr->clone() : nullptr;
+            lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
+        }
+        return *this;
+    }
+
+    ClassMemberVar clone() const {
+        return ClassMemberVar(*this);
+    }
 };
 
 struct ConstraintBlockNode : public ASTNode {
@@ -254,6 +317,11 @@ struct ClassNode : public ASTNode {
     std::string name;
     std::string base_class_name;
     ClassNode* base_class = nullptr;
+    std::vector<ParameterDef> parameters;
+    bool is_parameterized = false;
+    std::unordered_map<std::string, uint64_t> param_values;
+    std::string template_class_name;
+
     std::vector<ClassMemberVar> member_vars;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::vector<std::unique_ptr<TaskNode>> tasks;
@@ -266,6 +334,14 @@ struct ClassNode : public ASTNode {
     std::unordered_map<std::string, FunctionNode*> vtable_functions;
     std::unordered_map<std::string, TaskNode*> vtable_tasks;
     std::unordered_set<std::string> virtual_method_names;
+
+    bool has_static_member(const std::string& mname) const {
+        for (const auto& m : member_vars) {
+            if (m.name == mname && m.is_static) return true;
+        }
+        if (base_class) return base_class->has_static_member(mname);
+        return false;
+    }
 
     ClassNode() = default;
     explicit ClassNode(std::string n, std::string base_n = "")
@@ -313,11 +389,19 @@ struct ClassNode : public ASTNode {
         return nullptr;
     }
 
+    FunctionNode* get_function(const std::string& fname) const {
+        return find_function(fname);
+    }
+
     TaskNode* find_task(const std::string& tname) const {
         auto it = task_map.find(tname);
         if (it != task_map.end()) return it->second;
         if (base_class) return base_class->find_task(tname);
         return nullptr;
+    }
+
+    TaskNode* get_task(const std::string& tname) const {
+        return find_task(tname);
     }
 
     bool is_method_virtual(const std::string& mname) const {

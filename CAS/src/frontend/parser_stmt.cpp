@@ -36,10 +36,33 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return var_stmt;
     }
 
-    // Class Handle Variable Declaration (§8.4)
+    // Class Handle Variable Declaration (§8.4) or Static Scope Resolution (§8.25)
     if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
-        std::string class_type = current.text;
-        advance();
+        std::string class_type = parse_class_type_and_specialize();
+        if (match(TokenType::TOKEN_COLON_COLON)) {
+            std::string member = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                return std::make_unique<BlockingAssignNode>(class_type + "::" + member, std::move(rhs));
+            }
+            if (match(TokenType::TOKEN_LPAREN)) {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        args.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing static method arguments");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static method call");
+                return std::make_unique<TaskCallNode>(member, std::move(args), class_type);
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static member statement");
+            return std::make_unique<TaskCallNode>(member, std::vector<std::unique_ptr<ExpressionNode>>(), class_type);
+        }
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         std::unique_ptr<ExpressionNode> init_expr = nullptr;

@@ -8,6 +8,7 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
         task_node->is_automatic = true;
     } else if (match(TokenType::TOKEN_STATIC)) {
         task_node->is_automatic = false;
+        task_node->is_static = true;
     }
 
     task_node->name = current.text;

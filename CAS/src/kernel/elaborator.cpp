@@ -492,6 +492,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
                 check_expr(idx->msb_expr.get());
                 check_expr(idx->lsb_expr.get());
+            } else if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: static class method '" + smc->class_type_name + "::" + smc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 8.25");
+            } else if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: static class member '" + sma->class_type_name + "::" + sma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 8.25");
             } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                 std::string s_id = scope + "." + mc->var_name;
                 if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||

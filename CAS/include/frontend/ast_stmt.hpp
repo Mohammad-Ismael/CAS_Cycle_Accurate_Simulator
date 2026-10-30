@@ -227,9 +227,10 @@ struct WaitEventTriggeredStatementNode : public StatementNode {
 struct TaskCallNode : public StatementNode {
     std::string task_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::string class_type_name = "";
 
-    explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {})
-        : task_name(std::move(name)), args(std::move(a)) {}
+    explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::string cls_type = "")
+        : task_name(std::move(name)), args(std::move(a)), class_type_name(std::move(cls_type)) {}
 };
 
 struct DelayStatementNode : public StatementNode {

@@ -399,3 +399,30 @@ struct SequenceConcatNode : public ExpressionNode {
         return std::make_unique<SequenceConcatNode>(std::move(cloned));
     }
 };
+
+struct StaticMethodCallNode : public ExpressionNode {
+    std::string class_type_name;
+    std::string method_name;
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    StaticMethodCallNode(std::string cls_type, std::string m_name, std::vector<std::unique_ptr<ExpressionNode>> a)
+        : class_type_name(std::move(cls_type)), method_name(std::move(m_name)), args(std::move(a)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
+        return std::make_unique<StaticMethodCallNode>(class_type_name, method_name, std::move(c_args));
+    }
+};
+
+struct StaticMemberAccessNode : public ExpressionNode {
+    std::string class_type_name;
+    std::string member_name;
+
+    StaticMemberAccessNode(std::string cls_type, std::string m_name)
+        : class_type_name(std::move(cls_type)), member_name(std::move(m_name)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<StaticMemberAccessNode>(class_type_name, member_name);
+    }
+};
