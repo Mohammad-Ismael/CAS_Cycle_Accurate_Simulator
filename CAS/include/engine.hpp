@@ -9,6 +9,7 @@
 #include "tracer/vcd_dumper.hpp"
 #include "common/constraint_solver.hpp"
 #include "common/coverage_types.hpp"
+#include "common/sva_types.hpp"
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -66,6 +67,12 @@ private:
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;
     std::unordered_map<uint64_t, std::shared_ptr<CovergroupInstance>> covergroup_heap;
+    std::vector<SvaAssertionInstance> sva_assertions;
+    std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
+    std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;
+    std::unordered_set<std::string> assertion_names;
+    std::unordered_set<std::string> property_names;
+    std::unordered_set<std::string> sequence_names;
     uint64_t next_handle_id = 1;
 
     MonitorSession monitor_session;
@@ -275,6 +282,27 @@ public:
         auto it = covergroup_heap.find(handle_id);
         if (it != covergroup_heap.end()) return it->second;
         return nullptr;
+    }
+
+    bool is_property(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (property_names.find(scoped) != property_names.end()) return true;
+        if (property_names.find(name) != property_names.end()) return true;
+        return false;
+    }
+
+    bool is_sequence(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (sequence_names.find(scoped) != sequence_names.end()) return true;
+        if (sequence_names.find(name) != sequence_names.end()) return true;
+        return false;
+    }
+
+    bool is_assertion(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (assertion_names.find(scoped) != assertion_names.end()) return true;
+        if (assertion_names.find(name) != assertion_names.end()) return true;
+        return false;
     }
 
     uint64_t get_sim_time() const { return scheduler.get_sim_time(); }

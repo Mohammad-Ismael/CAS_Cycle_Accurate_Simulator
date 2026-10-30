@@ -65,6 +65,10 @@ struct LogicVal {
         return aval != 0;
     }
 
+    bool is_true() const {
+        return to_bool();
+    }
+
     bool operator==(const LogicVal& o) const {
         if (is_real || o.is_real) {
             double r1 = is_real ? real_val : static_cast<double>(aval);

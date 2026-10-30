@@ -50,6 +50,12 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     covergroup_defs = std::move(elab_res.covergroup_defs);
     covergroup_handle_names = std::move(elab_res.covergroup_handle_names);
     var_to_covergroup_type = std::move(elab_res.var_to_covergroup_type);
+    sva_assertions = std::move(elab_res.sva_assertions);
+    property_defs = std::move(elab_res.property_defs);
+    sequence_defs = std::move(elab_res.sequence_defs);
+    assertion_names = std::move(elab_res.assertion_names);
+    property_names = std::move(elab_res.property_names);
+    sequence_names = std::move(elab_res.sequence_names);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

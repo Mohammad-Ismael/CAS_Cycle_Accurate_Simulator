@@ -166,6 +166,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
  /usr/include/c++/13.2.1/bits/unordered_set.h \
  /app/CAS/src/../include/kernel/netlist.hpp \
  /app/CAS/src/../include/kernel/elaborator.hpp \
+ /app/CAS/src/../include/kernel/../common/sva_types.hpp \
  /app/CAS/src/../include/kernel/execution_context.hpp \
  /app/CAS/src/../include/kernel/evaluator.hpp \
  /app/CAS/src/../include/kernel/expr_evaluator.hpp \

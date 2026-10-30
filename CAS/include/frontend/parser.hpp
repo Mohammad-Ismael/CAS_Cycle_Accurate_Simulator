@@ -75,6 +75,18 @@ public:
     }
     void parse_assoc_key_type(std::string& key_type, uint32_t& key_width);
 
+    std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_map;
+    std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_map;
+    bool is_property(const std::string& name) const {
+        return property_map.find(name) != property_map.end();
+    }
+    bool is_sequence(const std::string& name) const {
+        return sequence_map.find(name) != sequence_map.end();
+    }
+    std::unique_ptr<PropertyNode> parse_property();
+    std::unique_ptr<SequenceNode> parse_sequence();
+    std::unique_ptr<AssertPropertyStatementNode> parse_assert_property(const std::string& label = "");
+
     explicit Parser(Lexer& lex);
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();

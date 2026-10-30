@@ -750,6 +750,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_assoc_array(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 7.8 & 21.2.3");
                     }
+                    if (engine.is_property(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: property '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 16 & 21.2.3");
+                    }
+                    if (engine.is_sequence(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 16 & 21.2.3");
+                    }
+                    if (engine.is_assertion(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: assertion '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 16 & 21.2.3");
+                    }
                 } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                     if (engine.is_queue(idx->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");

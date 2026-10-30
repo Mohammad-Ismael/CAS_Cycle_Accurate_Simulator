@@ -64,6 +64,22 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_PROPERTY) {
+            auto prop = parse_property();
+            if (prop) {
+                property_map[prop->name] = std::move(prop);
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_SEQUENCE) {
+            auto seq = parse_sequence();
+            if (seq) {
+                sequence_map[seq->name] = std::move(seq);
+            }
+            continue;
+        }
+
         bool is_iface = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
@@ -486,6 +502,30 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_PROPERTY) {
+                auto prop = parse_property();
+                if (prop) {
+                    std::string pname = prop->name;
+                    std::shared_ptr<PropertyNode> sprop = std::move(prop);
+                    property_map[pname] = sprop;
+                    mod->property_map[pname] = sprop.get();
+                    mod->properties.push_back(sprop);
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_SEQUENCE) {
+                auto seq = parse_sequence();
+                if (seq) {
+                    std::string sname = seq->name;
+                    std::shared_ptr<SequenceNode> sseq = std::move(seq);
+                    sequence_map[sname] = sseq;
+                    mod->sequence_map[sname] = sseq.get();
+                    mod->sequences.push_back(sseq);
+                }
+                continue;
+            }
+
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
                 std::string cg_type = current.text;
                 advance();
@@ -836,6 +876,27 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     mod->processes.push_back(std::move(proc));
                 }
                 continue;
+            }
+
+            if (current.type == TokenType::TOKEN_ASSERT) {
+                auto asrt = parse_assert_property("");
+                if (asrt) {
+                    mod->assertions.push_back(std::move(asrt));
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON) {
+                std::string label = current.text;
+                advance(); // ident
+                advance(); // colon
+                if (current.type == TokenType::TOKEN_ASSERT) {
+                    auto asrt = parse_assert_property(label);
+                    if (asrt) {
+                        mod->assertions.push_back(std::move(asrt));
+                    }
+                    continue;
+                }
             }
 
             if (current.type == TokenType::TOKEN_IDENTIFIER) {
@@ -1352,4 +1413,186 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
         if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
     return cg;
+}
+
+
+std::unique_ptr<PropertyNode> Parser::parse_property() {
+    expect(TokenType::TOKEN_PROPERTY, "Expected 'property'");
+    std::string prop_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected property name");
+
+    if (match(TokenType::TOKEN_LPAREN)) {
+        int depth = 1;
+        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_LPAREN) depth++;
+            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+            advance();
+        }
+    }
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after property header");
+
+    auto prop = std::make_unique<PropertyNode>();
+    prop->name = prop_name;
+
+    if (match(TokenType::TOKEN_AT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+        if (match(TokenType::TOKEN_POSEDGE)) {
+            prop->clock_edge = EdgeType::POSEDGE;
+        } else if (match(TokenType::TOKEN_NEGEDGE)) {
+            prop->clock_edge = EdgeType::NEGEDGE;
+        } else {
+            prop->clock_edge = EdgeType::LEVEL;
+        }
+        prop->clock_signal = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected clock identifier in property");
+        while (match(TokenType::TOKEN_DOT)) {
+            prop->clock_signal += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in property clock");
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing property clock");
+    }
+
+    if (match(TokenType::TOKEN_DISABLE)) {
+        expect(TokenType::TOKEN_IFF, "Expected 'iff' after 'disable'");
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'disable iff'");
+        prop->disable_expr = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing 'disable iff'");
+    }
+
+    auto first_expr = parse_expression();
+    if (match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
+        prop->imp_type = ImplicationType::NON_OVERLAPPING;
+        prop->antecedent = std::move(first_expr);
+        prop->consequent = parse_expression();
+    } else if (match(TokenType::TOKEN_OVERLAP_IMP)) {
+        prop->imp_type = ImplicationType::OVERLAPPING;
+        prop->antecedent = std::move(first_expr);
+        prop->consequent = parse_expression();
+    } else {
+        prop->imp_type = ImplicationType::NONE;
+        prop->antecedent = std::move(first_expr);
+    }
+
+    match(TokenType::TOKEN_SEMICOLON);
+    expect(TokenType::TOKEN_ENDPROPERTY, "Expected 'endproperty'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    }
+    return prop;
+}
+
+std::unique_ptr<SequenceNode> Parser::parse_sequence() {
+    expect(TokenType::TOKEN_SEQUENCE, "Expected 'sequence'");
+    std::string seq_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected sequence name");
+
+    if (match(TokenType::TOKEN_LPAREN)) {
+        int depth = 1;
+        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_LPAREN) depth++;
+            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+            advance();
+        }
+    }
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after sequence header");
+
+    auto seq = std::make_unique<SequenceNode>();
+    seq->name = seq_name;
+
+    if (match(TokenType::TOKEN_AT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+        if (match(TokenType::TOKEN_POSEDGE)) {
+            seq->clock_edge = EdgeType::POSEDGE;
+        } else if (match(TokenType::TOKEN_NEGEDGE)) {
+            seq->clock_edge = EdgeType::NEGEDGE;
+        } else {
+            seq->clock_edge = EdgeType::LEVEL;
+        }
+        seq->clock_signal = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected clock identifier in sequence");
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sequence clock");
+    }
+
+    auto first_expr = parse_expression();
+    seq->items.push_back({0, std::move(first_expr)});
+
+    while (current.type == TokenType::TOKEN_CYCLE_DELAY || (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+        uint32_t delay = 1;
+        if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
+            delay = static_cast<uint32_t>(current.num_val);
+            advance();
+        } else {
+            advance(); advance();
+            if (current.type == TokenType::TOKEN_NUMBER) {
+                delay = static_cast<uint32_t>(current.num_val);
+                advance();
+            }
+        }
+        auto next_expr = parse_expression();
+        seq->items.push_back({delay, std::move(next_expr)});
+    }
+
+    match(TokenType::TOKEN_SEMICOLON);
+    expect(TokenType::TOKEN_ENDSEQUENCE, "Expected 'endsequence'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    }
+    return seq;
+}
+
+std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const std::string& label) {
+    expect(TokenType::TOKEN_ASSERT, "Expected 'assert'");
+    expect(TokenType::TOKEN_PROPERTY, "Expected 'property' after 'assert'");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'assert property'");
+
+    auto assert_node = std::make_unique<AssertPropertyStatementNode>();
+    assert_node->label = label;
+
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_RPAREN) {
+        assert_node->property_name = current.text;
+        advance();
+    } else {
+        auto inlined = std::make_unique<PropertyNode>();
+        if (match(TokenType::TOKEN_AT)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+            if (match(TokenType::TOKEN_POSEDGE)) inlined->clock_edge = EdgeType::POSEDGE;
+            else if (match(TokenType::TOKEN_NEGEDGE)) inlined->clock_edge = EdgeType::NEGEDGE;
+            inlined->clock_signal = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected clock identifier");
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clock");
+        }
+        if (match(TokenType::TOKEN_DISABLE)) {
+            expect(TokenType::TOKEN_IFF, "Expected 'iff'");
+            expect(TokenType::TOKEN_LPAREN, "Expected '('");
+            inlined->disable_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')'");
+        }
+        auto first_expr = parse_expression();
+        if (match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
+            inlined->imp_type = ImplicationType::NON_OVERLAPPING;
+            inlined->antecedent = std::move(first_expr);
+            inlined->consequent = parse_expression();
+        } else if (match(TokenType::TOKEN_OVERLAP_IMP)) {
+            inlined->imp_type = ImplicationType::OVERLAPPING;
+            inlined->antecedent = std::move(first_expr);
+            inlined->consequent = parse_expression();
+        } else {
+            inlined->imp_type = ImplicationType::NONE;
+            inlined->antecedent = std::move(first_expr);
+        }
+        assert_node->inlined_property = std::move(inlined);
+    }
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing assert property");
+
+    if (current.type == TokenType::TOKEN_BEGIN ||
+        (current.type != TokenType::TOKEN_ELSE && current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF)) {
+        assert_node->pass_statements = parse_statement_or_block();
+    }
+
+    if (match(TokenType::TOKEN_ELSE)) {
+        assert_node->fail_statements = parse_statement_or_block();
+    }
+
+    match(TokenType::TOKEN_SEMICOLON);
+    return assert_node;
 }

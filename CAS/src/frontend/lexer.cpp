@@ -178,6 +178,14 @@ Token Lexer::next_token() {
     }
     if (c == '|') {
         advance();
+        if (peek() == '-' && peek_next() == '>') {
+            advance(); advance();
+            return {TokenType::TOKEN_OVERLAP_IMP, "|->", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '=' && peek_next() == '>') {
+            advance(); advance();
+            return {TokenType::TOKEN_NON_OVERLAP_IMP, "|=>", 0, 0, cur_file, cur_line, 0};
+        }
         if (peek() == '|') { advance(); return {TokenType::TOKEN_LOGICAL_OR, "||", 0, 0, cur_file, cur_line, 0}; }
         return {TokenType::TOKEN_OR_BIT, "|", 0, 0, cur_file, cur_line, 0};
     }
@@ -411,6 +419,12 @@ Token Lexer::next_token() {
         if (ident == "bins") return {TokenType::TOKEN_BINS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "cross") return {TokenType::TOKEN_CROSS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "real") return {TokenType::TOKEN_REAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "property") return {TokenType::TOKEN_PROPERTY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endproperty") return {TokenType::TOKEN_ENDPROPERTY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "sequence") return {TokenType::TOKEN_SEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endsequence") return {TokenType::TOKEN_ENDSEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "assert") return {TokenType::TOKEN_ASSERT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "iff") return {TokenType::TOKEN_IFF, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

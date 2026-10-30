@@ -24,6 +24,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/frontend/ast_expr.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/kernel/elaborator.hpp \
   /app/CAS/include/kernel/evaluator.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
@@ -1676,6 +1677,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.cpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1896,6 +1898,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2331,6 +2334,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/common/net_types.hpp \
   /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -2566,6 +2570,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/coverage_types.hpp \
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/kernel/elaborator.hpp \
   /app/CAS/include/kernel/logic_ops.hpp \
   /app/CAS/include/kernel/scheduler.hpp \
@@ -2792,6 +2797,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
   /app/CAS/include/frontend/lexer.hpp \
   /app/CAS/include/frontend/parser.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/kernel/elaborator.hpp \
   /app/CAS/include/kernel/evaluator.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
@@ -3597,10 +3603,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/kernel/expr_evaluator.hpp:
 
-/usr/include/c++/13.2.1/bits/cxxabi_init_exception.h:
-
-/usr/include/c++/13.2.1/bits/ios_base.h:
-
 /usr/include/c++/13.2.1/pstl/pstl_config.h:
 
 /app/CAS/include/common/clocking_types.hpp:
@@ -3614,6 +3616,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/vector:
 
 /app/CAS/include/common/types.hpp:
+
+/usr/include/c++/13.2.1/bits/stringfwd.h:
+
+/app/CAS/include/kernel/netlist.hpp:
 
 /usr/include/c++/13.2.1/string_view:
 
@@ -3635,9 +3641,17 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/frontend/ast_module.hpp:
 
+/app/CAS/include/common/sva_types.hpp:
+
 /usr/include/c++/13.2.1/ext/atomicity.h:
 
 /app/CAS/include/common/logic_val.hpp:
+
+/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h:
+
+/app/CAS/include/engine.hpp:
+
+/usr/include/c++/13.2.1/bits/shared_ptr.h:
 
 /usr/include/c++/13.2.1/bits/basic_ios.tcc:
 
@@ -3693,13 +3707,11 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/cxxabi_forced.h:
 
-/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h:
-
-/app/CAS/include/engine.hpp:
-
-/usr/include/c++/13.2.1/bits/shared_ptr.h:
-
 /app/CAS/include/kernel/execution_context.hpp:
+
+/usr/include/c++/13.2.1/bits/cxxabi_init_exception.h:
+
+/usr/include/c++/13.2.1/bits/ios_base.h:
 
 /app/CAS/include/common/edge_types.hpp:
 
@@ -3784,10 +3796,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/node_handle.h:
 
 /usr/include/c++/13.2.1/bits/stl_heap.h:
-
-/app/CAS/include/kernel/netlist.hpp:
-
-/usr/include/c++/13.2.1/bits/stringfwd.h:
 
 /usr/include/c++/13.2.1/bits/range_access.h:
 

@@ -14,6 +14,7 @@ struct Net {
     LogicVal value;
     LogicVal prev_value;
     bool modified;
+    uint64_t change_counter = 0;
     std::string vcd_id;
     bool has_procedural_assign = false;
     ExpressionNode* procedural_assign_rhs = nullptr;
@@ -39,6 +40,7 @@ struct Net {
             prev_value = value;
             value = clamped;
             modified = true;
+            change_counter++;
         }
     }
 

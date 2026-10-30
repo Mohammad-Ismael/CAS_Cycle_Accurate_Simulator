@@ -542,6 +542,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return node;
     }
 
+    if (current.type == TokenType::TOKEN_ASSERT) {
+        return parse_assert_property();
+    }
+
     if (match(TokenType::TOKEN_CAST)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $cast");
         auto dest = parse_expression();

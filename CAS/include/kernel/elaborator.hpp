@@ -1,5 +1,6 @@
 #pragma once
 #include "../frontend/ast_module.hpp"
+#include "../common/sva_types.hpp"
 #include "netlist.hpp"
 #include "execution_context.hpp"
 #include <vector>
@@ -89,6 +90,7 @@ struct EventWaitTarget {
     EdgeType edge = EdgeType::LEVEL;
     std::string signal_name;
     size_t net_id = 0;
+    uint64_t initial_change_counter = 0;
 };
 
 struct TaskActivationFrame {
@@ -173,6 +175,12 @@ struct ElaborationResult {
     std::unordered_map<std::string, const CovergroupNode*> covergroup_defs;
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;
+    std::vector<SvaAssertionInstance> sva_assertions;
+    std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
+    std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;
+    std::unordered_set<std::string> assertion_names;
+    std::unordered_set<std::string> property_names;
+    std::unordered_set<std::string> sequence_names;
 };
 
 class Elaborator {

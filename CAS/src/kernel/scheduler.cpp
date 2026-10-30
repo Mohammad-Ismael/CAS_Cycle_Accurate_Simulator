@@ -104,6 +104,131 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
     return triggered_any;
 }
 
+void StratifiedScheduler::capture_preponed_samples() {
+    preponed_net_values.resize(engine.netlist.size());
+    for (size_t i = 0; i < engine.netlist.size(); ++i) {
+        preponed_net_values[i] = engine.netlist[i].value;
+    }
+}
+
+bool StratifiedScheduler::evaluate_sva_assertions() {
+    if (engine.sva_assertions.empty()) return false;
+    bool activity = false;
+
+    for (size_t asrt_idx = 0; asrt_idx < engine.sva_assertions.size(); ++asrt_idx) {
+        auto& asrt = engine.sva_assertions[asrt_idx];
+        if (asrt.fired_in_time_slot) continue;
+        if (asrt.clock_net_id >= engine.netlist.size()) continue;
+
+        const auto& clk_net = engine.netlist[asrt.clock_net_id];
+        bool clk_triggered = false;
+        if (asrt.clock_edge == EdgeType::POSEDGE && clk_net.is_posedge()) {
+            clk_triggered = true;
+        } else if (asrt.clock_edge == EdgeType::NEGEDGE && clk_net.is_negedge()) {
+            clk_triggered = true;
+        } else if (asrt.clock_edge == EdgeType::LEVEL && clk_net.modified) {
+            clk_triggered = true;
+        }
+
+        if (!clk_triggered) continue;
+        asrt.fired_in_time_slot = true;
+
+        // OBSERVED REGION: evaluate property against preponed samples
+        engine.evaluator.get_expr_eval().set_preponed_override(&preponed_net_values);
+
+        // Check disable iff
+        bool disabled = false;
+        if (asrt.disable_expr) {
+            LogicVal dis_val = engine.evaluator.get_expr_eval().eval(asrt.disable_expr, asrt.scope);
+            if (!dis_val.is_unknown() && dis_val.is_true()) {
+                disabled = true;
+            }
+        }
+
+        if (disabled) {
+            asrt.threads.clear();
+            engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
+            continue;
+        }
+
+        // 1. Advance existing pending threads
+        for (auto& th : asrt.threads) {
+            if (th.state == SvaThreadState::PENDING_CONSEQUENT) {
+                if (th.remaining_cycles > 0) {
+                    th.remaining_cycles--;
+                }
+                if (th.remaining_cycles == 0) {
+                    bool c_match = false;
+                    if (asrt.consequent) {
+                        LogicVal c_val = engine.evaluator.get_expr_eval().eval(asrt.consequent, asrt.scope);
+                        if (!c_val.is_unknown() && c_val.is_true()) {
+                            c_match = true;
+                        }
+                    }
+                    th.state = c_match ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
+                }
+            }
+        }
+
+        // 2. Evaluate antecedent on this clock edge for new assertion attempt
+        if (asrt.antecedent) {
+            LogicVal a_val = engine.evaluator.get_expr_eval().eval(asrt.antecedent, asrt.scope);
+            if (asrt.imp_type == ImplicationType::NON_OVERLAPPING) {
+                if (!a_val.is_unknown() && a_val.is_true()) {
+                    SvaThread new_th;
+                    new_th.state = SvaThreadState::PENDING_CONSEQUENT;
+                    new_th.remaining_cycles = 1;
+                    asrt.threads.push_back(new_th);
+                }
+            } else if (asrt.imp_type == ImplicationType::OVERLAPPING) {
+                if (!a_val.is_unknown() && a_val.is_true()) {
+                    bool c_match = false;
+                    if (asrt.consequent) {
+                        LogicVal c_val = engine.evaluator.get_expr_eval().eval(asrt.consequent, asrt.scope);
+                        if (!c_val.is_unknown() && c_val.is_true()) {
+                            c_match = true;
+                        }
+                    }
+                    SvaThread new_th;
+                    new_th.state = c_match ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
+                    asrt.threads.push_back(new_th);
+                }
+            } else {
+                bool match_val = (!a_val.is_unknown() && a_val.is_true());
+                SvaThread new_th;
+                new_th.state = match_val ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
+                asrt.threads.push_back(new_th);
+            }
+        }
+
+        engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
+
+        // REACTIVE REGION: execute action blocks for completed threads
+        BoundProcess action_bp;
+        action_bp.scope = asrt.scope;
+
+        std::vector<SvaThread> remaining_threads;
+        for (const auto& th : asrt.threads) {
+            if (th.state == SvaThreadState::MATCHED) {
+                for (auto* stmt : asrt.pass_statements) {
+                    engine.evaluator.execute_statement(stmt, action_bp);
+                }
+                activity = true;
+            } else if (th.state == SvaThreadState::FAILED) {
+                for (auto* stmt : asrt.fail_statements) {
+                    engine.evaluator.execute_statement(stmt, action_bp);
+                }
+                activity = true;
+            } else {
+                remaining_threads.push_back(th);
+            }
+        }
+        asrt.threads = std::move(remaining_threads);
+    }
+
+    return activity;
+}
+
 void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     // 1. Commit due delayed NBAs directly so they are immediately visible in this time slot
     auto it = delayed_nba_queue.find(target_time);
@@ -376,6 +501,8 @@ bool StratifiedScheduler::resume_waiting_processes() {
         if (!bp.wait_target.active) continue;
 
         const auto& net = engine.netlist[bp.wait_target.net_id];
+        if (net.change_counter <= bp.wait_target.initial_change_counter) continue;
+
         bool event_matched = false;
 
         if (bp.wait_target.edge == EdgeType::POSEDGE && net.is_posedge()) {
@@ -765,6 +892,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                     bp.wait_target.edge = ev_stmt->edge;
                     bp.wait_target.signal_name = ev_stmt->signal_name;
                     bp.wait_target.net_id = net_id;
+                    bp.wait_target.initial_change_counter = engine.netlist[net_id].change_counter;
                     break;
                 }
                 cur_frame.pc++;
@@ -894,6 +1022,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 bp.wait_target.edge = ev_stmt->edge;
                 bp.wait_target.signal_name = ev_stmt->signal_name;
                 bp.wait_target.net_id = net_id;
+                bp.wait_target.initial_change_counter = engine.netlist[net_id].change_counter;
                 break;
             }
 
@@ -1079,6 +1208,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             bp.wait_target.edge = ev_stmt->edge;
             bp.wait_target.signal_name = ev_stmt->signal_name;
             bp.wait_target.net_id = net_id;
+            bp.wait_target.initial_change_counter = engine.netlist[net_id].change_counter;
             break;
         }
 
@@ -1290,6 +1420,11 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
             propagate_comb();
         }
 
+        if (evaluate_sva_assertions()) {
+            activity = true;
+            propagate_comb();
+        }
+
         if (resume_waiting_processes()) {
             activity = true;
             propagate_comb();
@@ -1315,6 +1450,12 @@ void StratifiedScheduler::run_simulation() {
     }
     for (auto& cb : engine.clocking_blocks) {
         cb.fired_in_time_slot = false;
+    }
+    for (auto& asrt : engine.sva_assertions) {
+        asrt.fired_in_time_slot = false;
+    }
+    capture_preponed_samples();
+    for (auto& cb : engine.clocking_blocks) {
         for (auto& kv : cb.signals) {
             if (kv.second.direction == "input" || kv.second.direction == "inout") {
                 if (kv.second.net_id < engine.netlist.size()) {
@@ -1354,6 +1495,10 @@ void StratifiedScheduler::run_simulation() {
         for (auto& cb : engine.clocking_blocks) {
             cb.fired_in_time_slot = false;
         }
+        for (auto& asrt : engine.sva_assertions) {
+            asrt.fired_in_time_slot = false;
+        }
+        capture_preponed_samples();
 
         // 1. Active Region: Drain events for current timestamp
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {

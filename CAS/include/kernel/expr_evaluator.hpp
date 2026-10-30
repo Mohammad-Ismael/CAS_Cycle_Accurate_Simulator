@@ -14,9 +14,13 @@ private:
     ExecutionContext context;
     BoundProcess* current_bp = nullptr;
     ClassObject* current_this = nullptr;
+    const std::vector<LogicVal>* preponed_override = nullptr;
 
 public:
     explicit ExprEvaluator(Engine& eng);
+
+    void set_preponed_override(const std::vector<LogicVal>* po) { preponed_override = po; }
+    const std::vector<LogicVal>* get_preponed_override() const { return preponed_override; }
 
     void set_current_process(BoundProcess* bp) { current_bp = bp; }
     BoundProcess* get_current_process() const { return current_bp; }

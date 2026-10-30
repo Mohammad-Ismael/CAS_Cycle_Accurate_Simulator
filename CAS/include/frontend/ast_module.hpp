@@ -392,6 +392,42 @@ struct CovergroupNode : public ASTNode {
     }
 };
 
+enum class ImplicationType {
+    NONE,
+    OVERLAPPING,     // |->
+    NON_OVERLAPPING  // |=>
+};
+
+struct SequenceItem {
+    uint32_t cycle_delay = 0;
+    std::unique_ptr<ExpressionNode> expr;
+};
+
+struct SequenceNode : public ASTNode {
+    std::string name;
+    EdgeType clock_edge = EdgeType::POSEDGE;
+    std::string clock_signal = "";
+    std::vector<SequenceItem> items;
+};
+
+struct PropertyNode : public ASTNode {
+    std::string name;
+    EdgeType clock_edge = EdgeType::POSEDGE;
+    std::string clock_signal = "";
+    std::unique_ptr<ExpressionNode> disable_expr;
+    ImplicationType imp_type = ImplicationType::NONE;
+    std::unique_ptr<ExpressionNode> antecedent;
+    std::unique_ptr<ExpressionNode> consequent;
+};
+
+struct AssertPropertyStatementNode : public StatementNode {
+    std::string label;
+    std::string property_name;
+    std::shared_ptr<PropertyNode> inlined_property;
+    std::vector<std::unique_ptr<StatementNode>> pass_statements;
+    std::vector<std::unique_ptr<StatementNode>> fail_statements;
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -417,6 +453,11 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, ClassNode*> class_map;
     std::vector<std::shared_ptr<CovergroupNode>> covergroups;
     std::unordered_map<std::string, CovergroupNode*> covergroup_map;
+    std::vector<std::shared_ptr<SequenceNode>> sequences;
+    std::unordered_map<std::string, SequenceNode*> sequence_map;
+    std::vector<std::shared_ptr<PropertyNode>> properties;
+    std::unordered_map<std::string, PropertyNode*> property_map;
+    std::vector<std::unique_ptr<AssertPropertyStatementNode>> assertions;
 
     ModuleNode() = default;
 };

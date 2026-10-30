@@ -171,6 +171,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /app/CAS/src/../include/engine.hpp /app/CAS/src/../include/ast.hpp \
  /app/CAS/src/../include/kernel/netlist.hpp \
  /app/CAS/src/../include/kernel/elaborator.hpp \
+ /app/CAS/src/../include/kernel/../common/sva_types.hpp \
  /app/CAS/src/../include/kernel/execution_context.hpp \
  /app/CAS/src/../include/kernel/evaluator.hpp \
  /app/CAS/src/../include/kernel/expr_evaluator.hpp \

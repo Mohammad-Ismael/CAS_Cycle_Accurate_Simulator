@@ -955,13 +955,21 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
         }
         if (engine.net_map.find(scoped_ident) != engine.net_map.end()) {
-            return engine.netlist[engine.net_map.at(scoped_ident)].value;
+            size_t nid = engine.net_map.at(scoped_ident);
+            if (preponed_override && nid < preponed_override->size()) {
+                return (*preponed_override)[nid];
+            }
+            return engine.netlist[nid].value;
         }
         if (engine.param_map.find(ident->name) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(ident->name));
         }
         if (engine.net_map.find(ident->name) != engine.net_map.end()) {
-            return engine.netlist[engine.net_map.at(ident->name)].value;
+            size_t nid = engine.net_map.at(ident->name);
+            if (preponed_override && nid < preponed_override->size()) {
+                return (*preponed_override)[nid];
+            }
+            return engine.netlist[nid].value;
         }
         auto dot_pos = ident->name.rfind('.');
         if (dot_pos != std::string::npos) {

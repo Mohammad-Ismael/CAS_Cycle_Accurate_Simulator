@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.8.0.0`  
-**Status:** Production Milestone v3.8.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.9.0.0`  
+**Status:** Production Milestone v3.9.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 33.2%`
+`[█████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 34.6%`
 
-*Current Baseline (v3.8.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, constructors, inheritance (`extends`), `super.new`, virtual methods, dynamic polymorphism, `$cast`, constrained randomization, functional coverage (`covergroup`, `coverpoint`, `bins`, `sample()`, `get_coverage()`, `$rtoi`, `real`), and cross coverage (`cross`, Cartesian product bins, composite `get_coverage()`).
-*Upcoming Domains:* SVA Concurrent Assertions, DPI-C.
+*Current Baseline (v3.9.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, and SVA concurrent assertions (property, sequence, |->, |=>, disable iff, assert property, Observed/Reactive scheduling).
+*Upcoming Domains:* SVA Sequence Repetitions ([*N], [=N], [->N]), SVA Built-in Functions ($rose, $fell, $past, $stable), DPI-C Foreign Function Interface.
 
 ---
 
@@ -39,6 +39,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§18, §18.4, §18.5, §18.7, §18.14** | **Constrained Randomization** | Random modifiers (`rand`, `randc`), declarative `constraint` blocks, built-in `.randomize()` method, inline `with { ... }` constraints, containment ranges (`inside { ... }`), PRNG seeding via `.srandom()`, and contradiction diagnostic `[CAS-CNST-CIF]`. |
 | **§19, §19.3, §19.5, §19.8** | **Functional Coverage & Covergroups** | `covergroup ... endgroup` definitions, explicit coverpoints (`cp: coverpoint expr`), value and range bins (`bins b = {val}`, `bins r = {[lo:hi]}`), instantiation via constructor (`cg = new()`), manual sampling (`.sample()`), instance coverage querying (`.get_coverage()`), real-to-integer conversion (`$rtoi`), `real` datatype support, and dynamic type context restrictions (`[CAS-DTINPCIL]`). |
 | **§19.6, §19.6.1** | **Cross Coverage & Cartesian Bins** | Cross coverage specifications (`cross cp1, cp2`), multi-dimensional Cartesian product bin generation, cross sample tracking, and cumulative composite covergroup coverage calculation. |
+| **§16, §16.7, §16.12, §16.14** | **SVA Concurrent Assertions** | `property ... endproperty`, `sequence ... endsequence`, overlapping (`|->`) and non-overlapping (`|=>`) implication, asynchronous reset abort (`disable iff`), concurrent `assert property` statements, Observed/Reactive region scheduling, Preponed signal sampling, and dynamic context diagnostic `[CAS-DTINPCIL]`. |
 | **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§25.5.3** | **Interface Modports & Directional Bindings** | `modport` declarations (`input`, `output`, `inout`), modport directional port typing (`interface_name.modport_name port_name`), modport connection binding (`.port(inst.modport)`), and hierarchical port mapping. |
 | **§14, §14.3, §14.11, §14.16** | **Clocking Blocks & Cycle Delays** | `clocking ... endclocking` declarations, default clocking, cycle delay statements (`##N`), synchronous output drives (`cb.sig <= expr`), Preponed input sampling (`#1step`), and diagnostic `[CAS-DCNS]`. |
@@ -60,7 +61,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (29 / 29 PASS)
+## Milestone Regression Pass Matrix (30 / 30 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -95,6 +96,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.6.0.0** | `projects/v3_6_0_0_constrained_randomization` | Constrained Randomization (`rand`, `randc`, `constraint`, `randomize()`, `with{}`) (§18) | **PASS** | 100% VCS |
 | **v3.7.0.0** | `projects/v3_7_0_0_functional_coverage` | Functional Coverage, Covergroups, Coverpoints, Explicit & Range Bins, `.sample()`, `.get_coverage()` (§19) | **PASS** | 100% VCS |
 | **v3.8.0.0** | `projects/v3_8_0_0_cross_coverage` | Cross Coverage, Cartesian Product Bins, Multi-Dimensional Sampling & Composite get_coverage() (§19.6) | **PASS** | 100% VCS |
+| **v3.9.0.0** | `projects/v3_9_0_0_sva_concurrent` | SVA Concurrent Assertions, Properties, Sequences, Implication (|=>, |->) & Action Blocks (§16) | **PASS** | 100% VCS |
 
 ---
 

@@ -73,6 +73,9 @@ private:
     bool trigger_intra_event_nbas();
     bool trigger_intra_event_blocking();
     void evaluate_clocking_blocks();
+    void capture_preponed_samples();
+    bool evaluate_sva_assertions();
+    std::vector<LogicVal> preponed_net_values;
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;

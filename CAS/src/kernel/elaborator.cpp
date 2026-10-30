@@ -335,6 +335,20 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.assoc_array_map.find(ca->target_name) != result.assoc_array_map.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to associative array '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 7.8");
         }
+        if (result.property_names.find(scoped_target) != result.property_names.end() ||
+            result.property_names.find(ca->target_name) != result.property_names.end() ||
+            mod->property_map.find(ca->target_name) != mod->property_map.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to property '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16");
+        }
+        if (result.sequence_names.find(scoped_target) != result.sequence_names.end() ||
+            result.sequence_names.find(ca->target_name) != result.sequence_names.end() ||
+            mod->sequence_map.find(ca->target_name) != mod->sequence_map.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to sequence '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16");
+        }
+        if (result.assertion_names.find(scoped_target) != result.assertion_names.end() ||
+            result.assertion_names.find(ca->target_name) != result.assertion_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to assertion '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16");
+        }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -358,6 +372,20 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.assoc_array_map.find(s_id) != result.assoc_array_map.end() ||
                     result.assoc_array_map.find(id->name) != result.assoc_array_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 7.8");
+                }
+                if (result.property_names.find(s_id) != result.property_names.end() ||
+                    result.property_names.find(id->name) != result.property_names.end() ||
+                    mod->property_map.find(id->name) != mod->property_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: property '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16");
+                }
+                if (result.sequence_names.find(s_id) != result.sequence_names.end() ||
+                    result.sequence_names.find(id->name) != result.sequence_names.end() ||
+                    mod->sequence_map.find(id->name) != mod->sequence_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16");
+                }
+                if (result.assertion_names.find(s_id) != result.assertion_names.end() ||
+                    result.assertion_names.find(id->name) != result.assertion_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: assertion '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16");
                 }
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
@@ -555,6 +583,71 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& proc : mod->processes) {
         result.processes.push_back({scope, proc.get(), 0, false});
+    }
+
+    for (auto& prop : mod->properties) {
+        std::string full_prop_name = scope.empty() ? prop->name : (scope + "." + prop->name);
+        result.property_defs[full_prop_name] = prop;
+        result.property_defs[prop->name] = prop;
+        result.property_names.insert(full_prop_name);
+        result.property_names.insert(prop->name);
+    }
+
+    for (auto& seq : mod->sequences) {
+        std::string full_seq_name = scope.empty() ? seq->name : (scope + "." + seq->name);
+        result.sequence_defs[full_seq_name] = seq;
+        result.sequence_defs[seq->name] = seq;
+        result.sequence_names.insert(full_seq_name);
+        result.sequence_names.insert(seq->name);
+    }
+
+    for (auto& asrt : mod->assertions) {
+        SvaAssertionInstance inst;
+        inst.label = asrt->label;
+        inst.property_name = asrt->property_name;
+        inst.scope = scope;
+
+        if (!asrt->label.empty()) {
+            std::string full_label = scope.empty() ? asrt->label : (scope + "." + asrt->label);
+            result.assertion_names.insert(full_label);
+            result.assertion_names.insert(asrt->label);
+        }
+
+        PropertyNode* target_prop = nullptr;
+        if (!asrt->property_name.empty()) {
+            std::string full_pname = scope.empty() ? asrt->property_name : (scope + "." + asrt->property_name);
+            if (result.property_defs.count(full_pname)) target_prop = result.property_defs[full_pname].get();
+            else if (result.property_defs.count(asrt->property_name)) target_prop = result.property_defs[asrt->property_name].get();
+            else if (mod->property_map.count(asrt->property_name)) target_prop = mod->property_map[asrt->property_name];
+        } else if (asrt->inlined_property) {
+            target_prop = asrt->inlined_property.get();
+        }
+
+        if (target_prop) {
+            inst.clock_edge = target_prop->clock_edge;
+            inst.clock_signal = target_prop->clock_signal;
+
+            std::string clk_scoped = scope.empty() ? target_prop->clock_signal : (scope + "." + target_prop->clock_signal);
+            if (result.net_map.find(clk_scoped) != result.net_map.end()) {
+                inst.clock_net_id = result.net_map.at(clk_scoped);
+            } else if (result.net_map.find(target_prop->clock_signal) != result.net_map.end()) {
+                inst.clock_net_id = result.net_map.at(target_prop->clock_signal);
+            }
+
+            inst.disable_expr = target_prop->disable_expr.get();
+            inst.imp_type = target_prop->imp_type;
+            inst.antecedent = target_prop->antecedent.get();
+            inst.consequent = target_prop->consequent.get();
+        }
+
+        for (auto& s : asrt->pass_statements) {
+            inst.pass_statements.push_back(s.get());
+        }
+        for (auto& s : asrt->fail_statements) {
+            inst.fail_statements.push_back(s.get());
+        }
+
+        result.sva_assertions.push_back(std::move(inst));
     }
 
     for (auto& inst : mod->instantiations) {

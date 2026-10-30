@@ -1,0 +1,12 @@
+{
+  "name": "v3_9_0_0_sva_concurrent",
+  "version": "v3.9.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§16",
+  "description": "SystemVerilog Assertions: Concurrent Assertions, property, sequence, |=>, |->, disable iff, assert property, Observed/Reactive scheduling",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_9_0_0_regression"
+}
