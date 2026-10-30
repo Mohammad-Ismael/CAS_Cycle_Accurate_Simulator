@@ -59,6 +59,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     dpi_import_map = std::move(elab_res.dpi_import_map);
     dpi_export_map = std::move(elab_res.dpi_export_map);
     chandle_names = std::move(elab_res.chandle_names);
+    open_array_names = std::move(elab_res.open_array_names);
     active_scope_name = elab_res.top_scope;
     DpiRegistry::set_active_scope_by_name(active_scope_name);
     DpiRegistry::set_active_engine(this);
@@ -142,6 +143,83 @@ int sv_read_reg(int addr) {
     }
     LogicVal res = eng->dispatch_dpi_export("sv_read_reg", {LogicVal(32, static_cast<uint32_t>(addr))});
     return static_cast<int>(static_cast<int32_t>(res.aval));
+}
+
+// IEEE Std 1800-2023 Annex I.9 DPI-C Open Array Inquiry & Access APIs
+int svDimensions(const void* h) {
+    if (!h) return 0;
+    return 1;
+}
+
+int svLeft(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    return 0;
+}
+
+int svRight(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
+    return arr->size > 0 ? arr->size - 1 : 0;
+}
+
+int svLow(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    return 0;
+}
+
+int svHigh(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
+    return arr->size > 0 ? arr->size - 1 : 0;
+}
+
+int svIncrement(const void* h, int d) {
+    return 1;
+}
+
+int svLength(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
+    return arr->size;
+}
+
+int svSize(const void* h, int d) {
+    if (!h || d != 1) return 0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
+    return arr->size;
+}
+
+int svSizeOfArray(const void* h) {
+    if (!h) return 0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
+    return arr->size;
+}
+
+void* svGetArrElemPtr1(const void* h, int indx) {
+    if (!h) return nullptr;
+    SvOpenArray* arr = const_cast<SvOpenArray*>(reinterpret_cast<const SvOpenArray*>(h));
+    if (indx < 0 || indx >= arr->size) return nullptr;
+    if (arr->elem_width <= 32) {
+        return static_cast<void*>(&(arr->int32_elements[indx]));
+    } else {
+        return static_cast<void*>(&(arr->int64_elements[indx]));
+    }
+}
+
+void* svGetArrElemPtr2(const void* h, int indx1, int /*indx2*/) {
+    return svGetArrElemPtr1(h, indx1);
+}
+
+void* svGetArrElemPtr3(const void* h, int indx1, int /*indx2*/, int /*indx3*/) {
+    return svGetArrElemPtr1(h, indx1);
+}
+
+void* svGetArrElemPtr(const void* h, int indx1, ...) {
+    return svGetArrElemPtr1(h, indx1);
+}
+
+void* svGetArrayPtr(const void* h) {
+    return svGetArrElemPtr1(h, 0);
 }
 }
 

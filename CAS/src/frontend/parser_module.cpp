@@ -1898,14 +1898,19 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                 advance();
             }
 
+            bool is_open_array = false;
             if (match(TokenType::TOKEN_LBRACKET)) {
-                auto msb_e = parse_expression();
-                expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
-                auto lsb_e = parse_expression();
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
-                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                        pw = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                if (match(TokenType::TOKEN_RBRACKET)) {
+                    is_open_array = true;
+                } else {
+                    auto msb_e = parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+                    auto lsb_e = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                    if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                        if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                            pw = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                        }
                     }
                 }
             }
@@ -1913,11 +1918,23 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             std::string pname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier in DPI import");
 
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                if (match(TokenType::TOKEN_RBRACKET)) {
+                    is_open_array = true;
+                } else {
+                    auto msb_e = parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+                    auto lsb_e = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                }
+            }
+
             PortNode port(pname, pdir, nullptr, nullptr, psigned, NetKind::WIRE);
             port.type_name = ptype;
             if (ptype == "chandle") {
                 port.is_chandle = true;
             }
+            port.is_open_array = is_open_array;
             port.msb_expr = std::make_unique<NumberNode>(pw > 0 ? pw - 1 : 0, 32);
             port.lsb_expr = std::make_unique<NumberNode>(0, 32);
             dpi_node->tf_ports.push_back(std::move(port));

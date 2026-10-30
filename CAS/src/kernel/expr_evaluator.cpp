@@ -925,11 +925,6 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             return LogicVal::make_known(32, 0);
         }
-        std::vector<LogicVal> evaluated_args;
-        for (const auto& a : fn_call->args) {
-            evaluated_args.push_back(eval(a.get(), scope));
-        }
-
         std::string scoped_fn = scope.empty() ? fn_call->func_name : (scope + "." + fn_call->func_name);
         DpiImportNode* dpi_node = nullptr;
         if (engine.dpi_import_map.find(scoped_fn) != engine.dpi_import_map.end()) {
@@ -938,7 +933,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             dpi_node = engine.dpi_import_map.at(fn_call->func_name);
         }
         if (dpi_node) {
-            return eval_dpi_call(dpi_node, evaluated_args, scope);
+            return eval_dpi_call(dpi_node, fn_call->args, scope);
+        }
+
+        std::vector<LogicVal> evaluated_args;
+        for (const auto& a : fn_call->args) {
+            evaluated_args.push_back(eval(a.get(), scope));
         }
 
         LogicVal ret(32, 0, 0);
@@ -1424,55 +1424,7 @@ LogicVal ExprEvaluator::eval_sampled_func(SysSampledFuncNode* func, const std::s
     return LogicVal(1, 0, 0);
 }
 
-LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
-    std::vector<LogicVal> evaluated_args;
-    for (const auto& a : args) {
-        evaluated_args.push_back(eval(a.get(), scope));
-    }
-    return eval_dpi_call(dpi, evaluated_args, scope);
-}
-
-LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope) {
-    void* sym = engine.dpi_registry.get_symbol(dpi->c_name, engine.source_search_paths);
-    if (!sym) {
-        throw std::runtime_error("[CAS-DPI-ERR] Runtime error: DPI-C foreign function symbol '" + dpi->c_name + "' could not be resolved from shared library");
-    }
-
-    struct ContextScopeGuard {
-        bool is_context;
-        svScope prev_scope;
-        void* prev_eng;
-        ContextScopeGuard(bool ctx, const std::string& call_scope, Engine* eng) : is_context(ctx), prev_scope(nullptr), prev_eng(nullptr) {
-            if (is_context) {
-                prev_scope = DpiRegistry::set_active_scope_by_name(call_scope);
-                prev_eng = DpiRegistry::get_active_engine();
-                DpiRegistry::set_active_engine(eng);
-            }
-        }
-        ~ContextScopeGuard() {
-            if (is_context) {
-                DpiRegistry::set_active_scope(prev_scope);
-                DpiRegistry::set_active_engine(prev_eng);
-            }
-        }
-    };
-
-    std::string call_scope = !scope.empty() ? scope : ((current_bp && !current_bp->scope.empty()) ? current_bp->scope : "");
-    if (call_scope.empty()) {
-        call_scope = engine.active_scope_name;
-    }
-    ContextScopeGuard scope_guard(dpi->is_context, call_scope, &engine);
-
-    std::vector<uint64_t> c_args;
-    for (size_t i = 0; i < evaluated_args.size(); ++i) {
-        const auto& v = evaluated_args[i];
-        if (v.is_real) {
-            c_args.push_back(static_cast<uint64_t>(v.real_val));
-        } else {
-            c_args.push_back(v.aval);
-        }
-    }
-
+static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector<uint64_t>& c_args) {
     if (dpi->is_task || dpi->return_type == "void") {
         switch (c_args.size()) {
             case 0: reinterpret_cast<void(*)()>(sym)(); break;
@@ -1533,4 +1485,191 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<Logi
         }
         return LogicVal::make_known(dpi->return_width, static_cast<uint64_t>(static_cast<uint32_t>(ret_val)));
     }
+}
+
+LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
+    void* sym = engine.dpi_registry.get_symbol(dpi->c_name, engine.source_search_paths);
+    if (!sym) {
+        throw std::runtime_error("[CAS-DPI-ERR] Runtime error: DPI-C foreign function symbol '" + dpi->c_name + "' could not be resolved from shared library");
+    }
+
+    struct ContextScopeGuard {
+        bool is_context;
+        svScope prev_scope;
+        void* prev_eng;
+        ContextScopeGuard(bool ctx, const std::string& call_scope, Engine* eng) : is_context(ctx), prev_scope(nullptr), prev_eng(nullptr) {
+            if (is_context) {
+                prev_scope = DpiRegistry::set_active_scope_by_name(call_scope);
+                prev_eng = DpiRegistry::get_active_engine();
+                DpiRegistry::set_active_engine(eng);
+            }
+        }
+        ~ContextScopeGuard() {
+            if (is_context) {
+                DpiRegistry::set_active_scope(prev_scope);
+                DpiRegistry::set_active_engine(prev_eng);
+            }
+        }
+    };
+
+    std::string call_scope = !scope.empty() ? scope : ((current_bp && !current_bp->scope.empty()) ? current_bp->scope : "");
+    if (call_scope.empty()) {
+        call_scope = engine.active_scope_name;
+    }
+    ContextScopeGuard scope_guard(dpi->is_context, call_scope, &engine);
+
+    std::vector<uint64_t> c_args;
+    struct OpenArrayRecord {
+        size_t arg_idx;
+        std::unique_ptr<SvOpenArray> oa;
+    };
+    std::vector<OpenArrayRecord> open_records;
+
+    for (size_t i = 0; i < args.size(); ++i) {
+        bool is_open = (i < dpi->tf_ports.size() && dpi->tf_ports[i].is_open_array);
+        if (is_open) {
+            std::string arr_name = "";
+            if (auto id = dynamic_cast<IdentifierNode*>(args[i].get())) {
+                arr_name = id->name;
+            }
+            auto oa = std::make_unique<SvOpenArray>();
+            std::string scoped_arr = scope.empty() ? arr_name : (scope + "." + arr_name);
+
+            MemoryArray* target_mem = nullptr;
+            if (engine.memory_map.find(scoped_arr) != engine.memory_map.end()) {
+                target_mem = &engine.memory_map.at(scoped_arr);
+            } else if (!engine.active_scope_name.empty() &&
+                       engine.memory_map.find(engine.active_scope_name + "." + arr_name) != engine.memory_map.end()) {
+                target_mem = &engine.memory_map.at(engine.active_scope_name + "." + arr_name);
+            } else if (engine.memory_map.find(arr_name) != engine.memory_map.end()) {
+                target_mem = &engine.memory_map.at(arr_name);
+            }
+
+            if (target_mem) {
+                oa->size = static_cast<int>(target_mem->depth);
+                oa->elem_width = static_cast<int>(target_mem->word_width);
+                oa->source_mem = target_mem;
+                oa->int32_elements.resize(target_mem->depth);
+                oa->int64_elements.resize(target_mem->depth);
+                for (size_t j = 0; j < target_mem->depth; ++j) {
+                    int64_t sv_idx = target_mem->is_descending ? (target_mem->end_idx - static_cast<int64_t>(j)) : (target_mem->start_idx + static_cast<int64_t>(j));
+                    LogicVal w_val = target_mem->get_word(sv_idx);
+                    oa->int32_elements[j] = static_cast<int32_t>(w_val.aval);
+                    oa->int64_elements[j] = static_cast<int64_t>(w_val.aval);
+                }
+            } else {
+                DynamicArrayObject* target_dyn = nullptr;
+                if (context.has_active_frame()) {
+                    LocalVar* local = context.lookup_local(arr_name);
+                    if (local && local->is_dynamic_array) {
+                        target_dyn = &local->dyn_array_data;
+                    }
+                }
+                if (!target_dyn && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(arr_name);
+                        if (local && local->is_dynamic_array) {
+                            target_dyn = &local->dyn_array_data;
+                            break;
+                        }
+                    }
+                }
+                if (!target_dyn) {
+                    target_dyn = engine.get_dynamic_array(scope, arr_name);
+                }
+                if (!target_dyn && !engine.active_scope_name.empty()) {
+                    target_dyn = engine.get_dynamic_array(engine.active_scope_name, arr_name);
+                }
+                if (target_dyn) {
+                    oa->size = static_cast<int>(target_dyn->size());
+                    oa->elem_width = static_cast<int>(target_dyn->elem_width);
+                    oa->source_dyn = target_dyn;
+                    oa->int32_elements.resize(oa->size);
+                    oa->int64_elements.resize(oa->size);
+                    for (size_t j = 0; j < static_cast<size_t>(oa->size); ++j) {
+                        LogicVal elem = target_dyn->get_elem(static_cast<int64_t>(j));
+                        oa->int32_elements[j] = static_cast<int32_t>(elem.aval);
+                        oa->int64_elements[j] = static_cast<int64_t>(elem.aval);
+                    }
+                }
+            }
+
+            c_args.push_back(reinterpret_cast<uint64_t>(oa.get()));
+            open_records.push_back(OpenArrayRecord{i, std::move(oa)});
+        } else {
+            LogicVal v = eval(args[i].get(), scope);
+            if (v.is_real) {
+                c_args.push_back(static_cast<uint64_t>(v.real_val));
+            } else {
+                c_args.push_back(v.aval);
+            }
+        }
+    }
+
+    LogicVal result = invoke_c_symbol(sym, dpi, c_args);
+
+    // Write back any modified open array elements for output or inout ports
+    for (const auto& rec : open_records) {
+        if (rec.arg_idx < dpi->tf_ports.size() &&
+            (dpi->tf_ports[rec.arg_idx].direction == "output" || dpi->tf_ports[rec.arg_idx].direction == "inout")) {
+            if (rec.oa->source_mem) {
+                for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
+                    int64_t sv_idx = rec.oa->source_mem->is_descending ? (rec.oa->source_mem->end_idx - static_cast<int64_t>(j)) : (rec.oa->source_mem->start_idx + static_cast<int64_t>(j));
+                    uint64_t val = (rec.oa->elem_width <= 32) ? static_cast<uint32_t>(rec.oa->int32_elements[j]) : static_cast<uint64_t>(rec.oa->int64_elements[j]);
+                    rec.oa->source_mem->set_word(sv_idx, LogicVal::make_known(rec.oa->elem_width, val));
+                }
+            } else if (rec.oa->source_dyn) {
+                for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
+                    uint64_t val = (rec.oa->elem_width <= 32) ? static_cast<uint32_t>(rec.oa->int32_elements[j]) : static_cast<uint64_t>(rec.oa->int64_elements[j]);
+                    rec.oa->source_dyn->set_elem(static_cast<int64_t>(j), LogicVal::make_known(rec.oa->elem_width, val));
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope) {
+    void* sym = engine.dpi_registry.get_symbol(dpi->c_name, engine.source_search_paths);
+    if (!sym) {
+        throw std::runtime_error("[CAS-DPI-ERR] Runtime error: DPI-C foreign function symbol '" + dpi->c_name + "' could not be resolved from shared library");
+    }
+
+    struct ContextScopeGuard {
+        bool is_context;
+        svScope prev_scope;
+        void* prev_eng;
+        ContextScopeGuard(bool ctx, const std::string& call_scope, Engine* eng) : is_context(ctx), prev_scope(nullptr), prev_eng(nullptr) {
+            if (is_context) {
+                prev_scope = DpiRegistry::set_active_scope_by_name(call_scope);
+                prev_eng = DpiRegistry::get_active_engine();
+                DpiRegistry::set_active_engine(eng);
+            }
+        }
+        ~ContextScopeGuard() {
+            if (is_context) {
+                DpiRegistry::set_active_scope(prev_scope);
+                DpiRegistry::set_active_engine(prev_eng);
+            }
+        }
+    };
+
+    std::string call_scope = !scope.empty() ? scope : ((current_bp && !current_bp->scope.empty()) ? current_bp->scope : "");
+    if (call_scope.empty()) {
+        call_scope = engine.active_scope_name;
+    }
+    ContextScopeGuard scope_guard(dpi->is_context, call_scope, &engine);
+
+    std::vector<uint64_t> c_args;
+    for (size_t i = 0; i < evaluated_args.size(); ++i) {
+        const auto& v = evaluated_args[i];
+        if (v.is_real) {
+            c_args.push_back(static_cast<uint64_t>(v.real_val));
+        } else {
+            c_args.push_back(v.aval);
+        }
+    }
+
+    return invoke_c_symbol(sym, dpi, c_args);
 }

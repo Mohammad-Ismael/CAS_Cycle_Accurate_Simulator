@@ -13,6 +13,19 @@
 #endif
 
 typedef void* svScope;
+typedef void* svOpenArrayHandle;
+
+struct MemoryArray;
+struct DynamicArrayObject;
+
+struct SvOpenArray {
+    int size = 0;
+    int elem_width = 32;
+    std::vector<int32_t> int32_elements;
+    std::vector<int64_t> int64_elements;
+    MemoryArray* source_mem = nullptr;
+    DynamicArrayObject* source_dyn = nullptr;
+};
 
 struct SvScopeContext {
     std::string scope_name;

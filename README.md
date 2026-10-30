@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.14.0.0`  
-**Status:** Production Milestone v3.14.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.15.0.0`  
+**Status:** Production Milestone v3.15.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░] 41.6%`
+`[█████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░] 43.0%`
 
-*Current Baseline (v3.14.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution), and DPI-C opaque pointer storage (`chandle`, `null` comparisons, 64-bit pointer ABI marshalling).  
-*Upcoming Domains:* DPI-C Open Arrays, Packed SV-to-C Struct Passing, DPI-C Memory Mapping.
+*Current Baseline (v3.15.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution), DPI-C opaque pointer storage (`chandle`, `null` comparisons, 64-bit pointer ABI marshalling), and DPI-C Open Arrays (`[]`, `const svOpenArrayHandle`, standard inquiry and element access APIs `svSize` and `svGetArrElemPtr1`).  
+*Upcoming Domains:* Packed SV-to-C Struct Passing, DPI-C Memory Mapping.
 
 ---
 
@@ -44,6 +44,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§16.9.3** | **SVA Sampled Value Functions** | Built-in SVA sampled value functions `$past(expr [, N])`, `$rose(expr)`, `$fell(expr)`, `$stable(expr)` evaluated using historical Preponed ring buffering across clock domains, with dynamic context diagnostic `[CAS-DTINPCIL]`. |
 | **§35, §35.4–§35.7** | **Direct Programming Interface (DPI-C)** | `import "DPI-C"` & `export "DPI-C"` declarations, `pure` and `context` subroutines, standard 2-state/4-state C ABI integer parameter marshalling, `svScope` scope resolution API (`svGetScope`, `svSetScope`), dynamic shared library symbol resolution (`dlopen`/`dlsym`), bidirectional C-to-SV routine execution, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§35.5.4, §6.11** | **DPI-C Opaque Pointer Storage (chandle)** | Opaque pointer data type `chandle`, default `null` initialization, `null` literal recognition, binary equality/inequality comparisons (`==`, `!=`), 64-bit native pointer register ABI marshalling, and context diagnostic `[CAS-DTINPCIL]`. |
+| **§35.5.6.1, Annex I.9** | **DPI-C Open Arrays & Handle Access APIs** | Open array declarations (`[]`) on formal arguments of DPI-C imports, formal open array handle passing (`const svOpenArrayHandle`), standard inquiry and element access APIs (`svSize`, `svGetArrElemPtr1`, `svDimensions`, `svLeft`, `svRight`, `svLow`, `svHigh`, `svLength`), bidirectional inout/output array writeback, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§25.5.3** | **Interface Modports & Directional Bindings** | `modport` declarations (`input`, `output`, `inout`), modport directional port typing (`interface_name.modport_name port_name`), modport connection binding (`.port(inst.modport)`), and hierarchical port mapping. |
 | **§14, §14.3, §14.11, §14.16** | **Clocking Blocks & Cycle Delays** | `clocking ... endclocking` declarations, default clocking, cycle delay statements (`##N`), synchronous output drives (`cb.sig <= expr`), Preponed input sampling (`#1step`), and diagnostic `[CAS-DCNS]`. |
@@ -152,8 +153,8 @@ CAS_Cycle_Accurate_Simulator/
 │   │   ├── profiler/           # Runtime hardware resource profiler
 │   │   └── tracer/             # VCD trace dumper
 │   └── src/                    # Implementation sources
-├── projects/                   # Milestone regression suites (v1_0_0_0 through v3_3_0_0)
-├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.3.0.0.md)
+├── projects/                   # Milestone regression suites (v1_0_0_0 through v3_15_0_0)
+├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.15.0.0.md)
 ├── server.py                   # Containerized FastAPI simulation and IDE server
 ├── Dockerfile                  # Production container definition
 └── README.md                   # Simulator architecture and documentation

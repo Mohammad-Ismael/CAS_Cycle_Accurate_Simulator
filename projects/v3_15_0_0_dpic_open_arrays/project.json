@@ -1,0 +1,12 @@
+{
+  "name": "v3_15_0_0_dpic_open_arrays",
+  "version": "v3.15.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.6.1 & Annex I.9",
+  "description": "Direct Programming Interface (DPI-C): open arrays '[]', formal open array handles 'const svOpenArrayHandle', standard inquiry and access APIs 'svSize' and 'svGetArrElemPtr1', and context diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_15_0_0_regression"
+}

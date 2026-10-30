@@ -37,7 +37,8 @@ suites = [
     ("v3.11.0.0", "v3_11_0_0_sva_repetitions", ["design.sv", "testbench.sv"]),
     ("v3.12.0.0", "v3_12_0_0_dpic_foreign_interface", ["design.sv", "testbench.sv"]),
     ("v3.13.0.0", "v3_13_0_0_dpic_export_context", ["design.sv", "testbench.sv"]),
-    ("v3.14.0.0", "v3_14_0_0_dpic_chandle_open_arrays", ["design.sv", "testbench.sv"])
+    ("v3.14.0.0", "v3_14_0_0_dpic_chandle_open_arrays", ["design.sv", "testbench.sv"]),
+    ("v3.15.0.0", "v3_15_0_0_dpic_open_arrays", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

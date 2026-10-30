@@ -225,6 +225,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.chandle_names.insert(scope + "." + p.name);
             result.chandle_names.insert(p.name);
         }
+        if (p.is_open_array) {
+            result.open_array_names.insert(scope + "." + p.name);
+            result.open_array_names.insert(p.name);
+        }
         if (!p.type_name.empty()) {
             result.netlist[pid].type_name = p.type_name;
             result.var_to_enum_type[scope + "." + p.name] = p.type_name;
@@ -294,6 +298,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.netlist[sid].prev_value = LogicVal(64, 0, 0);
                 result.chandle_names.insert(scope + "." + s.name);
                 result.chandle_names.insert(s.name);
+            }
+            if (s.is_open_array) {
+                result.open_array_names.insert(scope + "." + s.name);
+                result.open_array_names.insert(s.name);
             }
             if (s.is_class_handle) {
                 result.netlist[sid].is_class_handle = true;
@@ -393,6 +401,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.chandle_names.find(ca->target_name) != result.chandle_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to chandle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.4");
         }
+        if (result.open_array_names.find(scoped_target) != result.open_array_names.end() ||
+            result.open_array_names.find(ca->target_name) != result.open_array_names.end() ||
+            result.memory_map.find(scoped_target) != result.memory_map.end() ||
+            result.memory_map.find(ca->target_name) != result.memory_map.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to open array or unpacked array '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.6.1");
+        }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -434,6 +448,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.chandle_names.find(s_id) != result.chandle_names.end() ||
                     result.chandle_names.find(id->name) != result.chandle_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: chandle '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 35.5.4");
+                }
+                if (result.open_array_names.find(s_id) != result.open_array_names.end() ||
+                    result.open_array_names.find(id->name) != result.open_array_names.end() ||
+                    result.memory_map.find(s_id) != result.memory_map.end() ||
+                    result.memory_map.find(id->name) != result.memory_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: open array handle or unpacked array '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 35.5.6.1");
                 }
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
