@@ -468,6 +468,8 @@ Token Lexer::next_token() {
         if (ident == "context") return {TokenType::TOKEN_CONTEXT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "void") return {TokenType::TOKEN_VOID, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "chandle") return {TokenType::TOKEN_CHANDLE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "semaphore") return {TokenType::TOKEN_SEMAPHORE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "mailbox") return {TokenType::TOKEN_MAILBOX, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

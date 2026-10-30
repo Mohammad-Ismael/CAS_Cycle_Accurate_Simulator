@@ -1,0 +1,12 @@
+{
+  "name": "v3_17_0_0_semaphores_mailboxes",
+  "version": "v3.17.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§15",
+  "description": "Interprocess Synchronization & Communication: Built-in 'semaphore' and 'mailbox', Process Suspension & Wakeup Scheduling, Bounded/Unbounded Mailbox FIFOs, Methods 'get', 'put', 'try_get', 'try_put', 'num', and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_17_0_0_regression"
+}

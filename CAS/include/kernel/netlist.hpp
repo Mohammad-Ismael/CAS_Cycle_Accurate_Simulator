@@ -24,6 +24,8 @@ struct Net {
     bool is_covergroup_handle = false;
     std::string covergroup_type_name = "";
     bool is_chandle = false;
+    bool is_semaphore = false;
+    bool is_mailbox = false;
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),

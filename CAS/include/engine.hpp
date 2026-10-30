@@ -11,6 +11,7 @@
 #include "common/coverage_types.hpp"
 #include "common/sva_types.hpp"
 #include "common/dpic_types.hpp"
+#include "common/sync_types.hpp"
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -77,6 +78,10 @@ private:
     std::unordered_set<std::string> sequence_names;
     std::unordered_set<std::string> chandle_names;
     std::unordered_set<std::string> open_array_names;
+    std::unordered_set<std::string> semaphore_handle_names;
+    std::unordered_map<uint64_t, std::shared_ptr<SemaphoreObject>> semaphore_heap;
+    std::unordered_set<std::string> mailbox_handle_names;
+    std::unordered_map<uint64_t, std::shared_ptr<MailboxObject>> mailbox_heap;
     uint64_t next_handle_id = 1;
 
     MonitorSession monitor_session;
@@ -286,6 +291,88 @@ public:
         if (open_array_names.find(scoped) != open_array_names.end()) return true;
         if (open_array_names.find(name) != open_array_names.end()) return true;
         return false;
+    }
+
+    bool is_semaphore(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (semaphore_handle_names.find(scoped) != semaphore_handle_names.end()) return true;
+        if (semaphore_handle_names.find(name) != semaphore_handle_names.end()) return true;
+        return false;
+    }
+
+    std::shared_ptr<SemaphoreObject> allocate_semaphore(int keys = 0) {
+        uint64_t id = next_handle_id++;
+        auto sobj = std::make_shared<SemaphoreObject>();
+        sobj->handle_id = id;
+        sobj->keys = keys;
+        semaphore_heap[id] = sobj;
+        return sobj;
+    }
+
+    std::shared_ptr<SemaphoreObject> get_semaphore(uint64_t handle_id) {
+        if (handle_id == 0) return nullptr;
+        auto it = semaphore_heap.find(handle_id);
+        if (it != semaphore_heap.end()) return it->second;
+        return nullptr;
+    }
+
+    bool is_mailbox(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (mailbox_handle_names.find(scoped) != mailbox_handle_names.end()) return true;
+        if (mailbox_handle_names.find(name) != mailbox_handle_names.end()) return true;
+        return false;
+    }
+
+    std::shared_ptr<MailboxObject> allocate_mailbox(int bound = 0) {
+        uint64_t id = next_handle_id++;
+        auto mobj = std::make_shared<MailboxObject>();
+        mobj->handle_id = id;
+        mobj->bound = bound;
+        mailbox_heap[id] = mobj;
+        return mobj;
+    }
+
+    std::shared_ptr<MailboxObject> get_mailbox(uint64_t handle_id) {
+        if (handle_id == 0) return nullptr;
+        auto it = mailbox_heap.find(handle_id);
+        if (it != mailbox_heap.end()) return it->second;
+        return nullptr;
+    }
+
+    uint64_t get_semaphore_handle_id(const std::string& var_name, const std::string& scope, BoundProcess* bp, ExecutionContext* ctx) {
+        if (ctx && ctx->has_active_frame()) {
+            LocalVar* local = ctx->lookup_local(var_name);
+            if (local && local->is_semaphore) return local->value.aval;
+        }
+        if (bp && !bp->call_stack.empty()) {
+            for (auto it = bp->call_stack.rbegin(); it != bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_semaphore) return local->value.aval;
+            }
+        }
+        size_t nid = get_net_id(scope, var_name);
+        if (nid != (size_t)-1 && netlist[nid].is_semaphore) {
+            return netlist[nid].value.aval;
+        }
+        return 0;
+    }
+
+    uint64_t get_mailbox_handle_id(const std::string& var_name, const std::string& scope, BoundProcess* bp, ExecutionContext* ctx) {
+        if (ctx && ctx->has_active_frame()) {
+            LocalVar* local = ctx->lookup_local(var_name);
+            if (local && local->is_mailbox) return local->value.aval;
+        }
+        if (bp && !bp->call_stack.empty()) {
+            for (auto it = bp->call_stack.rbegin(); it != bp->call_stack.rend(); ++it) {
+                LocalVar* local = it->local_frame.get_var(var_name);
+                if (local && local->is_mailbox) return local->value.aval;
+            }
+        }
+        size_t nid = get_net_id(scope, var_name);
+        if (nid != (size_t)-1 && netlist[nid].is_mailbox) {
+            return netlist[nid].value.aval;
+        }
+        return 0;
     }
 
     std::string get_covergroup_type(const std::string& name, const std::string& scope = "") const {

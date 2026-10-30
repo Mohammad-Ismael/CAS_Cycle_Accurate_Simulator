@@ -137,6 +137,9 @@ struct BoundProcess {
     size_t cycle_delay_count = 0;
     size_t clocking_block_id = (size_t)-1;
 
+    size_t pid = (size_t)-1;
+    bool is_waiting_sync = false;
+
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
         : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}
@@ -185,6 +188,8 @@ struct ElaborationResult {
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::unordered_set<std::string> chandle_names;
     std::unordered_set<std::string> open_array_names;
+    std::unordered_set<std::string> semaphore_handle_names;
+    std::unordered_set<std::string> mailbox_handle_names;
     std::string top_scope;
 };
 

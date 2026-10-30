@@ -276,6 +276,24 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto cnew = dynamic_cast<ClassNewNode*>(expr)) {
+        if (cnew->class_type_name == "semaphore") {
+            int keys = 0;
+            if (!cnew->args.empty()) {
+                LogicVal kval = eval(cnew->args[0].get(), scope);
+                keys = kval.is_unknown() ? 0 : (int)kval.aval;
+            }
+            auto sobj = engine.allocate_semaphore(keys);
+            return LogicVal(64, sobj->handle_id, 0);
+        }
+        if (cnew->class_type_name == "mailbox") {
+            int bound = 0;
+            if (!cnew->args.empty()) {
+                LogicVal bval = eval(cnew->args[0].get(), scope);
+                bound = bval.is_unknown() ? 0 : (int)bval.aval;
+            }
+            auto mobj = engine.allocate_mailbox(bound);
+            return LogicVal(64, mobj->handle_id, 0);
+        }
         if (!cnew->class_type_name.empty()) {
             auto obj = engine.allocate_class_object(cnew->class_type_name);
             FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
@@ -417,6 +435,112 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
         std::string var_name = method_node->var_name;
+
+        if (engine.is_semaphore(var_name, scope)) {
+            uint64_t handle_id = engine.get_semaphore_handle_id(var_name, scope, current_bp, &context);
+            auto sobj = engine.get_semaphore(handle_id);
+            if (sobj) {
+                if (method_node->method_name == "try_get") {
+                    int count = 1;
+                    if (!method_node->args.empty()) {
+                        LogicVal kval = eval(method_node->args[0].get(), scope);
+                        count = kval.is_unknown() ? 0 : (int)kval.aval;
+                    }
+                    if (sobj->keys >= count) {
+                        sobj->keys -= count;
+                        return LogicVal::make_known(32, 1);
+                    } else {
+                        return LogicVal::make_known(32, 0);
+                    }
+                }
+            }
+            return LogicVal::make_known(32, 0);
+        }
+
+        if (engine.is_mailbox(var_name, scope)) {
+            uint64_t handle_id = engine.get_mailbox_handle_id(var_name, scope, current_bp, &context);
+            auto mobj = engine.get_mailbox(handle_id);
+            if (mobj) {
+                if (method_node->method_name == "num") {
+                    return LogicVal::make_known(32, (uint64_t)mobj->queue.size());
+                }
+                if (method_node->method_name == "try_put") {
+                    if (!method_node->args.empty()) {
+                        LogicVal msg = eval(method_node->args[0].get(), scope);
+                        if (mobj->bound > 0 && mobj->queue.size() >= (size_t)mobj->bound) {
+                            return LogicVal::make_known(32, 0);
+                        }
+                        if (!mobj->waiting_get_threads.empty()) {
+                            auto front = mobj->waiting_get_threads.front();
+                            mobj->waiting_get_threads.pop_front();
+                            size_t wpid = front.pid;
+                            if (wpid < engine.processes.size()) {
+                                auto& wake_bp = engine.processes[wpid];
+                                engine.evaluator.write_variable(front.dest_var_name, msg, wake_bp);
+                                wake_bp.is_waiting_sync = false;
+                                if (!wake_bp.call_stack.empty()) {
+                                    wake_bp.call_stack.back().pc++;
+                                } else {
+                                    wake_bp.pc++;
+                                }
+                                engine.scheduler.step_process(wpid);
+                            }
+                        } else {
+                            mobj->queue.push_back(msg);
+                        }
+                        return LogicVal::make_known(32, 1);
+                    }
+                    return LogicVal::make_known(32, 0);
+                }
+                if (method_node->method_name == "try_get") {
+                    if (mobj->queue.empty()) {
+                        return LogicVal::make_known(32, 0);
+                    }
+                    LogicVal msg = mobj->queue.front();
+                    mobj->queue.pop_front();
+                    if (!method_node->args.empty()) {
+                        if (auto id_node = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            if (current_bp) {
+                                engine.evaluator.write_variable(id_node->name, msg, *current_bp);
+                            }
+                        }
+                    }
+                    if (!mobj->waiting_put_threads.empty()) {
+                        auto front = mobj->waiting_put_threads.front();
+                        mobj->waiting_put_threads.pop_front();
+                        mobj->queue.push_back(front.val_to_put);
+                        size_t wpid = front.pid;
+                        if (wpid < engine.processes.size()) {
+                            auto& wake_bp = engine.processes[wpid];
+                            wake_bp.is_waiting_sync = false;
+                            if (!wake_bp.call_stack.empty()) {
+                                wake_bp.call_stack.back().pc++;
+                            } else {
+                                wake_bp.pc++;
+                            }
+                            engine.scheduler.step_process(wpid);
+                        }
+                    }
+                    return LogicVal::make_known(32, 1);
+                }
+                if (method_node->method_name == "try_peek") {
+                    if (mobj->queue.empty()) {
+                        return LogicVal::make_known(32, 0);
+                    }
+                    LogicVal msg = mobj->queue.front();
+                    if (!method_node->args.empty()) {
+                        if (auto id_node = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                            if (current_bp) {
+                                engine.evaluator.write_variable(id_node->name, msg, *current_bp);
+                            }
+                        }
+                    }
+                    return LogicVal::make_known(32, 1);
+                }
+            }
+            return LogicVal::make_known(32, 0);
+        }
+
         ClassObject* cl_obj = nullptr;
         if (var_name == "this" || var_name == "super") {
             cl_obj = current_this;

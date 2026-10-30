@@ -60,6 +60,11 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     dpi_export_map = std::move(elab_res.dpi_export_map);
     chandle_names = std::move(elab_res.chandle_names);
     open_array_names = std::move(elab_res.open_array_names);
+    semaphore_handle_names = std::move(elab_res.semaphore_handle_names);
+    mailbox_handle_names = std::move(elab_res.mailbox_handle_names);
+    for (size_t i = 0; i < processes.size(); ++i) {
+        processes[i].pid = i;
+    }
     active_scope_name = elab_res.top_scope;
     DpiRegistry::set_active_scope_by_name(active_scope_name);
     DpiRegistry::set_active_engine(this);

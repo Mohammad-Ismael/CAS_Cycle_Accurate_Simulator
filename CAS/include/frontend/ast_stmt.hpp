@@ -44,6 +44,8 @@ struct VarDeclStatementNode : public StatementNode {
     bool is_covergroup_handle = false;
     std::string covergroup_type_name = "";
     bool is_chandle = false;
+    bool is_semaphore = false;
+    bool is_mailbox = false;
     std::unique_ptr<ExpressionNode> init_expr = nullptr;
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)

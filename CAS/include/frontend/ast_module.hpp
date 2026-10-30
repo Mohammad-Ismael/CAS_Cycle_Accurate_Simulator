@@ -35,6 +35,8 @@ struct PortNode : public ASTNode {
     std::string covergroup_type_name = "";
     bool is_chandle = false;
     bool is_open_array = false;
+    bool is_semaphore = false;
+    bool is_mailbox = false;
     std::unique_ptr<ExpressionNode> default_value = nullptr;
 
     PortNode() = default;

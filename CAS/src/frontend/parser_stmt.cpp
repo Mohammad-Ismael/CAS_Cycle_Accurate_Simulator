@@ -130,11 +130,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
     bool is_chandle_stmt = (current.type == TokenType::TOKEN_CHANDLE ||
                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
+    bool is_semaphore_stmt = (current.type == TokenType::TOKEN_SEMAPHORE ||
+                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "semaphore"));
+    bool is_mailbox_stmt = (current.type == TokenType::TOKEN_MAILBOX ||
+                           (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL ||
-        is_ident_int_type || is_chandle_stmt) {
+        is_ident_int_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) {
         bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER || is_ident_int_type);
         bool is_real_var = (current.type == TokenType::TOKEN_REAL);
         bool is_int = is_signed_var;
@@ -143,12 +147,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             int_type_name = current.text;
         }
         advance();
+        if (is_mailbox_stmt && match(TokenType::TOKEN_HASH)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in mailbox parameter");
+            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
+        }
         if (current.type == TokenType::TOKEN_SIGNED) {
             is_signed_var = true;
             advance();
         }
 
-        uint32_t width = is_chandle_stmt ? 64 : (is_int ? 32 : (is_real_var ? 64 : 1));
+        uint32_t width = (is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) ? 64 : (is_int ? 32 : (is_real_var ? 64 : 1));
         if (int_type_name == "byte") width = 8;
         else if (int_type_name == "shortint") width = 16;
         else if (int_type_name == "longint") width = 64;
@@ -200,8 +209,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             init_expr = parse_expression();
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, is_chandle_stmt ? "chandle" : (is_real_var ? "real" : (!int_type_name.empty() ? int_type_name : "")), is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_real_var ? "real" : (!int_type_name.empty() ? int_type_name : ""))));
+        auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
         vnode->is_chandle = is_chandle_stmt;
+        vnode->is_semaphore = is_semaphore_stmt;
+        vnode->is_mailbox = is_mailbox_stmt;
         vnode->init_expr = std::move(init_expr);
         return vnode;
     }

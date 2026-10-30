@@ -225,6 +225,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.chandle_names.insert(scope + "." + p.name);
             result.chandle_names.insert(p.name);
         }
+        if (p.is_semaphore || p.type_name == "semaphore") {
+            result.netlist[pid].is_semaphore = true;
+            result.netlist[pid].type_name = "semaphore";
+            result.netlist[pid].value = LogicVal(64, 0, 0);
+            result.netlist[pid].prev_value = LogicVal(64, 0, 0);
+            result.semaphore_handle_names.insert(scope + "." + p.name);
+            result.semaphore_handle_names.insert(p.name);
+        }
+        if (p.is_mailbox || p.type_name == "mailbox") {
+            result.netlist[pid].is_mailbox = true;
+            result.netlist[pid].type_name = "mailbox";
+            result.netlist[pid].value = LogicVal(64, 0, 0);
+            result.netlist[pid].prev_value = LogicVal(64, 0, 0);
+            result.mailbox_handle_names.insert(scope + "." + p.name);
+            result.mailbox_handle_names.insert(p.name);
+        }
         if (p.is_open_array) {
             result.open_array_names.insert(scope + "." + p.name);
             result.open_array_names.insert(p.name);
@@ -298,6 +314,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.netlist[sid].prev_value = LogicVal(64, 0, 0);
                 result.chandle_names.insert(scope + "." + s.name);
                 result.chandle_names.insert(s.name);
+            }
+            if (s.is_semaphore || s.type_name == "semaphore") {
+                result.netlist[sid].is_semaphore = true;
+                result.netlist[sid].type_name = "semaphore";
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.semaphore_handle_names.insert(scope + "." + s.name);
+                result.semaphore_handle_names.insert(s.name);
+            }
+            if (s.is_mailbox || s.type_name == "mailbox") {
+                result.netlist[sid].is_mailbox = true;
+                result.netlist[sid].type_name = "mailbox";
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.mailbox_handle_names.insert(scope + "." + s.name);
+                result.mailbox_handle_names.insert(s.name);
             }
             if (s.is_open_array) {
                 result.open_array_names.insert(scope + "." + s.name);
@@ -401,6 +433,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.chandle_names.find(ca->target_name) != result.chandle_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to chandle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.4");
         }
+        if (result.semaphore_handle_names.find(scoped_target) != result.semaphore_handle_names.end() ||
+            result.semaphore_handle_names.find(ca->target_name) != result.semaphore_handle_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to semaphore '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 15.3");
+        }
+        if (result.mailbox_handle_names.find(scoped_target) != result.mailbox_handle_names.end() ||
+            result.mailbox_handle_names.find(ca->target_name) != result.mailbox_handle_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to mailbox '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 15.4");
+        }
         if (result.open_array_names.find(scoped_target) != result.open_array_names.end() ||
             result.open_array_names.find(ca->target_name) != result.open_array_names.end() ||
             result.memory_map.find(scoped_target) != result.memory_map.end() ||
@@ -448,6 +488,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.chandle_names.find(s_id) != result.chandle_names.end() ||
                     result.chandle_names.find(id->name) != result.chandle_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: chandle '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 35.5.4");
+                }
+                if (result.semaphore_handle_names.find(s_id) != result.semaphore_handle_names.end() ||
+                    result.semaphore_handle_names.find(id->name) != result.semaphore_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: semaphore '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 15.3");
+                }
+                if (result.mailbox_handle_names.find(s_id) != result.mailbox_handle_names.end() ||
+                    result.mailbox_handle_names.find(id->name) != result.mailbox_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: mailbox '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 15.4");
                 }
                 if (result.open_array_names.find(s_id) != result.open_array_names.end() ||
                     result.open_array_names.find(id->name) != result.open_array_names.end() ||
@@ -672,7 +720,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& proc : mod->processes) {
-        result.processes.push_back({scope, proc.get(), 0, false});
+        BoundProcess bp(scope, proc.get(), 0, false);
+        bp.pid = result.processes.size();
+        result.processes.push_back(std::move(bp));
     }
 
     for (auto& prop : mod->properties) {

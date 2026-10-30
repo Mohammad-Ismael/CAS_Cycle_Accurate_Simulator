@@ -62,6 +62,27 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     target_net.set(LogicVal(cur.width, new_a, new_b));
 }
 
+void Evaluator::write_variable(const std::string& var_name, const LogicVal& val, BoundProcess& bp) {
+    LocalVar* local = nullptr;
+    if (expr_eval.get_context().has_active_frame()) {
+        local = expr_eval.get_context().lookup_local(var_name);
+    }
+    if (!local && !bp.call_stack.empty()) {
+        for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+            local = it->local_frame.get_var(var_name);
+            if (local) break;
+        }
+    }
+    if (local) {
+        local->value = LogicOps::cast_width(val, local->width, local->is_signed);
+        return;
+    }
+    size_t nid = engine.get_net_id(bp.scope, var_name);
+    if (nid != (size_t)-1) {
+        engine.netlist[nid].set(val);
+    }
+}
+
 LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
     return expr_eval.eval(expr, scope);
 }
@@ -212,6 +233,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->type_name = "chandle";
                     lv->value = LogicVal(64, 0, 0);
                 }
+                if (vdecl->is_semaphore || vdecl->type_name == "semaphore") {
+                    lv->is_semaphore = true;
+                    lv->type_name = "semaphore";
+                    lv->value = LogicVal(64, 0, 0);
+                }
+                if (vdecl->is_mailbox || vdecl->type_name == "mailbox") {
+                    lv->is_mailbox = true;
+                    lv->type_name = "mailbox";
+                    lv->value = LogicVal(64, 0, 0);
+                }
                 if (vdecl->init_expr) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                     lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -225,6 +256,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle")) {
                 lv->is_chandle = true;
                 lv->type_name = "chandle";
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (lv && (vdecl->is_semaphore || vdecl->type_name == "semaphore")) {
+                lv->is_semaphore = true;
+                lv->type_name = "semaphore";
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (lv && (vdecl->is_mailbox || vdecl->type_name == "mailbox")) {
+                lv->is_mailbox = true;
+                lv->type_name = "mailbox";
                 lv->value = LogicVal(64, 0, 0);
             }
             if (vdecl->init_expr) {
@@ -259,6 +300,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (vdecl->is_chandle || vdecl->type_name == "chandle") {
                 lv->is_chandle = true;
                 lv->type_name = "chandle";
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (vdecl->is_semaphore || vdecl->type_name == "semaphore") {
+                lv->is_semaphore = true;
+                lv->type_name = "semaphore";
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (vdecl->is_mailbox || vdecl->type_name == "mailbox") {
+                lv->is_mailbox = true;
+                lv->type_name = "mailbox";
                 lv->value = LogicVal(64, 0, 0);
             }
             if (vdecl->init_expr) {
@@ -426,6 +477,161 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (dot != std::string::npos) {
             std::string var_name = tname.substr(0, dot);
             std::string method = tname.substr(dot + 1);
+
+            if (engine.is_semaphore(var_name, bp.scope)) {
+                uint64_t handle_id = engine.get_semaphore_handle_id(var_name, bp.scope, &bp, &expr_eval.get_context());
+                auto sobj = engine.get_semaphore(handle_id);
+                if (sobj) {
+                    int count = 1;
+                    if (!tcall->args.empty()) {
+                        LogicVal kval = expr_eval.eval(tcall->args[0].get(), bp.scope);
+                        count = kval.is_unknown() ? 0 : (int)kval.aval;
+                    }
+                    if (method == "get") {
+                        if (sobj->keys >= count && sobj->waiting_threads.empty()) {
+                            sobj->keys -= count;
+                        } else {
+                            bp.is_waiting_sync = true;
+                            WaitingThread wt;
+                            wt.pid = bp.pid;
+                            wt.keys_requested = count;
+                            sobj->waiting_threads.push_back(wt);
+                        }
+                        return;
+                    }
+                    if (method == "put") {
+                        sobj->keys += count;
+                        while (!sobj->waiting_threads.empty()) {
+                            auto front = sobj->waiting_threads.front();
+                            if (sobj->keys >= front.keys_requested) {
+                                sobj->keys -= front.keys_requested;
+                                sobj->waiting_threads.pop_front();
+                                size_t wpid = front.pid;
+                                if (wpid < engine.processes.size()) {
+                                    auto& wake_bp = engine.processes[wpid];
+                                    wake_bp.is_waiting_sync = false;
+                                    if (!wake_bp.call_stack.empty()) {
+                                        wake_bp.call_stack.back().pc++;
+                                    } else {
+                                        wake_bp.pc++;
+                                    }
+                                    engine.scheduler.step_process(wpid);
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                    if (method == "try_get") {
+                        if (sobj->keys >= count) {
+                            sobj->keys -= count;
+                        }
+                        return;
+                    }
+                }
+                return;
+            }
+
+            if (engine.is_mailbox(var_name, bp.scope)) {
+                uint64_t handle_id = engine.get_mailbox_handle_id(var_name, bp.scope, &bp, &expr_eval.get_context());
+                auto mobj = engine.get_mailbox(handle_id);
+                if (mobj) {
+                    if (method == "put") {
+                        LogicVal msg = expr_eval.eval(tcall->args[0].get(), bp.scope);
+                        if (mobj->bound > 0 && mobj->queue.size() >= (size_t)mobj->bound) {
+                            bp.is_waiting_sync = true;
+                            WaitingThread wt;
+                            wt.pid = bp.pid;
+                            wt.val_to_put = msg;
+                            wt.is_put = true;
+                            mobj->waiting_put_threads.push_back(wt);
+                        } else {
+                            if (!mobj->waiting_get_threads.empty()) {
+                                auto front = mobj->waiting_get_threads.front();
+                                mobj->waiting_get_threads.pop_front();
+                                size_t wpid = front.pid;
+                                if (wpid < engine.processes.size()) {
+                                    auto& wake_bp = engine.processes[wpid];
+                                    write_variable(front.dest_var_name, msg, wake_bp);
+                                    wake_bp.is_waiting_sync = false;
+                                    if (!wake_bp.call_stack.empty()) {
+                                        wake_bp.call_stack.back().pc++;
+                                    } else {
+                                        wake_bp.pc++;
+                                    }
+                                    engine.scheduler.step_process(wpid);
+                                }
+                            } else {
+                                mobj->queue.push_back(msg);
+                            }
+                        }
+                        return;
+                    }
+                    if (method == "get") {
+                        std::string dest_var = "";
+                        if (!tcall->args.empty()) {
+                            if (auto id_node = dynamic_cast<IdentifierNode*>(tcall->args[0].get())) {
+                                dest_var = id_node->name;
+                            }
+                        }
+                        if (mobj->queue.empty()) {
+                            bp.is_waiting_sync = true;
+                            WaitingThread wt;
+                            wt.pid = bp.pid;
+                            wt.dest_var_name = dest_var;
+                            wt.is_put = false;
+                            mobj->waiting_get_threads.push_back(wt);
+                        } else {
+                            LogicVal msg = mobj->queue.front();
+                            mobj->queue.pop_front();
+                            if (!dest_var.empty()) {
+                                write_variable(dest_var, msg, bp);
+                            }
+                            if (!mobj->waiting_put_threads.empty()) {
+                                auto front = mobj->waiting_put_threads.front();
+                                mobj->waiting_put_threads.pop_front();
+                                mobj->queue.push_back(front.val_to_put);
+                                size_t wpid = front.pid;
+                                if (wpid < engine.processes.size()) {
+                                    auto& wake_bp = engine.processes[wpid];
+                                    wake_bp.is_waiting_sync = false;
+                                    if (!wake_bp.call_stack.empty()) {
+                                        wake_bp.call_stack.back().pc++;
+                                    } else {
+                                        wake_bp.pc++;
+                                    }
+                                    engine.scheduler.step_process(wpid);
+                                }
+                            }
+                        }
+                        return;
+                    }
+                    if (method == "peek") {
+                        std::string dest_var = "";
+                        if (!tcall->args.empty()) {
+                            if (auto id_node = dynamic_cast<IdentifierNode*>(tcall->args[0].get())) {
+                                dest_var = id_node->name;
+                            }
+                        }
+                        if (mobj->queue.empty()) {
+                            bp.is_waiting_sync = true;
+                            WaitingThread wt;
+                            wt.pid = bp.pid;
+                            wt.dest_var_name = dest_var;
+                            wt.is_put = false;
+                            mobj->waiting_get_threads.push_back(wt);
+                        } else {
+                            LogicVal msg = mobj->queue.front();
+                            if (!dest_var.empty()) {
+                                write_variable(dest_var, msg, bp);
+                            }
+                        }
+                        return;
+                    }
+                }
+                return;
+            }
 
             ClassObject* cl_obj = nullptr;
             if (var_name == "this" || var_name == "super") {
@@ -846,6 +1052,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_chandle(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: chandle '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 35.5.4 & 21.2.3");
                     }
+                    if (engine.is_semaphore(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: semaphore handle '" + id->name + "' used in $monitor per IEEE 1800-2023 section 15.3 & 21.2.3");
+                    }
+                    if (engine.is_mailbox(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: mailbox handle '" + id->name + "' used in $monitor per IEEE 1800-2023 section 15.4 & 21.2.3");
+                    }
                     std::string s_id = bp.scope.empty() ? id->name : (bp.scope + "." + id->name);
                     if (engine.is_open_array(id->name, bp.scope) ||
                         engine.memory_map.find(s_id) != engine.memory_map.end() ||
@@ -899,6 +1111,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_assoc_array(mc->var_name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 7.8 & 21.2.3");
                     }
+                    if (engine.is_semaphore(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: semaphore method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 15.3 & 21.2.3");
+                    }
+                    if (engine.is_mailbox(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: mailbox method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 15.4 & 21.2.3");
+                    }
                     for (auto& a : mc->args) check_mon_expr(a.get());
                 } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
                     if (bin->op == "==" || bin->op == "!=") {
@@ -907,7 +1125,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         };
                         auto is_chandle_expr = [&](ExpressionNode* e) {
                             if (auto id = dynamic_cast<IdentifierNode*>(e)) {
-                                return engine.is_chandle(id->name, bp.scope);
+                                return engine.is_chandle(id->name, bp.scope) ||
+                                       engine.is_semaphore(id->name, bp.scope) ||
+                                       engine.is_mailbox(id->name, bp.scope);
                             }
                             return false;
                         };
@@ -1352,6 +1572,60 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             if (auto new_node = dynamic_cast<ClassNewNode*>(assign->rhs.get())) {
+                bool is_sem = (local && local->is_semaphore);
+                if (!is_sem) {
+                    size_t nid = engine.get_net_id(bp.scope, target_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_semaphore) is_sem = true;
+                }
+                if (!is_sem && engine.is_semaphore(target_name, bp.scope)) is_sem = true;
+                if (!is_sem && new_node->class_type_name == "semaphore") is_sem = true;
+                if (is_sem) {
+                    int keys = 0;
+                    if (!new_node->args.empty()) {
+                        LogicVal kval = eval_expr(new_node->args[0].get(), bp.scope);
+                        keys = kval.is_unknown() ? 0 : (int)kval.aval;
+                    }
+                    auto sobj = engine.allocate_semaphore(keys);
+                    sobj->name = target_name;
+                    LogicVal handle_val(64, sobj->handle_id, 0);
+                    if (local) {
+                        local->value = handle_val;
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, target_name);
+                        if (nid != (size_t)-1) {
+                            engine.netlist[nid].set(handle_val);
+                        }
+                    }
+                    return;
+                }
+
+                bool is_mbx = (local && local->is_mailbox);
+                if (!is_mbx) {
+                    size_t nid = engine.get_net_id(bp.scope, target_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_mailbox) is_mbx = true;
+                }
+                if (!is_mbx && engine.is_mailbox(target_name, bp.scope)) is_mbx = true;
+                if (!is_mbx && new_node->class_type_name == "mailbox") is_mbx = true;
+                if (is_mbx) {
+                    int bound = 0;
+                    if (!new_node->args.empty()) {
+                        LogicVal bval = eval_expr(new_node->args[0].get(), bp.scope);
+                        bound = bval.is_unknown() ? 0 : (int)bval.aval;
+                    }
+                    auto mobj = engine.allocate_mailbox(bound);
+                    mobj->name = target_name;
+                    LogicVal handle_val(64, mobj->handle_id, 0);
+                    if (local) {
+                        local->value = handle_val;
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, target_name);
+                        if (nid != (size_t)-1) {
+                            engine.netlist[nid].set(handle_val);
+                        }
+                    }
+                    return;
+                }
+
                 std::string cg_type = "";
                 if (local && local->is_covergroup_handle) {
                     cg_type = local->covergroup_type_name;

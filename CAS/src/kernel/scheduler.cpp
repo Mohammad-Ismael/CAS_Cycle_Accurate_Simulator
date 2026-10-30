@@ -754,6 +754,7 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         flatten_task_statements(branch.get(), child_bp.dynamic_statements);
 
         size_t child_pid = engine.processes.size();
+        child_bp.pid = child_pid;
         engine.processes.push_back(std::move(child_bp));
         engine.processes[pid].fork_barrier.child_pids.push_back(child_pid);
         engine.processes[pid].active_children.push_back(child_pid);
@@ -811,6 +812,7 @@ void StratifiedScheduler::terminate_process_tree(size_t target_pid) {
     p.is_waiting_fork = false;
     p.waiting_event_id = (size_t)-1;
     p.is_waiting_cycle = false;
+    p.is_waiting_sync = false;
 }
 
 void StratifiedScheduler::trigger_named_event_id(size_t ev_id) {
@@ -906,14 +908,14 @@ void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     if (pid >= engine.processes.size()) return;
     auto& initial_bp = engine.processes[pid];
-    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1 || initial_bp.is_waiting_cycle) return;
+    if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1 || initial_bp.is_waiting_cycle || initial_bp.is_waiting_sync) return;
 
     engine.evaluator.set_current_process(&initial_bp);
 
     while (simulation_active) {
         if (pid >= engine.processes.size()) break;
         auto& bp = engine.processes[pid];
-        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_cycle) break;
+        if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_cycle || bp.is_waiting_sync) break;
         engine.evaluator.set_current_process(&bp);
 
         // A. Execution within an active task activation frame
@@ -1043,8 +1045,9 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
-                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || var_name == "this" || var_name == "super") {
+                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                         engine.evaluator.execute_statement(stmt, bp);
+                        if (bp.is_waiting_sync) break;
                         cur_frame.pc++;
                         continue;
                     }
@@ -1089,6 +1092,7 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // Standard statement execution inside task
             engine.evaluator.execute_statement(stmt, bp);
+            if (bp.is_waiting_sync) break;
             cur_frame.pc++;
             continue;
         }
@@ -1191,8 +1195,9 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
-                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || var_name == "this" || var_name == "super") {
+                    if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                         engine.evaluator.execute_statement(stmt, bp);
+                        if (bp.is_waiting_sync) break;
                         bp.pc++;
                         continue;
                     }
@@ -1260,6 +1265,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             // 6. Standard Statement Execution
             engine.evaluator.execute_statement(stmt, bp);
             if (!simulation_active) break;
+            if (bp.is_waiting_sync) break;
             bp.pc++;
             continue;
         }
@@ -1402,8 +1408,9 @@ void StratifiedScheduler::step_process(size_t pid) {
             auto dot = tname.rfind('.');
             if (dot != std::string::npos) {
                 std::string var_name = tname.substr(0, dot);
-                if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || var_name == "this" || var_name == "super") {
+                if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                     engine.evaluator.execute_statement(stmt, bp);
+                    if (bp.is_waiting_sync) break;
                     bp.pc++;
                     continue;
                 }
@@ -1510,6 +1517,7 @@ void StratifiedScheduler::step_process(size_t pid) {
         // 7. Standard Statement Execution
         engine.evaluator.execute_statement(stmt, bp);
         if (!simulation_active) break;
+        if (bp.is_waiting_sync) break;
         bp.pc++;
     }
 
