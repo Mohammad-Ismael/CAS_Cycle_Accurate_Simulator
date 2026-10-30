@@ -283,6 +283,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_real) {
+            return LogicVal::make_real(num->real_val);
+        }
         return LogicVal(num->width, num->aval, num->bval);
     }
 
@@ -402,6 +405,47 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
         }
+        CovergroupInstance* cg_inst = nullptr;
+        if (!cl_obj) {
+            uint64_t handle_id = 0;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_covergroup_handle) {
+                    handle_id = local->value.aval;
+                }
+            }
+            if (handle_id == 0 && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_covergroup_handle) {
+                        handle_id = local->value.aval;
+                        break;
+                    }
+                }
+            }
+            if (handle_id == 0) {
+                size_t nid = engine.get_net_id(scope, var_name);
+                if (nid != (size_t)-1 && engine.netlist[nid].is_covergroup_handle) {
+                    handle_id = engine.netlist[nid].value.aval;
+                }
+            }
+            if (handle_id != 0) {
+                cg_inst = engine.get_covergroup_instance(handle_id).get();
+            }
+        }
+        if (cg_inst) {
+            if (method_node->method_name == "get_coverage" || method_node->method_name == "get_inst_coverage") {
+                double cov = cg_inst->get_coverage();
+                return LogicVal::make_real(cov);
+            }
+            if (method_node->method_name == "sample") {
+                cg_inst->sample([&](ExpressionNode* e, const std::string& sc) {
+                    return eval(e, sc.empty() ? scope : sc);
+                });
+                return LogicVal::make_known(32, 0);
+            }
+        }
+
         QueueObject* q = nullptr;
         if (context.has_active_frame()) {
             LocalVar* local = context.lookup_local(var_name);
@@ -849,6 +893,19 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
+        if (fn_call->func_name == "$rtoi") {
+            if (!fn_call->args.empty()) {
+                LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+                int64_t ival = 0;
+                if (arg_val.is_real) {
+                    ival = static_cast<int64_t>(arg_val.real_val);
+                } else {
+                    ival = static_cast<int64_t>(arg_val.aval);
+                }
+                return LogicVal::make_known(32, static_cast<uint64_t>(ival));
+            }
+            return LogicVal::make_known(32, 0);
+        }
         std::vector<LogicVal> evaluated_args;
         for (const auto& a : fn_call->args) {
             evaluated_args.push_back(eval(a.get(), scope));

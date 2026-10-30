@@ -20,6 +20,8 @@ struct Net {
     std::string procedural_assign_scope = "";
     std::string type_name = "";
     bool is_class_handle = false;
+    bool is_covergroup_handle = false;
+    std::string covergroup_type_name = "";
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),
@@ -29,6 +31,10 @@ struct Net {
 
     void set(const LogicVal& val) {
         LogicVal clamped(width, val.aval, val.bval);
+        if (val.is_real) {
+            clamped.is_real = true;
+            clamped.real_val = val.real_val;
+        }
         if (value != clamped) {
             prev_value = value;
             value = clamped;

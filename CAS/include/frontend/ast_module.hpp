@@ -31,6 +31,8 @@ struct PortNode : public ASTNode {
     std::string type_name = "";
     bool is_class_handle = false;
     std::string class_type_name = "";
+    bool is_covergroup_handle = false;
+    std::string covergroup_type_name = "";
     std::unique_ptr<ExpressionNode> default_value = nullptr;
 
     PortNode() = default;
@@ -341,6 +343,37 @@ inline bool ClassObject::is_instance_of(const std::string& target_type) const {
     return false;
 }
 
+struct CovergroupBinNode : public ASTNode {
+    std::string name;
+    std::vector<InsideRange> ranges;
+    CovergroupBinNode(std::string n, std::vector<InsideRange> r)
+        : name(std::move(n)), ranges(std::move(r)) {}
+};
+
+struct CoverpointNode : public ASTNode {
+    std::string label;
+    std::unique_ptr<ExpressionNode> target_expr;
+    std::vector<std::unique_ptr<CovergroupBinNode>> bins;
+    CoverpointNode(std::string lbl, std::unique_ptr<ExpressionNode> target)
+        : label(std::move(lbl)), target_expr(std::move(target)) {}
+};
+
+struct CovergroupNode : public ASTNode {
+    std::string name;
+    std::vector<std::unique_ptr<CoverpointNode>> coverpoints;
+    std::unordered_map<std::string, CoverpointNode*> coverpoint_map;
+
+    explicit CovergroupNode(std::string n) : name(std::move(n)) {}
+
+    void add_coverpoint(std::unique_ptr<CoverpointNode> cp) {
+        CoverpointNode* ptr = cp.get();
+        coverpoints.push_back(std::move(cp));
+        if (!ptr->label.empty()) {
+            coverpoint_map[ptr->label] = ptr;
+        }
+    }
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -364,6 +397,8 @@ struct ModuleNode : public ASTNode {
     std::string default_clocking_name = "";
     std::vector<std::shared_ptr<ClassNode>> classes;
     std::unordered_map<std::string, ClassNode*> class_map;
+    std::vector<std::shared_ptr<CovergroupNode>> covergroups;
+    std::unordered_map<std::string, CovergroupNode*> covergroup_map;
 
     ModuleNode() = default;
 };

@@ -126,7 +126,7 @@ void Evaluator::check_monitor() {
                 bool unpadded = false;
                 if (spec == '0' && i + 1 < fmt_len) {
                     char next_spec = engine.monitor_session.format_string[i + 1];
-                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's') {
+                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's' || next_spec == 'f') {
                         spec = next_spec;
                         unpadded = true;
                         ++i;
@@ -141,7 +141,8 @@ void Evaluator::check_monitor() {
                     } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                         std::cout << "x";
                     } else {
-                        if (spec == 'd' || spec == 't') std::cout << val.aval;
+                        if (spec == 'd' || spec == 't') std::cout << (val.is_real ? (int64_t)val.real_val : val.aval);
+                        else if (spec == 'f') std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         else if (spec == 'b') std::cout << val.to_bin_string();
                         else if (spec == 'h') std::cout << val.to_hex_string(unpadded);
                         else std::cout << val.aval;
@@ -377,6 +378,42 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
                         cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
                     }
+                }
+            }
+            CovergroupInstance* cg_inst = nullptr;
+            if (!cl_obj) {
+                uint64_t handle_id = 0;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_covergroup_handle) {
+                        handle_id = local->value.aval;
+                    }
+                }
+                if (handle_id == 0 && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_covergroup_handle) {
+                            handle_id = local->value.aval;
+                            break;
+                        }
+                    }
+                }
+                if (handle_id == 0) {
+                    size_t nid = engine.get_net_id(bp.scope, var_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_covergroup_handle) {
+                        handle_id = engine.netlist[nid].value.aval;
+                    }
+                }
+                if (handle_id != 0) {
+                    cg_inst = engine.get_covergroup_instance(handle_id).get();
+                }
+            }
+            if (cg_inst) {
+                if (method == "sample") {
+                    cg_inst->sample([&](ExpressionNode* e, const std::string& sc) {
+                        return expr_eval.eval(e, sc.empty() ? bp.scope : sc);
+                    });
+                    return;
                 }
             }
             if (cl_obj) {
@@ -698,6 +735,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             std::function<void(ExpressionNode*)> check_mon_expr = [&](ExpressionNode* expr) {
                 if (!expr) return;
                 if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+                    if (engine.is_covergroup_handle(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup handle '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 19 & 21.2.3");
+                    }
                     if (engine.is_class_handle(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class handle '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
                     }
@@ -737,6 +777,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (dynamic_cast<RandomizeCallNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'randomize()' used directly in $monitor per IEEE 1800-2023 section 18 & 21.2.3");
                 } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+                    if (engine.is_covergroup_handle(mc->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 19 & 21.2.3");
+                    }
                     if (engine.is_class_handle(mc->var_name, bp.scope) || mc->var_name == "this") {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 8.5 & 21.2.3");
                     }
@@ -805,7 +848,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     bool unpadded = false;
                     if (spec == '0' && i + 1 < fmt_len) {
                         char next_spec = disp->format_string[i + 1];
-                        if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's') {
+                        if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's' || next_spec == 'f') {
                             spec = next_spec;
                             unpadded = true;
                             ++i;
@@ -820,7 +863,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else {
-                            if (spec == 'd' || spec == 't') std::cout << val.aval;
+                            if (spec == 'd' || spec == 't') std::cout << (val.is_real ? (int64_t)val.real_val : val.aval);
+                        else if (spec == 'f') std::cout << (val.is_real ? val.real_val : (double)val.aval);
                             else if (spec == 'b') std::cout << val.to_bin_string();
                             else if (spec == 'h') std::cout << val.to_hex_string(unpadded);
                             else std::cout << val.aval;
@@ -1159,6 +1203,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             if (auto new_node = dynamic_cast<ClassNewNode*>(assign->rhs.get())) {
+                std::string cg_type = "";
+                if (local && local->is_covergroup_handle) {
+                    cg_type = local->covergroup_type_name;
+                } else {
+                    size_t nid = engine.get_net_id(bp.scope, target_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_covergroup_handle) {
+                        cg_type = engine.get_covergroup_type(target_name, bp.scope);
+                    }
+                }
+                if (!cg_type.empty()) {
+                    auto inst = engine.allocate_covergroup_instance(cg_type, bp.scope);
+                    LogicVal handle_val(64, inst->handle_id, 0);
+                    if (local) {
+                        local->value = handle_val;
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, target_name);
+                        if (nid != (size_t)-1) {
+                            engine.netlist[nid].set(handle_val);
+                        }
+                    }
+                    return;
+                }
                 std::string class_type = "";
                 if (local && local->is_class_handle) {
                     class_type = local->class_type_name;

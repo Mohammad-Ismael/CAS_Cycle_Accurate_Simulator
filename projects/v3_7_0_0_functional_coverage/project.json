@@ -1,0 +1,24 @@
+{
+  "project_name": "v3_7_0_0_functional_coverage",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "settings": {
+    "top_module": "tb_v3_7_0_0_regression",
+    "timescale": "1ns",
+    "enable_profiler": true,
+    "enable_debug": true,
+    "enable_vcd": true,
+    "vcd_filename": "trace.vcd",
+    "vcd_levels": 0,
+    "enable_display": true,
+    "enable_monitor": true,
+    "enable_finish_msg": true
+  },
+  "status": {
+    "active_tb_file": "testbench.sv",
+    "active_rtl_file": "design.sv",
+    "selected_wave": "trace.vcd"
+  }
+}

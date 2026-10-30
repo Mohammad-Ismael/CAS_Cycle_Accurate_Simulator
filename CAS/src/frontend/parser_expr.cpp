@@ -122,6 +122,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (current.type == TokenType::TOKEN_NUMBER) {
+        if (current.is_real) {
+            double r = current.real_val;
+            advance();
+            return std::make_unique<NumberNode>(r);
+        }
         uint64_t a = current.num_val;
         uint64_t b = current.bval;
         uint32_t w = current.width;
@@ -313,6 +318,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
         advance();
 
         if (op == "-" && current.type == TokenType::TOKEN_NUMBER) {
+            if (current.is_real) {
+                double r = -current.real_val;
+                advance();
+                return std::make_unique<NumberNode>(r);
+            }
             uint64_t a = current.num_val;
             uint64_t b = current.bval;
             uint32_t w = current.width;

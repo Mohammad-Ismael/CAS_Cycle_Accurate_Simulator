@@ -288,6 +288,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.var_to_class_type[scope + "." + s.name] = s.class_type_name;
                 result.var_to_class_type[s.name] = s.class_type_name;
             }
+            if (s.is_covergroup_handle) {
+                result.netlist[sid].is_covergroup_handle = true;
+                result.netlist[sid].covergroup_type_name = s.covergroup_type_name;
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.covergroup_handle_names.insert(scope + "." + s.name);
+                result.covergroup_handle_names.insert(s.name);
+                result.var_to_covergroup_type[scope + "." + s.name] = s.covergroup_type_name;
+                result.var_to_covergroup_type[s.name] = s.covergroup_type_name;
+            }
             if (s.type_name == "bit") {
                 result.netlist[sid].type_name = "bit";
                 result.netlist[sid].value = LogicVal(w, 0, 0);
@@ -305,6 +315,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
+        if (result.covergroup_handle_names.find(scoped_target) != result.covergroup_handle_names.end() ||
+            result.covergroup_handle_names.find(ca->target_name) != result.covergroup_handle_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to covergroup handle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 19");
+        }
         if (result.class_handle_names.find(scoped_target) != result.class_handle_names.end() ||
             result.class_handle_names.find(ca->target_name) != result.class_handle_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to class handle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 8.4");
@@ -325,6 +339,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
                 std::string s_id = scope + "." + id->name;
+                if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
+                    result.covergroup_handle_names.find(id->name) != result.covergroup_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup handle '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 19");
+                }
                 if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
                     result.class_handle_names.find(id->name) != result.class_handle_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class handle '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 8.4");
@@ -376,6 +394,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 check_expr(idx->lsb_expr.get());
             } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                 std::string s_id = scope + "." + mc->var_name;
+                if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
+                    result.covergroup_handle_names.find(mc->var_name) != result.covergroup_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 19");
+                }
                 if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
                     result.class_handle_names.find(mc->var_name) != result.class_handle_names.end() ||
                     mc->var_name == "this") {
@@ -657,6 +679,9 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     for (auto& mod : modules) {
         for (auto& cls : mod->classes) {
             result.class_defs[cls->name] = cls.get();
+        }
+        for (auto& cg : mod->covergroups) {
+            result.covergroup_defs[cg->name] = cg.get();
         }
     }
 

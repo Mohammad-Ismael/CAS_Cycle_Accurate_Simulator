@@ -47,6 +47,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     class_defs = std::move(elab_res.class_defs);
     class_handle_names = std::move(elab_res.class_handle_names);
     var_to_class_type = std::move(elab_res.var_to_class_type);
+    covergroup_defs = std::move(elab_res.covergroup_defs);
+    covergroup_handle_names = std::move(elab_res.covergroup_handle_names);
+    var_to_covergroup_type = std::move(elab_res.var_to_covergroup_type);
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

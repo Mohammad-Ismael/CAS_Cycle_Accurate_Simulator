@@ -9,19 +9,28 @@ struct NumberNode : public ExpressionNode {
     uint64_t aval;
     uint64_t bval;
     uint32_t width;
+    bool is_real = false;
+    double real_val = 0.0;
 
-    explicit NumberNode(uint64_t val, uint32_t w = 32, bool unk = false)
-        : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : val),
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    explicit NumberNode(T val, uint32_t w = 32, bool unk = false)
+        : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : static_cast<uint64_t>(val)),
           bval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : 0),
-          width(w) {}
+          width(w), is_real(false), real_val(0.0) {}
 
     NumberNode(uint64_t a, uint64_t b, uint32_t w)
-        : aval(a), bval(b), width(w) {}
+        : aval(a), bval(b), width(w), is_real(false), real_val(0.0) {}
+
+    explicit NumberNode(double r)
+        : aval(static_cast<uint64_t>(r)), bval(0), width(64), is_real(true), real_val(r) {}
 
     bool is_unknown() const { return bval != 0; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<NumberNode>(aval, bval, width);
+        auto node = std::make_unique<NumberNode>(aval, bval, width);
+        node->is_real = is_real;
+        node->real_val = real_val;
+        return node;
     }
 };
 

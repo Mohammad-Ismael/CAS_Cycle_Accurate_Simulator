@@ -23,6 +23,19 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
     }
 
+    // Covergroup Handle Variable Declaration (§19)
+    if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
+        std::string cg_type = current.text;
+        advance();
+        std::string vname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, cg_type);
+        var_stmt->is_covergroup_handle = true;
+        var_stmt->covergroup_type_name = cg_type;
+        return var_stmt;
+    }
+
     // Class Handle Variable Declaration (§8.4)
     if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
         std::string class_type = current.text;
@@ -76,8 +89,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_BIT) {
+        current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL) {
         bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER);
+        bool is_real_var = (current.type == TokenType::TOKEN_REAL);
         bool is_int = is_signed_var;
         advance();
         if (current.type == TokenType::TOKEN_SIGNED) {
@@ -85,7 +99,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             advance();
         }
 
-        uint32_t width = is_int ? 32 : 1;
+        uint32_t width = is_int ? 32 : (is_real_var ? 64 : 1);
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto msb_e = parse_expression();
             expect(TokenType::TOKEN_COLON, "Expected ':' in range");
@@ -124,7 +138,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             }
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, "", is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        return std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, is_real_var ? "real" : "", is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
     }
 
     // Cycle Delay Statement (##N; or ##(expr);)

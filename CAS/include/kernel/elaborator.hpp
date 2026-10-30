@@ -170,6 +170,9 @@ struct ElaborationResult {
     std::unordered_map<std::string, const ClassNode*> class_defs;
     std::unordered_set<std::string> class_handle_names;
     std::unordered_map<std::string, std::string> var_to_class_type;
+    std::unordered_map<std::string, const CovergroupNode*> covergroup_defs;
+    std::unordered_set<std::string> covergroup_handle_names;
+    std::unordered_map<std::string, std::string> var_to_covergroup_type;
 };
 
 class Elaborator {

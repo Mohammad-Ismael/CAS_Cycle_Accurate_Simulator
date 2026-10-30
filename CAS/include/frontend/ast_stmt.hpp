@@ -41,6 +41,8 @@ struct VarDeclStatementNode : public StatementNode {
     uint32_t assoc_key_width = 32;
     bool is_class_handle = false;
     std::string class_type_name = "";
+    bool is_covergroup_handle = false;
+    std::string covergroup_type_name = "";
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)
         : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc), assoc_key_type(std::move(key_t)), assoc_key_width(key_w) {}

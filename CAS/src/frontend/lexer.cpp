@@ -244,6 +244,15 @@ Token Lexer::next_token() {
         std::string num_str;
         while (std::isdigit(peek())) num_str += advance();
 
+        if (peek() == '.' && std::isdigit(peek_next())) {
+            num_str += advance();
+            while (std::isdigit(peek())) num_str += advance();
+            double dval = std::stod(num_str);
+            uint64_t aval = static_cast<uint64_t>(dval);
+            Token tok{TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0, true, dval};
+            return tok;
+        }
+
         if (std::isalpha(peek()) || peek() == '_') {
             std::string alnum_part = "";
             while (std::isalnum(peek()) || peek() == '_') alnum_part += advance();
@@ -396,12 +405,11 @@ Token Lexer::next_token() {
         if (ident == "constraint") return {TokenType::TOKEN_CONSTRAINT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "with") return {TokenType::TOKEN_WITH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "inside") return {TokenType::TOKEN_INSIDE, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
-
-
+        if (ident == "covergroup") return {TokenType::TOKEN_COVERGROUP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endgroup") return {TokenType::TOKEN_ENDGROUP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "coverpoint") return {TokenType::TOKEN_COVERPOINT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "bins") return {TokenType::TOKEN_BINS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "real") return {TokenType::TOKEN_REAL, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

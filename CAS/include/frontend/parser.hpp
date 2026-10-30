@@ -29,12 +29,18 @@ public:
     std::vector<std::unique_ptr<TypedefNode>> global_typedefs;
     std::unordered_map<std::string, std::shared_ptr<ClassNode>> class_map;
     std::vector<std::shared_ptr<ClassNode>> global_classes;
+    std::unordered_map<std::string, std::shared_ptr<CovergroupNode>> covergroup_map;
+    std::vector<std::shared_ptr<CovergroupNode>> global_covergroups;
 
     std::unordered_set<std::string> known_interfaces;
     bool is_class(const std::string& name) const {
         return class_map.find(name) != class_map.end();
     }
     std::unique_ptr<ClassNode> parse_class();
+    bool is_covergroup(const std::string& name) const {
+        return covergroup_map.find(name) != covergroup_map.end();
+    }
+    std::unique_ptr<CovergroupNode> parse_covergroup();
     bool is_interface_type(const std::string& name) const {
         return known_interfaces.find(name) != known_interfaces.end();
     }

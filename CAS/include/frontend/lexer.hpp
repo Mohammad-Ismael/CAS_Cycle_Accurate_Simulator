@@ -140,7 +140,12 @@ enum class TokenType {
     TOKEN_RANDC,
     TOKEN_CONSTRAINT,
     TOKEN_WITH,
-    TOKEN_INSIDE
+    TOKEN_INSIDE,
+    TOKEN_COVERGROUP,
+    TOKEN_ENDGROUP,
+    TOKEN_COVERPOINT,
+    TOKEN_BINS,
+    TOKEN_REAL
 };
 
 struct Token {
@@ -151,6 +156,8 @@ struct Token {
     std::string filename;
     size_t line;
     uint64_t bval = 0;
+    bool is_real = false;
+    double real_val = 0.0;
 };
 
 struct SourceBuffer {

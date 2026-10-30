@@ -54,6 +54,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_COVERGROUP) {
+            auto cg = parse_covergroup();
+            if (cg) {
+                std::shared_ptr<CovergroupNode> scg = std::move(cg);
+                covergroup_map[scg->name] = scg;
+                global_covergroups.push_back(scg);
+            }
+            continue;
+        }
+
         bool is_iface = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
@@ -464,6 +474,38 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_COVERGROUP) {
+                auto cg = parse_covergroup();
+                if (cg) {
+                    std::string cg_name = cg->name;
+                    std::shared_ptr<CovergroupNode> scg = std::move(cg);
+                    covergroup_map[cg_name] = scg;
+                    mod->covergroup_map[cg_name] = scg.get();
+                    mod->covergroups.push_back(scg);
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
+                std::string cg_type = current.text;
+                advance();
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected covergroup handle identifier");
+                    auto msb = std::make_unique<NumberNode>(63, 32);
+                    auto lsb = std::make_unique<NumberNode>(0, 32);
+                    PortNode sig(signame, "internal", std::move(msb), std::move(lsb), false, NetKind::VAR);
+                    sig.is_covergroup_handle = true;
+                    sig.covergroup_type_name = cg_type;
+                    sig.type_name = cg_type;
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after covergroup handle declaration");
+                continue;
+            }
+
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
                 std::string class_type = current.text;
                 advance();
@@ -558,7 +600,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
-                current.type == TokenType::TOKEN_BIT   ||
+                current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
                 current.type == TokenType::TOKEN_SIGNED) {
                 
                 bool is_signed_sig = false;
@@ -568,10 +610,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
                 if (is_int) is_signed_sig = true;
+                bool is_real_sig = (current.type == TokenType::TOKEN_REAL);
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
                 NetKind sig_kind = NetKind::WIRE;
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int) {
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig) {
                     sig_kind = NetKind::VAR;
                 } else if (current.type == TokenType::TOKEN_WAND) {
                     sig_kind = NetKind::WAND;
@@ -599,12 +642,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 } else if (is_int) {
                     msb = std::make_unique<NumberNode>(31, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
+                } else if (is_real_sig) {
+                    msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 }
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     if (is_bit_type) sig.type_name = "bit";
+                    if (is_real_sig) sig.type_name = "real";
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
@@ -1191,4 +1238,99 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
         if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
     return cls;
+}
+
+
+std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
+    expect(TokenType::TOKEN_COVERGROUP, "Expected 'covergroup'");
+    std::string cg_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected covergroup name");
+
+    if (match(TokenType::TOKEN_LPAREN)) {
+        int depth = 1;
+        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_LPAREN) depth++;
+            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+            advance();
+        }
+    }
+    if (match(TokenType::TOKEN_AT)) {
+        if (match(TokenType::TOKEN_LPAREN)) {
+            int depth = 1;
+            while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LPAREN) depth++;
+                else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+                advance();
+            }
+        }
+    }
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after covergroup header");
+
+    auto cg = std::make_unique<CovergroupNode>(cg_name);
+
+    while (current.type != TokenType::TOKEN_ENDGROUP && current.type != TokenType::TOKEN_EOF) {
+        std::string label = "";
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            Token next_tok = peek_token();
+            if (next_tok.type == TokenType::TOKEN_COLON) {
+                label = current.text;
+                advance();
+                advance();
+            }
+        }
+
+        if (current.type == TokenType::TOKEN_COVERPOINT) {
+            advance();
+            auto target_expr = parse_expression();
+            auto cp = std::make_unique<CoverpointNode>(label, std::move(target_expr));
+
+            if (match(TokenType::TOKEN_LBRACE)) {
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    if (match(TokenType::TOKEN_BINS)) {
+                        std::string bin_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected bin name");
+                        if (match(TokenType::TOKEN_LBRACKET)) {
+                            while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) {
+                                advance();
+                            }
+                            match(TokenType::TOKEN_RBRACKET);
+                        }
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' after bin name");
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' for bin values");
+                        std::vector<InsideRange> bin_ranges;
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            if (match(TokenType::TOKEN_LBRACKET)) {
+                                auto low_expr = parse_expression();
+                                expect(TokenType::TOKEN_COLON, "Expected ':' in bin range");
+                                auto high_expr = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bin range");
+                                bin_ranges.push_back({std::move(low_expr), std::move(high_expr)});
+                            } else {
+                                auto val_expr = parse_expression();
+                                bin_ranges.push_back({std::move(val_expr), nullptr});
+                            }
+                            match(TokenType::TOKEN_COMMA);
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing bin values");
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after bin declaration");
+                        cp->bins.push_back(std::make_unique<CovergroupBinNode>(bin_name, std::move(bin_ranges)));
+                    } else {
+                        advance();
+                    }
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing coverpoint body");
+            } else {
+                match(TokenType::TOKEN_SEMICOLON);
+            }
+            cg->add_coverpoint(std::move(cp));
+        } else {
+            advance();
+        }
+    }
+
+    expect(TokenType::TOKEN_ENDGROUP, "Expected 'endgroup'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    }
+    return cg;
 }

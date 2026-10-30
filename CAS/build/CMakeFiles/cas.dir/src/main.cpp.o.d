@@ -186,4 +186,8 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
  /usr/include/c++/13.2.1/ratio /usr/include/c++/13.2.1/limits \
  /usr/include/c++/13.2.1/bits/parse_numbers.h \
  /app/CAS/src/../include/common/constraint_solver.hpp \
+ /app/CAS/src/../include/common/coverage_types.hpp \
+ /usr/include/c++/13.2.1/functional \
+ /usr/include/c++/13.2.1/bits/std_function.h \
+ /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare \
  /usr/include/c++/13.2.1/cstring /usr/include/fortify/string.h

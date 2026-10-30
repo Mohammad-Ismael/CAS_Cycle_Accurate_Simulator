@@ -83,6 +83,7 @@ public:
     }
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
+        if (v.is_real) return v;
         if (v.width == target_width) return v;
         if (v.width > target_width) {
             uint64_t mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);

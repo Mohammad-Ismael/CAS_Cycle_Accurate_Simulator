@@ -8,6 +8,7 @@
 #include "profiler/profiler.hpp"
 #include "tracer/vcd_dumper.hpp"
 #include "common/constraint_solver.hpp"
+#include "common/coverage_types.hpp"
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -61,6 +62,10 @@ private:
     std::unordered_set<std::string> class_handle_names;
     std::unordered_map<std::string, std::string> var_to_class_type;
     std::unordered_map<uint64_t, std::shared_ptr<ClassObject>> heap;
+    std::unordered_map<std::string, const CovergroupNode*> covergroup_defs;
+    std::unordered_set<std::string> covergroup_handle_names;
+    std::unordered_map<std::string, std::string> var_to_covergroup_type;
+    std::unordered_map<uint64_t, std::shared_ptr<CovergroupInstance>> covergroup_heap;
     uint64_t next_handle_id = 1;
 
     MonitorSession monitor_session;
@@ -204,6 +209,56 @@ public:
         if (handle_id == 0) return nullptr;
         auto it = heap.find(handle_id);
         if (it != heap.end()) return it->second;
+        return nullptr;
+    }
+
+    bool is_covergroup_handle(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (covergroup_handle_names.find(scoped) != covergroup_handle_names.end()) return true;
+        if (covergroup_handle_names.find(name) != covergroup_handle_names.end()) return true;
+        return false;
+    }
+
+    std::string get_covergroup_type(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        auto it = var_to_covergroup_type.find(scoped);
+        if (it != var_to_covergroup_type.end()) return it->second;
+        it = var_to_covergroup_type.find(name);
+        if (it != var_to_covergroup_type.end()) return it->second;
+        return "";
+    }
+
+    const CovergroupNode* get_covergroup_def(const std::string& cg_name) const {
+        auto it = covergroup_defs.find(cg_name);
+        if (it != covergroup_defs.end()) return it->second;
+        return nullptr;
+    }
+
+    std::shared_ptr<CovergroupInstance> allocate_covergroup_instance(const std::string& cg_type, const std::string& creation_scope = "") {
+        uint64_t id = next_handle_id++;
+        const CovergroupNode* def = get_covergroup_def(cg_type);
+        auto inst = std::make_shared<CovergroupInstance>(id, cg_type, def, creation_scope);
+        if (def) {
+            for (const auto& cp_node : def->coverpoints) {
+                CoverpointItem cp_item(cp_node->label, cp_node->target_expr ? cp_node->target_expr->clone() : nullptr);
+                for (const auto& bin_node : cp_node->bins) {
+                    std::vector<InsideRange> bin_ranges;
+                    for (const auto& r : bin_node->ranges) {
+                        bin_ranges.push_back({r.low ? r.low->clone() : nullptr, r.high ? r.high->clone() : nullptr});
+                    }
+                    cp_item.add_bin(CovergroupBin(bin_node->name, std::move(bin_ranges)));
+                }
+                inst->coverpoints.push_back(std::move(cp_item));
+            }
+        }
+        covergroup_heap[id] = inst;
+        return inst;
+    }
+
+    std::shared_ptr<CovergroupInstance> get_covergroup_instance(uint64_t handle_id) {
+        if (handle_id == 0) return nullptr;
+        auto it = covergroup_heap.find(handle_id);
+        if (it != covergroup_heap.end()) return it->second;
         return nullptr;
     }
 

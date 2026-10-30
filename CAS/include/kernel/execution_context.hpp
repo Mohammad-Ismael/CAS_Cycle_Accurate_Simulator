@@ -19,6 +19,8 @@ struct LocalVar {
     AssociativeArrayObject assoc_array_data;
     bool is_class_handle = false;
     std::string class_type_name = "";
+    bool is_covergroup_handle = false;
+    std::string covergroup_type_name = "";
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),

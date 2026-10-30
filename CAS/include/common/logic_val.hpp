@@ -10,9 +10,11 @@ struct LogicVal {
     uint32_t width;
     bool is_string = false;
     std::string str_val = "";
+    bool is_real = false;
+    double real_val = 0.0;
 
     explicit LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0)
-        : aval(a), bval(b), width(w), is_string(false), str_val("") {
+        : aval(a), bval(b), width(w), is_string(false), str_val(""), is_real(false), real_val(0.0) {
         mask();
     }
 
@@ -37,23 +39,38 @@ struct LogicVal {
         return v;
     }
 
+    static LogicVal make_real(double val) {
+        LogicVal v(64, static_cast<uint64_t>(val), 0);
+        v.is_real = true;
+        v.real_val = val;
+        return v;
+    }
+
     void mask() {
+        if (is_real) return;
         uint64_t m = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
         aval &= m;
         bval &= m;
     }
 
     bool is_unknown() const {
+        if (is_real) return false;
         return bval != 0;
     }
 
     bool to_bool() const {
+        if (is_real) return real_val != 0.0;
         if (is_string) return !str_val.empty();
         if (is_unknown()) return false;
         return aval != 0;
     }
 
     bool operator==(const LogicVal& o) const {
+        if (is_real || o.is_real) {
+            double r1 = is_real ? real_val : static_cast<double>(aval);
+            double r2 = o.is_real ? o.real_val : static_cast<double>(o.aval);
+            return r1 == r2;
+        }
         if (is_string || o.is_string) {
             return str_val == o.str_val;
         }

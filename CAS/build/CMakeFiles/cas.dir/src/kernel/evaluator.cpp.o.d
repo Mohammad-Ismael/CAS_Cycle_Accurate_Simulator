@@ -182,7 +182,8 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /usr/include/c++/13.2.1/ratio /usr/include/c++/13.2.1/limits \
  /usr/include/c++/13.2.1/bits/parse_numbers.h \
  /app/CAS/src/kernel/../../include/common/constraint_solver.hpp \
- /app/CAS/src/kernel/../../include/kernel/logic_ops.hpp \
+ /app/CAS/src/kernel/../../include/common/coverage_types.hpp \
  /usr/include/c++/13.2.1/functional \
  /usr/include/c++/13.2.1/bits/std_function.h \
- /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare
+ /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare \
+ /app/CAS/src/kernel/../../include/kernel/logic_ops.hpp
