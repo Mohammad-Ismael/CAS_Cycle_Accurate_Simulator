@@ -3,3 +3,5 @@ CAS/build/
 __pycache__/
 codes.txt
 requested_code.txt
+*.so
+**/*.so

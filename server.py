@@ -145,8 +145,13 @@ def load_project(name: str):
     for fname in os.listdir(pdir):
         fpath = os.path.join(pdir, fname)
         if os.path.isfile(fpath) and fname != "project.json":
-            with open(fpath, "r") as f:
-                files[fname] = f.read()
+            if fname.endswith((".so", ".o", ".a", ".dll", ".dylib", ".vcd", ".out", ".exe", ".bin")):
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    files[fname] = f.read()
+            except (UnicodeDecodeError, OSError):
+                continue
 
     if "testbench.sv" not in files:
         files["testbench.sv"] = ""
@@ -288,6 +293,12 @@ def simulate(req: SimRequest):
             os.makedirs(os.path.dirname(fpath), exist_ok=True)
             with open(fpath, "w") as f:
                 f.write(content)
+
+        # Compile C source models to shared objects if present
+        for f in os.listdir(tmpdir):
+            if f.endswith('.c'):
+                so_name = os.path.splitext(f)[0] + '.so'
+                subprocess.run(['gcc', '-shared', '-fPIC', '-O2', os.path.join(tmpdir, f), '-o', os.path.join(tmpdir, so_name)], check=False)
 
         files_to_run = [os.path.join(tmpdir, entry_tb)]
 
