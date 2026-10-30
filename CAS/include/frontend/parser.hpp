@@ -109,4 +109,6 @@ public:
     std::unique_ptr<ExpressionNode> parse_multiplicative();
     std::unique_ptr<ExpressionNode> parse_unary();
     std::unique_ptr<ExpressionNode> parse_primary();
+    std::unique_ptr<ExpressionNode> parse_sequence_element();
+    std::unique_ptr<ExpressionNode> parse_sequence_expression();
 };

@@ -135,7 +135,22 @@ Token Lexer::next_token() {
     // Delimiters
     if (c == '(') { advance(); return {TokenType::TOKEN_LPAREN, "(", 0, 0, cur_file, cur_line, 0}; }
     if (c == ')') { advance(); return {TokenType::TOKEN_RPAREN, ")", 0, 0, cur_file, cur_line, 0}; }
-    if (c == '[') { advance(); return {TokenType::TOKEN_LBRACKET, "[", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '[') {
+        advance();
+        if (peek() == '*') {
+            advance();
+            return {TokenType::TOKEN_REP_CONSEC, "[*", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_REP_NON_CONSEC, "[=", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '-' && peek_next() == '>') {
+            advance(); advance();
+            return {TokenType::TOKEN_REP_GOTO, "[->", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_LBRACKET, "[", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == ']') { advance(); return {TokenType::TOKEN_RBRACKET, "]", 0, 0, cur_file, cur_line, 0}; }
     if (c == '{') { advance(); return {TokenType::TOKEN_LBRACE, "{", 0, 0, cur_file, cur_line, 0}; }
     if (c == '}') { advance(); return {TokenType::TOKEN_RBRACE, "}", 0, 0, cur_file, cur_line, 0}; }

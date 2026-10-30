@@ -459,6 +459,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 check_expr(ter->false_expr.get());
             } else if (auto sf = dynamic_cast<SysSampledFuncNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sampled value function '" + sf->func_name + "' used in continuous assignment per IEEE 1800-2023 section 16.9.3");
+            } else if (dynamic_cast<SequenceRepetitionNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] SVA sequence repetition operator used outside sequence/property context in continuous assignment per IEEE 1800-2023 section 16.9.2");
+            } else if (dynamic_cast<SequenceConcatNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context in continuous assignment per IEEE 1800-2023 section 16.9.2");
             } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
                 for (auto& a : fc->args) check_expr(a.get());
             }
@@ -640,6 +644,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             inst.imp_type = target_prop->imp_type;
             inst.antecedent = target_prop->antecedent.get();
             inst.consequent = target_prop->consequent.get();
+            extract_sequence_steps(inst.consequent ? inst.consequent : inst.antecedent, inst.consequent_steps);
         }
 
         for (auto& s : asrt->pass_statements) {

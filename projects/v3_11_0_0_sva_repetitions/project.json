@@ -1,0 +1,12 @@
+{
+  "name": "v3_11_0_0_sva_repetitions",
+  "version": "v3.11.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§16.9.2",
+  "description": "SystemVerilog Assertions: Sequence Repetition Operators ([*N], [*min:max], [=N], [->N]), Multi-Thread Sequence State Tracking, and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_11_0_0_regression"
+}

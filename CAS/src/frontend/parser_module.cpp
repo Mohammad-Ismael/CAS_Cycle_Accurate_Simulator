@@ -605,6 +605,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         }
+                    } else if (match(TokenType::TOKEN_REP_CONSEC)) {
+                        sig.is_associative_array = true;
+                        sig.assoc_key_type = "*";
+                        sig.assoc_key_width = 64;
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {
@@ -714,6 +719,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         }
+                    } else if (match(TokenType::TOKEN_REP_CONSEC)) {
+                        sig.is_associative_array = true;
+                        sig.assoc_key_type = "*";
+                        sig.assoc_key_width = 64;
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
                     }
 
                     if (match(TokenType::TOKEN_EQUAL)) {
@@ -1459,15 +1469,15 @@ std::unique_ptr<PropertyNode> Parser::parse_property() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing 'disable iff'");
     }
 
-    auto first_expr = parse_expression();
+    auto first_expr = parse_sequence_expression();
     if (match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
         prop->imp_type = ImplicationType::NON_OVERLAPPING;
         prop->antecedent = std::move(first_expr);
-        prop->consequent = parse_expression();
+        prop->consequent = parse_sequence_expression();
     } else if (match(TokenType::TOKEN_OVERLAP_IMP)) {
         prop->imp_type = ImplicationType::OVERLAPPING;
         prop->antecedent = std::move(first_expr);
-        prop->consequent = parse_expression();
+        prop->consequent = parse_sequence_expression();
     } else {
         prop->imp_type = ImplicationType::NONE;
         prop->antecedent = std::move(first_expr);
@@ -1513,23 +1523,13 @@ std::unique_ptr<SequenceNode> Parser::parse_sequence() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sequence clock");
     }
 
-    auto first_expr = parse_expression();
-    seq->items.push_back({0, std::move(first_expr)});
-
-    while (current.type == TokenType::TOKEN_CYCLE_DELAY || (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
-        uint32_t delay = 1;
-        if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
-            delay = static_cast<uint32_t>(current.num_val);
-            advance();
-        } else {
-            advance(); advance();
-            if (current.type == TokenType::TOKEN_NUMBER) {
-                delay = static_cast<uint32_t>(current.num_val);
-                advance();
-            }
+    auto seq_expr = parse_sequence_expression();
+    if (auto concat = dynamic_cast<SequenceConcatNode*>(seq_expr.get())) {
+        for (auto& item : concat->elements) {
+            seq->items.push_back({item.delay, std::move(item.expr)});
         }
-        auto next_expr = parse_expression();
-        seq->items.push_back({delay, std::move(next_expr)});
+    } else {
+        seq->items.push_back({0, std::move(seq_expr)});
     }
 
     match(TokenType::TOKEN_SEMICOLON);
@@ -1567,15 +1567,15 @@ std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const
             inlined->disable_expr = parse_expression();
             expect(TokenType::TOKEN_RPAREN, "Expected ')'");
         }
-        auto first_expr = parse_expression();
+        auto first_expr = parse_sequence_expression();
         if (match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
             inlined->imp_type = ImplicationType::NON_OVERLAPPING;
             inlined->antecedent = std::move(first_expr);
-            inlined->consequent = parse_expression();
+            inlined->consequent = parse_sequence_expression();
         } else if (match(TokenType::TOKEN_OVERLAP_IMP)) {
             inlined->imp_type = ImplicationType::OVERLAPPING;
             inlined->antecedent = std::move(first_expr);
-            inlined->consequent = parse_expression();
+            inlined->consequent = parse_sequence_expression();
         } else {
             inlined->imp_type = ImplicationType::NONE;
             inlined->antecedent = std::move(first_expr);

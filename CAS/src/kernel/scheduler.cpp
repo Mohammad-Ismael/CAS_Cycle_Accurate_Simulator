@@ -162,53 +162,135 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
             continue;
         }
 
+        const auto& steps = asrt.consequent_steps;
+
+        auto advance_thread = [&](SvaThread& th) {
+            if (th.remaining_delay > 0) {
+                th.remaining_delay--;
+            }
+            while (th.remaining_delay == 0 && th.state == SvaThreadState::PENDING_CONSEQUENT) {
+                if (th.step_index >= steps.size()) {
+                    th.state = SvaThreadState::MATCHED;
+                    break;
+                }
+                const auto& step = steps[th.step_index];
+                LogicVal val = engine.evaluator.get_expr_eval().eval(step.expr, asrt.scope);
+                bool expr_true = (!val.is_unknown() && val.is_true());
+
+                if (step.rep_type == RepetitionType::CONSECUTIVE) {
+                    if (expr_true) {
+                        th.current_rep_count++;
+                        if (th.current_rep_count >= step.max_count) {
+                            th.step_index++;
+                            if (th.step_index >= steps.size()) {
+                                th.state = SvaThreadState::MATCHED;
+                                break;
+                            } else {
+                                th.remaining_delay = steps[th.step_index].cycle_delay;
+                                th.current_rep_count = 0;
+                                th.target_rep_count = steps[th.step_index].max_count;
+                                th.rep_type = steps[th.step_index].rep_type;
+                                if (th.remaining_delay > 0) break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        if (th.current_rep_count >= step.min_count) {
+                            th.step_index++;
+                            if (th.step_index >= steps.size()) {
+                                th.state = SvaThreadState::MATCHED;
+                                break;
+                            } else {
+                                th.remaining_delay = steps[th.step_index].cycle_delay;
+                                th.current_rep_count = 0;
+                                th.target_rep_count = steps[th.step_index].max_count;
+                                th.rep_type = steps[th.step_index].rep_type;
+                                if (th.remaining_delay > 0) break;
+                            }
+                        } else {
+                            th.state = SvaThreadState::FAILED;
+                            break;
+                        }
+                    }
+                } else if (step.rep_type == RepetitionType::GOTO) {
+                    if (expr_true) {
+                        th.current_rep_count++;
+                        if (th.current_rep_count >= step.max_count) {
+                            th.step_index++;
+                            if (th.step_index >= steps.size()) {
+                                th.state = SvaThreadState::MATCHED;
+                                break;
+                            } else {
+                                th.remaining_delay = steps[th.step_index].cycle_delay;
+                                th.current_rep_count = 0;
+                                th.target_rep_count = steps[th.step_index].max_count;
+                                th.rep_type = steps[th.step_index].rep_type;
+                                if (th.remaining_delay > 0) break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else if (step.rep_type == RepetitionType::NON_CONSECUTIVE) {
+                    if (expr_true) {
+                        th.current_rep_count++;
+                        if (th.current_rep_count >= step.max_count) {
+                            th.step_index++;
+                            if (th.step_index >= steps.size()) {
+                                th.state = SvaThreadState::MATCHED;
+                                break;
+                            } else {
+                                th.remaining_delay = steps[th.step_index].cycle_delay;
+                                th.current_rep_count = 0;
+                                th.target_rep_count = steps[th.step_index].max_count;
+                                th.rep_type = steps[th.step_index].rep_type;
+                                if (th.remaining_delay > 0) break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        };
+
         // 1. Advance existing pending threads
         for (auto& th : asrt.threads) {
             if (th.state == SvaThreadState::PENDING_CONSEQUENT) {
-                if (th.remaining_cycles > 0) {
-                    th.remaining_cycles--;
-                }
-                if (th.remaining_cycles == 0) {
-                    bool c_match = false;
-                    if (asrt.consequent) {
-                        LogicVal c_val = engine.evaluator.get_expr_eval().eval(asrt.consequent, asrt.scope);
-                        if (!c_val.is_unknown() && c_val.is_true()) {
-                            c_match = true;
-                        }
-                    }
-                    th.state = c_match ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
-                }
+                advance_thread(th);
             }
         }
 
         // 2. Evaluate antecedent on this clock edge for new assertion attempt
         if (asrt.antecedent) {
             LogicVal a_val = engine.evaluator.get_expr_eval().eval(asrt.antecedent, asrt.scope);
-            if (asrt.imp_type == ImplicationType::NON_OVERLAPPING) {
-                if (!a_val.is_unknown() && a_val.is_true()) {
-                    SvaThread new_th;
-                    new_th.state = SvaThreadState::PENDING_CONSEQUENT;
-                    new_th.remaining_cycles = 1;
-                    asrt.threads.push_back(new_th);
-                }
-            } else if (asrt.imp_type == ImplicationType::OVERLAPPING) {
-                if (!a_val.is_unknown() && a_val.is_true()) {
-                    bool c_match = false;
-                    if (asrt.consequent) {
-                        LogicVal c_val = engine.evaluator.get_expr_eval().eval(asrt.consequent, asrt.scope);
-                        if (!c_val.is_unknown() && c_val.is_true()) {
-                            c_match = true;
-                        }
-                    }
-                    SvaThread new_th;
-                    new_th.state = c_match ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
-                    asrt.threads.push_back(new_th);
-                }
-            } else {
-                bool match_val = (!a_val.is_unknown() && a_val.is_true());
+            if (!a_val.is_unknown() && a_val.is_true()) {
                 SvaThread new_th;
-                new_th.state = match_val ? SvaThreadState::MATCHED : SvaThreadState::FAILED;
-                asrt.threads.push_back(new_th);
+                new_th.state = SvaThreadState::PENDING_CONSEQUENT;
+                new_th.step_index = 0;
+                new_th.current_rep_count = 0;
+                if (!steps.empty()) {
+                    new_th.target_rep_count = steps[0].max_count;
+                    new_th.rep_type = steps[0].rep_type;
+                }
+
+                if (asrt.imp_type == ImplicationType::NON_OVERLAPPING) {
+                    new_th.remaining_delay = 1;
+                    asrt.threads.push_back(new_th);
+                } else if (asrt.imp_type == ImplicationType::OVERLAPPING) {
+                    new_th.remaining_delay = 0;
+                    advance_thread(new_th);
+                    asrt.threads.push_back(new_th);
+                } else {
+                    new_th.remaining_delay = 0;
+                    advance_thread(new_th);
+                    asrt.threads.push_back(new_th);
+                }
             }
         }
 

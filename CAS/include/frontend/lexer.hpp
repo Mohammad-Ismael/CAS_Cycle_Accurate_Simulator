@@ -158,7 +158,10 @@ enum class TokenType {
     TOKEN_ROSE,
     TOKEN_FELL,
     TOKEN_STABLE,
-    TOKEN_PAST
+    TOKEN_PAST,
+    TOKEN_REP_CONSEC,
+    TOKEN_REP_NON_CONSEC,
+    TOKEN_REP_GOTO
 };
 
 struct Token {

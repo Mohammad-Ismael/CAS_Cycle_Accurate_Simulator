@@ -284,7 +284,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (match(TokenType::TOKEN_LPAREN)) {
-        auto expr = parse_expression();
+        auto expr = parse_sequence_expression();
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized expression");
         return expr;
     }
@@ -531,4 +531,81 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
         return std::make_unique<TernaryOpNode>(std::move(cond), std::move(true_expr), std::move(false_expr));
     }
     return cond;
+}
+
+std::unique_ptr<ExpressionNode> Parser::parse_sequence_element() {
+    auto expr = parse_expression();
+    if (current.type == TokenType::TOKEN_REP_CONSEC ||
+        current.type == TokenType::TOKEN_REP_NON_CONSEC ||
+        current.type == TokenType::TOKEN_REP_GOTO) {
+        TokenType rep_tok = current.type;
+        advance();
+        RepetitionType rtype = RepetitionType::CONSECUTIVE;
+        if (rep_tok == TokenType::TOKEN_REP_NON_CONSEC) rtype = RepetitionType::NON_CONSECUTIVE;
+        else if (rep_tok == TokenType::TOKEN_REP_GOTO) rtype = RepetitionType::GOTO;
+
+        uint32_t min_count = 1;
+        uint32_t max_count = 1;
+        if (current.type == TokenType::TOKEN_RBRACKET) {
+            min_count = 0;
+            max_count = UINT32_MAX;
+            advance();
+        } else if (match(TokenType::TOKEN_PLUS)) {
+            min_count = 1;
+            max_count = UINT32_MAX;
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' after '+' repetition");
+        } else {
+            auto cnt_expr = parse_expression();
+            if (auto num = dynamic_cast<NumberNode*>(cnt_expr.get())) {
+                min_count = static_cast<uint32_t>(num->aval);
+                max_count = min_count;
+            }
+            if (match(TokenType::TOKEN_COLON)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    max_count = UINT32_MAX;
+                } else {
+                    auto max_expr = parse_expression();
+                    if (auto num2 = dynamic_cast<NumberNode*>(max_expr.get())) {
+                        max_count = static_cast<uint32_t>(num2->aval);
+                    }
+                }
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing repetition operator");
+        }
+        return std::make_unique<SequenceRepetitionNode>(std::move(expr), rtype, min_count, max_count);
+    }
+    return expr;
+}
+
+std::unique_ptr<ExpressionNode> Parser::parse_sequence_expression() {
+    auto first = parse_sequence_element();
+
+    if (current.type != TokenType::TOKEN_CYCLE_DELAY &&
+        !(current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+        return first;
+    }
+
+    std::vector<SequenceConcatItem> items;
+    items.push_back({0, std::move(first)});
+
+    while (current.type == TokenType::TOKEN_CYCLE_DELAY ||
+           (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+        uint32_t delay = 1;
+        if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
+            advance();
+            if (current.type == TokenType::TOKEN_NUMBER) {
+                delay = static_cast<uint32_t>(current.num_val);
+                advance();
+            }
+        } else {
+            advance(); advance();
+            if (current.type == TokenType::TOKEN_NUMBER) {
+                delay = static_cast<uint32_t>(current.num_val);
+                advance();
+            }
+        }
+        auto next_elem = parse_sequence_element();
+        items.push_back({delay, std::move(next_elem)});
+    }
+    return std::make_unique<SequenceConcatNode>(std::move(items));
 }

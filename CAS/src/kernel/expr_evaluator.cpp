@@ -138,6 +138,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return eval_sampled_func(sfn, scope);
     }
 
+    if (dynamic_cast<SequenceRepetitionNode*>(expr)) {
+        throw std::runtime_error("[CAS-DTINPCIL] SVA sequence repetition operator used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
+    }
+
+    if (dynamic_cast<SequenceConcatNode*>(expr)) {
+        throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
+    }
+
     if (auto cast_call = dynamic_cast<SysCastCallNode*>(expr)) {
         std::string dest_name;
         if (auto id = dynamic_cast<IdentifierNode*>(cast_call->dest_expr.get())) {

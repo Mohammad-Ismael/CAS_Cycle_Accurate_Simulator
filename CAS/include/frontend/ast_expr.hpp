@@ -350,3 +350,52 @@ struct SysSampledFuncNode : public ExpressionNode {
         );
     }
 };
+
+enum class RepetitionType {
+    CONSECUTIVE,
+    NON_CONSECUTIVE,
+    GOTO
+};
+
+struct SequenceRepetitionNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> expr;
+    RepetitionType rep_type;
+    uint32_t min_count = 1;
+    uint32_t max_count = 1;
+
+    SequenceRepetitionNode(std::unique_ptr<ExpressionNode> e, RepetitionType t, uint32_t min_c, uint32_t max_c)
+        : expr(std::move(e)), rep_type(t), min_count(min_c), max_count(max_c) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<SequenceRepetitionNode>(
+            expr ? expr->clone() : nullptr,
+            rep_type,
+            min_count,
+            max_count
+        );
+    }
+};
+
+struct SequenceConcatItem {
+    uint32_t delay = 0;
+    std::unique_ptr<ExpressionNode> expr;
+
+    SequenceConcatItem clone() const {
+        return {delay, expr ? expr->clone() : nullptr};
+    }
+};
+
+struct SequenceConcatNode : public ExpressionNode {
+    std::vector<SequenceConcatItem> elements;
+
+    SequenceConcatNode() = default;
+    explicit SequenceConcatNode(std::vector<SequenceConcatItem> elems) : elements(std::move(elems)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<SequenceConcatItem> cloned;
+        for (const auto& item : elements) {
+            cloned.push_back(item.clone());
+        }
+        return std::make_unique<SequenceConcatNode>(std::move(cloned));
+    }
+};
