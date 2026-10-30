@@ -1,5 +1,6 @@
 #pragma once
 #include "../frontend/ast_expr.hpp"
+#include "../common/sva_types.hpp"
 #include "netlist.hpp"
 #include "execution_context.hpp"
 #include <string>
@@ -21,9 +22,13 @@ private:
     const std::vector<LogicVal>* preponed_override = nullptr;
     const std::deque<std::vector<LogicVal>>* current_clock_history = nullptr;
     std::map<std::string, LogicVal>* current_sva_local_vars = nullptr;
+    std::vector<PendingSubroutineCall>* pending_subroutines = nullptr;
 
 public:
     explicit ExprEvaluator(Engine& eng);
+
+    void set_pending_subroutines(std::vector<PendingSubroutineCall>* p) { pending_subroutines = p; }
+    std::vector<PendingSubroutineCall>* get_pending_subroutines() const { return pending_subroutines; }
 
     void set_sva_local_vars(std::map<std::string, LogicVal>* vars) { current_sva_local_vars = vars; }
     std::map<std::string, LogicVal>* get_sva_local_vars() const { return current_sva_local_vars; }

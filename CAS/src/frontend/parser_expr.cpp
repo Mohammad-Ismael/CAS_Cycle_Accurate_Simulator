@@ -331,17 +331,52 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::TOKEN_LPAREN)) {
         auto expr = parse_sequence_expression();
         if (match(TokenType::TOKEN_COMMA)) {
-            std::vector<SequenceMatchAssignment> assigns;
+            std::vector<SequenceMatchAction> assigns;
             do {
-                std::string var_name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier in match assignment");
-                if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
-                    // ok
+                if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_FINISH || current.type == TokenType::TOKEN_STOP) {
+                    std::string task_name = current.text;
+                    advance();
+                    std::vector<std::unique_ptr<ExpressionNode>> args;
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        if (current.type != TokenType::TOKEN_RPAREN) {
+                            while (true) {
+                                args.push_back(parse_expression());
+                                if (match(TokenType::TOKEN_COMMA)) continue;
+                                break;
+                            }
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing system task arguments");
+                    }
+                    assigns.push_back(SequenceMatchAction(true, task_name, std::make_unique<FunctionCallNode>(task_name, std::move(args))));
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    std::string name = current.text;
+                    advance();
+                    if (match(TokenType::TOKEN_COLON_COLON)) {
+                        std::string member = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected member identifier after '::'");
+                        name = name + "::" + member;
+                    }
+                    if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                        auto assign_expr = parse_expression();
+                        assigns.push_back(SequenceMatchAction(false, name, std::move(assign_expr)));
+                    } else if (match(TokenType::TOKEN_LPAREN)) {
+                        std::vector<std::unique_ptr<ExpressionNode>> args;
+                        if (current.type != TokenType::TOKEN_RPAREN) {
+                            while (true) {
+                                args.push_back(parse_expression());
+                                if (match(TokenType::TOKEN_COMMA)) continue;
+                                break;
+                            }
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing subroutine arguments");
+                        assigns.push_back(SequenceMatchAction(true, name, std::make_unique<FunctionCallNode>(name, std::move(args))));
+                    } else {
+                        // Subroutine call without parentheses (e.g. `foo`)
+                        assigns.push_back(SequenceMatchAction(true, name, std::make_unique<FunctionCallNode>(name, std::vector<std::unique_ptr<ExpressionNode>>{})));
+                    }
                 } else {
-                    throw std::runtime_error("Expected '=' in sequence match assignment");
+                    throw std::runtime_error("Expected variable assignment or subroutine call in sequence match item");
                 }
-                auto assign_expr = parse_expression();
-                assigns.push_back({var_name, std::move(assign_expr)});
             } while (match(TokenType::TOKEN_COMMA));
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized match expression");
             return std::make_unique<SequenceMatchItemNode>(std::move(expr), std::move(assigns));

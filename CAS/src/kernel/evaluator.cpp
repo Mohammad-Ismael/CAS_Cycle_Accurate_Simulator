@@ -1157,7 +1157,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (dynamic_cast<SequenceConcatNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used directly in $monitor per IEEE 1800-2023 section 16.9.2 & 21.2.3");
                 } else if (dynamic_cast<SequenceMatchItemNode*>(expr)) {
-                    throw std::runtime_error("[CAS-DTINPCIL] SVA sequence match item used directly in $monitor per IEEE 1800-2023 section 16.10 & 21.2.3");
+                    throw std::runtime_error("[CAS-DTINPCIL] SVA sequence match item used directly in $monitor per IEEE 1800-2023 section 16.10, 16.11 & 21.2.3");
                 } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
                     if (engine.dpi_import_map.find(fc->func_name) != engine.dpi_import_map.end()) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used directly in $monitor per IEEE 1800-2023 section 35 & 21.2.3");

@@ -51,6 +51,8 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
     BoundProcess bp{target_fn->scope.empty() ? frame_name : target_fn->scope, nullptr, 0, false};
+    set_current_process(&bp);
+    engine.evaluator.set_current_process(&bp);
     for (auto& s : target_fn->body) {
         engine.evaluator.execute_statement(s.get(), bp);
     }
@@ -216,20 +218,32 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto match_node = dynamic_cast<SequenceMatchItemNode*>(expr)) {
         if (!current_sva_local_vars) {
-            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used outside sequence/property context per IEEE 1800-2023 section 16.10");
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used outside sequence/property context per IEEE 1800-2023 section 16.10 & 16.11");
         }
         LogicVal val = eval(match_node->expr.get(), scope);
         if (!val.is_unknown() && val.is_true()) {
             for (const auto& a : match_node->match_assignments) {
-                LogicVal rval = eval(a.expr.get(), scope);
-                auto it = current_sva_local_vars->find(a.var_name);
-                if (it != current_sva_local_vars->end() && it->second.width > 0) {
-                    uint32_t target_w = it->second.width;
-                    if (rval.width != target_w) {
-                        rval = LogicVal(target_w, rval.aval, rval.bval);
+                if (!a.is_subroutine) {
+                    LogicVal rval = eval(a.expr.get(), scope);
+                    auto it = current_sva_local_vars->find(a.var_name);
+                    if (it != current_sva_local_vars->end() && it->second.width > 0) {
+                        uint32_t target_w = it->second.width;
+                        if (rval.width != target_w) {
+                            rval = LogicVal(target_w, rval.aval, rval.bval);
+                        }
+                    }
+                    (*current_sva_local_vars)[a.var_name] = rval;
+                } else {
+                    if (pending_subroutines) {
+                        std::vector<LogicVal> evaluated_args;
+                        if (auto fn = dynamic_cast<FunctionCallNode*>(a.expr.get())) {
+                            for (const auto& arg : fn->args) {
+                                evaluated_args.push_back(eval(arg.get(), scope));
+                            }
+                        }
+                        pending_subroutines->push_back({a.var_name, evaluated_args, scope});
                     }
                 }
-                (*current_sva_local_vars)[a.var_name] = rval;
             }
         }
         return val;

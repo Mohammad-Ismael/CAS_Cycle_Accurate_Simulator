@@ -554,6 +554,9 @@ public:
     size_t get_clocking_block_id(const std::string& cb_name, const std::string& scope = "") const;
     bool is_clocking_block(const std::string& name) const;
 
+    bool subroutine_has_blocking_timing_control(const StatementNode* stmt) const;
+    void execute_sva_subroutine(const std::string& name, const std::vector<LogicVal>& args, const std::string& scope);
+
     void load_elaboration(ElaborationResult&& elab_res);
     void elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules, 
                    const std::string& top_module_name = "", 

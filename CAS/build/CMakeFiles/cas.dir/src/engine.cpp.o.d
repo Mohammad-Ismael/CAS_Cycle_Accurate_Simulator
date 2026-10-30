@@ -201,4 +201,5 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
  /app/CAS/src/../include/common/dpic_types.hpp /usr/include/dlfcn.h \
- /app/CAS/src/../include/common/sync_types.hpp
+ /app/CAS/src/../include/common/sync_types.hpp \
+ /app/CAS/src/../include/kernel/logic_ops.hpp

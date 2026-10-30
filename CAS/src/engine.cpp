@@ -1,4 +1,5 @@
 #include "../include/engine.hpp"
+#include "../include/kernel/logic_ops.hpp"
 
 Engine::Engine() : evaluator(*this), scheduler(*this) {}
 
@@ -347,4 +348,140 @@ size_t Engine::get_clocking_block_id(const std::string& cb_name, const std::stri
 
 bool Engine::is_clocking_block(const std::string& name) const {
     return clocking_block_map.find(name) != clocking_block_map.end();
+}
+
+bool Engine::subroutine_has_blocking_timing_control(const StatementNode* stmt) const {
+    if (!stmt) return false;
+    if (dynamic_cast<const DelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const EventControlStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const CycleDelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const ForeverStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitForkStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitEventTriggeredStatementNode*>(stmt)) return true;
+
+    if (auto block = dynamic_cast<const BlockStatementNode*>(stmt)) {
+        for (const auto& s : block->statements) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto if_stmt = dynamic_cast<const IfStatementNode*>(stmt)) {
+        for (const auto& s : if_stmt->then_branch) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+        for (const auto& s : if_stmt->else_branch) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto case_stmt = dynamic_cast<const CaseStatementNode*>(stmt)) {
+        for (const auto& item : case_stmt->items) {
+            for (const auto& s : item.statements) {
+                if (subroutine_has_blocking_timing_control(s.get())) return true;
+            }
+        }
+    }
+    if (auto for_stmt = dynamic_cast<const ForStatementNode*>(stmt)) {
+        for (const auto& s : for_stmt->body) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto wh_stmt = dynamic_cast<const WhileStatementNode*>(stmt)) {
+        for (const auto& s : wh_stmt->body) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto rep_stmt = dynamic_cast<const RepeatStatementNode*>(stmt)) {
+        for (const auto& s : rep_stmt->body) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto frk = dynamic_cast<const ForkStatementNode*>(stmt)) {
+        for (const auto& s : frk->branches) {
+            if (subroutine_has_blocking_timing_control(s.get())) return true;
+        }
+    }
+    if (auto tc = dynamic_cast<const TaskCallNode*>(stmt)) {
+        TaskNode* nested_task = nullptr;
+        if (task_map.find(tc->task_name) != task_map.end()) nested_task = task_map.at(tc->task_name);
+        if (nested_task) {
+            for (const auto& s : nested_task->get_body()) {
+                if (subroutine_has_blocking_timing_control(s.get())) return true;
+            }
+        }
+    }
+    return false;
+}
+
+void Engine::execute_sva_subroutine(const std::string& name, const std::vector<LogicVal>& args, const std::string& scope) {
+    if (name == "$display") {
+        if (!is_display_allowed()) return;
+        std::cout << "[CAS $display] ";
+        for (size_t i = 0; i < args.size(); ++i) {
+            std::cout << args[i].aval << " ";
+        }
+        std::cout << "\n";
+        return;
+    }
+
+    std::string scoped_name = scope.empty() ? name : (scope + "." + name);
+    FunctionNode* target_fn = nullptr;
+    std::string fn_lookup_name = "";
+    if (function_map.find(scoped_name) != function_map.end()) {
+        target_fn = function_map.at(scoped_name);
+        fn_lookup_name = scoped_name;
+    } else if (function_map.find(name) != function_map.end()) {
+        target_fn = function_map.at(name);
+        fn_lookup_name = name;
+    }
+
+    if (target_fn) {
+        for (const auto& s : target_fn->body) {
+            if (subroutine_has_blocking_timing_control(s.get())) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence match subroutine '" + name + "' contains blocking timing controls per IEEE 1800-2023 section 16.11");
+            }
+        }
+        LogicVal dummy;
+        evaluator.get_expr_eval().eval_function(fn_lookup_name, args, dummy);
+        return;
+    }
+
+    TaskNode* target_task = nullptr;
+    if (task_map.find(scoped_name) != task_map.end()) {
+        target_task = task_map.at(scoped_name);
+    } else if (task_map.find(name) != task_map.end()) {
+        target_task = task_map.at(name);
+    }
+
+    if (target_task) {
+        for (const auto& s : target_task->get_body()) {
+            if (subroutine_has_blocking_timing_control(s.get())) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence match subroutine '" + name + "' contains blocking timing controls per IEEE 1800-2023 section 16.11");
+            }
+        }
+        TaskActivationFrame frame(name, target_task);
+        for (size_t i = 0; i < target_task->ports.size(); ++i) {
+            const auto& p = target_task->ports[i];
+            uint32_t w = 32;
+            if (p.msb_expr && p.lsb_expr) {
+                auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
+                auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
+                if (msb_n && lsb_n) {
+                    w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
+                }
+            }
+            frame.local_frame.declare_var(p.name, w, p.is_signed);
+            if (p.direction == "input" || p.direction == "inout") {
+                if (i < args.size()) {
+                    frame.local_frame.get_var(p.name)->value = LogicOps::cast_width(args[i], w, p.is_signed);
+                }
+            }
+        }
+        BoundProcess bp{target_task->scope.empty() ? scope : target_task->scope, nullptr, 0, false};
+        bp.call_stack.push_back(std::move(frame));
+        for (auto& s : target_task->get_body()) {
+            evaluator.execute_statement(s.get(), bp);
+        }
+        return;
+    }
+
+    throw std::runtime_error("Unknown sequence match subroutine: " + name);
 }

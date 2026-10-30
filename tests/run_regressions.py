@@ -44,7 +44,8 @@ suites = [
     ("v3.18.0.0", "v3_18_0_0_packages", ["design.sv", "testbench.sv"]),
     ("v3.19.0.0", "v3_19_0_0_configurations", ["design.sv", "testbench.sv"]),
     ("v3.20.0.0", "v3_20_0_0_covergroup_args_events", ["design.sv", "testbench.sv"]),
-    ("v3.21.0.0", "v3_21_0_0_sva_local_variables", ["design.sv", "testbench.sv"])
+    ("v3.21.0.0", "v3_21_0_0_sva_local_variables", ["design.sv", "testbench.sv"]),
+    ("v3.22.0.0", "v3_22_0_0_sva_subroutines", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

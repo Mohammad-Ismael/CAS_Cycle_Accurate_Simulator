@@ -143,6 +143,8 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
         }
 
         // OBSERVED REGION: evaluate property against preponed samples
+        std::vector<PendingSubroutineCall> pending_subroutines;
+        engine.evaluator.get_expr_eval().set_pending_subroutines(&pending_subroutines);
         engine.evaluator.get_expr_eval().set_preponed_override(&preponed_net_values);
         engine.evaluator.get_expr_eval().set_current_clock_history(&ch.snapshots);
 
@@ -157,6 +159,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
 
         if (disabled) {
             asrt.threads.clear();
+            engine.evaluator.get_expr_eval().set_pending_subroutines(nullptr);
             engine.evaluator.get_expr_eval().set_current_clock_history(nullptr);
             engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
             continue;
@@ -306,8 +309,15 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
             }
         }
 
+        engine.evaluator.get_expr_eval().set_pending_subroutines(nullptr);
         engine.evaluator.get_expr_eval().set_current_clock_history(nullptr);
         engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
+
+        // REACTIVE REGION: execute pending sequence match subroutines (§16.11)
+        for (const auto& sub : pending_subroutines) {
+            engine.execute_sva_subroutine(sub.name, sub.args, sub.scope);
+            activity = true;
+        }
 
         // REACTIVE REGION: execute action blocks for completed threads
         BoundProcess action_bp;

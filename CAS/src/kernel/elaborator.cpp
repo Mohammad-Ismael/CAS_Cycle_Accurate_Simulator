@@ -605,7 +605,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence or property local variable '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16.10");
                 }
             } else if (dynamic_cast<SequenceMatchItemNode*>(expr)) {
-                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used in continuous assignment per IEEE 1800-2023 section 16.10");
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used in continuous assignment per IEEE 1800-2023 section 16.10 & 16.11");
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
                 if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||

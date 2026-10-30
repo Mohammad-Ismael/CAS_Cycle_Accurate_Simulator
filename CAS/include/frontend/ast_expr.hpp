@@ -400,24 +400,31 @@ struct SequenceConcatNode : public ExpressionNode {
     }
 };
 
-struct SequenceMatchAssignment {
+struct SequenceMatchAction {
+    bool is_subroutine = false;
     std::string var_name;
     std::unique_ptr<ExpressionNode> expr;
 
-    SequenceMatchAssignment clone() const {
-        return {var_name, expr ? expr->clone() : nullptr};
+    SequenceMatchAction() = default;
+    SequenceMatchAction(bool sub, std::string name, std::unique_ptr<ExpressionNode> e)
+        : is_subroutine(sub), var_name(std::move(name)), expr(std::move(e)) {}
+
+    SequenceMatchAction clone() const {
+        return {is_subroutine, var_name, expr ? expr->clone() : nullptr};
     }
 };
 
+using SequenceMatchAssignment = SequenceMatchAction;
+
 struct SequenceMatchItemNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> expr;
-    std::vector<SequenceMatchAssignment> match_assignments;
+    std::vector<SequenceMatchAction> match_assignments;
 
-    SequenceMatchItemNode(std::unique_ptr<ExpressionNode> e, std::vector<SequenceMatchAssignment> assigns)
+    SequenceMatchItemNode(std::unique_ptr<ExpressionNode> e, std::vector<SequenceMatchAction> assigns)
         : expr(std::move(e)), match_assignments(std::move(assigns)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        std::vector<SequenceMatchAssignment> cloned_assigns;
+        std::vector<SequenceMatchAction> cloned_assigns;
         for (const auto& a : match_assignments) {
             cloned_assigns.push_back(a.clone());
         }

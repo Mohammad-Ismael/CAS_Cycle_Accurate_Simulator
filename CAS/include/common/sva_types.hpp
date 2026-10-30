@@ -32,6 +32,12 @@ struct SvaThread {
     std::map<std::string, LogicVal> local_vars;
 };
 
+struct PendingSubroutineCall {
+    std::string name;
+    std::vector<LogicVal> args;
+    std::string scope;
+};
+
 inline void extract_sequence_steps(ExpressionNode* node, std::vector<SvaSequenceStep>& steps) {
     if (!node) return;
     if (auto concat = dynamic_cast<SequenceConcatNode*>(node)) {
