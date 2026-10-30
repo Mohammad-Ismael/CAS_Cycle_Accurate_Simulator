@@ -167,6 +167,7 @@ enum class TokenType {
     TOKEN_PURE,
     TOKEN_CONTEXT,
     TOKEN_VOID,
+    TOKEN_CHANDLE,
     TOKEN_PLUS_PLUS,
     TOKEN_MINUS_MINUS
 };

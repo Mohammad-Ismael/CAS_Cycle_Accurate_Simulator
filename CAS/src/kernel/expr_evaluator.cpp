@@ -1463,55 +1463,71 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<Logi
     }
     ContextScopeGuard scope_guard(dpi->is_context, call_scope, &engine);
 
-    std::vector<int64_t> c_args;
+    std::vector<uint64_t> c_args;
     for (size_t i = 0; i < evaluated_args.size(); ++i) {
         const auto& v = evaluated_args[i];
         if (v.is_real) {
-            c_args.push_back(static_cast<int64_t>(v.real_val));
+            c_args.push_back(static_cast<uint64_t>(v.real_val));
         } else {
-            c_args.push_back(static_cast<int64_t>(v.aval));
+            c_args.push_back(v.aval);
         }
     }
 
     if (dpi->is_task || dpi->return_type == "void") {
         switch (c_args.size()) {
             case 0: reinterpret_cast<void(*)()>(sym)(); break;
-            case 1: reinterpret_cast<void(*)(int)>(sym)(static_cast<int>(c_args[0])); break;
-            case 2: reinterpret_cast<void(*)(int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1])); break;
-            case 3: reinterpret_cast<void(*)(int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2])); break;
-            case 4: reinterpret_cast<void(*)(int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3])); break;
-            case 5: reinterpret_cast<void(*)(int, int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3]), static_cast<int>(c_args[4])); break;
-            case 6: reinterpret_cast<void(*)(int, int, int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3]), static_cast<int>(c_args[4]), static_cast<int>(c_args[5])); break;
+            case 1: reinterpret_cast<void(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: reinterpret_cast<void(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
         return LogicVal(0, 0, 0);
     }
 
-    if (dpi->return_width > 32 || dpi->return_type == "longint") {
-        int64_t ret_val = 0;
+    if (dpi->return_type == "chandle") {
+        void* ret_ptr = nullptr;
         switch (c_args.size()) {
-            case 0: ret_val = reinterpret_cast<int64_t(*)()>(sym)(); break;
-            case 1: ret_val = reinterpret_cast<int64_t(*)(int64_t)>(sym)(c_args[0]); break;
-            case 2: ret_val = reinterpret_cast<int64_t(*)(int64_t, int64_t)>(sym)(c_args[0], c_args[1]); break;
-            case 3: ret_val = reinterpret_cast<int64_t(*)(int64_t, int64_t, int64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
-            case 4: ret_val = reinterpret_cast<int64_t(*)(int64_t, int64_t, int64_t, int64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
-            case 5: ret_val = reinterpret_cast<int64_t(*)(int64_t, int64_t, int64_t, int64_t, int64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
-            case 6: ret_val = reinterpret_cast<int64_t(*)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 0: ret_ptr = reinterpret_cast<void*(*)()>(sym)(); break;
+            case 1: ret_ptr = reinterpret_cast<void*(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
-        return LogicVal::make_known(dpi->return_width, static_cast<uint64_t>(ret_val));
+        return LogicVal::make_known(64, reinterpret_cast<uintptr_t>(ret_ptr));
+    }
+
+    if (dpi->return_width > 32 || dpi->return_type == "longint") {
+        uint64_t ret_val = 0;
+        switch (c_args.size()) {
+            case 0: ret_val = reinterpret_cast<uint64_t(*)()>(sym)(); break;
+            case 1: ret_val = reinterpret_cast<uint64_t(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            default:
+                throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
+        }
+        return LogicVal::make_known(dpi->return_width, ret_val);
     } else {
         int ret_val = 0;
         switch (c_args.size()) {
             case 0: ret_val = reinterpret_cast<int(*)()>(sym)(); break;
-            case 1: ret_val = reinterpret_cast<int(*)(int)>(sym)(static_cast<int>(c_args[0])); break;
-            case 2: ret_val = reinterpret_cast<int(*)(int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1])); break;
-            case 3: ret_val = reinterpret_cast<int(*)(int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2])); break;
-            case 4: ret_val = reinterpret_cast<int(*)(int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3])); break;
-            case 5: ret_val = reinterpret_cast<int(*)(int, int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3]), static_cast<int>(c_args[4])); break;
-            case 6: ret_val = reinterpret_cast<int(*)(int, int, int, int, int, int)>(sym)(static_cast<int>(c_args[0]), static_cast<int>(c_args[1]), static_cast<int>(c_args[2]), static_cast<int>(c_args[3]), static_cast<int>(c_args[4]), static_cast<int>(c_args[5])); break;
+            case 1: ret_val = reinterpret_cast<int(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }

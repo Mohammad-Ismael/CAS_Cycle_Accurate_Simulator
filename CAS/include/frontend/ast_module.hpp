@@ -33,6 +33,7 @@ struct PortNode : public ASTNode {
     std::string class_type_name = "";
     bool is_covergroup_handle = false;
     std::string covergroup_type_name = "";
+    bool is_chandle = false;
     std::unique_ptr<ExpressionNode> default_value = nullptr;
 
     PortNode() = default;

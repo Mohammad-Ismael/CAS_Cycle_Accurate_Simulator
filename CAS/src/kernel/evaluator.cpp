@@ -207,6 +207,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->class_type_name = vdecl->class_type_name;
                     lv->value = LogicVal(64, 0, 0);
                 }
+                if (vdecl->is_chandle || vdecl->type_name == "chandle") {
+                    lv->is_chandle = true;
+                    lv->type_name = "chandle";
+                    lv->value = LogicVal(64, 0, 0);
+                }
                 if (vdecl->init_expr) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                     lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -216,8 +221,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         if (!bp.call_stack.empty()) {
             bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
+            LocalVar* lv = bp.call_stack.back().local_frame.get_var(vdecl->var_name);
+            if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle")) {
+                lv->is_chandle = true;
+                lv->type_name = "chandle";
+                lv->value = LogicVal(64, 0, 0);
+            }
             if (vdecl->init_expr) {
-                LocalVar* lv = bp.call_stack.back().local_frame.get_var(vdecl->var_name);
                 if (lv) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                     lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -244,6 +254,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (vdecl->is_class_handle) {
                 lv->is_class_handle = true;
                 lv->class_type_name = vdecl->class_type_name;
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (vdecl->is_chandle || vdecl->type_name == "chandle") {
+                lv->is_chandle = true;
+                lv->type_name = "chandle";
                 lv->value = LogicVal(64, 0, 0);
             }
             if (vdecl->init_expr) {
@@ -775,6 +790,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_assertion(id->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: assertion '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 16 & 21.2.3");
                     }
+                    if (engine.is_chandle(id->name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: chandle '" + id->name + "' used directly in $monitor per IEEE 1800-2023 section 35.5.4 & 21.2.3");
+                    }
                 } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                     if (engine.is_queue(idx->name, bp.scope)) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: queue index select '" + idx->name + "[]' used in $monitor per IEEE 1800-2023 section 7.10.4 & 21.2.3");
@@ -822,6 +840,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     for (auto& a : mc->args) check_mon_expr(a.get());
                 } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+                    if (bin->op == "==" || bin->op == "!=") {
+                        auto is_null = [](ExpressionNode* e) {
+                            return dynamic_cast<NullNode*>(e) != nullptr;
+                        };
+                        auto is_chandle_expr = [&](ExpressionNode* e) {
+                            if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                                return engine.is_chandle(id->name, bp.scope);
+                            }
+                            return false;
+                        };
+                        if ((is_chandle_expr(bin->lhs.get()) && is_null(bin->rhs.get())) ||
+                            (is_null(bin->lhs.get()) && is_chandle_expr(bin->rhs.get()))) {
+                            return;
+                        }
+                    }
                     check_mon_expr(bin->lhs.get());
                     check_mon_expr(bin->rhs.get());
                 } else if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {

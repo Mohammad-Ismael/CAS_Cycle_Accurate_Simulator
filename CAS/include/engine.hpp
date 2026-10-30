@@ -74,6 +74,7 @@ private:
     std::unordered_set<std::string> assertion_names;
     std::unordered_set<std::string> property_names;
     std::unordered_set<std::string> sequence_names;
+    std::unordered_set<std::string> chandle_names;
     uint64_t next_handle_id = 1;
 
     MonitorSession monitor_session;
@@ -231,6 +232,13 @@ public:
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (covergroup_handle_names.find(scoped) != covergroup_handle_names.end()) return true;
         if (covergroup_handle_names.find(name) != covergroup_handle_names.end()) return true;
+        return false;
+    }
+
+    bool is_chandle(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (chandle_names.find(scoped) != chandle_names.end()) return true;
+        if (chandle_names.find(name) != chandle_names.end()) return true;
         return false;
     }
 

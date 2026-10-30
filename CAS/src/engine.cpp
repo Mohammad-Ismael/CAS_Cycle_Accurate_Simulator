@@ -58,6 +58,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     sequence_names = std::move(elab_res.sequence_names);
     dpi_import_map = std::move(elab_res.dpi_import_map);
     dpi_export_map = std::move(elab_res.dpi_export_map);
+    chandle_names = std::move(elab_res.chandle_names);
     active_scope_name = elab_res.top_scope;
     DpiRegistry::set_active_scope_by_name(active_scope_name);
     DpiRegistry::set_active_engine(this);

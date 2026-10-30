@@ -23,6 +23,7 @@ struct Net {
     bool is_class_handle = false;
     bool is_covergroup_handle = false;
     std::string covergroup_type_name = "";
+    bool is_chandle = false;
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),

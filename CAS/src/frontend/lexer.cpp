@@ -460,6 +460,7 @@ Token Lexer::next_token() {
         if (ident == "pure") return {TokenType::TOKEN_PURE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "context") return {TokenType::TOKEN_CONTEXT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "void") return {TokenType::TOKEN_VOID, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "chandle") return {TokenType::TOKEN_CHANDLE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

@@ -105,11 +105,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+    bool is_chandle_stmt = (current.type == TokenType::TOKEN_CHANDLE ||
+                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
 
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL ||
-        is_ident_int_type) {
+        is_ident_int_type || is_chandle_stmt) {
         bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER || is_ident_int_type);
         bool is_real_var = (current.type == TokenType::TOKEN_REAL);
         bool is_int = is_signed_var;
@@ -123,7 +125,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             advance();
         }
 
-        uint32_t width = is_int ? 32 : (is_real_var ? 64 : 1);
+        uint32_t width = is_chandle_stmt ? 64 : (is_int ? 32 : (is_real_var ? 64 : 1));
         if (int_type_name == "byte") width = 8;
         else if (int_type_name == "shortint") width = 16;
         else if (int_type_name == "longint") width = 64;
@@ -175,7 +177,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             init_expr = parse_expression();
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, is_real_var ? "real" : (!int_type_name.empty() ? int_type_name : ""), is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, is_chandle_stmt ? "chandle" : (is_real_var ? "real" : (!int_type_name.empty() ? int_type_name : "")), is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        vnode->is_chandle = is_chandle_stmt;
         vnode->init_expr = std::move(init_expr);
         return vnode;
     }

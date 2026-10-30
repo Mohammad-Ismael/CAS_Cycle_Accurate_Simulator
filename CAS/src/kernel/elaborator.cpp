@@ -217,6 +217,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
         size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
+        if (p.is_chandle || p.type_name == "chandle") {
+            result.netlist[pid].is_chandle = true;
+            result.netlist[pid].type_name = "chandle";
+            result.netlist[pid].value = LogicVal(64, 0, 0);
+            result.netlist[pid].prev_value = LogicVal(64, 0, 0);
+            result.chandle_names.insert(scope + "." + p.name);
+            result.chandle_names.insert(p.name);
+        }
         if (!p.type_name.empty()) {
             result.netlist[pid].type_name = p.type_name;
             result.var_to_enum_type[scope + "." + p.name] = p.type_name;
@@ -279,6 +287,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         } else {
             size_t sid = get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
+            if (s.is_chandle || s.type_name == "chandle") {
+                result.netlist[sid].is_chandle = true;
+                result.netlist[sid].type_name = "chandle";
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.chandle_names.insert(scope + "." + s.name);
+                result.chandle_names.insert(s.name);
+            }
             if (s.is_class_handle) {
                 result.netlist[sid].is_class_handle = true;
                 result.netlist[sid].value = LogicVal(64, 0, 0);
@@ -373,6 +389,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.assertion_names.find(ca->target_name) != result.assertion_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to assertion '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16");
         }
+        if (result.chandle_names.find(scoped_target) != result.chandle_names.end() ||
+            result.chandle_names.find(ca->target_name) != result.chandle_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to chandle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.4");
+        }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -410,6 +430,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.assertion_names.find(s_id) != result.assertion_names.end() ||
                     result.assertion_names.find(id->name) != result.assertion_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: assertion '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16");
+                }
+                if (result.chandle_names.find(s_id) != result.chandle_names.end() ||
+                    result.chandle_names.find(id->name) != result.chandle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: chandle '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 35.5.4");
                 }
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
@@ -473,6 +497,23 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
                 for (auto& a : mc->args) check_expr(a.get());
             } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+                if (bin->op == "==" || bin->op == "!=") {
+                    auto is_null = [](ExpressionNode* e) {
+                        return dynamic_cast<NullNode*>(e) != nullptr;
+                    };
+                    auto is_chandle_expr = [&](ExpressionNode* e) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                            std::string s_id = scope + "." + id->name;
+                            return (result.chandle_names.find(s_id) != result.chandle_names.end() ||
+                                    result.chandle_names.find(id->name) != result.chandle_names.end());
+                        }
+                        return false;
+                    };
+                    if ((is_chandle_expr(bin->lhs.get()) && is_null(bin->rhs.get())) ||
+                        (is_null(bin->lhs.get()) && is_chandle_expr(bin->rhs.get()))) {
+                        return;
+                    }
+                }
                 check_expr(bin->lhs.get());
                 check_expr(bin->rhs.get());
             } else if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {

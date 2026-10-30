@@ -183,6 +183,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> sequence_names;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
+    std::unordered_set<std::string> chandle_names;
     std::string top_scope;
 };
 

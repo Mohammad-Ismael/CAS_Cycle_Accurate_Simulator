@@ -1,0 +1,12 @@
+{
+  "name": "v3_14_0_0_dpic_chandle_open_arrays",
+  "version": "v3.14.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.4",
+  "description": "Direct Programming Interface (DPI-C): opaque pointer storage 'chandle', 'null' comparisons, 64-bit pointer ABI marshalling, and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_14_0_0_regression"
+}

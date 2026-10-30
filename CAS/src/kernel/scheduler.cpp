@@ -629,8 +629,15 @@ static void flatten_task_statements(StatementNode* stmt, std::vector<StatementNo
 }
 
 void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
-    TaskNode* target_task = nullptr;
     std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
+    if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
+        engine.dpi_import_map.find(tcall->task_name) != engine.dpi_import_map.end()) {
+        engine.evaluator.execute_statement(tcall, bp);
+        bp.pc++;
+        return;
+    }
+
+    TaskNode* target_task = nullptr;
     if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
         target_task = engine.task_map.at(scoped_tname);
     } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
@@ -1026,6 +1033,13 @@ void StratifiedScheduler::step_process(size_t pid) {
             // Sub-task invocation inside task
             if (auto sub_tcall = dynamic_cast<TaskCallNode*>(stmt)) {
                 std::string tname = sub_tcall->task_name;
+                std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
+                    engine.dpi_import_map.find(tname) != engine.dpi_import_map.end()) {
+                    engine.evaluator.execute_statement(stmt, bp);
+                    cur_frame.pc++;
+                    continue;
+                }
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
@@ -1167,6 +1181,13 @@ void StratifiedScheduler::step_process(size_t pid) {
             // 3. Task Invocation: invoke task activation frame
             if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
                 std::string tname = tcall->task_name;
+                std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
+                    engine.dpi_import_map.find(tname) != engine.dpi_import_map.end()) {
+                    engine.evaluator.execute_statement(stmt, bp);
+                    bp.pc++;
+                    continue;
+                }
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
@@ -1371,6 +1392,13 @@ void StratifiedScheduler::step_process(size_t pid) {
         // 3. Task Invocation: invoke task activation frame
         if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
             std::string tname = tcall->task_name;
+            std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+            if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
+                engine.dpi_import_map.find(tname) != engine.dpi_import_map.end()) {
+                engine.evaluator.execute_statement(stmt, bp);
+                bp.pc++;
+                continue;
+            }
             auto dot = tname.rfind('.');
             if (dot != std::string::npos) {
                 std::string var_name = tname.substr(0, dot);

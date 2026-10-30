@@ -211,8 +211,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     is_signed_port = true;
                     advance();
                 }
+                bool is_chandle_port = (current.type == TokenType::TOKEN_CHANDLE || 
+                                       (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                if (is_chandle_port) {
+                    port_kind = NetKind::VAR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
@@ -242,12 +247,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                } else if (is_chandle_port) {
+                    msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 }
 
                 while (true) {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                     PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                    if (is_chandle_port) {
+                        port.is_chandle = true;
+                        port.type_name = "chandle";
+                    }
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
@@ -432,8 +444,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     is_signed_port = true;
                     advance();
                 }
+                bool is_chandle_port = (current.type == TokenType::TOKEN_CHANDLE || 
+                                       (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                if (is_chandle_port) {
+                    port_kind = NetKind::VAR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
@@ -463,6 +480,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                } else if (is_chandle_port) {
+                    msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 }
                 while (true) {
                     std::string pname = current.text;
@@ -475,12 +495,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             p.net_kind = port_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
+                            if (is_chandle_port) {
+                                p.is_chandle = true;
+                                p.type_name = "chandle";
+                            }
                             found = true;
                             break;
                         }
                     }
                     if (!found) {
-                        mod->ports.emplace_back(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                        PortNode port_decl(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                        if (is_chandle_port) {
+                            port_decl.is_chandle = true;
+                            port_decl.type_name = "chandle";
+                        }
+                        mod->ports.push_back(std::move(port_decl));
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -669,13 +698,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             bool is_ident_int = (current.type == TokenType::TOKEN_IDENTIFIER && 
                                  (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+            bool is_chandle_mod = (current.type == TokenType::TOKEN_CHANDLE || 
+                                   (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
 
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SIGNED || is_ident_int) {
+                current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_chandle_mod) {
                 
                 bool is_signed_sig = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
@@ -694,7 +725,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
                 NetKind sig_kind = NetKind::WIRE;
-                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig) {
+                if (is_chandle_mod) {
+                    sig_kind = NetKind::VAR;
+                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig) {
                     sig_kind = NetKind::VAR;
                 } else if (current.type == TokenType::TOKEN_WAND) {
                     sig_kind = NetKind::WAND;
@@ -719,6 +752,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                } else if (is_chandle_mod) {
+                    msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 } else if (is_int) {
                     uint32_t iw = 32;
                     if (int_type_name == "byte") iw = 8;
@@ -734,6 +770,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
+                    if (is_chandle_mod) {
+                        sig.is_chandle = true;
+                        sig.type_name = "chandle";
+                    }
                     if (is_bit_type) sig.type_name = "bit";
                     if (is_real_sig) sig.type_name = "real";
                     if (!int_type_name.empty()) sig.type_name = int_type_name;
@@ -780,6 +820,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             p.net_kind = sig_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
+                            if (is_chandle_mod) {
+                                p.is_chandle = true;
+                                p.type_name = "chandle";
+                            }
                             is_port = true;
                             break;
                         }
@@ -1723,6 +1767,11 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             ret_w = 0;
             ret_signed = false;
             advance();
+        } else if (current.type == TokenType::TOKEN_CHANDLE || current.text == "chandle") {
+            ret_type = "chandle";
+            ret_w = 64;
+            ret_signed = false;
+            advance();
         } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
             ret_type = "int";
             ret_w = 32;
@@ -1813,7 +1862,12 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             uint32_t pw = 32;
             bool psigned = false;
 
-            if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+            if (current.type == TokenType::TOKEN_CHANDLE || current.text == "chandle") {
+                ptype = "chandle";
+                pw = 64;
+                psigned = false;
+                advance();
+            } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
                 ptype = "int";
                 pw = 32;
                 psigned = true;
@@ -1861,6 +1915,9 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
 
             PortNode port(pname, pdir, nullptr, nullptr, psigned, NetKind::WIRE);
             port.type_name = ptype;
+            if (ptype == "chandle") {
+                port.is_chandle = true;
+            }
             port.msb_expr = std::make_unique<NumberNode>(pw > 0 ? pw - 1 : 0, 32);
             port.lsb_expr = std::make_unique<NumberNode>(0, 32);
             dpi_node->tf_ports.push_back(std::move(port));
