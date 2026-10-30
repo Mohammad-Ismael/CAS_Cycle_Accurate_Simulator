@@ -358,10 +358,20 @@ struct CoverpointNode : public ASTNode {
         : label(std::move(lbl)), target_expr(std::move(target)) {}
 };
 
+struct CoverCrossNode : public ASTNode {
+    std::string label;
+    std::vector<std::string> crossed_coverpoints;
+
+    CoverCrossNode(std::string lbl, std::vector<std::string> cps)
+        : label(std::move(lbl)), crossed_coverpoints(std::move(cps)) {}
+};
+
 struct CovergroupNode : public ASTNode {
     std::string name;
     std::vector<std::unique_ptr<CoverpointNode>> coverpoints;
     std::unordered_map<std::string, CoverpointNode*> coverpoint_map;
+    std::vector<std::unique_ptr<CoverCrossNode>> crosses;
+    std::unordered_map<std::string, CoverCrossNode*> cross_map;
 
     explicit CovergroupNode(std::string n) : name(std::move(n)) {}
 
@@ -370,6 +380,14 @@ struct CovergroupNode : public ASTNode {
         coverpoints.push_back(std::move(cp));
         if (!ptr->label.empty()) {
             coverpoint_map[ptr->label] = ptr;
+        }
+    }
+
+    void add_cross(std::unique_ptr<CoverCrossNode> cr) {
+        CoverCrossNode* ptr = cr.get();
+        crosses.push_back(std::move(cr));
+        if (!ptr->label.empty()) {
+            cross_map[ptr->label] = ptr;
         }
     }
 };

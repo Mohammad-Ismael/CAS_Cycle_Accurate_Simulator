@@ -145,6 +145,7 @@ enum class TokenType {
     TOKEN_ENDGROUP,
     TOKEN_COVERPOINT,
     TOKEN_BINS,
+    TOKEN_CROSS,
     TOKEN_REAL
 };
 

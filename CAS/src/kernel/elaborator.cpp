@@ -361,6 +361,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
+                if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
+                    result.covergroup_handle_names.find(ma->var_name) != result.covergroup_handle_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup item '" + ma->var_name + "." + ma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 19");
+                }
                 if (result.class_handle_names.find(s_id) != result.class_handle_names.end() ||
                     result.class_handle_names.find(ma->var_name) != result.class_handle_names.end() ||
                     ma->var_name == "this" || ma->var_name == "super") {

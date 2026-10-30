@@ -250,6 +250,21 @@ public:
                 }
                 inst->coverpoints.push_back(std::move(cp_item));
             }
+            for (const auto& cr_node : def->crosses) {
+                CoverCrossItem cr_item;
+                cr_item.label = cr_node->label;
+                cr_item.crossed_cp_names = cr_node->crossed_coverpoints;
+                for (const auto& cp_name : cr_node->crossed_coverpoints) {
+                    for (size_t i = 0; i < inst->coverpoints.size(); ++i) {
+                        if (inst->coverpoints[i].label == cp_name) {
+                            cr_item.crossed_cp_indices.push_back(i);
+                            break;
+                        }
+                    }
+                }
+                cr_item.generate_cartesian(inst->coverpoints);
+                inst->crosses.push_back(std::move(cr_item));
+            }
         }
         covergroup_heap[id] = inst;
         return inst;

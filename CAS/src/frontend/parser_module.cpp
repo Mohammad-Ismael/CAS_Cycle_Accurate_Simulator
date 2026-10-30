@@ -1323,6 +1323,25 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
                 match(TokenType::TOKEN_SEMICOLON);
             }
             cg->add_coverpoint(std::move(cp));
+        } else if (current.type == TokenType::TOKEN_CROSS) {
+            advance();
+            std::vector<std::string> cps;
+            while (current.type == TokenType::TOKEN_IDENTIFIER) {
+                cps.push_back(current.text);
+                advance();
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            if (match(TokenType::TOKEN_LBRACE)) {
+                int depth = 1;
+                while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LBRACE) depth++;
+                    else if (current.type == TokenType::TOKEN_RBRACE) depth--;
+                    advance();
+                }
+            }
+            match(TokenType::TOKEN_SEMICOLON);
+            cg->add_cross(std::make_unique<CoverCrossNode>(label, std::move(cps)));
         } else {
             advance();
         }

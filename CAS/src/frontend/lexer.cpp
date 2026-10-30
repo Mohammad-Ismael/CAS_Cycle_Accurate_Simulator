@@ -409,6 +409,7 @@ Token Lexer::next_token() {
         if (ident == "endgroup") return {TokenType::TOKEN_ENDGROUP, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "coverpoint") return {TokenType::TOKEN_COVERPOINT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "bins") return {TokenType::TOKEN_BINS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "cross") return {TokenType::TOKEN_CROSS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "real") return {TokenType::TOKEN_REAL, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};

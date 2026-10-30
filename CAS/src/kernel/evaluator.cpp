@@ -763,6 +763,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     check_mon_expr(idx->msb_expr.get());
                     check_mon_expr(idx->lsb_expr.get());
                 } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+                    if (engine.is_covergroup_handle(ma->var_name, bp.scope)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup item '" + ma->var_name + "." + ma->member_name + "' used in $monitor per IEEE 1800-2023 section 19 & 21.2.3");
+                    }
                     if (engine.is_class_handle(ma->var_name, bp.scope) || ma->var_name == "this" || ma->var_name == "super") {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class property '" + ma->var_name + "." + ma->member_name + "' used in $monitor per IEEE 1800-2023 section 8.4 & 21.2.3");
                     }
