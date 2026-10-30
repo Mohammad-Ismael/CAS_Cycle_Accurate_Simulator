@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
             enable_monitor = false;
         } else if (std::strcmp(argv[i], "--no-finish-msg") == 0) {
             enable_finish_msg = false;
-        } else if (std::strcmp(argv[i], "--top") == 0 && i + 1 < argc) {
+        } else if ((std::strcmp(argv[i], "--top") == 0 || std::strcmp(argv[i], "-top") == 0) && i + 1 < argc) {
             top_override = argv[++i];
         } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
             timescale_unit = argv[++i];

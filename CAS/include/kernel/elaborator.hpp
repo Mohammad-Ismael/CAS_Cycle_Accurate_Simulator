@@ -207,6 +207,11 @@ private:
                           const std::string& parent_scope = "",
                           std::ostream* debug_out = nullptr);
 
+    ConfigNode* active_config = nullptr;
+    std::unordered_map<std::string, std::string> active_instance_cell_map;
+    std::unordered_map<std::string, std::string> active_cell_rebind_map;
+    std::unordered_set<std::string> valid_instance_paths;
+
 public:
     Elaborator() = default;
 

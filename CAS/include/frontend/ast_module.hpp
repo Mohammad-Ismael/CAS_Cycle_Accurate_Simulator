@@ -607,3 +607,29 @@ struct ModuleNode : public ASTNode {
 struct InterfaceNode : public ModuleNode {
     InterfaceNode() { is_interface = true; }
 };
+
+enum class ConfigRuleType {
+    INSTANCE,
+    CELL
+};
+
+struct ConfigRuleNode : public ASTNode {
+    ConfigRuleType rule_type = ConfigRuleType::INSTANCE;
+    std::string target_path; // hierarchical path or cell identifier
+    std::string lib_name;    // library name, e.g. "work" (optional)
+    std::string cell_name;   // target cell name, e.g. "v3_19_0_0_fast_core"
+};
+
+struct ConfigNode : public ASTNode {
+    std::string name;
+    std::string defined_in_file = "";
+    size_t defined_on_line = 0;
+    std::string design_lib;        // library name for top design, e.g. "work"
+    std::string design_top_module; // top design module identifier, e.g. "tb_v3_19_0_0_regression"
+    std::vector<std::string> default_liblist;
+    std::vector<std::unique_ptr<ConfigRuleNode>> rules;
+    std::unordered_map<std::string, std::string> instance_cell_map; // hierarchical path -> rebound cell name
+    std::unordered_map<std::string, std::string> cell_rebind_map;    // cell name -> rebound cell name
+
+    ConfigNode() = default;
+};

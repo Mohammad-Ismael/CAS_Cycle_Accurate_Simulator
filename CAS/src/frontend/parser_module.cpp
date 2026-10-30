@@ -88,6 +88,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_CONFIG) {
+            auto cfg = parse_config();
+            if (cfg) {
+                global_configs[cfg->name] = cfg;
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_IMPORT) {
             if (peek_token().type == TokenType::TOKEN_STRING) {
                 auto dpi = parse_dpi_import();
@@ -133,7 +141,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             is_iface = true;
             advance();
         } else {
-            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'package', 'parameter', or 'localparam' keyword");
+            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'package', 'config', 'parameter', or 'localparam' keyword");
         }
         auto mod = is_iface ? std::make_unique<InterfaceNode>() : std::make_unique<ModuleNode>();
         current_parsing_module = mod.get();
@@ -2658,4 +2666,137 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
         }
     }
     return pkg;
+}
+
+std::shared_ptr<ConfigNode> Parser::parse_config() {
+    expect(TokenType::TOKEN_CONFIG, "Expected 'config'");
+    auto cfg = std::make_shared<ConfigNode>();
+    cfg->defined_in_file = current.filename;
+    cfg->defined_on_line = current.line;
+    cfg->name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected config identifier");
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after config identifier");
+
+    global_configs[cfg->name] = cfg;
+
+    while (current.type != TokenType::TOKEN_ENDCONFIG && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_INITIAL ||
+            current.type == TokenType::TOKEN_ALWAYS ||
+            current.type == TokenType::TOKEN_ALWAYS_COMB ||
+            current.type == TokenType::TOKEN_ALWAYS_FF ||
+            current.type == TokenType::TOKEN_ALWAYS_LATCH ||
+            current.type == TokenType::TOKEN_ASSIGN ||
+            current.type == TokenType::TOKEN_IF ||
+            current.type == TokenType::TOKEN_FOR ||
+            current.type == TokenType::TOKEN_WHILE ||
+            current.type == TokenType::TOKEN_REPEAT ||
+            current.type == TokenType::TOKEN_FOREVER) {
+            std::string loc = current.filename.empty() 
+                ? ("line " + std::to_string(current.line)) 
+                : (current.filename + ":" + std::to_string(current.line));
+            throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Procedural blocks, statements, and continuous assignments are illegal in config scope");
+        }
+
+        if (match(TokenType::TOKEN_DESIGN)) {
+            std::string first_id = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected design top module identifier");
+            if (match(TokenType::TOKEN_DOT)) {
+                cfg->design_lib = first_id;
+                cfg->design_top_module = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected top module identifier after '.' in design clause");
+            } else {
+                cfg->design_top_module = first_id;
+            }
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after design statement");
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_DEFAULT)) {
+            expect(TokenType::TOKEN_LIBLIST, "Expected 'liblist' after 'default'");
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    cfg->default_liblist.push_back(current.text);
+                }
+                advance();
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after default liblist");
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_INSTANCE)) {
+            auto rule = std::make_unique<ConfigRuleNode>();
+            rule->rule_type = ConfigRuleType::INSTANCE;
+
+            std::string hier_path = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected instance path");
+            while (match(TokenType::TOKEN_DOT)) {
+                hier_path += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in instance path");
+            }
+            rule->target_path = hier_path;
+
+            expect(TokenType::TOKEN_USE, "Expected 'use' after instance path");
+
+            std::string first_id = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected cell identifier after 'use'");
+            if (match(TokenType::TOKEN_DOT)) {
+                rule->lib_name = first_id;
+                rule->cell_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected cell name after '.'");
+            } else {
+                rule->cell_name = first_id;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance rule");
+
+            cfg->instance_cell_map[rule->target_path] = rule->cell_name;
+            cfg->rules.push_back(std::move(rule));
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_CELL)) {
+            auto rule = std::make_unique<ConfigRuleNode>();
+            rule->rule_type = ConfigRuleType::CELL;
+
+            std::string cell_target = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected cell identifier");
+            rule->target_path = cell_target;
+
+            expect(TokenType::TOKEN_USE, "Expected 'use' after cell identifier");
+
+            std::string first_id = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected cell identifier after 'use'");
+            if (match(TokenType::TOKEN_DOT)) {
+                rule->lib_name = first_id;
+                rule->cell_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected cell name after '.'");
+            } else {
+                rule->cell_name = first_id;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after cell rule");
+
+            cfg->cell_rebind_map[rule->target_path] = rule->cell_name;
+            cfg->rules.push_back(std::move(rule));
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_SEMICOLON)) {
+            continue;
+        }
+
+        std::string loc = current.filename.empty() 
+            ? ("line " + std::to_string(current.line)) 
+            : (current.filename + ":" + std::to_string(current.line));
+        throw std::runtime_error(loc + ": error: Unexpected token in config declaration: '" + current.text + "'");
+    }
+
+    expect(TokenType::TOKEN_ENDCONFIG, "Expected 'endconfig'");
+    if (match(TokenType::TOKEN_COLON)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            advance();
+        }
+    }
+    return cfg;
 }

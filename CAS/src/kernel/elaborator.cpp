@@ -860,10 +860,48 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& inst : mod->instantiations) {
         std::string child_scope = scope + "." + inst->instance_name;
-        if (module_defs.find(inst->module_type) == module_defs.end()) {
-            throw std::runtime_error("Undefined module type instantiated: " + inst->module_type);
+        valid_instance_paths.insert(child_scope);
+        valid_instance_paths.insert(inst->instance_name);
+
+        std::string effective_mod_type = inst->module_type;
+
+        // Check instance rebinding
+        auto inst_rule_it = active_instance_cell_map.find(child_scope);
+        if (inst_rule_it != active_instance_cell_map.end()) {
+            effective_mod_type = inst_rule_it->second;
+            if (debug_out) {
+                *debug_out << "     [Config Rebind] Instance '" << child_scope 
+                           << "' rebound: '" << inst->module_type << "' -> '" << effective_mod_type << "'\n";
+            }
+        } else {
+            std::string rel_scope = child_scope;
+            auto dot_pos = rel_scope.find('.');
+            if (dot_pos != std::string::npos) {
+                rel_scope = rel_scope.substr(dot_pos + 1);
+            }
+            inst_rule_it = active_instance_cell_map.find(rel_scope);
+            if (inst_rule_it != active_instance_cell_map.end()) {
+                effective_mod_type = inst_rule_it->second;
+                if (debug_out) {
+                    *debug_out << "     [Config Rebind] Instance '" << rel_scope 
+                               << "' rebound: '" << inst->module_type << "' -> '" << effective_mod_type << "'\n";
+                }
+            } else {
+                auto cell_rule_it = active_cell_rebind_map.find(inst->module_type);
+                if (cell_rule_it != active_cell_rebind_map.end()) {
+                    effective_mod_type = cell_rule_it->second;
+                    if (debug_out) {
+                        *debug_out << "     [Config Rebind] Cell '" << inst->module_type 
+                                   << "' rebound globally -> '" << effective_mod_type << "'\n";
+                    }
+                }
+            }
         }
-        ModuleNode* submod = module_defs.at(inst->module_type);
+
+        if (module_defs.find(effective_mod_type) == module_defs.end()) {
+            throw std::runtime_error("Undefined module type instantiated: " + effective_mod_type);
+        }
+        ModuleNode* submod = module_defs.at(effective_mod_type);
 
         if (submod->is_interface) {
             result.interface_instances.insert(child_scope);
@@ -1127,14 +1165,32 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         module_defs[mod->name] = mod.get();
     }
 
-    ModuleNode* top = nullptr;
+    std::string effective_top_name = top_module_name;
+    active_config = nullptr;
+    active_instance_cell_map.clear();
+    active_cell_rebind_map.clear();
+    valid_instance_paths.clear();
 
     if (!top_module_name.empty()) {
-        if (module_defs.find(top_module_name) != module_defs.end()) {
-            top = module_defs.at(top_module_name);
+        auto cfg_it = Parser::global_configs.find(top_module_name);
+        if (cfg_it != Parser::global_configs.end()) {
+            active_config = cfg_it->second.get();
+            effective_top_name = active_config->design_top_module;
+            if (debug_out) {
+                *debug_out << "  -> Selected Configuration: '" << active_config->name << "'\n"
+                           << "     - Design Top Module: '" << effective_top_name << "'\n";
+            }
+        }
+    }
+
+    ModuleNode* top = nullptr;
+
+    if (!effective_top_name.empty()) {
+        if (module_defs.find(effective_top_name) != module_defs.end()) {
+            top = module_defs.at(effective_top_name);
             if (debug_out) *debug_out << "  -> Using explicit top module: '" << top->name << "'\n";
         } else {
-            throw std::runtime_error("Elaboration error: Top module '" + top_module_name + "' was not found in parsed sources.");
+            throw std::runtime_error("Elaboration error: Top module '" + effective_top_name + "' was not found in parsed sources.");
         }
     } else {
         std::unordered_map<std::string, bool> is_instantiated;
@@ -1172,8 +1228,37 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         if (debug_out) *debug_out << "  -> Auto-detected top-level root module: '" << top->name << "'\n";
     }
 
+    // If no explicit configuration was selected, check if a configuration targets this top module
+    if (!active_config && top) {
+        for (const auto& kv : Parser::global_configs) {
+            if (kv.second->design_top_module == top->name) {
+                active_config = kv.second.get();
+                if (debug_out) {
+                    *debug_out << "  -> Auto-applied Configuration: '" << active_config->name 
+                               << "' for top module '" << top->name << "'\n";
+                }
+                break;
+            }
+        }
+    }
+
+    if (active_config) {
+        active_instance_cell_map = active_config->instance_cell_map;
+        active_cell_rebind_map = active_config->cell_rebind_map;
+    }
+
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
     result.top_scope = top->name;
+
+    // Validate that all instance rules target valid hierarchical paths [CAS-DTINPCIL]
+    if (active_config) {
+        for (const auto& kv : active_config->instance_cell_map) {
+            const std::string& rule_path = kv.first;
+            if (valid_instance_paths.find(rule_path) == valid_instance_paths.end()) {
+                throw std::runtime_error("error: [CAS-DTINPCIL] Configuration instance rule targets invalid or non-existent hierarchical path '" + rule_path + "'");
+            }
+        }
+    }
 
     // IEEE Std 1800-2023 §9.2.2.4: Driver Exclusivity & ICPD Check
     struct NetDriverInfo {

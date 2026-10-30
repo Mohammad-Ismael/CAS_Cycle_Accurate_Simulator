@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.18.0.0`  
-**Status:** Production Milestone v3.18.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.19.0.0`  
+**Status:** Production Milestone v3.19.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[████████████████████████░░░░░░░░░░░░░░░░░░░░░░] 47.2%`
+`[████████████████████████░░░░░░░░░░░░░░░░░░░░░░] 48.6%`
 
-*Current Baseline (v3.18.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution), DPI-C opaque pointer storage (`chandle`, `null` comparisons, 64-bit pointer ABI marshalling), DPI-C Open Arrays (`[]`, `const svOpenArrayHandle`, standard inquiry and element access APIs `svSize` and `svGetArrElemPtr1`), Parameterized Classes (parameter declarations `#(...)`, class specialization instantiation `class_name #(args)`, static specialization scopes `class_name#(args)::member`, per-specialization independent static variables/methods), Interprocess Synchronization (built-in `semaphore` and `mailbox`, process suspension and wakeup scheduling, bounded/unbounded mailbox FIFOs, blocking/non-blocking methods `get`, `put`, `try_get`, `try_put`, `num`, and context diagnostic `[CAS-DTINPCIL]`), and SystemVerilog Packages (`package` / `endpackage`, wildcard import `import pkg::*;`, explicit import `import pkg::item;`, package scope resolution `pkg::symbol`, shared typedefs, packed structs, enums, package functions/tasks, and context diagnostic `[CAS-DTINPCIL]`).  
-*Upcoming Domains:* Packed SV-to-C Struct Passing, DPI-C Memory Mapping.
+*Current Baseline (v3.19.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, and SystemVerilog Configurations (§33 config/endconfig, hierarchical instance rebinding, top-level config elaboration).
+*Upcoming Domains:* Covergroup Arguments and Dynamic Sample Triggers, Typed Fine-grain Interconnects.
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§33** | **SystemVerilog Configurations** | `config ... endconfig` declarations, `design` top module selection, `default liblist`, hierarchical instance rebinding (`instance hier.path use lib.cell`), global cell rebinding (`cell name use lib.cell`), top-level configuration selection via `-top`, auto-matching design top binding, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§26** | **SystemVerilog Packages** | `package ... endpackage` declarations, compilation-unit and module-level wildcard imports (`import pkg::*;`), explicit imports (`import pkg::item;`), explicit package scope resolution (`pkg::symbol`), shared enums, packed structures, constants, automatic functions, tasks, classes, DPI-C declarations, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§4** | **Stratified Event Scheduler** | Pre-Active, Active, Inactive, NBA, Observed, Reactive, and Postponed regions with deterministic delta loops. |
 | **§6.5, §10.3, §10.4.1** | **Net Types & Multi-Driver Resolution** | Net keywords `wire`, `wand`, `wor`, `tri` with bitwise 4-state resolution functions (Tables 6-1, 6-2, 6-3). Concurrent continuous assignments resolve dynamically. Un-driven nets float to `'z'`. |

@@ -472,6 +472,13 @@ Token Lexer::next_token() {
         if (ident == "mailbox") return {TokenType::TOKEN_MAILBOX, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "package") return {TokenType::TOKEN_PACKAGE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endpackage") return {TokenType::TOKEN_ENDPACKAGE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "config") return {TokenType::TOKEN_CONFIG, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endconfig") return {TokenType::TOKEN_ENDCONFIG, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "design") return {TokenType::TOKEN_DESIGN, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "liblist") return {TokenType::TOKEN_LIBLIST, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "instance") return {TokenType::TOKEN_INSTANCE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "cell") return {TokenType::TOKEN_CELL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "use") return {TokenType::TOKEN_USE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

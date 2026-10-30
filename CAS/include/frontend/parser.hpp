@@ -35,12 +35,14 @@ public:
 
     std::unordered_set<std::string> known_interfaces;
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
+    static std::unordered_map<std::string, std::shared_ptr<ConfigNode>> global_configs;
     static std::vector<std::string> global_wildcard_imports;
     static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
     static void clear_global_packages() {
         global_packages.clear();
         global_wildcard_imports.clear();
         global_explicit_imports.clear();
+        global_configs.clear();
     }
 
     bool is_package(const std::string& name) const {
@@ -163,6 +165,7 @@ public:
         return get_struct_typedef(name) != nullptr;
     }
     std::shared_ptr<PackageNode> parse_package();
+    std::shared_ptr<ConfigNode> parse_config();
     void parse_packages_only();
     std::unique_ptr<TypedefNode> parse_typedef();
     std::string parse_skew_spec();

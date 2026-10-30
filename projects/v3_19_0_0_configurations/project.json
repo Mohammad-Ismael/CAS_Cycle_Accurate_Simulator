@@ -1,0 +1,11 @@
+{
+  "name": "v3_19_0_0_configurations",
+  "version": "v3.19.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§33",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "cfg_v3_19_0_0"
+}

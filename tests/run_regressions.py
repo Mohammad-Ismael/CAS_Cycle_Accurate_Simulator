@@ -41,7 +41,8 @@ suites = [
     ("v3.15.0.0", "v3_15_0_0_dpic_open_arrays", ["design.sv", "testbench.sv"]),
     ("v3.16.0.0", "v3_16_0_0_parameterized_classes", ["design.sv", "testbench.sv"]),
     ("v3.17.0.0", "v3_17_0_0_semaphores_mailboxes", ["design.sv", "testbench.sv"]),
-    ("v3.18.0.0", "v3_18_0_0_packages", ["design.sv", "testbench.sv"])
+    ("v3.18.0.0", "v3_18_0_0_packages", ["design.sv", "testbench.sv"]),
+    ("v3.19.0.0", "v3_19_0_0_configurations", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")
@@ -57,7 +58,18 @@ for ver, s_dir, files in suites:
     c_source = os.path.join(dir_path, "c_model.c")
     if os.path.exists(c_source):
         subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
-    cmd = [cas_bin] + files
+    top_arg = []
+    meta_path = os.path.join(dir_path, "project.json")
+    if os.path.exists(meta_path):
+        import json
+        try:
+            with open(meta_path, "r") as pf:
+                pdata = json.load(pf)
+                if "top_module" in pdata and pdata["top_module"]:
+                    top_arg = ["-top", pdata["top_module"]]
+        except Exception:
+            pass
+    cmd = [cas_bin] + top_arg + files
     
     proc = subprocess.run(cmd, cwd=dir_path, capture_output=True, text=True)
     out = proc.stdout + proc.stderr
