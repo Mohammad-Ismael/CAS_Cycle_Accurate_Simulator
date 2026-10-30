@@ -705,17 +705,56 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     }
 
     TaskNode* target_task = nullptr;
-    if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
-        target_task = engine.task_map.at(scoped_tname);
-    } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
-        target_task = engine.task_map.at(tcall->task_name);
+    ClassObject* cl_obj = nullptr;
+    auto dot = tcall->task_name.rfind('.');
+    if (dot != std::string::npos) {
+        std::string var_name = tcall->task_name.substr(0, dot);
+        std::string method_name = tcall->task_name.substr(dot + 1);
+
+        if (var_name == "this" || var_name == "super") {
+            cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+        } else {
+            if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                if (local && local->is_class_handle) {
+                    cl_obj = engine.get_class_object(local->value.aval).get();
+                }
+            }
+            if (!cl_obj && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_class_handle) {
+                        cl_obj = engine.get_class_object(local->value.aval).get();
+                        break;
+                    }
+                }
+            }
+            if (!cl_obj) {
+                size_t nid = engine.get_net_id(bp.scope, var_name);
+                if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                    cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                }
+            }
+        }
+
+        if (cl_obj && cl_obj->class_def) {
+            target_task = cl_obj->class_def->find_task(method_name);
+        }
+    }
+
+    if (!target_task) {
+        if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
+            target_task = engine.task_map.at(scoped_tname);
+        } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+            target_task = engine.task_map.at(tcall->task_name);
+        }
     }
 
     if (!target_task) {
         throw std::runtime_error("Unknown task called: " + tcall->task_name);
     }
 
-    TaskActivationFrame frame(tcall->task_name, target_task);
+    TaskActivationFrame frame(tcall->task_name, target_task, cl_obj);
 
     // 1. Formal port bindings & argument passing
     for (size_t i = 0; i < target_task->ports.size(); ++i) {
@@ -729,11 +768,25 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             }
         }
         frame.local_frame.declare_var(p.name, w, p.is_signed);
+        if (p.is_virtual_interface) {
+            LocalVar* lv = frame.local_frame.get_var(p.name);
+            if (lv) {
+                lv->is_virtual_interface = true;
+                lv->interface_name = p.interface_name;
+                lv->modport_name = p.modport_name;
+            }
+        }
 
         if (p.direction == "input" || p.direction == "inout") {
             if (i < tcall->args.size()) {
                 LogicVal arg_val = engine.evaluator.eval_expr(tcall->args[i].get(), bp.scope);
-                frame.local_frame.get_var(p.name)->value = LogicOps::cast_width(arg_val, w, p.is_signed);
+                LocalVar* lv = frame.local_frame.get_var(p.name);
+                if (lv) {
+                    lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
+                    if (p.is_virtual_interface) {
+                        lv->vif_handle = arg_val.aval;
+                    }
+                }
             }
         }
 
@@ -770,6 +823,15 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
             lv->value = LogicOps::cast_width(val, lv->width, lv->is_signed);
             return;
         }
+        if (caller_frame.this_obj && caller_frame.this_obj->has_property(actual_name)) {
+            caller_frame.this_obj->set_property(actual_name, val);
+            return;
+        }
+    }
+
+    if (engine.evaluator.get_expr_eval().get_current_this() && engine.evaluator.get_expr_eval().get_current_this()->has_property(actual_name)) {
+        engine.evaluator.get_expr_eval().get_current_this()->set_property(actual_name, val);
+        return;
     }
 
     std::string scoped_target = bp.scope.empty() ? actual_name : (bp.scope + "." + actual_name);
@@ -990,6 +1052,9 @@ void StratifiedScheduler::step_process(size_t pid) {
         // A. Execution within an active task activation frame
         if (!bp.call_stack.empty()) {
             auto& cur_frame = bp.call_stack.back();
+            if (cur_frame.this_obj) {
+                engine.evaluator.set_current_this(cur_frame.this_obj);
+            }
             if (cur_frame.pc >= cur_frame.flattened_body.size()) {
                 // Task body finished: write back output bindings and pop frame
                 for (const auto& binding : cur_frame.output_bindings) {
@@ -999,6 +1064,14 @@ void StratifiedScheduler::step_process(size_t pid) {
                     }
                 }
                 bp.call_stack.pop_back();
+                ClassObject* next_this = nullptr;
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    if (it->this_obj) {
+                        next_this = it->this_obj;
+                        break;
+                    }
+                }
+                engine.evaluator.set_current_this(next_this);
                 if (bp.call_stack.empty()) {
                     bp.pc++;
                 } else {
@@ -1057,7 +1130,19 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
 
-                size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                size_t net_id = (size_t)-1;
+                auto dot_p = ev_stmt->signal_name.find('.');
+                if (dot_p != std::string::npos) {
+                    std::string base = ev_stmt->signal_name.substr(0, dot_p);
+                    std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                    VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
+                    if (vif.is_valid_vif) {
+                        net_id = engine.resolve_vif_net_id(vif, mem);
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                }
                 if (net_id != (size_t)-1) {
                     cur_frame.pc++;
                     bp.wait_target.active = true;
@@ -1114,6 +1199,32 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
+                    std::string method_name = tname.substr(dot + 1);
+                    ClassObject* cl_obj = nullptr;
+                    if (var_name == "this" || var_name == "super") {
+                        cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+                    } else {
+                        if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                            LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                            if (local && local->is_class_handle) cl_obj = engine.get_class_object(local->value.aval).get();
+                        }
+                        if (!cl_obj && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* local = it->local_frame.get_var(var_name);
+                                if (local && local->is_class_handle) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                            }
+                        }
+                        if (!cl_obj) {
+                            size_t nid = engine.get_net_id(bp.scope, var_name);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                                cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                    }
+                    if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                        invoke_task(bp, sub_tcall);
+                        continue;
+                    }
                     if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                         engine.evaluator.execute_statement(stmt, bp);
                         if (bp.is_waiting_sync) break;
@@ -1192,7 +1303,19 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
 
-                size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                size_t net_id = (size_t)-1;
+                auto dot_p = ev_stmt->signal_name.find('.');
+                if (dot_p != std::string::npos) {
+                    std::string base = ev_stmt->signal_name.substr(0, dot_p);
+                    std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                    VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
+                    if (vif.is_valid_vif) {
+                        net_id = engine.resolve_vif_net_id(vif, mem);
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                }
                 if (net_id == (size_t)-1) {
                     bp.pc++;
                     continue;
@@ -1264,6 +1387,32 @@ void StratifiedScheduler::step_process(size_t pid) {
                 auto dot = tname.rfind('.');
                 if (dot != std::string::npos) {
                     std::string var_name = tname.substr(0, dot);
+                    std::string method_name = tname.substr(dot + 1);
+                    ClassObject* cl_obj = nullptr;
+                    if (var_name == "this" || var_name == "super") {
+                        cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+                    } else {
+                        if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                            LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                            if (local && local->is_class_handle) cl_obj = engine.get_class_object(local->value.aval).get();
+                        }
+                        if (!cl_obj && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* local = it->local_frame.get_var(var_name);
+                                if (local && local->is_class_handle) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                            }
+                        }
+                        if (!cl_obj) {
+                            size_t nid = engine.get_net_id(bp.scope, var_name);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                                cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                    }
+                    if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                        invoke_task(bp, tcall);
+                        continue;
+                    }
                     if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                         engine.evaluator.execute_statement(stmt, bp);
                         if (bp.is_waiting_sync) break;
@@ -1340,6 +1489,7 @@ void StratifiedScheduler::step_process(size_t pid) {
         }
 
         // C. Top-level Root Process Body Execution
+        engine.evaluator.set_current_this(nullptr);
         if (bp.pc >= bp.proc->body.size()) {
             if (bp.is_looping) {
                 bp.pc = bp.loop_start_pc;
@@ -1387,7 +1537,19 @@ void StratifiedScheduler::step_process(size_t pid) {
                 break;
             }
 
-            size_t net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+            size_t net_id = (size_t)-1;
+            auto dot_p = ev_stmt->signal_name.find('.');
+            if (dot_p != std::string::npos) {
+                std::string base = ev_stmt->signal_name.substr(0, dot_p);
+                std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
+                if (vif.id != 0 || !vif.inst_path.empty()) {
+                    net_id = engine.resolve_vif_net_id(vif, mem);
+                }
+            }
+            if (net_id == (size_t)-1) {
+                net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+            }
             if (net_id == (size_t)-1) {
                 bp.pc++;
                 continue;
@@ -1477,6 +1639,32 @@ void StratifiedScheduler::step_process(size_t pid) {
             auto dot = tname.rfind('.');
             if (dot != std::string::npos) {
                 std::string var_name = tname.substr(0, dot);
+                std::string method_name = tname.substr(dot + 1);
+                ClassObject* cl_obj = nullptr;
+                if (var_name == "this" || var_name == "super") {
+                    cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+                } else {
+                    if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                        LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                        if (local && local->is_class_handle) cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                    if (!cl_obj && !bp.call_stack.empty()) {
+                        for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(var_name);
+                            if (local && local->is_class_handle) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                        }
+                    }
+                    if (!cl_obj) {
+                        size_t nid = engine.get_net_id(bp.scope, var_name);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                            cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                    invoke_task(bp, tcall);
+                    continue;
+                }
                 if (engine.is_queue(var_name, bp.scope) || engine.is_dynamic_array(var_name, bp.scope) || engine.is_assoc_array(var_name, bp.scope) || engine.is_class_handle(var_name, bp.scope) || engine.is_covergroup_handle(var_name, bp.scope) || engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) || var_name == "this" || var_name == "super") {
                     engine.evaluator.execute_statement(stmt, bp);
                     if (bp.is_waiting_sync) break;
@@ -1590,6 +1778,7 @@ void StratifiedScheduler::step_process(size_t pid) {
         bp.pc++;
     }
 
+    engine.evaluator.set_current_this(nullptr);
     engine.evaluator.set_current_process(nullptr);
 }
 

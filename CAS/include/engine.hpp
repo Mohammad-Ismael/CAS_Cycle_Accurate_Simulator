@@ -59,6 +59,10 @@ private:
     std::unordered_map<std::string, std::string> var_to_struct_type;
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
+    std::unordered_set<std::string> interface_instances;
+    std::unordered_set<std::string> virtual_interface_names;
+    std::unordered_map<uint64_t, VirtualInterfaceHandle> vif_table;
+    uint64_t next_vif_id = 0x80000001;
     std::vector<ClockingBlockInstance> clocking_blocks;
     std::unordered_map<std::string, size_t> clocking_block_map;
     std::unordered_map<std::string, size_t> default_clocking_map;
@@ -226,6 +230,13 @@ public:
                 for (const auto& m : (*it)->member_vars) {
                     if (!m.is_static) {
                         obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                        if (m.is_virtual_interface) {
+                            VirtualInterfaceHandle h;
+                            h.iface_type = m.interface_name;
+                            h.modport = m.modport_name;
+                            h.is_valid_vif = true;
+                            obj->virtual_interfaces[m.name] = h;
+                        }
                     }
                 }
             }
@@ -546,6 +557,43 @@ public:
         if (assertion_names.find(name) != assertion_names.end()) return true;
         return false;
     }
+
+    uint64_t get_or_create_vif_handle(const std::string& inst_path, const std::string& modport = "", const std::string& iface_type = "") {
+        for (const auto& pair : vif_table) {
+            if (pair.second.inst_path == inst_path && pair.second.modport == modport) {
+                return pair.first;
+            }
+        }
+        uint64_t id = next_vif_id++;
+        VirtualInterfaceHandle h;
+        h.id = id;
+        h.inst_path = inst_path;
+        h.modport = modport;
+        h.iface_type = iface_type;
+        h.is_valid_vif = true;
+        vif_table[id] = h;
+        return id;
+    }
+
+    VirtualInterfaceHandle get_vif_handle(uint64_t id) const {
+        auto it = vif_table.find(id);
+        if (it != vif_table.end()) return it->second;
+        return VirtualInterfaceHandle();
+    }
+
+    bool is_virtual_interface_handle(uint64_t id) const {
+        return vif_table.find(id) != vif_table.end();
+    }
+
+    bool is_virtual_interface(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (virtual_interface_names.find(scoped) != virtual_interface_names.end()) return true;
+        if (virtual_interface_names.find(name) != virtual_interface_names.end()) return true;
+        return false;
+    }
+
+    VirtualInterfaceHandle lookup_virtual_interface(const std::string& name, const std::string& scope, ClassObject* current_this, const BoundProcess* bp);
+    size_t resolve_vif_net_id(const VirtualInterfaceHandle& vif, const std::string& member_name);
 
     uint64_t get_sim_time() const { return scheduler.get_sim_time(); }
 

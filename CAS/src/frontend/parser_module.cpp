@@ -715,6 +715,35 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (match(TokenType::TOKEN_VIRTUAL)) {
+                std::string iface_name = "";
+                std::string modport_name = "";
+                if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
+                    iface_name = current.text;
+                    advance();
+                    if (match(TokenType::TOKEN_DOT)) {
+                        modport_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");
+                    }
+                }
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected virtual interface variable name");
+                    auto msb = std::make_unique<NumberNode>(63, 32);
+                    auto lsb = std::make_unique<NumberNode>(0, 32);
+                    PortNode sig(signame, "internal", std::move(msb), std::move(lsb), false, NetKind::VAR);
+                    sig.is_virtual_interface = true;
+                    sig.interface_name = iface_name;
+                    sig.modport_name = modport_name;
+                    sig.type_name = iface_name;
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after virtual interface declaration");
+                continue;
+            }
+
             std::string mod_sig_type = "";
             if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 std::string p_name = current.text;
@@ -973,6 +1002,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (match(TokenType::TOKEN_ASSIGN)) {
                 std::string target = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in assign");
+                while (match(TokenType::TOKEN_DOT)) {
+                    target += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in assign target");
+                }
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in assign statement");
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
@@ -1569,6 +1602,38 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
             }
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing constraint block");
             cls->add_constraint(std::make_unique<ConstraintBlockNode>(cname, std::move(exprs)));
+        } else if (is_virt && current.type != TokenType::TOKEN_FUNCTION && current.type != TokenType::TOKEN_TASK) {
+            std::string iface_name = "";
+            std::string modport_name = "";
+            if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
+                iface_name = current.text;
+                advance();
+                if (match(TokenType::TOKEN_DOT)) {
+                    modport_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");
+                }
+            }
+            while (true) {
+                std::string var_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected virtual interface variable name");
+                std::unique_ptr<ExpressionNode> init_expr = nullptr;
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    init_expr = parse_expression();
+                }
+                ClassMemberVar mvar;
+                mvar.name = var_name;
+                mvar.width = 64;
+                mvar.is_signed = false;
+                mvar.is_virtual_interface = true;
+                mvar.interface_name = iface_name;
+                mvar.modport_name = modport_name;
+                mvar.default_expr = std::move(init_expr);
+                cls->add_member_var(std::move(mvar));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after virtual interface declaration");
+            continue;
         } else {
             bool is_rand = false;
             bool is_randc = false;

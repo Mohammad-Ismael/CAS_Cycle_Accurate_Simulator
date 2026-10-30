@@ -1272,6 +1272,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         if (!member_name.empty()) {
+            VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base_var, bp.scope, expr_eval.get_current_this(), &bp);
+            if (vif.is_valid_vif) {
+                size_t target_net_id = engine.resolve_vif_net_id(vif, member_name);
+                if (target_net_id != (size_t)-1) {
+                    LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+                    LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                    engine.scheduler.queue_nba(target_net_id, casted);
+                    return;
+                }
+            }
+
             size_t cb_id = engine.get_clocking_block_id(base_var, bp.scope);
             if (cb_id != (size_t)-1) {
                 auto& cb = engine.clocking_blocks[cb_id];
@@ -1697,6 +1708,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             if (!member_name.empty()) {
+                VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base_var, bp.scope, expr_eval.get_current_this(), &bp);
+                if (vif.is_valid_vif) {
+                    size_t target_net_id = engine.resolve_vif_net_id(vif, member_name);
+                    if (target_net_id != (size_t)-1) {
+                        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                        engine.netlist[target_net_id].set(casted);
+                        return;
+                    }
+                }
+
                 ClassObject* obj = nullptr;
                 if (base_var == "this" || base_var == "super") {
                     obj = expr_eval.get_current_this();
@@ -1723,7 +1744,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         engine.set_class_static_var(obj->class_type_name, member_name, rhs_val);
                         return;
                     }
+                    if (engine.is_virtual_interface_handle(rhs_val.aval)) {
+                        obj->set_virtual_interface(member_name, engine.get_vif_handle(rhs_val.aval));
+                    }
                     obj->set_property(member_name, rhs_val);
+                    return;
+                }
+            }
+
+            if (member_name.empty()) {
+                if (local && (local->is_virtual_interface || (local->type_name.rfind("virtual", 0) == 0))) {
+                    local->is_virtual_interface = true;
+                    local->value = rhs_val;
+                    local->vif_handle = rhs_val.aval;
+                    return;
+                }
+                if (expr_eval.get_current_this() && expr_eval.get_current_this()->has_virtual_interface(base_var)) {
+                    expr_eval.get_current_this()->set_property(base_var, rhs_val);
+                    if (engine.is_virtual_interface_handle(rhs_val.aval)) {
+                        expr_eval.get_current_this()->set_virtual_interface(base_var, engine.get_vif_handle(rhs_val.aval));
+                    }
                     return;
                 }
             }

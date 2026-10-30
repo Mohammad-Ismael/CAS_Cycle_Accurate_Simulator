@@ -37,6 +37,8 @@ struct PortNode : public ASTNode {
     bool is_open_array = false;
     bool is_semaphore = false;
     bool is_mailbox = false;
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
     std::unique_ptr<ExpressionNode> default_value = nullptr;
 
     PortNode() = default;
@@ -270,6 +272,9 @@ struct ClassMemberVar {
     bool is_rand = false;
     bool is_randc = false;
     bool is_static = false;
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
+    std::string modport_name = "";
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
 
@@ -284,6 +289,9 @@ struct ClassMemberVar {
         is_rand = other.is_rand;
         is_randc = other.is_randc;
         is_static = other.is_static;
+        is_virtual_interface = other.is_virtual_interface;
+        interface_name = other.interface_name;
+        modport_name = other.modport_name;
         if (other.msb_expr) msb_expr = other.msb_expr->clone();
         if (other.lsb_expr) lsb_expr = other.lsb_expr->clone();
     }
@@ -296,6 +304,9 @@ struct ClassMemberVar {
             is_rand = other.is_rand;
             is_randc = other.is_randc;
             is_static = other.is_static;
+            is_virtual_interface = other.is_virtual_interface;
+            interface_name = other.interface_name;
+            modport_name = other.modport_name;
             msb_expr = other.msb_expr ? other.msb_expr->clone() : nullptr;
             lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
         }

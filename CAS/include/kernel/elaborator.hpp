@@ -10,6 +10,8 @@
 #include <memory>
 #include <iostream>
 
+struct ClassObject;
+
 struct GateInstance {
     GateType type;
     std::string scope;
@@ -100,9 +102,10 @@ struct TaskActivationFrame {
     std::vector<StatementNode*> flattened_body;
     ScopeFrame local_frame;
     std::vector<std::pair<std::string, std::string>> output_bindings;
+    ClassObject* this_obj = nullptr;
 
-    TaskActivationFrame(std::string name, TaskNode* node)
-        : task_name(std::move(name)), task_node(node), local_frame(task_name) {}
+    TaskActivationFrame(std::string name, TaskNode* node, ClassObject* obj = nullptr)
+        : task_name(std::move(name)), task_node(node), local_frame(task_name), this_obj(obj) {}
 };
 
 struct ForkBarrier {
@@ -193,6 +196,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> open_array_names;
     std::unordered_set<std::string> semaphore_handle_names;
     std::unordered_set<std::string> mailbox_handle_names;
+    std::unordered_set<std::string> virtual_interface_names;
     std::string top_scope;
 };
 

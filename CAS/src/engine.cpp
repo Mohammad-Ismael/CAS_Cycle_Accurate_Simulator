@@ -64,6 +64,8 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     open_array_names = std::move(elab_res.open_array_names);
     semaphore_handle_names = std::move(elab_res.semaphore_handle_names);
     mailbox_handle_names = std::move(elab_res.mailbox_handle_names);
+    interface_instances = std::move(elab_res.interface_instances);
+    virtual_interface_names = std::move(elab_res.virtual_interface_names);
     for (size_t i = 0; i < processes.size(); ++i) {
         processes[i].pid = i;
     }
@@ -484,4 +486,124 @@ void Engine::execute_sva_subroutine(const std::string& name, const std::vector<L
     }
 
     throw std::runtime_error("Unknown sequence match subroutine: " + name);
+}
+
+VirtualInterfaceHandle Engine::lookup_virtual_interface(const std::string& name, const std::string& scope, ClassObject* current_this, const BoundProcess* bp) {
+    std::string clean_name = name;
+    if (clean_name.rfind("this.", 0) == 0) {
+        clean_name = clean_name.substr(5);
+    } else if (clean_name.rfind("super.", 0) == 0) {
+        clean_name = clean_name.substr(6);
+    }
+
+    // 1. Current 'this' object
+    if (current_this) {
+        if (current_this->has_virtual_interface(clean_name)) {
+            auto h = current_this->get_virtual_interface(clean_name);
+            h.is_valid_vif = true;
+            return h;
+        }
+        if (current_this->has_property(clean_name)) {
+            uint64_t hid = current_this->get_property(clean_name).aval;
+            if (is_virtual_interface_handle(hid)) {
+                auto h = get_vif_handle(hid);
+                h.is_valid_vif = true;
+                return h;
+            }
+        }
+    }
+
+    // 2. Active frame in Evaluator / ExprEvaluator
+    if (evaluator.get_expr_eval().get_context().has_active_frame()) {
+        const LocalVar* lv = evaluator.get_expr_eval().get_context().lookup_local(clean_name);
+        if (lv) {
+            if (lv->is_virtual_interface || lv->vif_handle != 0 || is_virtual_interface_handle(lv->value.aval)) {
+                VirtualInterfaceHandle h;
+                if (lv->vif_handle != 0) h = get_vif_handle(lv->vif_handle);
+                else if (is_virtual_interface_handle(lv->value.aval)) h = get_vif_handle(lv->value.aval);
+                else { h.iface_type = lv->interface_name; h.modport = lv->modport_name; }
+                h.is_valid_vif = true;
+                return h;
+            }
+        }
+    }
+
+    // 3. Process Call Stack
+    if (bp && !bp->call_stack.empty()) {
+        for (auto it = bp->call_stack.rbegin(); it != bp->call_stack.rend(); ++it) {
+            const LocalVar* lv = it->local_frame.get_var(clean_name);
+            if (lv) {
+                if (lv->is_virtual_interface || lv->vif_handle != 0 || is_virtual_interface_handle(lv->value.aval)) {
+                    VirtualInterfaceHandle h;
+                    if (lv->vif_handle != 0) h = get_vif_handle(lv->vif_handle);
+                    else if (is_virtual_interface_handle(lv->value.aval)) h = get_vif_handle(lv->value.aval);
+                    else { h.iface_type = lv->interface_name; h.modport = lv->modport_name; }
+                    h.is_valid_vif = true;
+                    return h;
+                }
+            }
+            if (it->this_obj) {
+                if (it->this_obj->has_virtual_interface(clean_name)) {
+                    auto h = it->this_obj->get_virtual_interface(clean_name);
+                    h.is_valid_vif = true;
+                    return h;
+                }
+                if (it->this_obj->has_property(clean_name)) {
+                    uint64_t hid = it->this_obj->get_property(clean_name).aval;
+                    if (is_virtual_interface_handle(hid)) {
+                        auto h = get_vif_handle(hid);
+                        h.is_valid_vif = true;
+                        return h;
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Netlist (module-level virtual interface variable)
+    size_t nid = get_net_id(scope, clean_name);
+    if (nid != (size_t)-1) {
+        if (netlist[nid].is_virtual_interface || is_virtual_interface_handle(netlist[nid].value.aval)) {
+            VirtualInterfaceHandle h;
+            if (is_virtual_interface_handle(netlist[nid].value.aval)) {
+                h = get_vif_handle(netlist[nid].value.aval);
+            } else {
+                h.iface_type = netlist[nid].interface_name;
+                h.modport = netlist[nid].modport_name;
+            }
+            h.is_valid_vif = true;
+            return h;
+        }
+    }
+
+    // 5. Check if clean_name itself is an interface instance path
+    std::string scoped_path = scope.empty() ? clean_name : (scope + "." + clean_name);
+    if (interface_instances.find(scoped_path) != interface_instances.end()) {
+        uint64_t hid = const_cast<Engine*>(this)->get_or_create_vif_handle(scoped_path, "");
+        auto h = get_vif_handle(hid);
+        h.is_valid_vif = true;
+        return h;
+    }
+    if (interface_instances.find(clean_name) != interface_instances.end()) {
+        uint64_t hid = const_cast<Engine*>(this)->get_or_create_vif_handle(clean_name, "");
+        auto h = get_vif_handle(hid);
+        h.is_valid_vif = true;
+        return h;
+    }
+
+    return VirtualInterfaceHandle();
+}
+
+size_t Engine::resolve_vif_net_id(const VirtualInterfaceHandle& vif, const std::string& member_name) {
+    if (vif.inst_path.empty()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Null virtual interface dereference: attempted to access member '" + member_name + "' on uninitialized virtual interface handle per IEEE 1800-2023 section 25.9");
+    }
+    std::string full_net = vif.inst_path + "." + member_name;
+    if (net_map.find(full_net) != net_map.end()) {
+        return net_map.at(full_net);
+    }
+    if (net_map.find(member_name) != net_map.end()) {
+        return net_map.at(member_name);
+    }
+    throw std::runtime_error("Virtual interface member not found in netlist: " + full_net);
 }

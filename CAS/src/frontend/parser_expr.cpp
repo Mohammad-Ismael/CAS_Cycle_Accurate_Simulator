@@ -295,6 +295,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
                 return std::make_unique<MethodCallNode>(name, sub_name, std::move(args));
+            } else if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb = parse_expression();
+                if (match(TokenType::TOKEN_COLON)) {
+                    auto lsb = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                    return std::make_unique<IndexSelectNode>(name + "." + sub_name, std::move(msb), std::move(lsb));
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                return std::make_unique<IndexSelectNode>(name + "." + sub_name, std::move(msb));
             } else {
                 return std::make_unique<MemberAccessNode>(name, sub_name);
             }

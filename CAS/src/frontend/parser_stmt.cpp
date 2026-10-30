@@ -24,6 +24,33 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
     }
 
+    // Virtual Interface Variable Declaration (§25.9)
+    if (match(TokenType::TOKEN_VIRTUAL)) {
+        std::string iface_name = "";
+        std::string modport_name = "";
+        if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
+            iface_name = current.text;
+            advance();
+            if (match(TokenType::TOKEN_DOT)) {
+                modport_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");
+            }
+        }
+        std::string vname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        std::unique_ptr<ExpressionNode> init_expr = nullptr;
+        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+            init_expr = parse_expression();
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, iface_name);
+        var_stmt->is_virtual_interface = true;
+        var_stmt->interface_name = iface_name;
+        var_stmt->modport_name = modport_name;
+        var_stmt->init_expr = std::move(init_expr);
+        return var_stmt;
+    }
+
     // Covergroup Handle Variable Declaration (§19)
     if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
         std::string cg_type = current.text;

@@ -46,6 +46,9 @@ struct VarDeclStatementNode : public StatementNode {
     bool is_chandle = false;
     bool is_semaphore = false;
     bool is_mailbox = false;
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
+    std::string modport_name = "";
     std::unique_ptr<ExpressionNode> init_expr = nullptr;
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)

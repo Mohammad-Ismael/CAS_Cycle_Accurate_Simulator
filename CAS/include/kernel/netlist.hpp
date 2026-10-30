@@ -26,6 +26,9 @@ struct Net {
     bool is_chandle = false;
     bool is_semaphore = false;
     bool is_mailbox = false;
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
+    std::string modport_name = "";
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),

@@ -421,6 +421,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.var_to_covergroup_type[scope + "." + s.name] = s.covergroup_type_name;
                 result.var_to_covergroup_type[s.name] = s.covergroup_type_name;
             }
+            if (s.is_virtual_interface) {
+                result.netlist[sid].is_virtual_interface = true;
+                result.netlist[sid].interface_name = s.interface_name;
+                result.netlist[sid].modport_name = s.modport_name;
+                result.netlist[sid].value = LogicVal(64, 0, 0);
+                result.netlist[sid].prev_value = LogicVal(64, 0, 0);
+                result.virtual_interface_names.insert(scope + "." + s.name);
+                result.virtual_interface_names.insert(s.name);
+            }
             if (s.type_name == "bit") {
                 result.netlist[sid].type_name = "bit";
                 result.netlist[sid].value = LogicVal(w, 0, 0);
@@ -544,6 +553,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.sva_local_var_names.find(ca->target_name) != result.sva_local_var_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to sequence or property local variable '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16.10");
         }
+        std::string base_target = ca->target_name;
+        auto dot_p = ca->target_name.find('.');
+        if (dot_p != std::string::npos) {
+            base_target = ca->target_name.substr(0, dot_p);
+        }
+        std::string scoped_base_target = scope + "." + base_target;
+        if (result.virtual_interface_names.find(scoped_target) != result.virtual_interface_names.end() ||
+            result.virtual_interface_names.find(ca->target_name) != result.virtual_interface_names.end() ||
+            result.virtual_interface_names.find(scoped_base_target) != result.virtual_interface_names.end() ||
+            result.virtual_interface_names.find(base_target) != result.virtual_interface_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment driving through virtual interface '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 25.9");
+        }
         if (mod->is_program) {
             bool drives_external = false;
             for (const auto& p : mod->ports) {
@@ -619,10 +640,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.sva_local_var_names.find(id->name) != result.sva_local_var_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence or property local variable '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16.10");
                 }
+                if (result.virtual_interface_names.find(s_id) != result.virtual_interface_names.end() ||
+                    result.virtual_interface_names.find(id->name) != result.virtual_interface_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: virtual interface '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 25.9");
+                }
             } else if (dynamic_cast<SequenceMatchItemNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used in continuous assignment per IEEE 1800-2023 section 16.10 & 16.11");
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
+                if (result.virtual_interface_names.find(s_id) != result.virtual_interface_names.end() ||
+                    result.virtual_interface_names.find(ma->var_name) != result.virtual_interface_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: virtual interface dereference '" + ma->var_name + "." + ma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 25.9");
+                }
                 if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
                     result.covergroup_handle_names.find(ma->var_name) != result.covergroup_handle_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup item '" + ma->var_name + "." + ma->member_name + "' used in continuous assignment per IEEE 1800-2023 section 19");

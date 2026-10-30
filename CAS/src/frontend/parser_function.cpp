@@ -74,6 +74,22 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
             bool is_s = false;
             bool is_int = false;
             uint32_t def_w = 1;
+            bool is_vif = false;
+            std::string vif_iface = "";
+            std::string vif_mp = "";
+            if (match(TokenType::TOKEN_VIRTUAL)) {
+                is_vif = true;
+                if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
+                    vif_iface = current.text;
+                    advance();
+                    if (match(TokenType::TOKEN_DOT)) {
+                        vif_mp = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");
+                    }
+                }
+                def_w = 64;
+                is_int = true;
+            }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
@@ -124,6 +140,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
             std::string arg_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected argument name");
             PortNode pnode(arg_name, "input", std::move(msb), std::move(lsb), is_s);
+            pnode.is_virtual_interface = is_vif;
+            pnode.interface_name = vif_iface;
+            pnode.modport_name = vif_mp;
             if (match(TokenType::TOKEN_EQUAL)) {
                 pnode.default_value = parse_expression();
             }

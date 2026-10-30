@@ -24,6 +24,10 @@ struct LocalVar {
     bool is_chandle = false;
     bool is_semaphore = false;
     bool is_mailbox = false;
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
+    std::string modport_name = "";
+    uint64_t vif_handle = 0;
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),
@@ -59,6 +63,11 @@ struct ScopeFrame {
     }
 
     LocalVar* get_var(const std::string& name) {
+        auto it = locals.find(name);
+        return (it != locals.end()) ? &it->second : nullptr;
+    }
+
+    const LocalVar* get_var(const std::string& name) const {
         auto it = locals.find(name);
         return (it != locals.end()) ? &it->second : nullptr;
     }

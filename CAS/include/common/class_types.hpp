@@ -8,11 +8,20 @@
 
 struct ClassNode;
 
+struct VirtualInterfaceHandle {
+    uint64_t id = 0;
+    std::string inst_path;
+    std::string modport;
+    std::string iface_type;
+    bool is_valid_vif = false;
+};
+
 struct ClassObject {
     uint64_t handle_id = 0;
     std::string class_type_name;
     const ClassNode* class_def = nullptr;
     std::unordered_map<std::string, LogicVal> properties;
+    std::unordered_map<std::string, VirtualInterfaceHandle> virtual_interfaces;
     uint32_t prng_state = 0x12345678;
 
     ClassObject() = default;
@@ -31,6 +40,20 @@ struct ClassObject {
 
     void set_property(const std::string& name, const LogicVal& val) {
         properties[name] = val;
+    }
+
+    bool has_virtual_interface(const std::string& name) const {
+        return virtual_interfaces.find(name) != virtual_interfaces.end();
+    }
+
+    VirtualInterfaceHandle get_virtual_interface(const std::string& name) const {
+        auto it = virtual_interfaces.find(name);
+        if (it != virtual_interfaces.end()) return it->second;
+        return VirtualInterfaceHandle();
+    }
+
+    void set_virtual_interface(const std::string& name, const VirtualInterfaceHandle& handle) {
+        virtual_interfaces[name] = handle;
     }
 
     bool is_instance_of(const std::string& target_type) const;

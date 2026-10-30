@@ -43,6 +43,17 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
             }
         }
         context.declare_local(in_p.name, w, in_p.is_signed);
+        if (in_p.is_virtual_interface) {
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv) {
+                lv->is_virtual_interface = true;
+                lv->interface_name = in_p.interface_name;
+                lv->modport_name = in_p.modport_name;
+                if (i < arg_vals.size()) {
+                    lv->vif_handle = arg_vals[i].aval;
+                }
+            }
+        }
         if (i < arg_vals.size()) {
             context.set_local_value(in_p.name, arg_vals[i]);
         }
@@ -101,6 +112,17 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
             w = 32;
         }
         context.declare_local(in_p.name, w, in_p.is_signed);
+        if (in_p.is_virtual_interface) {
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv) {
+                lv->is_virtual_interface = true;
+                lv->interface_name = in_p.interface_name;
+                lv->modport_name = in_p.modport_name;
+                if (i < arg_vals.size()) {
+                    lv->vif_handle = arg_vals[i].aval;
+                }
+            }
+        }
         if (i < arg_vals.size()) {
             context.set_local_value(in_p.name, arg_vals[i]);
         } else if (in_p.default_value) {
@@ -161,6 +183,17 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
             w = 32;
         }
         context.declare_local(in_p.name, w, in_p.is_signed);
+        if (in_p.is_virtual_interface) {
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv) {
+                lv->is_virtual_interface = true;
+                lv->interface_name = in_p.interface_name;
+                lv->modport_name = in_p.modport_name;
+                if (i < arg_vals.size()) {
+                    lv->vif_handle = arg_vals[i].aval;
+                }
+            }
+        }
         if (i < arg_vals.size()) {
             context.set_local_value(in_p.name, arg_vals[i]);
         } else if (in_p.default_value) {
@@ -1100,10 +1133,45 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::string member_name = member_node->member_name;
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
+        std::string full_sig = scoped_var + "." + member_name;
+        if (engine.net_map.find(full_sig) != engine.net_map.end()) {
+            size_t nid = engine.net_map.at(full_sig);
+            if (preponed_override && nid < preponed_override->size()) {
+                return (*preponed_override)[nid];
+            }
+            return engine.netlist[nid].value;
+        }
+        std::string direct_sig = var_name + "." + member_name;
+        if (engine.net_map.find(direct_sig) != engine.net_map.end()) {
+            size_t nid = engine.net_map.at(direct_sig);
+            if (preponed_override && nid < preponed_override->size()) {
+                return (*preponed_override)[nid];
+            }
+            return engine.netlist[nid].value;
+        }
+
+        if (engine.interface_instances.find(scoped_var) != engine.interface_instances.end() ||
+            engine.interface_instances.find(var_name) != engine.interface_instances.end()) {
+            std::string resolved_path = (engine.interface_instances.find(scoped_var) != engine.interface_instances.end()) ? scoped_var : var_name;
+            uint64_t hid = const_cast<Engine&>(engine).get_or_create_vif_handle(resolved_path, member_name);
+            return LogicVal(64, hid, 0);
+        }
+
+        VirtualInterfaceHandle vif = const_cast<Engine&>(engine).lookup_virtual_interface(var_name, scope, current_this, current_bp);
+        if (vif.is_valid_vif) {
+            size_t target_net_id = const_cast<Engine&>(engine).resolve_vif_net_id(vif, member_name);
+            if (target_net_id != (size_t)-1) {
+                return engine.netlist[target_net_id].value;
+            }
+        }
+
         if (var_name == "this" || var_name == "super") {
             if (current_this) {
                 if (current_this->class_def && current_this->class_def->has_static_member(member_name)) {
                     return engine.get_class_static_var(current_this->class_type_name, member_name);
+                }
+                if (current_this->has_virtual_interface(member_name)) {
+                    return LogicVal(64, current_this->get_virtual_interface(member_name).id, 0);
                 }
                 return current_this->get_property(member_name);
             }
@@ -1285,8 +1353,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
-        if (current_this && current_this->has_property(ident->name)) {
-            return current_this->get_property(ident->name);
+        if (current_this) {
+            if (current_this->has_virtual_interface(ident->name)) {
+                return LogicVal(64, current_this->get_virtual_interface(ident->name).id, 0);
+            }
+            if (current_this->has_property(ident->name)) {
+                return current_this->get_property(ident->name);
+            }
         }
         if (current_this && current_this->class_def) {
             if (current_this->class_def->param_values.count(ident->name)) {
@@ -1314,6 +1387,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
+        }
+        if (engine.interface_instances.find(scoped_ident) != engine.interface_instances.end() ||
+            engine.interface_instances.find(ident->name) != engine.interface_instances.end()) {
+            std::string resolved_path = (engine.interface_instances.find(scoped_ident) != engine.interface_instances.end()) ? scoped_ident : ident->name;
+            uint64_t hid = const_cast<Engine&>(engine).get_or_create_vif_handle(resolved_path, "");
+            return LogicVal(64, hid, 0);
         }
         if (engine.net_map.find(scoped_ident) != engine.net_map.end()) {
             size_t nid = engine.net_map.at(scoped_ident);
@@ -1508,18 +1587,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return mem.get_word(addr);
             }
 
-            if (engine.net_map.find(scoped_ident) == engine.net_map.end()) {
-                if (engine.net_map.find(idx_node->name) != engine.net_map.end()) {
-                    scoped_ident = idx_node->name;
-                } else {
-                    return LogicVal::make_x(1);
+            size_t nid = (size_t)-1;
+            auto dot_p = idx_node->name.find('.');
+            if (dot_p != std::string::npos) {
+                std::string base = idx_node->name.substr(0, dot_p);
+                std::string mem = idx_node->name.substr(dot_p + 1);
+                VirtualInterfaceHandle vif = const_cast<Engine&>(engine).lookup_virtual_interface(base, scope, current_this, current_bp);
+                if (vif.id != 0 || !vif.inst_path.empty()) {
+                    nid = const_cast<Engine&>(engine).resolve_vif_net_id(vif, mem);
                 }
             }
-            size_t nid = engine.net_map.at(scoped_ident);
-            if (preponed_override && nid < preponed_override->size()) {
-                target_val = (*preponed_override)[nid];
+            if (nid == (size_t)-1) {
+                nid = engine.get_net_id(scope, idx_node->name);
+            }
+            if (nid != (size_t)-1) {
+                if (preponed_override && nid < preponed_override->size()) {
+                    target_val = (*preponed_override)[nid];
+                } else {
+                    target_val = engine.netlist[nid].value;
+                }
             } else {
-                target_val = engine.netlist[nid].value;
+                return LogicVal::make_x(1);
             }
         }
 
