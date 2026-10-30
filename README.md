@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.12.0.0`  
-**Status:** Production Milestone v3.12.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.13.0.0`  
+**Status:** Production Milestone v3.13.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[███████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 38.8%`
+`[████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░] 40.2%`
 
-*Current Baseline (v3.12.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, and Direct Programming Interface (DPI-C import, pure functions, C ABI marshalling).  
-*Upcoming Domains:* DPI-C Open Arrays, Packed SV-to-C Struct Passing, DPI-C Context Tasks with svScope.
+*Current Baseline (v3.13.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, and Direct Programming Interface (DPI-C import, DPI-C export, pure/context functions, svScope resolution, C ABI marshalling, bidirectional foreign execution).  
+*Upcoming Domains:* DPI-C Open Arrays, Packed SV-to-C Struct Passing, DPI-C Memory Mapping.
 
 ---
 
@@ -42,7 +42,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§16, §16.7, §16.12, §16.14** | **SVA Concurrent Assertions** | `property ... endproperty`, `sequence ... endsequence`, overlapping (`|->`) and non-overlapping (`|=>`) implication, asynchronous reset abort (`disable iff`), concurrent `assert property` statements, Observed/Reactive region scheduling, Preponed signal sampling, and dynamic context diagnostic `[CAS-DTINPCIL]`. |
 | **§16.9.2** | **SVA Sequence Repetition Operators** | Consecutive repetition (`[*N]`, `[*min:max]`), non-consecutive repetition (`[=N]`), and goto repetition (`[->N]`) with multi-thread sequence state tracking, cycle delay concatenation (`##N`), and dynamic context diagnostic `[CAS-DTINPCIL]`. |
 | **§16.9.3** | **SVA Sampled Value Functions** | Built-in SVA sampled value functions `$past(expr [, N])`, `$rose(expr)`, `$fell(expr)`, `$stable(expr)` evaluated using historical Preponed ring buffering across clock domains, with dynamic context diagnostic `[CAS-DTINPCIL]`. |
-| **§35, §35.4, §35.5** | **Direct Programming Interface (DPI-C)** | `import "DPI-C"` declarations, `pure` foreign functions, foreign tasks, standard 2-state/4-state C ABI integer parameter marshalling, dynamic shared library resolution (`dlopen`/`dlsym`), and context diagnostic `[CAS-DTINPCIL]`. |
+| **§35, §35.4–§35.7** | **Direct Programming Interface (DPI-C)** | `import "DPI-C"` & `export "DPI-C"` declarations, `pure` and `context` subroutines, standard 2-state/4-state C ABI integer parameter marshalling, `svScope` scope resolution API (`svGetScope`, `svSetScope`), dynamic shared library symbol resolution (`dlopen`/`dlsym`), bidirectional C-to-SV routine execution, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§25.5.3** | **Interface Modports & Directional Bindings** | `modport` declarations (`input`, `output`, `inout`), modport directional port typing (`interface_name.modport_name port_name`), modport connection binding (`.port(inst.modport)`), and hierarchical port mapping. |
 | **§14, §14.3, §14.11, §14.16** | **Clocking Blocks & Cycle Delays** | `clocking ... endclocking` declarations, default clocking, cycle delay statements (`##N`), synchronous output drives (`cb.sig <= expr`), Preponed input sampling (`#1step`), and diagnostic `[CAS-DCNS]`. |
@@ -64,7 +64,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (33 / 33 PASS)
+## Milestone Regression Pass Matrix (34 / 34 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -103,6 +103,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.10.0.0** | `projects/v3_10_0_0_sva_sampled_functions` | SVA Sampled Value Functions ($past, $rose, $fell, $stable, Preponed Ring Buffering) (§16.9.3) | **PASS** | 100% VCS |
 | **v3.11.0.0** | `projects/v3_11_0_0_sva_repetitions` | SVA Sequence Repetitions ([*N], [*min:max], [=N], [->N]) & Multi-Thread Tracking (§16.9.2) | **PASS** | 100% VCS |
 | **v3.12.0.0** | `projects/v3_12_0_0_dpic_foreign_interface` | Direct Programming Interface (DPI-C, C ABI Marshalling, Dynamic Linking) (§35) | **PASS** | 100% VCS |
+| **v3.13.0.0** | `projects/v3_13_0_0_dpic_export_context` | Direct Programming Interface (DPI-C Exports, Context Subroutines, svScope Resolution) (§35.5.3, §35.6, §35.7) | **PASS** | 100% VCS |
 
 ---
 

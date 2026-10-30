@@ -442,6 +442,14 @@ struct DpiImportNode : public ASTNode {
     DpiImportNode() = default;
 };
 
+struct DpiExportNode : public ASTNode {
+    std::string sv_name;
+    std::string c_name;
+    bool is_task = false;
+
+    DpiExportNode() = default;
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -474,6 +482,8 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<AssertPropertyStatementNode>> assertions;
     std::vector<std::shared_ptr<DpiImportNode>> dpi_imports;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
+    std::vector<std::shared_ptr<DpiExportNode>> dpi_exports;
+    std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
 
     ModuleNode() = default;
 };

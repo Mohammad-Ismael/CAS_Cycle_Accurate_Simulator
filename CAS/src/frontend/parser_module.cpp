@@ -90,6 +90,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_EXPORT) {
+            auto exp = parse_dpi_export();
+            if (exp) {
+                std::shared_ptr<DpiExportNode> sexp = std::move(exp);
+                dpi_export_map[sexp->c_name] = sexp;
+                dpi_export_map[sexp->sv_name] = sexp;
+                global_dpi_exports.push_back(sexp);
+            }
+            continue;
+        }
+
         bool is_iface = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
@@ -865,6 +876,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_EXPORT) {
+                auto exp = parse_dpi_export();
+                if (exp) {
+                    std::shared_ptr<DpiExportNode> sexp = std::move(exp);
+                    mod->dpi_exports.push_back(sexp);
+                    mod->dpi_export_map[sexp->c_name] = sexp.get();
+                    mod->dpi_export_map[sexp->sv_name] = sexp.get();
+                    dpi_export_map[sexp->c_name] = sexp;
+                    dpi_export_map[sexp->sv_name] = sexp;
+                }
+                continue;
+            }
+
             if (match(TokenType::TOKEN_INITIAL)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                 proc->body = parse_statement_or_block();
@@ -1015,6 +1039,29 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
         }
         match(TokenType::TOKEN_SEMICOLON);
+
+        for (const auto& exp : mod->dpi_exports) {
+            bool found = false;
+            if (!exp->is_task) {
+                for (const auto& f : mod->functions) {
+                    if (f->name == exp->sv_name) {
+                        found = true;
+                        break;
+                    }
+                }
+            } else {
+                for (const auto& t : mod->tasks) {
+                    if (t->name == exp->sv_name) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                throw std::runtime_error("[DPI-FNF] Exported DPI-C routine '" + exp->sv_name + "' was not found in module scope '" + mod->name + "'");
+            }
+        }
+
         modules.push_back(std::move(mod));
     }
 
@@ -1826,4 +1873,64 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after DPI import declaration");
 
     return dpi_node;
+}
+
+std::unique_ptr<DpiExportNode> Parser::parse_dpi_export() {
+    expect(TokenType::TOKEN_EXPORT, "Expected 'export'");
+    if (current.type != TokenType::TOKEN_STRING || (current.text != "DPI-C" && current.text != "DPI")) {
+        throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+            ": error: Expected '\"DPI-C\"' or '\"DPI\"' in DPI export (found: '" + current.text + "')");
+    }
+    advance(); // consume string
+
+    auto node = std::make_unique<DpiExportNode>();
+
+    std::string first_ident = "";
+    if (current.type == TokenType::TOKEN_FUNCTION) {
+        node->is_task = false;
+        advance();
+        if (current.type != TokenType::TOKEN_IDENTIFIER) {
+            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                ": error: Expected function identifier in DPI export");
+        }
+        node->sv_name = current.text;
+        node->c_name = current.text;
+        advance();
+    } else if (current.type == TokenType::TOKEN_TASK) {
+        node->is_task = true;
+        advance();
+        if (current.type != TokenType::TOKEN_IDENTIFIER) {
+            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                ": error: Expected task identifier in DPI export");
+        }
+        node->sv_name = current.text;
+        node->c_name = current.text;
+        advance();
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        first_ident = current.text;
+        advance();
+        expect(TokenType::TOKEN_ASSIGN, "Expected '=' after C identifier in DPI export");
+        if (current.type == TokenType::TOKEN_FUNCTION) {
+            node->is_task = false;
+        } else if (current.type == TokenType::TOKEN_TASK) {
+            node->is_task = true;
+        } else {
+            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                ": error: Expected 'function' or 'task' in DPI export");
+        }
+        advance();
+        if (current.type != TokenType::TOKEN_IDENTIFIER) {
+            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                ": error: Expected function or task identifier in DPI export");
+        }
+        node->c_name = first_ident;
+        node->sv_name = current.text;
+        advance();
+    } else {
+        throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+            ": error: Expected 'function', 'task', or C identifier in DPI export");
+    }
+
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after DPI export declaration");
+    return node;
 }

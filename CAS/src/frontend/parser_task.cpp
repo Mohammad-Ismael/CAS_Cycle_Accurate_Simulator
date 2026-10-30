@@ -31,6 +31,10 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
                     is_int = true;
                 }
                 advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
+                is_s = true;
+                is_int = true;
+                advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
 

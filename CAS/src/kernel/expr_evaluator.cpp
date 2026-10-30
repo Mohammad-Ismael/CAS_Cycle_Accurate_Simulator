@@ -7,7 +7,8 @@ ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
 bool ExprEvaluator::eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
     if (engine.dpi_import_map.find(func_name) != engine.dpi_import_map.end()) {
-        result_out = eval_dpi_call(engine.dpi_import_map.at(func_name), arg_vals);
+        std::string call_scope = current_bp ? current_bp->scope : "";
+        result_out = eval_dpi_call(engine.dpi_import_map.at(func_name), arg_vals, call_scope);
         return true;
     }
 
@@ -27,6 +28,7 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 
     // 1. Declare and initialize function return variable
     context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed);
+    context.current_frame()->func_return_name = target_fn->name;
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
@@ -936,7 +938,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             dpi_node = engine.dpi_import_map.at(fn_call->func_name);
         }
         if (dpi_node) {
-            return eval_dpi_call(dpi_node, evaluated_args);
+            return eval_dpi_call(dpi_node, evaluated_args, scope);
         }
 
         LogicVal ret(32, 0, 0);
@@ -1427,14 +1429,39 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
     for (const auto& a : args) {
         evaluated_args.push_back(eval(a.get(), scope));
     }
-    return eval_dpi_call(dpi, evaluated_args);
+    return eval_dpi_call(dpi, evaluated_args, scope);
 }
 
-LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args) {
+LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope) {
     void* sym = engine.dpi_registry.get_symbol(dpi->c_name, engine.source_search_paths);
     if (!sym) {
         throw std::runtime_error("[CAS-DPI-ERR] Runtime error: DPI-C foreign function symbol '" + dpi->c_name + "' could not be resolved from shared library");
     }
+
+    struct ContextScopeGuard {
+        bool is_context;
+        svScope prev_scope;
+        void* prev_eng;
+        ContextScopeGuard(bool ctx, const std::string& call_scope, Engine* eng) : is_context(ctx), prev_scope(nullptr), prev_eng(nullptr) {
+            if (is_context) {
+                prev_scope = DpiRegistry::set_active_scope_by_name(call_scope);
+                prev_eng = DpiRegistry::get_active_engine();
+                DpiRegistry::set_active_engine(eng);
+            }
+        }
+        ~ContextScopeGuard() {
+            if (is_context) {
+                DpiRegistry::set_active_scope(prev_scope);
+                DpiRegistry::set_active_engine(prev_eng);
+            }
+        }
+    };
+
+    std::string call_scope = !scope.empty() ? scope : ((current_bp && !current_bp->scope.empty()) ? current_bp->scope : "");
+    if (call_scope.empty()) {
+        call_scope = engine.active_scope_name;
+    }
+    ContextScopeGuard scope_guard(dpi->is_context, call_scope, &engine);
 
     std::vector<int64_t> c_args;
     for (size_t i = 0; i < evaluated_args.size(); ++i) {

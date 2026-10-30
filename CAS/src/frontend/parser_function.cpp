@@ -10,7 +10,10 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
     }
 
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
-    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
+    if (current.type == TokenType::TOKEN_VOID) {
+        func->return_width = 0;
+        advance();
+    } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
         current.type == TokenType::TOKEN_BIT) {
         if (current.type == TokenType::TOKEN_INTEGER) func->return_signed = true;
@@ -20,8 +23,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         else if (current.text == "void") func->return_width = 0;
         else if (current.text == "byte") func->return_width = 8;
         else if (current.text == "shortint") func->return_width = 16;
-        else if (current.text == "int") func->return_width = 32;
-        else if (current.text == "longint") func->return_width = 64;
+        else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
+        else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
         advance();
     }
     if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
@@ -50,11 +53,21 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
             match(TokenType::TOKEN_INPUT);
             bool is_s = false;
+            bool is_int = false;
+            uint32_t def_w = 1;
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT) {
-                if (current.type == TokenType::TOKEN_INTEGER) is_s = true;
+                if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
+                is_s = true;
+                is_int = true;
+                if (current.text == "byte") def_w = 8;
+                else if (current.text == "shortint") def_w = 16;
+                else if (current.text == "longint") def_w = 64;
+                else def_w = 32;
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
@@ -66,8 +79,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 expect(TokenType::TOKEN_COLON, "Expected ':' in argument range");
                 lsb = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in argument range");
-            } else if (is_s) {
-                msb = std::make_unique<NumberNode>(31ULL, (uint32_t)32);
+            } else if (is_int) {
+                msb = std::make_unique<NumberNode>(def_w > 0 ? (def_w - 1) : 0, (uint32_t)32);
                 lsb = std::make_unique<NumberNode>(0ULL, (uint32_t)32);
             }
 

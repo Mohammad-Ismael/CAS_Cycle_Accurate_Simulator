@@ -188,62 +188,67 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
             expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
-            if (vdecl->is_queue) {
-                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-                if (lv) {
+            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+            if (lv) {
+                if (vdecl->is_queue) {
                     lv->is_queue = true;
                     lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
                 }
-            }
-            if (vdecl->is_dynamic_array) {
-                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-                if (lv) {
+                if (vdecl->is_dynamic_array) {
                     lv->is_dynamic_array = true;
                     lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
                 }
-            }
-            if (vdecl->is_associative_array) {
-                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-                if (lv) {
+                if (vdecl->is_associative_array) {
                     lv->is_associative_array = true;
                     lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
                 }
-            }
-            if (vdecl->is_class_handle) {
-                LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-                if (lv) {
+                if (vdecl->is_class_handle) {
                     lv->is_class_handle = true;
                     lv->class_type_name = vdecl->class_type_name;
                     lv->value = LogicVal(64, 0, 0);
+                }
+                if (vdecl->init_expr) {
+                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
                 }
             }
             return;
         }
         if (!bp.call_stack.empty()) {
             bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
+            if (vdecl->init_expr) {
+                LocalVar* lv = bp.call_stack.back().local_frame.get_var(vdecl->var_name);
+                if (lv) {
+                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                }
+            }
             return;
         }
         expr_eval.get_context().push_frame(bp.scope);
         expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
-        if (vdecl->is_queue) {
-            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-            if (lv) {
+        LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
+        if (lv) {
+            if (vdecl->is_queue) {
                 lv->is_queue = true;
                 lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
             }
-        }
-        if (vdecl->is_dynamic_array) {
-            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-            if (lv) {
+            if (vdecl->is_dynamic_array) {
                 lv->is_dynamic_array = true;
                 lv->dyn_array_data = DynamicArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
             }
-        }
-        if (vdecl->is_associative_array) {
-            LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
-            if (lv) {
+            if (vdecl->is_associative_array) {
                 lv->is_associative_array = true;
                 lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+            }
+            if (vdecl->is_class_handle) {
+                lv->is_class_handle = true;
+                lv->class_type_name = vdecl->class_type_name;
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (vdecl->init_expr) {
+                LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
             }
         }
         return;
@@ -834,6 +839,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
                     if (engine.dpi_import_map.find(fc->func_name) != engine.dpi_import_map.end()) {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used directly in $monitor per IEEE 1800-2023 section 35 & 21.2.3");
+                    }
+                    if (engine.dpi_export_map.find(fc->func_name) != engine.dpi_export_map.end() ||
+                        engine.dpi_export_map.find(bp.scope + "." + fc->func_name) != engine.dpi_export_map.end()) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C exported function '" + fc->func_name + "' used directly in $monitor per IEEE 1800-2023 section 35 & 21.2.3");
                     }
                     for (auto& a : fc->args) check_mon_expr(a.get());
                 }

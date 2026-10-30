@@ -91,6 +91,10 @@ public:
     DpiRegistry dpi_registry;
     std::vector<std::string> source_search_paths;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
+    std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
+    std::string active_scope_name;
+
+    LogicVal dispatch_dpi_export(const std::string& c_name, const std::vector<LogicVal>& args);
 
     Engine();
     ~Engine() = default;

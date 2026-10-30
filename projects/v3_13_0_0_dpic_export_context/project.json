@@ -1,0 +1,12 @@
+{
+  "name": "v3_13_0_0_dpic_export_context",
+  "version": "v3.13.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.3, §35.6, §35.7",
+  "description": "Direct Programming Interface (DPI-C): export 'DPI-C', context subroutines, svScope resolution, bidirectional C-to-SV execution, and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_13_0_0_regression"
+}

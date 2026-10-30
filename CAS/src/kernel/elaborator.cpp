@@ -313,6 +313,30 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    for (auto& t : mod->tasks) {
+        t->scope = scope;
+        result.task_map[scope + "." + t->name] = t.get();
+        result.task_map[t->name] = t.get();
+    }
+
+    for (auto& f : mod->functions) {
+        f->scope = scope;
+        result.function_map[scope + "." + f->name] = f.get();
+        result.function_map[f->name] = f.get();
+    }
+
+    for (auto& dpi : mod->dpi_imports) {
+        result.dpi_import_map[scope + "." + dpi->sv_name] = dpi.get();
+        result.dpi_import_map[dpi->sv_name] = dpi.get();
+    }
+
+    for (auto& exp : mod->dpi_exports) {
+        result.dpi_export_map[scope + "." + exp->c_name] = exp.get();
+        result.dpi_export_map[scope + "." + exp->sv_name] = exp.get();
+        result.dpi_export_map[exp->c_name] = exp.get();
+        result.dpi_export_map[exp->sv_name] = exp.get();
+    }
+
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
         if (result.covergroup_handle_names.find(scoped_target) != result.covergroup_handle_names.end() ||
@@ -467,6 +491,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (result.dpi_import_map.find(fc->func_name) != result.dpi_import_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used in continuous assignment per IEEE 1800-2023 section 35");
                 }
+                if (result.dpi_export_map.find(fc->func_name) != result.dpi_export_map.end() ||
+                    result.dpi_export_map.find(scope + "." + fc->func_name) != result.dpi_export_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C exported function '" + fc->func_name + "' used in continuous assignment per IEEE 1800-2023 section 35");
+                }
                 for (auto& a : fc->args) check_expr(a.get());
             }
         };
@@ -482,23 +510,6 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         gi.out_target = resolve_slice_ref(g->out_expr.get(), scope);
         for (auto& ie : g->in_exprs) gi.in_exprs.push_back(ie.get());
         result.gates.push_back(gi);
-    }
-
-    for (auto& t : mod->tasks) {
-        t->scope = scope;
-        result.task_map[scope + "." + t->name] = t.get();
-        result.task_map[t->name] = t.get();
-    }
-
-    for (auto& f : mod->functions) {
-        f->scope = scope;
-        result.function_map[scope + "." + f->name] = f.get();
-        result.function_map[f->name] = f.get();
-    }
-
-    for (auto& dpi : mod->dpi_imports) {
-        result.dpi_import_map[scope + "." + dpi->sv_name] = dpi.get();
-        result.dpi_import_map[dpi->sv_name] = dpi.get();
     }
 
     for (const auto& ev_name : mod->events) {
@@ -900,6 +911,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     }
 
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
+    result.top_scope = top->name;
 
     // IEEE Std 1800-2023 §9.2.2.4: Driver Exclusivity & ICPD Check
     struct NetDriverInfo {

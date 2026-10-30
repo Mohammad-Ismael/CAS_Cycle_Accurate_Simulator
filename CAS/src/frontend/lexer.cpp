@@ -170,9 +170,20 @@ Token Lexer::next_token() {
     if (c == ':') { advance(); return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0}; }
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
     if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line, 0}; }
-    if (c == '+') { advance(); return {TokenType::TOKEN_PLUS, "+", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '+') {
+        advance();
+        if (peek() == '+') {
+            advance();
+            return {TokenType::TOKEN_PLUS_PLUS, "++", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_PLUS, "+", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == '-') {
         advance();
+        if (peek() == '-') {
+            advance();
+            return {TokenType::TOKEN_MINUS_MINUS, "--", 0, 0, cur_file, cur_line, 0};
+        }
         if (peek() == '>') {
             advance();
             if (peek() == '>') {
@@ -445,6 +456,7 @@ Token Lexer::next_token() {
         if (ident == "$stable") return {TokenType::TOKEN_STABLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$past") return {TokenType::TOKEN_PAST, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "import") return {TokenType::TOKEN_IMPORT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "export") return {TokenType::TOKEN_EXPORT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "pure") return {TokenType::TOKEN_PURE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "context") return {TokenType::TOKEN_CONTEXT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "void") return {TokenType::TOKEN_VOID, ident, 0, 0, cur_file, cur_line, 0};

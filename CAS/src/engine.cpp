@@ -57,6 +57,91 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     property_names = std::move(elab_res.property_names);
     sequence_names = std::move(elab_res.sequence_names);
     dpi_import_map = std::move(elab_res.dpi_import_map);
+    dpi_export_map = std::move(elab_res.dpi_export_map);
+    active_scope_name = elab_res.top_scope;
+    DpiRegistry::set_active_scope_by_name(active_scope_name);
+    DpiRegistry::set_active_engine(this);
+}
+
+LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vector<LogicVal>& args) {
+    std::string scope = DpiRegistry::get_active_scope_name();
+    if (scope.empty()) {
+        scope = active_scope_name;
+    }
+
+    std::string sv_name = c_name;
+    bool is_task = false;
+
+    std::string scoped_export = scope.empty() ? c_name : (scope + "." + c_name);
+    if (dpi_export_map.find(scoped_export) != dpi_export_map.end()) {
+        sv_name = dpi_export_map[scoped_export]->sv_name;
+        is_task = dpi_export_map[scoped_export]->is_task;
+    } else if (dpi_export_map.find(c_name) != dpi_export_map.end()) {
+        sv_name = dpi_export_map[c_name]->sv_name;
+        is_task = dpi_export_map[c_name]->is_task;
+    }
+
+    std::string scoped_target = scope.empty() ? sv_name : (scope + "." + sv_name);
+    FunctionNode* fn = nullptr;
+    if (function_map.find(scoped_target) != function_map.end()) {
+        fn = function_map[scoped_target];
+    } else if (function_map.find(sv_name) != function_map.end()) {
+        fn = function_map[sv_name];
+    }
+
+    if (fn) {
+        LogicVal ret = LogicVal::make_known(fn->return_width, 0);
+        bool ok = evaluator.get_expr_eval().eval_function(scoped_target, args, ret);
+        if (!ok) {
+            evaluator.get_expr_eval().eval_function(fn->name, args, ret);
+        }
+        return ret;
+    }
+
+    TaskNode* tn = nullptr;
+    if (task_map.find(scoped_target) != task_map.end()) {
+        tn = task_map[scoped_target];
+    } else if (task_map.find(sv_name) != task_map.end()) {
+        tn = task_map[sv_name];
+    }
+
+    if (tn) {
+        BoundProcess bp{scope.empty() ? tn->scope : scope, nullptr, 0, false};
+        for (auto& s : tn->body) {
+            evaluator.execute_statement(s.get(), bp);
+            if (!scheduler.is_active()) break;
+        }
+        return LogicVal(0, 0, 0);
+    }
+
+    throw std::runtime_error("[DPI-FNF] Exported routine '" + c_name + "' (SV target: '" + sv_name + "') not found in scope '" + scope + "'");
+}
+
+extern "C" {
+svScope svGetScope(void) {
+    return DpiRegistry::get_active_scope();
+}
+
+svScope svSetScope(const svScope scope) {
+    return DpiRegistry::set_active_scope(scope);
+}
+
+void sv_write_reg(int addr, int data) {
+    Engine* eng = static_cast<Engine*>(DpiRegistry::get_active_engine());
+    if (!eng) {
+        throw std::runtime_error("[CAS-DPI-ERR] sv_write_reg called without active simulation engine context");
+    }
+    eng->dispatch_dpi_export("sv_write_reg", {LogicVal(32, static_cast<uint32_t>(addr)), LogicVal(32, static_cast<uint32_t>(data))});
+}
+
+int sv_read_reg(int addr) {
+    Engine* eng = static_cast<Engine*>(DpiRegistry::get_active_engine());
+    if (!eng) {
+        throw std::runtime_error("[CAS-DPI-ERR] sv_read_reg called without active simulation engine context");
+    }
+    LogicVal res = eng->dispatch_dpi_export("sv_read_reg", {LogicVal(32, static_cast<uint32_t>(addr))});
+    return static_cast<int>(static_cast<int32_t>(res.aval));
+}
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

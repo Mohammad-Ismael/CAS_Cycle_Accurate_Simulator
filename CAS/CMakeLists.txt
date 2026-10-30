@@ -27,3 +27,7 @@ add_executable(cas
 )
 
 target_link_libraries(cas ${CMAKE_DL_LIBS})
+set_target_properties(cas PROPERTIES ENABLE_EXPORTS ON)
+if(NOT MSVC)
+    target_link_options(cas PRIVATE -rdynamic)
+endif()

@@ -163,9 +163,12 @@ enum class TokenType {
     TOKEN_REP_NON_CONSEC,
     TOKEN_REP_GOTO,
     TOKEN_IMPORT,
+    TOKEN_EXPORT,
     TOKEN_PURE,
     TOKEN_CONTEXT,
-    TOKEN_VOID
+    TOKEN_VOID,
+    TOKEN_PLUS_PLUS,
+    TOKEN_MINUS_MINUS
 };
 
 struct Token {
