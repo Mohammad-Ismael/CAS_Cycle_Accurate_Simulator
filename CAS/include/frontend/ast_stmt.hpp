@@ -266,6 +266,14 @@ struct FinishStatementNode : public StatementNode {
         : src_file(std::move(file)), src_line(line) {}
 };
 
+struct ExitStatementNode : public StatementNode {
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit ExitStatementNode(std::string file = "", size_t line = 0)
+        : src_file(std::move(file)), src_line(line) {}
+};
+
 struct DumpFileStatementNode : public StatementNode {
     std::string filename;
     explicit DumpFileStatementNode(std::string f) : filename(std::move(f)) {}

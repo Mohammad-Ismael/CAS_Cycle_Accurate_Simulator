@@ -544,6 +544,21 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.sva_local_var_names.find(ca->target_name) != result.sva_local_var_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to sequence or property local variable '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16.10");
         }
+        if (mod->is_program) {
+            bool drives_external = false;
+            for (const auto& p : mod->ports) {
+                if (p.name == ca->target_name && (p.direction == "output" || p.direction == "inout")) {
+                    drives_external = true;
+                    break;
+                }
+            }
+            if (ca->target_name.find('.') != std::string::npos) {
+                drives_external = true;
+            }
+            if (drives_external) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment in program '" + mod->name + "' driving external net '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 24.3");
+            }
+        }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
             if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -825,6 +840,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     for (auto& proc : mod->processes) {
         BoundProcess bp(scope, proc.get(), 0, false);
         bp.pid = result.processes.size();
+        if (mod->is_program) {
+            bp.is_reactive = true;
+            bp.is_program_process = true;
+        }
         result.processes.push_back(std::move(bp));
     }
 
@@ -1236,13 +1255,13 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     } else {
         std::unordered_map<std::string, bool> is_instantiated;
         for (auto& mod : modules) {
-            if (mod->is_interface) continue;
+            if (mod->is_interface || mod->is_program) continue;
             for (auto& inst : mod->instantiations) {
                 is_instantiated[inst->module_type] = true;
             }
         }
         for (auto& mod : modules) {
-            if (mod->is_interface) continue;
+            if (mod->is_interface || mod->is_program) continue;
             if (!is_instantiated[mod->name]) {
                 if (mod->name.rfind("tb_", 0) == 0 || mod->name.find("_tb") != std::string::npos || 
                     mod->name.find("testbench") != std::string::npos || mod->name.find("regression") != std::string::npos) {
@@ -1253,7 +1272,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
         if (!top) {
             for (auto& mod : modules) {
-                if (mod->is_interface) continue;
+                if (mod->is_interface || mod->is_program) continue;
                 if (!is_instantiated[mod->name]) {
                     top = mod.get();
                     break;
@@ -1262,7 +1281,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
         if (!top) {
             for (auto& mod : modules) {
-                if (!mod->is_interface) { top = mod.get(); break; }
+                if (!mod->is_interface && !mod->is_program) { top = mod.get(); break; }
             }
         }
         if (!top) top = modules.front().get();

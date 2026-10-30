@@ -570,6 +570,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<FinishStatementNode>(origin_file, origin_line);
     }
 
+    if (match(TokenType::TOKEN_EXIT)) {
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
+        if (match(TokenType::TOKEN_LPAREN)) expect(TokenType::TOKEN_RPAREN, "Expected ')'");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $exit");
+        return std::make_unique<ExitStatementNode>(origin_file, origin_line);
+    }
+
     // 12. If Statement
     if (match(TokenType::TOKEN_IF)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");

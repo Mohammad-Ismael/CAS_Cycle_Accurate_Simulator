@@ -31,6 +31,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/kernel/evaluator.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
   /app/CAS/include/kernel/expr_evaluator.hpp \
+  /app/CAS/include/kernel/logic_ops.hpp \
   /app/CAS/include/kernel/netlist.hpp \
   /app/CAS/include/kernel/scheduler.hpp \
   /app/CAS/include/profiler/profiler.hpp \
@@ -2604,6 +2605,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp \
+  /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2615,6 +2617,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/net_types.hpp \
   /app/CAS/include/common/queue_types.hpp \
   /app/CAS/include/common/struct_types.hpp \
+  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/types.hpp \
   /app/CAS/include/frontend/ast_base.hpp \
   /app/CAS/include/frontend/ast_expr.hpp \
@@ -2631,8 +2634,6 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /app/CAS/include/common/dpic_types.hpp \
   /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
-  /app/CAS/include/frontend/ast_module.hpp \
-  /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/kernel/elaborator.hpp \
   /app/CAS/include/kernel/logic_ops.hpp \
   /app/CAS/include/kernel/scheduler.hpp \
@@ -3477,7 +3478,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/src/kernel/expr_evaluator.cpp:
 
-/app/CAS/include/kernel/logic_ops.hpp:
+/app/CAS/src/kernel/elaborator.cpp:
 
 /app/CAS/include/kernel/evaluator.hpp:
 
@@ -3626,6 +3627,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/charconv.h:
 
 /usr/include/c++/13.2.1/tr1/hypergeometric.tcc:
+
+/app/CAS/include/kernel/logic_ops.hpp:
 
 /usr/include/c++/13.2.1/bits/align.h:
 
@@ -3998,5 +4001,3 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/src/frontend/parser.cpp:
 
 /app/CAS/src/frontend/parser_function.cpp:
-
-/app/CAS/src/kernel/elaborator.cpp:

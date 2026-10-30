@@ -581,6 +581,7 @@ struct PackageNode : public ASTNode {
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
+    bool is_program = false;
     std::string defined_in_file = "";
     size_t defined_on_line = 0;
     std::vector<ParameterDef> parameters;
@@ -620,6 +621,10 @@ struct ModuleNode : public ASTNode {
 
 struct InterfaceNode : public ModuleNode {
     InterfaceNode() { is_interface = true; }
+};
+
+struct ProgramNode : public ModuleNode {
+    ProgramNode() { is_program = true; }
 };
 
 enum class ConfigRuleType {

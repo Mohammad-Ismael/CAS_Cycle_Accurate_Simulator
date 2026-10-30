@@ -137,13 +137,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
 
         bool is_iface = false;
+        bool is_prog = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
             advance();
+        } else if (current.type == TokenType::TOKEN_PROGRAM) {
+            is_prog = true;
+            advance();
+            if (current.type == TokenType::TOKEN_AUTOMATIC || current.type == TokenType::TOKEN_STATIC) {
+                advance();
+            }
         } else {
-            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'package', 'config', 'parameter', or 'localparam' keyword");
+            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'program', 'package', 'config', 'parameter', or 'localparam' keyword");
         }
-        auto mod = is_iface ? std::make_unique<InterfaceNode>() : std::make_unique<ModuleNode>();
+        auto mod = is_iface ? std::make_unique<InterfaceNode>() : 
+                   (is_prog ? std::make_unique<ProgramNode>() : std::make_unique<ModuleNode>());
         current_parsing_module = mod.get();
         for (const auto& w : global_wildcard_imports) {
             mod->wildcard_imports.push_back(w);
@@ -154,7 +162,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
         mod->name = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, is_iface ? "Expected interface name" : "Expected module name");
+        expect(TokenType::TOKEN_IDENTIFIER, is_iface ? "Expected interface name" : (is_prog ? "Expected program name" : "Expected module name"));
         if (is_iface) known_interfaces.insert(mod->name);
 
         for (const auto& gp : global_parameters) {
@@ -346,8 +354,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after module header");
 
-        TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : TokenType::TOKEN_ENDMODULE;
+        TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : (is_prog ? TokenType::TOKEN_ENDPROGRAM : TokenType::TOKEN_ENDMODULE);
         while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
+            if (is_prog && (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE || current.type == TokenType::TOKEN_PROGRAM)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program declaration is illegal in program scope per IEEE 1800-2023 section 24.3");
+            }
             if (current.type == TokenType::TOKEN_MODPORT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "modport")) {
                 advance();
                 while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
@@ -1081,6 +1092,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ALWAYS_COMB)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: always blocks are prohibited inside program blocks per IEEE 1800-2023 section 24.3");
+                }
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
                 proc->is_always_comb = true;
                 proc->body = parse_statement_or_block();
@@ -1089,6 +1103,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ALWAYS_LATCH)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: always blocks are prohibited inside program blocks per IEEE 1800-2023 section 24.3");
+                }
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
                 proc->is_always_latch = true;
                 proc->body = parse_statement_or_block();
@@ -1097,6 +1114,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ALWAYS_FF)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: always blocks are prohibited inside program blocks per IEEE 1800-2023 section 24.3");
+                }
                 auto proc = parse_always_ff();
                 proc->is_always_ff = true;
                 mod->processes.push_back(std::move(proc));
@@ -1104,6 +1124,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ALWAYS)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: always blocks are prohibited inside program blocks per IEEE 1800-2023 section 24.3");
+                }
                 if (current.type == TokenType::TOKEN_AT) {
                     advance();
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
@@ -1205,6 +1228,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
 
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program instantiation '" + iname + "' is illegal in program scope per IEEE 1800-2023 section 24.3");
+                }
+
                 auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
                 inst->param_overrides = std::move(param_overrides);
                 inst->connections = std::move(conns);
@@ -1216,6 +1243,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
         if (is_iface) {
             expect(TokenType::TOKEN_ENDINTERFACE, "Expected 'endinterface'");
+        } else if (is_prog) {
+            expect(TokenType::TOKEN_ENDPROGRAM, "Expected 'endprogram'");
         } else {
             expect(TokenType::TOKEN_ENDMODULE, "Expected 'endmodule'");
         }

@@ -634,12 +634,13 @@ bool StratifiedScheduler::commit_nba_updates() {
     return true;
 }
 
-bool StratifiedScheduler::resume_waiting_processes() {
+bool StratifiedScheduler::resume_waiting_processes(bool for_reactive) {
     bool resumed_any = false;
 
     for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
         auto& bp = engine.processes[pid];
         if (!bp.wait_target.active) continue;
+        if (bp.is_reactive != for_reactive) continue;
 
         const auto& net = engine.netlist[bp.wait_target.net_id];
         if (net.change_counter <= bp.wait_target.initial_change_counter) continue;
@@ -662,6 +663,25 @@ bool StratifiedScheduler::resume_waiting_processes() {
     }
 
     return resumed_any;
+}
+
+void StratifiedScheduler::check_program_completion() {
+    bool has_program = false;
+    bool all_completed = true;
+
+    for (const auto& bp : engine.processes) {
+        if (bp.is_program_process) {
+            has_program = true;
+            if (!bp.completed) {
+                all_completed = false;
+                break;
+            }
+        }
+    }
+
+    if (has_program && all_completed) {
+        terminate();
+    }
 }
 
 static void flatten_task_statements(StatementNode* stmt, std::vector<StatementNode*>& out) {
@@ -797,6 +817,8 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         child_bp.pc = 0;
         child_bp.completed = false;
         child_bp.is_delayed = false;
+        child_bp.is_reactive = engine.processes[pid].is_reactive;
+        child_bp.is_program_process = engine.processes[pid].is_program_process;
 
         flatten_task_statements(branch.get(), child_bp.dynamic_statements);
 
@@ -1579,34 +1601,68 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
     while (activity && loop_guard < MAX_DELTA_ITERS) {
         activity = false;
 
-        propagate_comb();
-        evaluate_sequential_blocks();
-        evaluate_clocking_blocks();
-        evaluate_covergroup_events();
+        // 1. Active Region Delta Loop
+        bool active_activity = true;
+        size_t active_guard = 0;
+        while (active_activity && active_guard < 50) {
+            active_activity = false;
 
-        if (trigger_intra_event_nbas()) {
-            activity = true;
-        }
-
-        if (trigger_intra_event_blocking()) {
-            activity = true;
             propagate_comb();
+            evaluate_sequential_blocks();
+            evaluate_clocking_blocks();
+            evaluate_covergroup_events();
+
+            if (trigger_intra_event_nbas()) {
+                active_activity = true;
+            }
+
+            if (trigger_intra_event_blocking()) {
+                active_activity = true;
+                propagate_comb();
+            }
+
+            if (resume_waiting_processes(false /* active only */)) {
+                active_activity = true;
+                propagate_comb();
+            }
+
+            active_guard++;
         }
 
+        // 2. NBA Region
         if (commit_nba_updates()) {
             activity = true;
             propagate_comb();
         }
 
+        // 3. Observed Region
         if (evaluate_sva_assertions()) {
             activity = true;
             propagate_comb();
         }
 
-        if (resume_waiting_processes()) {
+        // 4. Reactive Region (IEEE 1800-2023 §24)
+        bool reactive_activity = false;
+        if (!due_reactive_pids.empty()) {
+            auto pids = std::move(due_reactive_pids);
+            due_reactive_pids.clear();
+            for (uint32_t pid : pids) {
+                if (!simulation_active) break;
+                step_process(pid);
+                reactive_activity = true;
+            }
+        }
+
+        if (resume_waiting_processes(true /* reactive only */)) {
+            reactive_activity = true;
+        }
+
+        if (reactive_activity) {
             activity = true;
             propagate_comb();
         }
+
+        check_program_completion();
 
         loop_guard++;
     }
@@ -1651,10 +1707,21 @@ void StratifiedScheduler::run_simulation() {
     size_t num_root_processes = engine.processes.size();
     for (size_t i = 0; i < num_root_processes; ++i) {
         if (engine.processes[i].parent_pid != (size_t)-1) continue;
+        if (engine.processes[i].is_reactive) continue;
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
             propagate_comb();
+        }
+    }
+
+    for (size_t i = 0; i < num_root_processes; ++i) {
+        if (engine.processes[i].parent_pid != (size_t)-1) continue;
+        if (engine.processes[i].is_reactive) {
+            if (engine.processes[i].proc->type == ProcessType::INITIAL || 
+                engine.processes[i].proc->type == ProcessType::ALWAYS) {
+                due_reactive_pids.push_back((uint32_t)i);
+            }
         }
     }
 
@@ -1689,14 +1756,25 @@ void StratifiedScheduler::run_simulation() {
         capture_preponed_samples();
 
         // 1. Active Region: Drain events for current timestamp
+        std::vector<uint32_t> due_active_pids;
+        due_reactive_pids.clear();
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {
             SimEvent ev = time_wheel.pop();
             if (ev.process_id != UINT32_MAX) {
                 if (ev.process_id < engine.processes.size()) {
                     engine.processes[ev.process_id].is_delayed = false;
+                    if (engine.processes[ev.process_id].is_reactive) {
+                        due_reactive_pids.push_back(ev.process_id);
+                    } else {
+                        due_active_pids.push_back(ev.process_id);
+                    }
                 }
-                step_process(ev.process_id);
             }
+        }
+
+        for (uint32_t pid : due_active_pids) {
+            if (!simulation_active) break;
+            step_process(pid);
         }
 
         if (!simulation_active) break;

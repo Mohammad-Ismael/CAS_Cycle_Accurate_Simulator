@@ -422,6 +422,7 @@ Token Lexer::next_token() {
         if (ident == "$monitor") return {TokenType::TOKEN_MONITOR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$finish") return {TokenType::TOKEN_FINISH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$stop") return {TokenType::TOKEN_STOP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$exit") return {TokenType::TOKEN_EXIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$dumpfile") return {TokenType::TOKEN_DUMPFILE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$") return {TokenType::TOKEN_DOLLAR, ident, 0, 0, cur_file, cur_line, 0};
@@ -480,6 +481,8 @@ Token Lexer::next_token() {
         if (ident == "instance") return {TokenType::TOKEN_INSTANCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "cell") return {TokenType::TOKEN_CELL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "use") return {TokenType::TOKEN_USE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "program") return {TokenType::TOKEN_PROGRAM, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endprogram") return {TokenType::TOKEN_ENDPROGRAM, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

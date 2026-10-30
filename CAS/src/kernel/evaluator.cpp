@@ -1255,6 +1255,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto ex = dynamic_cast<ExitStatementNode*>(stmt)) {
+        bp.completed = true;
+        return;
+    }
+
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
         std::string target_name = nassign->target;

@@ -96,7 +96,9 @@ private:
     void evaluate_sequential_blocks();
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();
-    bool resume_waiting_processes();
+    bool resume_waiting_processes(bool for_reactive = false);
+    void check_program_completion();
+    std::vector<uint32_t> due_reactive_pids;
     void transfer_due_delayed_updates(uint64_t target_time);
     void invoke_task(BoundProcess& bp, TaskCallNode* tcall);
     void write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val);

@@ -119,6 +119,8 @@ struct BoundProcess {
     ProcessNode* proc = nullptr;
     size_t pc = 0;
     bool completed = false;
+    bool is_reactive = false;
+    bool is_program_process = false;
     EventWaitTarget wait_target;
     bool is_looping = false;
     size_t loop_start_pc = 0;
