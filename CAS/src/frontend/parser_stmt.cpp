@@ -1,5 +1,6 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
+#include <functional>
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
     // 0. Handle 'begin ... end' block statements
@@ -443,6 +444,57 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         auto count = parse_expression();
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing repeat count");
         auto body = parse_statement_or_block();
+
+        std::function<bool(const StatementNode*)> has_timing_control = [&](const StatementNode* s) -> bool {
+            if (!s) return false;
+            if (dynamic_cast<const EventControlStatementNode*>(s) || dynamic_cast<const DelayStatementNode*>(s)) return true;
+            if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {
+                for (const auto& child : blk->statements) {
+                    if (has_timing_control(child.get())) return true;
+                }
+            }
+            return false;
+        };
+
+        std::function<std::unique_ptr<StatementNode>(const StatementNode*)> clone_timing_stmt = [&](const StatementNode* s) -> std::unique_ptr<StatementNode> {
+            if (!s) return nullptr;
+            if (auto ev = dynamic_cast<const EventControlStatementNode*>(s)) {
+                return std::make_unique<EventControlStatementNode>(ev->edge, ev->signal_name);
+            }
+            if (auto del = dynamic_cast<const DelayStatementNode*>(s)) {
+                return std::make_unique<DelayStatementNode>(del->delay, del->delay_expr ? del->delay_expr->clone() : nullptr);
+            }
+            if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {
+                std::vector<std::unique_ptr<StatementNode>> cloned_list;
+                for (const auto& child : blk->statements) {
+                    cloned_list.push_back(clone_timing_stmt(child.get()));
+                }
+                return std::make_unique<BlockStatementNode>(std::move(cloned_list));
+            }
+            return nullptr;
+        };
+
+        bool timing = false;
+        for (const auto& s : body) {
+            if (has_timing_control(s.get())) {
+                timing = true;
+                break;
+            }
+        }
+        if (timing) {
+            if (auto num = dynamic_cast<NumberNode*>(count.get())) {
+                uint64_t n = num->aval;
+                std::vector<std::unique_ptr<StatementNode>> unrolled;
+                for (uint64_t i = 0; i < n; ++i) {
+                    for (const auto& s : body) {
+                        auto c = clone_timing_stmt(s.get());
+                        if (c) unrolled.push_back(std::move(c));
+                    }
+                }
+                return std::make_unique<BlockStatementNode>(std::move(unrolled));
+            }
+        }
+
         return std::make_unique<RepeatStatementNode>(std::move(count), std::move(body));
     }
 

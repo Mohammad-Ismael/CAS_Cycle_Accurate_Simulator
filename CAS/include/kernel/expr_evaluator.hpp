@@ -4,6 +4,7 @@
 #include "execution_context.hpp"
 #include <string>
 #include <deque>
+#include <map>
 
 class Engine;
 struct BoundProcess;
@@ -19,9 +20,13 @@ private:
     const ClassNode* current_class_def = nullptr;
     const std::vector<LogicVal>* preponed_override = nullptr;
     const std::deque<std::vector<LogicVal>>* current_clock_history = nullptr;
+    std::map<std::string, LogicVal>* current_sva_local_vars = nullptr;
 
 public:
     explicit ExprEvaluator(Engine& eng);
+
+    void set_sva_local_vars(std::map<std::string, LogicVal>* vars) { current_sva_local_vars = vars; }
+    std::map<std::string, LogicVal>* get_sva_local_vars() const { return current_sva_local_vars; }
 
     void set_preponed_override(const std::vector<LogicVal>* po) { preponed_override = po; }
     const std::vector<LogicVal>* get_preponed_override() const { return preponed_override; }

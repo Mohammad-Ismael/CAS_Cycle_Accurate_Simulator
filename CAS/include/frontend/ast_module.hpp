@@ -492,6 +492,12 @@ enum class ImplicationType {
     NON_OVERLAPPING  // |=>
 };
 
+struct SvaLocalVar {
+    std::string name;
+    uint32_t width = 1;
+    bool is_signed = false;
+};
+
 struct SequenceItem {
     uint32_t cycle_delay = 0;
     std::unique_ptr<ExpressionNode> expr;
@@ -501,6 +507,7 @@ struct SequenceNode : public ASTNode {
     std::string name;
     EdgeType clock_edge = EdgeType::POSEDGE;
     std::string clock_signal = "";
+    std::vector<SvaLocalVar> local_vars;
     std::vector<SequenceItem> items;
 };
 
@@ -509,6 +516,7 @@ struct PropertyNode : public ASTNode {
     EdgeType clock_edge = EdgeType::POSEDGE;
     std::string clock_signal = "";
     std::unique_ptr<ExpressionNode> disable_expr;
+    std::vector<SvaLocalVar> local_vars;
     ImplicationType imp_type = ImplicationType::NONE;
     std::unique_ptr<ExpressionNode> antecedent;
     std::unique_ptr<ExpressionNode> consequent;

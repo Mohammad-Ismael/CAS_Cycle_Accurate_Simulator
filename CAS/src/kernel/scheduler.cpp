@@ -165,6 +165,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
         const auto& steps = asrt.consequent_steps;
 
         auto advance_thread = [&](SvaThread& th) {
+            engine.evaluator.get_expr_eval().set_sva_local_vars(&th.local_vars);
             if (th.remaining_delay > 0) {
                 th.remaining_delay--;
             }
@@ -257,6 +258,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
                     }
                 }
             }
+            engine.evaluator.get_expr_eval().set_sva_local_vars(nullptr);
         };
 
         // 1. Advance existing pending threads
@@ -268,27 +270,37 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
 
         // 2. Evaluate antecedent on this clock edge for new assertion attempt
         if (asrt.antecedent) {
-            LogicVal a_val = engine.evaluator.get_expr_eval().eval(asrt.antecedent, asrt.scope);
-            if (!a_val.is_unknown() && a_val.is_true()) {
-                SvaThread new_th;
-                new_th.state = SvaThreadState::PENDING_CONSEQUENT;
-                new_th.step_index = 0;
-                new_th.current_rep_count = 0;
-                if (!steps.empty()) {
-                    new_th.target_rep_count = steps[0].max_count;
-                    new_th.rep_type = steps[0].rep_type;
-                }
+            SvaThread new_th;
+            new_th.state = SvaThreadState::PENDING_CONSEQUENT;
+            new_th.step_index = 0;
+            new_th.current_rep_count = 0;
+            for (const auto& lv : asrt.local_vars) {
+                new_th.local_vars[lv.name] = LogicVal(lv.width > 0 ? lv.width : 32, 0);
+            }
+            if (!steps.empty()) {
+                new_th.target_rep_count = steps[0].max_count;
+                new_th.rep_type = steps[0].rep_type;
+            }
 
+            engine.evaluator.get_expr_eval().set_sva_local_vars(&new_th.local_vars);
+            LogicVal a_val = engine.evaluator.get_expr_eval().eval(asrt.antecedent, asrt.scope);
+            engine.evaluator.get_expr_eval().set_sva_local_vars(nullptr);
+
+            if (!a_val.is_unknown() && a_val.is_true()) {
                 if (asrt.imp_type == ImplicationType::NON_OVERLAPPING) {
-                    new_th.remaining_delay = 1;
+                    new_th.remaining_delay = 1 + ((!steps.empty()) ? steps[0].cycle_delay : 0);
                     asrt.threads.push_back(new_th);
                 } else if (asrt.imp_type == ImplicationType::OVERLAPPING) {
-                    new_th.remaining_delay = 0;
-                    advance_thread(new_th);
+                    new_th.remaining_delay = (!steps.empty()) ? steps[0].cycle_delay : 0;
+                    if (new_th.remaining_delay == 0) {
+                        advance_thread(new_th);
+                    }
                     asrt.threads.push_back(new_th);
                 } else {
-                    new_th.remaining_delay = 0;
-                    advance_thread(new_th);
+                    new_th.remaining_delay = (!steps.empty()) ? steps[0].cycle_delay : 0;
+                    if (new_th.remaining_delay == 0) {
+                        advance_thread(new_th);
+                    }
                     asrt.threads.push_back(new_th);
                 }
             }

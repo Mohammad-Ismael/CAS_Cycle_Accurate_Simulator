@@ -460,6 +460,32 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.dpi_export_map[exp->sv_name] = exp.get();
     }
 
+    for (auto& prop : mod->properties) {
+        std::string full_prop_name = scope.empty() ? prop->name : (scope + "." + prop->name);
+        result.property_defs[full_prop_name] = prop;
+        result.property_defs[prop->name] = prop;
+        result.property_names.insert(full_prop_name);
+        result.property_names.insert(prop->name);
+        for (const auto& lv : prop->local_vars) {
+            result.sva_local_var_names.insert(lv.name);
+            result.sva_local_var_names.insert(full_prop_name + "." + lv.name);
+            if (!scope.empty()) result.sva_local_var_names.insert(scope + "." + lv.name);
+        }
+    }
+
+    for (auto& seq : mod->sequences) {
+        std::string full_seq_name = scope.empty() ? seq->name : (scope + "." + seq->name);
+        result.sequence_defs[full_seq_name] = seq;
+        result.sequence_defs[seq->name] = seq;
+        result.sequence_names.insert(full_seq_name);
+        result.sequence_names.insert(seq->name);
+        for (const auto& lv : seq->local_vars) {
+            result.sva_local_var_names.insert(lv.name);
+            result.sva_local_var_names.insert(full_seq_name + "." + lv.name);
+            if (!scope.empty()) result.sva_local_var_names.insert(scope + "." + lv.name);
+        }
+    }
+
     for (auto& ca : mod->continuous_assigns) {
         std::string scoped_target = scope + "." + ca->target_name;
         if (result.covergroup_handle_names.find(scoped_target) != result.covergroup_handle_names.end() ||
@@ -513,6 +539,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.memory_map.find(scoped_target) != result.memory_map.end() ||
             result.memory_map.find(ca->target_name) != result.memory_map.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to open array or unpacked array '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.6.1");
+        }
+        if (result.sva_local_var_names.find(scoped_target) != result.sva_local_var_names.end() ||
+            result.sva_local_var_names.find(ca->target_name) != result.sva_local_var_names.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to sequence or property local variable '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 16.10");
         }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
@@ -570,6 +600,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.memory_map.find(id->name) != result.memory_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: open array handle or unpacked array '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 35.5.6.1");
                 }
+                if (result.sva_local_var_names.find(s_id) != result.sva_local_var_names.end() ||
+                    result.sva_local_var_names.find(id->name) != result.sva_local_var_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: sequence or property local variable '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 16.10");
+                }
+            } else if (dynamic_cast<SequenceMatchItemNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used in continuous assignment per IEEE 1800-2023 section 16.10");
             } else if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
                 std::string s_id = scope + "." + ma->var_name;
                 if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
@@ -845,6 +881,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             inst.imp_type = target_prop->imp_type;
             inst.antecedent = target_prop->antecedent.get();
             inst.consequent = target_prop->consequent.get();
+            inst.local_vars = target_prop->local_vars;
+            for (const auto& lv : target_prop->local_vars) {
+                result.sva_local_var_names.insert(lv.name);
+                if (!scope.empty()) result.sva_local_var_names.insert(scope + "." + lv.name);
+            }
             extract_sequence_steps(inst.consequent ? inst.consequent : inst.antecedent, inst.consequent_steps);
         }
 

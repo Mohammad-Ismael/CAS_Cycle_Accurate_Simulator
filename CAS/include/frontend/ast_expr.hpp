@@ -400,6 +400,34 @@ struct SequenceConcatNode : public ExpressionNode {
     }
 };
 
+struct SequenceMatchAssignment {
+    std::string var_name;
+    std::unique_ptr<ExpressionNode> expr;
+
+    SequenceMatchAssignment clone() const {
+        return {var_name, expr ? expr->clone() : nullptr};
+    }
+};
+
+struct SequenceMatchItemNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> expr;
+    std::vector<SequenceMatchAssignment> match_assignments;
+
+    SequenceMatchItemNode(std::unique_ptr<ExpressionNode> e, std::vector<SequenceMatchAssignment> assigns)
+        : expr(std::move(e)), match_assignments(std::move(assigns)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<SequenceMatchAssignment> cloned_assigns;
+        for (const auto& a : match_assignments) {
+            cloned_assigns.push_back(a.clone());
+        }
+        return std::make_unique<SequenceMatchItemNode>(
+            expr ? expr->clone() : nullptr,
+            std::move(cloned_assigns)
+        );
+    }
+};
+
 struct StaticMethodCallNode : public ExpressionNode {
     std::string class_type_name;
     std::string method_name;

@@ -184,6 +184,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> assertion_names;
     std::unordered_set<std::string> property_names;
     std::unordered_set<std::string> sequence_names;
+    std::unordered_set<std::string> sva_local_var_names;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::unordered_set<std::string> chandle_names;

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 #include <cstdint>
 #include "types.hpp"
@@ -28,6 +29,7 @@ struct SvaThread {
     uint32_t current_rep_count = 0;
     uint32_t target_rep_count = 1;
     RepetitionType rep_type = RepetitionType::CONSECUTIVE;
+    std::map<std::string, LogicVal> local_vars;
 };
 
 inline void extract_sequence_steps(ExpressionNode* node, std::vector<SvaSequenceStep>& steps) {
@@ -59,6 +61,7 @@ struct SvaAssertionInstance {
     ImplicationType imp_type = ImplicationType::NONE;
     ExpressionNode* antecedent = nullptr;
     ExpressionNode* consequent = nullptr;
+    std::vector<SvaLocalVar> local_vars;
     std::vector<SvaSequenceStep> consequent_steps;
 
     std::vector<StatementNode*> pass_statements;

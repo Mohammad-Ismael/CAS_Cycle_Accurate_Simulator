@@ -78,6 +78,7 @@ private:
     std::unordered_set<std::string> assertion_names;
     std::unordered_set<std::string> property_names;
     std::unordered_set<std::string> sequence_names;
+    std::unordered_set<std::string> sva_local_var_names;
     std::unordered_set<std::string> chandle_names;
     std::unordered_set<std::string> open_array_names;
     std::unordered_set<std::string> semaphore_handle_names;
@@ -293,6 +294,13 @@ public:
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (open_array_names.find(scoped) != open_array_names.end()) return true;
         if (open_array_names.find(name) != open_array_names.end()) return true;
+        return false;
+    }
+
+    bool is_sva_local_var(const std::string& name, const std::string& scope = "") const {
+        std::string scoped = scope.empty() ? name : (scope + "." + name);
+        if (sva_local_var_names.find(scoped) != sva_local_var_names.end()) return true;
+        if (sva_local_var_names.find(name) != sva_local_var_names.end()) return true;
         return false;
     }
 

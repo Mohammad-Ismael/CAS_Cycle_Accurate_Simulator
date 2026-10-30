@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.20.0.0`  
-**Status:** Production Milestone v3.20.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.21.0.0`  
+**Status:** Production Milestone v3.21.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,9 +14,9 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[█████████████████████████░░░░░░░░░░░░░░░░░░░░░] 50.0%`
+`[█████████████████████████░░░░░░░░░░░░░░░░░░░░░] 51.4%`
 
-*Current Baseline (v3.20.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, and Advanced Functional Coverage (§19.4 & §19.8 Parameterized Covergroup Declarations, formal `ref` and `input` arguments, automatic clock/event sampling triggers `@(event_expr)`, `option.per_instance = 1`, and dynamic coverage calculation via `get_inst_coverage()`).
+*Current Baseline (v3.21.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage (§19.4 & §19.8 Parameterized Covergroup Declarations, formal `ref`/`input` args, `@(event_expr)` triggers, `get_inst_coverage()`), and SystemVerilog Assertions Local Variables & Multi-Thread Isolation (§16.10 property/sequence local variables, match assignments `(seq, var = expr)`, thread state isolation, delayed consequent verification `##N`, and `[CAS-DTINPCIL]` context diagnostics).
 *Upcoming Domains:* Typed Fine-grain Interconnects, Sequence Match Callbacks.
 
 ---
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§16.10** | **SVA Sequence Local Variables & Multi-Thread Isolation** | Property and sequence local variable declarations (`data_type var [= expr]`), sequence match variable assignments (`(seq_expr, var = expr)`), per-thread state isolation (`SvaThread.local_vars`), Preponed value sampling across delayed consequents (`##N`), and context diagnostic `[CAS-DTINPCIL]`. |
 | **§19.4, §19.8** | **Parameterized Covergroups & Event Triggers** | Parameterized `covergroup cg(...) @(event_expr)` declarations, formal `ref` arguments bound to signals, formal `input` arguments evaluated at `new()` time and bound to constants/expressions, automatic edge sampling triggers (`posedge`, `negedge`, level), `option.per_instance = 1`, dynamic instance coverage queries (`.get_inst_coverage()`), and context diagnostic `[CAS-DTINPCIL]`. |
 | **§33** | **SystemVerilog Configurations** | `config ... endconfig` declarations, `design` top module selection, `default liblist`, hierarchical instance rebinding (`instance hier.path use lib.cell`), global cell rebinding (`cell name use lib.cell`), top-level configuration selection via `-top`, auto-matching design top binding, and context diagnostic `[CAS-DTINPCIL]`. |
 | **§26** | **SystemVerilog Packages** | `package ... endpackage` declarations, compilation-unit and module-level wildcard imports (`import pkg::*;`), explicit imports (`import pkg::item;`), explicit package scope resolution (`pkg::symbol`), shared enums, packed structures, constants, automatic functions, tasks, classes, DPI-C declarations, and context diagnostic `[CAS-DTINPCIL]`. |
@@ -118,6 +119,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.18.0.0** | `projects/v3_18_0_0_packages` | SystemVerilog Packages (`package`/`endpackage`), Wildcard & Explicit Imports, Scoped Symbols (§26) | **PASS** | 100% VCS |
 | **v3.19.0.0** | `projects/v3_19_0_0_configurations` | SystemVerilog Configurations (`config`/`endconfig`), Top-Level Config Elaboration, Hierarchical Cell Rebinding (§33) | **PASS** | 100% VCS |
 | **v3.20.0.0** | `projects/v3_20_0_0_covergroup_args_events` | Parameterized Covergroups, Formal `ref`/`input` Args, Event Sampling Triggers `@(event_expr)`, `get_inst_coverage()` (§19.4, §19.8) | **PASS** | 100% VCS |
+| **v3.21.0.0** | `projects/v3_21_0_0_sva_local_variables` | SVA Sequence Local Variables, Match Assignments, Multi-Thread State Isolation (§16.10) | **PASS** | 100% VCS |
 
 ---
 

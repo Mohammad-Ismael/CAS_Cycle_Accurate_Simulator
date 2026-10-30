@@ -105,6 +105,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -143,6 +144,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -188,6 +190,18 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -219,6 +233,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -2000,6 +2015,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -2038,6 +2054,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -2083,6 +2100,18 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -2114,6 +2143,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -2427,6 +2457,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -2465,6 +2496,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -2510,6 +2542,18 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -2541,6 +2585,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -2659,6 +2704,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -2697,6 +2743,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -2742,6 +2789,18 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -2773,6 +2832,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -2894,6 +2954,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -2932,6 +2993,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/chrono \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -2978,6 +3040,18 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -3010,6 +3084,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -3376,13 +3451,29 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/sys/time.h:
 
-/usr/include/c++/13.2.1/bits/streambuf.tcc:
+/usr/include/fortify/sys/select.h:
 
-/usr/include/c++/13.2.1/bits/postypes.h:
+/usr/include/bits/resource.h:
 
-/usr/include/c++/13.2.1/bits/erase_if.h:
+/app/CAS/src/profiler/profiler.cpp:
 
-/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h:
+/usr/include/fortify/string.h:
+
+/usr/include/c++/13.2.1/cstring:
+
+/app/CAS/include/parser.hpp:
+
+/app/CAS/include/lexer.hpp:
+
+/usr/include/sys/resource.h:
+
+/app/CAS/src/main.cpp:
+
+/app/CAS/src/kernel/scheduler.cpp:
+
+/app/CAS/src/kernel/expr_evaluator.cpp:
+
+/app/CAS/include/kernel/logic_ops.hpp:
 
 /app/CAS/include/kernel/evaluator.hpp:
 
@@ -3396,6 +3487,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/stl_queue.h:
 
+/app/CAS/src/kernel/execution_context.cpp:
+
+/usr/include/c++/13.2.1/bits/stl_construct.h:
+
 /usr/include/c++/13.2.1/bits/stl_iterator_base_funcs.h:
 
 /usr/include/c++/13.2.1/bits/exception.h:
@@ -3404,11 +3499,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/stl_algo.h:
 
-/usr/include/c++/13.2.1/bits/std_abs.h:
-
 /usr/include/c++/13.2.1/bits/vector.tcc:
-
-/usr/include/c++/13.2.1/cstring:
 
 /usr/include/c++/13.2.1/bits/predefined_ops.h:
 
@@ -3423,6 +3514,14 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/requires_hosted.h:
 
 /app/CAS/include/common/sync_types.hpp:
+
+/usr/include/c++/13.2.1/bits/postypes.h:
+
+/usr/include/c++/13.2.1/bits/erase_if.h:
+
+/usr/include/c++/13.2.1/bits/streambuf.tcc:
+
+/usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_inline.h:
 
 /usr/include/c++/13.2.1/bits/stl_heap.h:
 
@@ -3446,9 +3545,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/cstdio:
 
+/usr/include/c++/13.2.1/tr1/gamma.tcc:
+
 /usr/include/c++/13.2.1/bits/locale_facets_nonio.tcc:
 
 /usr/include/c++/13.2.1/functional:
+
+/usr/include/c++/13.2.1/tr1/exp_integral.tcc:
 
 /usr/include/c++/13.2.1/bits/hashtable_policy.h:
 
@@ -3476,11 +3579,11 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/exception_defines.h:
 
-/app/CAS/src/kernel/scheduler.cpp:
-
 /usr/include/c++/13.2.1/bits/stl_iterator.h:
 
 /usr/include/c++/13.2.1/bits/atomic_lockfree_defines.h:
+
+/usr/include/c++/13.2.1/cmath:
 
 /usr/include/c++/13.2.1/bits/ptr_traits.h:
 
@@ -3491,8 +3594,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/cstddef:
 
 /usr/include/c++/13.2.1/bits/enable_special_members.h:
-
-/app/CAS/include/common/struct_types.hpp:
 
 /app/CAS/include/common/edge_types.hpp:
 
@@ -3506,9 +3607,11 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/ostream_insert.h:
 
-/usr/include/fortify/sys/select.h:
-
 /app/CAS/include/frontend/ast_stmt.hpp:
+
+/usr/include/sys/select.h:
+
+/usr/include/c++/13.2.1/bits/alloc_traits.h:
 
 /app/CAS/include/frontend/ast_base.hpp:
 
@@ -3517,6 +3620,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/stl_tree.h:
 
 /usr/include/c++/13.2.1/bits/charconv.h:
+
+/usr/include/c++/13.2.1/tr1/hypergeometric.tcc:
 
 /usr/include/c++/13.2.1/bits/align.h:
 
@@ -3560,8 +3665,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/istream.tcc:
 
-/usr/include/fortify/string.h:
-
 /usr/include/c++/13.2.1/bits/shared_ptr.h:
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h:
@@ -3589,8 +3692,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/move.h:
 
 /app/CAS/include/kernel/scheduler.hpp:
-
-/app/CAS/include/parser.hpp:
 
 /app/CAS/include/frontend/ast_expr.hpp:
 
@@ -3636,6 +3737,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/stdint.h:
 
+/usr/include/c++/13.2.1/tr1/bessel_function.tcc:
+
 /usr/include/bits/stdint.h:
 
 /usr/include/c++/13.2.1/bits/stl_deque.h:
@@ -3676,7 +3779,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/allocator.h:
 
+/usr/include/c++/13.2.1/bits/specfun.h:
+
+/app/CAS/include/frontend/parser.hpp:
+
 /app/CAS/include/kernel/elaborator.hpp:
+
+/usr/include/c++/13.2.1/tr1/poly_hermite.tcc:
 
 /usr/include/c++/13.2.1/array:
 
@@ -3699,8 +3808,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/unordered_set.h:
 
 /usr/include/c++/13.2.1/cctype:
-
-/app/CAS/src/profiler/profiler.cpp:
 
 /usr/include/c++/13.2.1/cerrno:
 
@@ -3734,9 +3841,13 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/debug/debug.h:
 
-/usr/include/c++/13.2.1/exception:
+/app/CAS/include/common/struct_types.hpp:
 
-/usr/include/c++/13.2.1/ext/aligned_buffer.h:
+/usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc:
+
+/usr/include/c++/13.2.1/tr1/poly_laguerre.tcc:
+
+/usr/include/c++/13.2.1/exception:
 
 /usr/include/c++/13.2.1/ext/alloc_traits.h:
 
@@ -3757,6 +3868,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/ostream.tcc:
 
 /usr/include/c++/13.2.1/ios:
+
+/app/CAS/src/kernel/evaluator.cpp:
+
+/usr/include/c++/13.2.1/iostream:
 
 /usr/include/c++/13.2.1/limits:
 
@@ -3780,6 +3895,20 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/ratio:
 
+/usr/include/c++/13.2.1/ext/aligned_buffer.h:
+
+/usr/include/c++/13.2.1/tr1/beta_function.tcc:
+
+/usr/include/c++/13.2.1/bits/std_abs.h:
+
+/usr/include/c++/13.2.1/tr1/ell_integral.tcc:
+
+/usr/include/c++/13.2.1/tr1/legendre_function.tcc:
+
+/usr/include/fortify/stdio.h:
+
+/usr/include/c++/13.2.1/tr1/special_function_util.h:
+
 /usr/include/c++/13.2.1/tuple:
 
 /usr/include/c++/13.2.1/bits/ios_base.h:
@@ -3802,6 +3931,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++io.h:
 
+/usr/include/c++/13.2.1/tr1/riemann_zeta.tcc:
+
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++locale.h:
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/ctype_base.h:
@@ -3822,8 +3953,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/errno.h:
 
-/usr/include/fortify/stdio.h:
-
 /usr/include/fortify/wchar.h:
 
 /app/CAS/include/frontend/lexer.hpp:
@@ -3831,6 +3960,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/limits.h:
 
 /usr/include/locale.h:
+
+/usr/include/math.h:
 
 /usr/include/pthread.h:
 
@@ -3862,32 +3993,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/src/frontend/parser.cpp:
 
-/app/CAS/include/frontend/parser.hpp:
-
 /app/CAS/src/frontend/parser_function.cpp:
 
-/app/CAS/src/main.cpp:
-
-/usr/include/sys/resource.h:
-
 /app/CAS/src/kernel/elaborator.cpp:
-
-/usr/include/c++/13.2.1/iostream:
-
-/app/CAS/src/kernel/evaluator.cpp:
-
-/usr/include/c++/13.2.1/bits/stl_construct.h:
-
-/app/CAS/src/kernel/execution_context.cpp:
-
-/app/CAS/include/kernel/logic_ops.hpp:
-
-/app/CAS/src/kernel/expr_evaluator.cpp:
-
-/app/CAS/include/lexer.hpp:
-
-/usr/include/bits/resource.h:
-
-/usr/include/c++/13.2.1/bits/alloc_traits.h:
-
-/usr/include/sys/select.h:

@@ -56,6 +56,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     assertion_names = std::move(elab_res.assertion_names);
     property_names = std::move(elab_res.property_names);
     sequence_names = std::move(elab_res.sequence_names);
+    sva_local_var_names = std::move(elab_res.sva_local_var_names);
     dpi_import_map = std::move(elab_res.dpi_import_map);
     dpi_export_map = std::move(elab_res.dpi_export_map);
     chandle_names = std::move(elab_res.chandle_names);

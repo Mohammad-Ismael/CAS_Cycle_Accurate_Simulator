@@ -2156,6 +2156,57 @@ std::unique_ptr<PropertyNode> Parser::parse_property() {
     auto prop = std::make_unique<PropertyNode>();
     prop->name = prop_name;
 
+    auto parse_sva_local_decl = [&](std::vector<SvaLocalVar>& local_vars) {
+        while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+               current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_BIT ||
+               current.type == TokenType::TOKEN_INTEGER ||
+               (current.type == TokenType::TOKEN_IDENTIFIER && 
+                (current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint"))) {
+            std::string type_name = current.text;
+            bool is_int = (current.type == TokenType::TOKEN_INTEGER || current.text == "int");
+            advance();
+            bool is_signed = is_int;
+            if (current.type == TokenType::TOKEN_SIGNED) {
+                is_signed = true;
+                advance();
+            }
+            uint32_t width = is_int ? 32 : 1;
+            if (type_name == "byte") width = 8;
+            else if (type_name == "shortint") width = 16;
+            else if (type_name == "longint") width = 64;
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
+                }
+            }
+
+            while (true) {
+                std::string vname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier in local variable declaration");
+                if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                    parse_expression();
+                }
+                SvaLocalVar p;
+                p.name = vname;
+                p.width = width;
+                p.is_signed = is_signed;
+                local_vars.push_back(p);
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after local variable declaration");
+        }
+    };
+
+    parse_sva_local_decl(prop->local_vars);
+
     if (match(TokenType::TOKEN_AT)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
         if (match(TokenType::TOKEN_POSEDGE)) {
@@ -2221,6 +2272,53 @@ std::unique_ptr<SequenceNode> Parser::parse_sequence() {
     auto seq = std::make_unique<SequenceNode>();
     seq->name = seq_name;
 
+    while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+           current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_BIT ||
+           current.type == TokenType::TOKEN_INTEGER ||
+           (current.type == TokenType::TOKEN_IDENTIFIER && 
+            (current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint"))) {
+        std::string type_name = current.text;
+        bool is_int = (current.type == TokenType::TOKEN_INTEGER || current.text == "int");
+        advance();
+        bool is_signed = is_int;
+        if (current.type == TokenType::TOKEN_SIGNED) {
+            is_signed = true;
+            advance();
+        }
+        uint32_t width = is_int ? 32 : 1;
+        if (type_name == "byte") width = 8;
+        else if (type_name == "shortint") width = 16;
+        else if (type_name == "longint") width = 64;
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+
+        while (true) {
+            std::string vname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier in local variable declaration");
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                parse_expression();
+            }
+            SvaLocalVar p;
+            p.name = vname;
+            p.width = width;
+            p.is_signed = is_signed;
+            seq->local_vars.push_back(p);
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after local variable declaration");
+    }
+
     if (match(TokenType::TOKEN_AT)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
         if (match(TokenType::TOKEN_POSEDGE)) {
@@ -2265,6 +2363,52 @@ std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const
         advance();
     } else {
         auto inlined = std::make_unique<PropertyNode>();
+        while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+               current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_BIT ||
+               current.type == TokenType::TOKEN_INTEGER ||
+               (current.type == TokenType::TOKEN_IDENTIFIER && 
+                (current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint"))) {
+            std::string type_name = current.text;
+            bool is_int = (current.type == TokenType::TOKEN_INTEGER || current.text == "int");
+            advance();
+            bool is_signed = is_int;
+            if (current.type == TokenType::TOKEN_SIGNED) {
+                is_signed = true;
+                advance();
+            }
+            uint32_t width = is_int ? 32 : 1;
+            if (type_name == "byte") width = 8;
+            else if (type_name == "shortint") width = 16;
+            else if (type_name == "longint") width = 64;
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
+                }
+            }
+
+            while (true) {
+                std::string vname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier in local variable declaration");
+                if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                    parse_expression();
+                }
+                SvaLocalVar p;
+                p.name = vname;
+                p.width = width;
+                p.is_signed = is_signed;
+                inlined->local_vars.push_back(p);
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after local variable declaration");
+        }
         if (match(TokenType::TOKEN_AT)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
             if (match(TokenType::TOKEN_POSEDGE)) inlined->clock_edge = EdgeType::POSEDGE;

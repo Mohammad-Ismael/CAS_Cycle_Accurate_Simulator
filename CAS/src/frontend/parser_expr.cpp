@@ -330,6 +330,22 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
     if (match(TokenType::TOKEN_LPAREN)) {
         auto expr = parse_sequence_expression();
+        if (match(TokenType::TOKEN_COMMA)) {
+            std::vector<SequenceMatchAssignment> assigns;
+            do {
+                std::string var_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier in match assignment");
+                if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                    // ok
+                } else {
+                    throw std::runtime_error("Expected '=' in sequence match assignment");
+                }
+                auto assign_expr = parse_expression();
+                assigns.push_back({var_name, std::move(assign_expr)});
+            } while (match(TokenType::TOKEN_COMMA));
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized match expression");
+            return std::make_unique<SequenceMatchItemNode>(std::move(expr), std::move(assigns));
+        }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized expression");
         return expr;
     }
@@ -623,6 +639,31 @@ std::unique_ptr<ExpressionNode> Parser::parse_sequence_element() {
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_sequence_expression() {
+    if (current.type == TokenType::TOKEN_CYCLE_DELAY ||
+        (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+        std::vector<SequenceConcatItem> items;
+        while (current.type == TokenType::TOKEN_CYCLE_DELAY ||
+               (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+            uint32_t delay = 1;
+            if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
+                advance();
+                if (current.type == TokenType::TOKEN_NUMBER) {
+                    delay = static_cast<uint32_t>(current.num_val);
+                    advance();
+                }
+            } else {
+                advance(); advance();
+                if (current.type == TokenType::TOKEN_NUMBER) {
+                    delay = static_cast<uint32_t>(current.num_val);
+                    advance();
+                }
+            }
+            auto next_elem = parse_sequence_element();
+            items.push_back({delay, std::move(next_elem)});
+        }
+        return std::make_unique<SequenceConcatNode>(std::move(items));
+    }
+
     auto first = parse_sequence_element();
 
     if (current.type != TokenType::TOKEN_CYCLE_DELAY &&

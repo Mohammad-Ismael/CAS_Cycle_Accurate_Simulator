@@ -214,6 +214,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
     }
 
+    if (auto match_node = dynamic_cast<SequenceMatchItemNode*>(expr)) {
+        if (!current_sva_local_vars) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: SVA sequence match item used outside sequence/property context per IEEE 1800-2023 section 16.10");
+        }
+        LogicVal val = eval(match_node->expr.get(), scope);
+        if (!val.is_unknown() && val.is_true()) {
+            for (const auto& a : match_node->match_assignments) {
+                LogicVal rval = eval(a.expr.get(), scope);
+                auto it = current_sva_local_vars->find(a.var_name);
+                if (it != current_sva_local_vars->end() && it->second.width > 0) {
+                    uint32_t target_w = it->second.width;
+                    if (rval.width != target_w) {
+                        rval = LogicVal(target_w, rval.aval, rval.bval);
+                    }
+                }
+                (*current_sva_local_vars)[a.var_name] = rval;
+            }
+        }
+        return val;
+    }
+
     if (auto cast_call = dynamic_cast<SysCastCallNode*>(expr)) {
         std::string dest_name;
         if (auto id = dynamic_cast<IdentifierNode*>(cast_call->dest_expr.get())) {
@@ -1228,6 +1249,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
 
+        // Check SVA thread local variables
+        if (current_sva_local_vars) {
+            auto it = current_sva_local_vars->find(ident->name);
+            if (it != current_sva_local_vars->end()) {
+                return it->second;
+            }
+        }
+
         // Check local activation frame of function call first
         if (context.has_active_frame()) {
             LocalVar* local = context.lookup_local(ident->name);
@@ -1428,14 +1457,24 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         LogicVal target_val = LogicVal::make_x(1);
 
         LocalVar* local = nullptr;
-        if (context.has_active_frame()) local = context.lookup_local(idx_node->name);
-        if (!local && current_bp && !current_bp->call_stack.empty()) {
+        bool found_sva_local = false;
+        if (current_sva_local_vars) {
+            auto it = current_sva_local_vars->find(idx_node->name);
+            if (it != current_sva_local_vars->end()) {
+                target_val = it->second;
+                found_sva_local = true;
+            }
+        }
+        if (!found_sva_local && context.has_active_frame()) local = context.lookup_local(idx_node->name);
+        if (!found_sva_local && !local && current_bp && !current_bp->call_stack.empty()) {
             for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                 local = it->local_frame.get_var(idx_node->name);
                 if (local) break;
             }
         }
-        if (local) {
+        if (found_sva_local) {
+            // target_val already set from SVA local variable
+        } else if (local) {
             target_val = local->value;
         } else {
             std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
