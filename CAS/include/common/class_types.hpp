@@ -13,6 +13,7 @@ struct ClassObject {
     std::string class_type_name;
     const ClassNode* class_def = nullptr;
     std::unordered_map<std::string, LogicVal> properties;
+    uint32_t prng_state = 0x12345678;
 
     ClassObject() = default;
     ClassObject(uint64_t id, std::string type_name, const ClassNode* def = nullptr)
@@ -33,4 +34,13 @@ struct ClassObject {
     }
 
     bool is_instance_of(const std::string& target_type) const;
+
+    void srandom(uint32_t seed) {
+        prng_state = seed;
+    }
+
+    uint32_t next_random() {
+        prng_state = prng_state * 429 + 25;
+        return prng_state >> 16;
+    }
 };

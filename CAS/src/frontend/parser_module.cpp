@@ -1103,58 +1103,87 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                 t->is_virtual = is_virt;
                 cls->add_task(std::move(t));
             }
-        } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
-                   current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
-                   current.type == TokenType::TOKEN_INTEGER ||
-                   (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
-            bool is_s = (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")));
+        } else if (current.type == TokenType::TOKEN_CONSTRAINT) {
             advance();
-            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
-            uint32_t width = is_s ? 32 : 1;
-            if (match(TokenType::TOKEN_LBRACKET)) {
-                auto msb = parse_expression();
-                expect(TokenType::TOKEN_COLON, "Expected ':' in range");
-                auto lsb = parse_expression();
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
-                auto msb_n = dynamic_cast<NumberNode*>(msb.get());
-                auto lsb_n = dynamic_cast<NumberNode*>(lsb.get());
-                if (msb_n && lsb_n) {
-                    width = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            std::vector<std::unique_ptr<ExpressionNode>> exprs;
+            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                auto expr = parse_expression();
+                if (expr) {
+                    exprs.push_back(std::move(expr));
                 }
+                match(TokenType::TOKEN_SEMICOLON);
             }
-            while (true) {
-                std::string var_name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
-                std::unique_ptr<ExpressionNode> def_val = nullptr;
-                if (match(TokenType::TOKEN_EQUAL)) {
-                    def_val = parse_expression();
-                }
-                ClassMemberVar mvar;
-                mvar.name = var_name;
-                mvar.width = width;
-                mvar.is_signed = is_s;
-                mvar.default_expr = std::move(def_val);
-                cls->add_member_var(std::move(mvar));
-                if (match(TokenType::TOKEN_COMMA)) continue;
-                break;
-            }
-            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
-        } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
-            advance();
-            while (true) {
-                std::string var_name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
-                ClassMemberVar mvar;
-                mvar.name = var_name;
-                mvar.width = 64;
-                mvar.is_signed = false;
-                cls->add_member_var(std::move(mvar));
-                if (match(TokenType::TOKEN_COMMA)) continue;
-                break;
-            }
-            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member handle declaration");
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing constraint block");
+            cls->add_constraint(std::make_unique<ConstraintBlockNode>(cname, std::move(exprs)));
         } else {
-            advance();
+            bool is_rand = false;
+            bool is_randc = false;
+            if (match(TokenType::TOKEN_RAND)) {
+                is_rand = true;
+            } else if (match(TokenType::TOKEN_RANDC)) {
+                is_randc = true;
+            }
+
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+                current.type == TokenType::TOKEN_INTEGER ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                bool is_s = (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")));
+                advance();
+                if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+                uint32_t width = is_s ? 32 : 1;
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    auto msb = parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                    auto lsb = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                    auto msb_n = dynamic_cast<NumberNode*>(msb.get());
+                    auto lsb_n = dynamic_cast<NumberNode*>(lsb.get());
+                    if (msb_n && lsb_n) {
+                        width = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+                    }
+                }
+                while (true) {
+                    std::string var_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                    std::unique_ptr<ExpressionNode> def_val = nullptr;
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        def_val = parse_expression();
+                    }
+                    ClassMemberVar mvar;
+                    mvar.name = var_name;
+                    mvar.width = width;
+                    mvar.is_signed = is_s;
+                    mvar.default_expr = std::move(def_val);
+                    mvar.is_rand = is_rand;
+                    mvar.is_randc = is_randc;
+                    cls->add_member_var(std::move(mvar));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                advance();
+                while (true) {
+                    std::string var_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                    ClassMemberVar mvar;
+                    mvar.name = var_name;
+                    mvar.width = 64;
+                    mvar.is_signed = false;
+                    mvar.is_rand = is_rand;
+                    mvar.is_randc = is_randc;
+                    cls->add_member_var(std::move(mvar));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member handle declaration");
+            } else {
+                advance();
+            }
         }
     }
     expect(TokenType::TOKEN_ENDCLASS, "Expected 'endclass'");

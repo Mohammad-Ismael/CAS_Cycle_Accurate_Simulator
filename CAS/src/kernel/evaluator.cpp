@@ -380,6 +380,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
             if (cl_obj) {
+                if (method == "srandom") {
+                    uint32_t seed = 0;
+                    if (!tcall->args.empty()) {
+                        seed = static_cast<uint32_t>(expr_eval.eval(tcall->args[0].get(), bp.scope).aval);
+                    }
+                    cl_obj->srandom(seed);
+                    return;
+                }
+                if (method == "randomize") {
+                    std::vector<std::unique_ptr<ExpressionNode>> dummy_inline;
+                    engine.solver.solve(cl_obj, dummy_inline, bp.scope, [&](ExpressionNode* e) {
+                        return expr_eval.eval(e, bp.scope);
+                    });
+                    return;
+                }
                 if (var_name == "super" && method == "new") {
                     FunctionNode* base_ctor = (cl_obj->class_def && cl_obj->class_def->base_class) ?
                                               cl_obj->class_def->base_class->get_constructor() : nullptr;
@@ -639,6 +654,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         }
 
+        if (tname == "srandom") {
+            ClassObject* cl_obj = expr_eval.get_current_this();
+            if (cl_obj) {
+                uint32_t seed = 0;
+                if (!tcall->args.empty()) {
+                    seed = static_cast<uint32_t>(expr_eval.eval(tcall->args[0].get(), bp.scope).aval);
+                }
+                cl_obj->srandom(seed);
+                return;
+            }
+        }
+
         std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
         TaskNode* target_task = nullptr;
         if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
@@ -651,6 +678,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active()) return;
             }
+        }
+        return;
+    }
+
+    if (auto rstmt = dynamic_cast<RandomizeStatementNode*>(stmt)) {
+        if (rstmt->call) {
+            eval_expr(rstmt->call.get(), bp.scope);
         }
         return;
     }
@@ -700,6 +734,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class constructor 'new()' used in $monitor per IEEE 1800-2023 section 8.7 & 21.2.3");
                 } else if (dynamic_cast<ThisNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'this' used directly in $monitor per IEEE 1800-2023 section 8.11 & 21.2.3");
+                } else if (dynamic_cast<RandomizeCallNode*>(expr)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'randomize()' used directly in $monitor per IEEE 1800-2023 section 18 & 21.2.3");
                 } else if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
                     if (engine.is_class_handle(mc->var_name, bp.scope) || mc->var_name == "this") {
                         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class method '" + mc->var_name + "." + mc->method_name + "()' used in $monitor per IEEE 1800-2023 section 8.5 & 21.2.3");

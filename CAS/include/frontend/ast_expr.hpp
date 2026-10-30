@@ -267,3 +267,51 @@ struct SysCastCallNode : public ExpressionNode {
         );
     }
 };
+
+struct InsideRange {
+    std::unique_ptr<ExpressionNode> low;
+    std::unique_ptr<ExpressionNode> high;
+
+    InsideRange() = default;
+    InsideRange(std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> h = nullptr)
+        : low(std::move(l)), high(std::move(h)) {}
+
+    InsideRange clone() const {
+        return InsideRange(low ? low->clone() : nullptr, high ? high->clone() : nullptr);
+    }
+};
+
+struct InsideNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> target;
+    std::vector<InsideRange> ranges;
+
+    InsideNode(std::unique_ptr<ExpressionNode> t, std::vector<InsideRange> r)
+        : target(std::move(t)), ranges(std::move(r)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<InsideRange> cloned_ranges;
+        for (const auto& r : ranges) {
+            cloned_ranges.push_back(r.clone());
+        }
+        return std::make_unique<InsideNode>(target ? target->clone() : nullptr, std::move(cloned_ranges));
+    }
+};
+
+struct RandomizeCallNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> target_handle;
+    std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
+
+    RandomizeCallNode(std::unique_ptr<ExpressionNode> target, std::vector<std::unique_ptr<ExpressionNode>> constraints = {})
+        : target_handle(std::move(target)), inline_constraints(std::move(constraints)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> cloned_constraints;
+        for (const auto& c : inline_constraints) {
+            cloned_constraints.push_back(c ? c->clone() : nullptr);
+        }
+        return std::make_unique<RandomizeCallNode>(
+            target_handle ? target_handle->clone() : nullptr,
+            std::move(cloned_constraints)
+        );
+    }
+};

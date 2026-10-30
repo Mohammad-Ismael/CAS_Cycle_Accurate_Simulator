@@ -28,7 +28,8 @@ suites = [
     ("v3.2.0.0", "v3_2_0_0_clocking_blocks", ["design.sv", "testbench.sv"]),
     ("v3.3.0.0", "v3_3_0_0_associative_arrays", ["design.sv", "testbench.sv"]),
     ("v3.4.0.0", "v3_4_0_0_classes", ["design.sv", "testbench.sv"]),
-    ("v3.5.0.0", "v3_5_0_0_inheritance_polymorphism", ["design.sv", "testbench.sv"])
+    ("v3.5.0.0", "v3_5_0_0_inheritance_polymorphism", ["design.sv", "testbench.sv"]),
+    ("v3.6.0.0", "v3_6_0_0_constrained_randomization", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

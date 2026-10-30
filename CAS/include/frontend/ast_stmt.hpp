@@ -289,3 +289,10 @@ struct SysCastStatementNode : public StatementNode {
     SysCastStatementNode(std::unique_ptr<ExpressionNode> d, std::unique_ptr<ExpressionNode> s)
         : dest_expr(std::move(d)), src_expr(std::move(s)) {}
 };
+
+struct RandomizeStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> call;
+
+    explicit RandomizeStatementNode(std::unique_ptr<ExpressionNode> c)
+        : call(std::move(c)) {}
+};

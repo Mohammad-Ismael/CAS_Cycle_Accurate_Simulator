@@ -356,6 +356,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: class constructor 'new()' used in continuous assignment per IEEE 1800-2023 section 8.7");
             } else if (dynamic_cast<ThisNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'this' used in continuous assignment per IEEE 1800-2023 section 8.11");
+            } else if (dynamic_cast<RandomizeCallNode*>(expr)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'randomize()' used in continuous assignment per IEEE 1800-2023 section 18");
             } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
                 std::string s_id = scope + "." + idx->name;
                 if (result.queue_map.find(s_id) != result.queue_map.end() ||

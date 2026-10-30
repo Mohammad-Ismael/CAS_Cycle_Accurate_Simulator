@@ -391,6 +391,11 @@ Token Lexer::next_token() {
         if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "rand") return {TokenType::TOKEN_RAND, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "randc") return {TokenType::TOKEN_RANDC, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "constraint") return {TokenType::TOKEN_CONSTRAINT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "with") return {TokenType::TOKEN_WITH, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "inside") return {TokenType::TOKEN_INSIDE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};

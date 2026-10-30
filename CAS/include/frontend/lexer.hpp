@@ -135,7 +135,12 @@ enum class TokenType {
     TOKEN_EXTENDS,
     TOKEN_SUPER,
     TOKEN_VIRTUAL,
-    TOKEN_CAST
+    TOKEN_CAST,
+    TOKEN_RAND,
+    TOKEN_RANDC,
+    TOKEN_CONSTRAINT,
+    TOKEN_WITH,
+    TOKEN_INSIDE
 };
 
 struct Token {

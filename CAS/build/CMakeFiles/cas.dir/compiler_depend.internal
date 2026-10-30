@@ -1897,6 +1897,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o
  /app/CAS/include/kernel/time_wheel.hpp
  /app/CAS/include/tracer/vcd_dumper.hpp
  /app/CAS/include/ast.hpp
+ /app/CAS/include/common/constraint_solver.hpp
  /app/CAS/include/engine.hpp
  /app/CAS/include/frontend/ast_module.hpp
  /app/CAS/include/common/assoc_array_types.hpp

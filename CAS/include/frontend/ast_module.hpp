@@ -234,6 +234,16 @@ struct ClassMemberVar {
     uint32_t width = 32;
     bool is_signed = false;
     std::unique_ptr<ExpressionNode> default_expr;
+    bool is_rand = false;
+    bool is_randc = false;
+};
+
+struct ConstraintBlockNode : public ASTNode {
+    std::string name;
+    std::vector<std::unique_ptr<ExpressionNode>> exprs;
+
+    ConstraintBlockNode(std::string n, std::vector<std::unique_ptr<ExpressionNode>> e)
+        : name(std::move(n)), exprs(std::move(e)) {}
 };
 
 struct ClassNode : public ASTNode {
@@ -245,6 +255,9 @@ struct ClassNode : public ASTNode {
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, TaskNode*> task_map;
+
+    std::vector<std::unique_ptr<ConstraintBlockNode>> constraints;
+    std::unordered_map<std::string, ConstraintBlockNode*> constraint_map;
 
     std::unordered_map<std::string, FunctionNode*> vtable_functions;
     std::unordered_map<std::string, TaskNode*> vtable_tasks;
@@ -262,6 +275,12 @@ struct ClassNode : public ASTNode {
 
     void add_member_var(ClassMemberVar var) {
         member_vars.push_back(std::move(var));
+    }
+
+    void add_constraint(std::unique_ptr<ConstraintBlockNode> cb) {
+        ConstraintBlockNode* ptr = cb.get();
+        constraints.push_back(std::move(cb));
+        constraint_map[ptr->name] = ptr;
     }
 
     void add_function(std::unique_ptr<FunctionNode> fn) {

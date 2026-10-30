@@ -7,6 +7,7 @@
 #include "kernel/scheduler.hpp"
 #include "profiler/profiler.hpp"
 #include "tracer/vcd_dumper.hpp"
+#include "common/constraint_solver.hpp"
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -73,6 +74,8 @@ private:
     StratifiedScheduler scheduler;
 
 public:
+    ConstraintSolver solver;
+
     Engine();
     ~Engine() = default;
 

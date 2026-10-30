@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.5.0.0`  
-**Status:** Production Milestone v3.5.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.6.0.0`  
+**Status:** Production Milestone v3.6.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 28.9%`
+`[███████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 30.3%`
 
-*Current Baseline (v3.5.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, constructors, inheritance (`extends`), `super.new`, virtual methods, dynamic polymorphism, and `$cast`.
-*Upcoming Domains:* Constrained Randomization (`rand`, `constraint`), Functional Coverage (`covergroup`), SVA Concurrent Assertions, DPI-C.
+*Current Baseline (v3.6.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, constructors, inheritance (`extends`), `super.new`, virtual methods, dynamic polymorphism, `$cast`, and constrained randomization (`rand`, `randc`, `constraint`, `randomize()`, inline `with {}`, contradiction diagnostic `[CAS-CNST-CIF]`).
+*Upcoming Domains:* Functional Coverage (`covergroup`), SVA Concurrent Assertions, DPI-C.
 
 ---
 
@@ -36,6 +36,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 | **§7.10, §7.10.4** | **Bounded & Unbounded Queues & Methods** | Unbounded (`[$]`) and bounded (`[$:N]`) queue declarations, dynamic methods (`.size()`, `.push_back()`, `.push_front()`, `.pop_front()`, `.pop_back()`, `.delete()`), 4-state unknown out-of-bounds indexing safety, and `[CAS-DTINPCIL]` context restriction checks on continuous assignments and `$monitor`. |
 | **§8, §8.3, §8.4, §8.5, §8.7, §8.11** | **OOP Classes, Objects & Methods** | Class definitions (`class ... endclass`), object handles, instantiation via constructor (`new(...)`), member properties, member tasks and functions, `this` self-reference, `null` handles, and dynamic type context restrictions (`[CAS-DTINPCIL]`). |
 | **§8.13–§8.20** | **OOP Class Inheritance, Virtual Methods & $cast** | Class inheritance (`extends`), constructor chaining (`super.new(...)`), virtual methods (`virtual function/task`), dynamic polymorphic dispatch via vtables, and runtime dynamic downcasting (`$cast(dest, src)`). |
+| **§18, §18.4, §18.5, §18.7, §18.14** | **Constrained Randomization** | Random modifiers (`rand`, `randc`), declarative `constraint` blocks, built-in `.randomize()` method, inline `with { ... }` constraints, containment ranges (`inside { ... }`), PRNG seeding via `.srandom()`, and contradiction diagnostic `[CAS-CNST-CIF]`. |
 | **§25, §25.3, §25.5** | **SystemVerilog Interfaces & Ports** | `interface ... endinterface` definitions, interface instantiation (`interface_name inst()`), module interface ports (`simple_bus_if bus`), port bundling without manual wire routing, and hierarchical interface member access/driving (`bus.valid <= expr;`, `bus.data`, `@(posedge bus.clk)`). |
 | **§25.5.3** | **Interface Modports & Directional Bindings** | `modport` declarations (`input`, `output`, `inout`), modport directional port typing (`interface_name.modport_name port_name`), modport connection binding (`.port(inst.modport)`), and hierarchical port mapping. |
 | **§14, §14.3, §14.11, §14.16** | **Clocking Blocks & Cycle Delays** | `clocking ... endclocking` declarations, default clocking, cycle delay statements (`##N`), synchronous output drives (`cb.sig <= expr`), Preponed input sampling (`#1step`), and diagnostic `[CAS-DCNS]`. |
@@ -57,7 +58,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (26 / 26 PASS)
+## Milestone Regression Pass Matrix (27 / 27 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -89,6 +90,7 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.3.0.0** | `projects/v3_3_0_0_associative_arrays` | Associative Arrays, Dynamic Sparse Indexing, & Built-in Methods (§7.8) | **PASS** | 100% VCS |
 | **v3.4.0.0** | `projects/v3_4_0_0_classes` | OOP Classes, Handles, Constructors `new()`, and Member Methods (§8) | **PASS** | 100% VCS |
 | **v3.5.0.0** | `projects/v3_5_0_0_inheritance_polymorphism` | OOP Inheritance, `super.new`, Virtual Methods, Polymorphism & `$cast` (§8.13–§8.20) | **PASS** | 100% VCS |
+| **v3.6.0.0** | `projects/v3_6_0_0_constrained_randomization` | Constrained Randomization (`rand`, `randc`, `constraint`, `randomize()`, `with{}`) (§18) | **PASS** | 100% VCS |
 
 ---
 

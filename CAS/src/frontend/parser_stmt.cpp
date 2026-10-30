@@ -612,6 +612,42 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             return node;
         }
 
+        bool is_rand_call = (ident == "randomize" || (ident.size() > 10 && ident.substr(ident.size() - 10) == ".randomize"));
+        if (is_rand_call) {
+            if (match(TokenType::TOKEN_LPAREN)) {
+                if (current.type != TokenType::TOKEN_RPAREN) {
+                    while (true) {
+                        parse_expression();
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' in randomize call");
+            }
+            std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
+            if (match(TokenType::TOKEN_WITH)) {
+                expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    auto expr = parse_expression();
+                    if (expr) {
+                        inline_constraints.push_back(std::move(expr));
+                    }
+                    match(TokenType::TOKEN_SEMICOLON);
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after statement");
+            std::unique_ptr<ExpressionNode> target_handle = nullptr;
+            if (ident == "randomize" || ident == "this.randomize") {
+                target_handle = std::make_unique<ThisNode>();
+            } else {
+                std::string obj_name = ident.substr(0, ident.size() - 10);
+                target_handle = std::make_unique<IdentifierNode>(obj_name);
+            }
+            auto rcall = std::make_unique<RandomizeCallNode>(std::move(target_handle), std::move(inline_constraints));
+            return std::make_unique<RandomizeStatementNode>(std::move(rcall));
+        }
+
         std::vector<std::unique_ptr<ExpressionNode>> task_args;
         if (match(TokenType::TOKEN_LPAREN)) {
             if (current.type != TokenType::TOKEN_RPAREN) {

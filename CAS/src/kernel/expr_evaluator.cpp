@@ -211,6 +211,73 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(64, 0, 0);
     }
 
+    if (auto inside_node = dynamic_cast<InsideNode*>(expr)) {
+        LogicVal target_val = eval(inside_node->target.get(), scope);
+        for (const auto& r : inside_node->ranges) {
+            if (r.high) {
+                LogicVal lo = eval(r.low.get(), scope);
+                LogicVal hi = eval(r.high.get(), scope);
+                if (target_val.aval >= lo.aval && target_val.aval <= hi.aval &&
+                    target_val.bval == 0 && lo.bval == 0 && hi.bval == 0) {
+                    return LogicVal::make_known(1, 1);
+                }
+            } else {
+                LogicVal v = eval(r.low.get(), scope);
+                if (target_val.aval == v.aval && target_val.bval == 0 && v.bval == 0) {
+                    return LogicVal::make_known(1, 1);
+                }
+            }
+        }
+        return LogicVal::make_known(1, 0);
+    }
+
+    if (auto rcall = dynamic_cast<RandomizeCallNode*>(expr)) {
+        ClassObject* cl_obj = nullptr;
+        if (!rcall->target_handle) {
+            cl_obj = current_this;
+        } else if (dynamic_cast<ThisNode*>(rcall->target_handle.get())) {
+            cl_obj = current_this;
+        } else if (auto id = dynamic_cast<IdentifierNode*>(rcall->target_handle.get())) {
+            std::string var_name = id->name;
+            if (var_name == "this") {
+                cl_obj = current_this;
+            } else {
+                if (context.has_active_frame()) {
+                    LocalVar* local = context.lookup_local(var_name);
+                    if (local && local->is_class_handle) {
+                        cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                }
+                if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_class_handle) {
+                            cl_obj = engine.get_class_object(local->value.aval).get();
+                            break;
+                        }
+                    }
+                }
+                if (!cl_obj) {
+                    size_t nid = engine.get_net_id(scope, var_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                        cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                    }
+                }
+            }
+        }
+        if (!cl_obj) {
+            return LogicVal::make_known(32, 0);
+        }
+
+        ClassObject* prev_this = current_this;
+        current_this = cl_obj;
+        bool ok = engine.solver.solve(cl_obj, rcall->inline_constraints, scope, [&](ExpressionNode* e) {
+            return eval(e, scope);
+        });
+        current_this = prev_this;
+        return LogicVal::make_known(32, ok ? 1 : 0);
+    }
+
     if (auto str_node = dynamic_cast<StringNode*>(expr)) {
         return LogicVal::make_string(str_node->value);
     }
@@ -276,6 +343,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         if (cl_obj) {
+            if (method_node->method_name == "randomize") {
+                std::vector<std::unique_ptr<ExpressionNode>> dummy_inline;
+                ClassObject* prev_this = current_this;
+                current_this = cl_obj;
+                bool ok = engine.solver.solve(cl_obj, dummy_inline, scope, [&](ExpressionNode* e) {
+                    return eval(e, scope);
+                });
+                current_this = prev_this;
+                return LogicVal::make_known(32, ok ? 1 : 0);
+            }
             FunctionNode* fn = nullptr;
             if (var_name == "super") {
                 if (cl_obj->class_def && cl_obj->class_def->base_class) {
