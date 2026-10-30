@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <functional>
 #include <algorithm>
+#include <cmath>
 #include "logic_val.hpp"
+#include "edge_types.hpp"
 #include "../frontend/ast_expr.hpp"
 
 struct CovergroupBin {
@@ -21,12 +23,14 @@ struct CovergroupBin {
     bool matches(uint64_t val, const std::function<uint64_t(ExpressionNode*)>& eval_fn) const {
         for (const auto& r : ranges) {
             if (r.high) {
-                uint64_t lo = eval_fn(r.low.get());
+                uint64_t lo = r.low ? eval_fn(r.low.get()) : 0;
                 uint64_t hi = eval_fn(r.high.get());
                 if (val >= lo && val <= hi) return true;
             } else {
-                uint64_t v = eval_fn(r.low.get());
-                if (val == v) return true;
+                if (r.low) {
+                    uint64_t v = eval_fn(r.low.get());
+                    if (val == v) return true;
+                }
             }
         }
         return false;
@@ -112,6 +116,11 @@ struct CovergroupInstance {
     std::vector<CoverpointItem> coverpoints;
     std::vector<CoverCrossItem> crosses;
     std::string creation_scope = "";
+    bool has_event_trigger = false;
+    EdgeType clock_edge = EdgeType::POSEDGE;
+    size_t clock_net_id = (size_t)-1;
+    bool fired_in_time_slot = false;
+    bool per_instance = false;
 
     CovergroupInstance() = default;
     CovergroupInstance(uint64_t id, std::string tname, const CovergroupNode* d = nullptr, std::string sc = "")
@@ -123,10 +132,12 @@ struct CovergroupInstance {
             auto& cp = coverpoints[cp_idx];
             if (!cp.target_expr) continue;
             LogicVal val = eval_fn(cp.target_expr.get(), creation_scope);
-            uint64_t aval = val.aval;
+            uint64_t aval = val.is_real ? static_cast<uint64_t>(std::round(val.real_val)) : val.aval;
             auto const_eval = [&](ExpressionNode* e) -> uint64_t {
+                if (!e) return 0;
                 if (auto num = dynamic_cast<NumberNode*>(e)) return num->aval;
-                return eval_fn(e, creation_scope).aval;
+                LogicVal lv = eval_fn(e, creation_scope);
+                return lv.is_real ? static_cast<uint64_t>(std::round(lv.real_val)) : lv.aval;
             };
             for (size_t b_idx = 0; b_idx < cp.bins.size(); ++b_idx) {
                 if (cp.bins[b_idx].matches(aval, const_eval)) {

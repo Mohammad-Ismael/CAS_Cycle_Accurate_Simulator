@@ -12,6 +12,7 @@ enum class TokenType {
     TOKEN_INPUT,
     TOKEN_OUTPUT,
     TOKEN_INOUT,
+    TOKEN_REF,
     TOKEN_LOGIC,
     TOKEN_WIRE,
     TOKEN_WAND,

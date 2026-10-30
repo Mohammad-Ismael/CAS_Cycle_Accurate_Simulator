@@ -546,6 +546,31 @@ void StratifiedScheduler::evaluate_clocking_blocks() {
     }
 }
 
+void StratifiedScheduler::evaluate_covergroup_events() {
+    for (uint64_t hid : engine.event_triggered_covergroups) {
+        auto inst = engine.get_covergroup_instance(hid);
+        if (!inst || inst->fired_in_time_slot) continue;
+        if (inst->clock_net_id >= engine.netlist.size()) continue;
+
+        const auto& clk_net = engine.netlist[inst->clock_net_id];
+        bool clk_triggered = false;
+        if (inst->clock_edge == EdgeType::POSEDGE && clk_net.is_posedge()) {
+            clk_triggered = true;
+        } else if (inst->clock_edge == EdgeType::NEGEDGE && clk_net.is_negedge()) {
+            clk_triggered = true;
+        } else if (inst->clock_edge == EdgeType::LEVEL && clk_net.modified) {
+            clk_triggered = true;
+        }
+
+        if (clk_triggered) {
+            inst->fired_in_time_slot = true;
+            inst->sample([&](ExpressionNode* e, const std::string& sc) {
+                return engine.evaluator.eval_expr(e, sc.empty() ? inst->creation_scope : sc);
+            });
+        }
+    }
+}
+
 bool StratifiedScheduler::commit_nba_updates() {
     if (nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
 
@@ -1535,6 +1560,7 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
         propagate_comb();
         evaluate_sequential_blocks();
         evaluate_clocking_blocks();
+        evaluate_covergroup_events();
 
         if (trigger_intra_event_nbas()) {
             activity = true;
@@ -1584,6 +1610,11 @@ void StratifiedScheduler::run_simulation() {
     for (auto& asrt : engine.sva_assertions) {
         asrt.fired_in_time_slot = false;
     }
+    for (uint64_t hid : engine.event_triggered_covergroups) {
+        if (auto inst = engine.get_covergroup_instance(hid)) {
+            inst->fired_in_time_slot = false;
+        }
+    }
     capture_preponed_samples();
     for (auto& cb : engine.clocking_blocks) {
         for (auto& kv : cb.signals) {
@@ -1627,6 +1658,11 @@ void StratifiedScheduler::run_simulation() {
         }
         for (auto& asrt : engine.sva_assertions) {
             asrt.fired_in_time_slot = false;
+        }
+        for (uint64_t hid : engine.event_triggered_covergroups) {
+            if (auto inst = engine.get_covergroup_instance(hid)) {
+                inst->fired_in_time_slot = false;
+            }
         }
         capture_preponed_samples();
 

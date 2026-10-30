@@ -1943,27 +1943,92 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
     std::string cg_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected covergroup name");
 
+    auto cg = std::make_unique<CovergroupNode>(cg_name);
+
     if (match(TokenType::TOKEN_LPAREN)) {
-        int depth = 1;
-        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
-            if (current.type == TokenType::TOKEN_LPAREN) depth++;
-            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
-            advance();
-        }
-    }
-    if (match(TokenType::TOKEN_AT)) {
-        if (match(TokenType::TOKEN_LPAREN)) {
-            int depth = 1;
-            while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
-                if (current.type == TokenType::TOKEN_LPAREN) depth++;
-                else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+            std::string dir = "input";
+            if (current.type == TokenType::TOKEN_REF || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "ref")) {
+                dir = "ref";
+                advance();
+            } else if (match(TokenType::TOKEN_INPUT)) {
+                dir = "input";
+            } else if (match(TokenType::TOKEN_OUTPUT)) {
+                dir = "output";
+            } else if (match(TokenType::TOKEN_INOUT)) {
+                dir = "inout";
+            }
+
+            std::string type_str = "logic";
+            bool is_signed = false;
+            std::unique_ptr<ExpressionNode> msb = nullptr;
+            std::unique_ptr<ExpressionNode> lsb = nullptr;
+
+            if (match(TokenType::TOKEN_SIGNED)) is_signed = true;
+
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
+                current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
+                type_str = current.text;
+                advance();
+            } else if (current.type == TokenType::TOKEN_INTEGER) {
+                type_str = "integer";
+                is_signed = true;
+                msb = std::make_unique<NumberNode>(31, 32);
+                lsb = std::make_unique<NumberNode>(0, 32);
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
+                type_str = current.text;
+                is_signed = true;
+                if (current.text == "byte") { msb = std::make_unique<NumberNode>(7, 32); }
+                else if (current.text == "shortint") { msb = std::make_unique<NumberNode>(15, 32); }
+                else if (current.text == "longint") { msb = std::make_unique<NumberNode>(63, 32); }
+                else { msb = std::make_unique<NumberNode>(31, 32); }
+                lsb = std::make_unique<NumberNode>(0, 32);
                 advance();
             }
-        }
-    }
-    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after covergroup header");
 
-    auto cg = std::make_unique<CovergroupNode>(cg_name);
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+                lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+            }
+
+            std::string port_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected argument name");
+
+            PortNode pnode(port_name, dir, std::move(msb), std::move(lsb), is_signed, NetKind::VAR);
+            pnode.type_name = type_str;
+
+            if (match(TokenType::TOKEN_EQUAL)) {
+                pnode.default_value = parse_expression();
+            }
+
+            cg->arguments.push_back(std::move(pnode));
+
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing covergroup arguments");
+    }
+
+    if (match(TokenType::TOKEN_AT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+        cg->has_event_trigger = true;
+        if (match(TokenType::TOKEN_POSEDGE)) cg->event_edge = EdgeType::POSEDGE;
+        else if (match(TokenType::TOKEN_NEGEDGE)) cg->event_edge = EdgeType::NEGEDGE;
+        else cg->event_edge = EdgeType::LEVEL;
+
+        cg->event_signal = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected clock/event signal name");
+        while (match(TokenType::TOKEN_DOT)) {
+            cg->event_signal += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event trigger");
+    }
+
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after covergroup header");
 
     while (current.type != TokenType::TOKEN_ENDGROUP && current.type != TokenType::TOKEN_EOF) {
         std::string label = "";
@@ -1973,6 +2038,18 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
                 label = current.text;
                 advance();
                 advance();
+            } else if (current.text == "option") {
+                advance();
+                expect(TokenType::TOKEN_DOT, "Expected '.' after option");
+                std::string opt_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected option identifier");
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in option assignment");
+                auto val_expr = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after option assignment");
+                if (opt_name == "per_instance") {
+                    cg->per_instance = true;
+                }
+                continue;
             }
         }
 
@@ -2011,6 +2088,15 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
                         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing bin values");
                         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after bin declaration");
                         cp->bins.push_back(std::make_unique<CovergroupBinNode>(bin_name, std::move(bin_ranges)));
+                    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "option") {
+                        advance();
+                        expect(TokenType::TOKEN_DOT, "Expected '.' after option");
+                        std::string opt_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected option identifier");
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' in option assignment");
+                        auto val_expr = parse_expression();
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after option assignment");
+                        continue;
                     } else {
                         advance();
                     }
@@ -2600,6 +2686,18 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 std::shared_ptr<ClassNode> scls = std::move(cls);
                 pkg->class_map[scls->name] = scls.get();
                 pkg->classes.push_back(scls);
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_COVERGROUP) {
+            auto cg = parse_covergroup();
+            if (cg) {
+                std::string cname = cg->name;
+                std::shared_ptr<CovergroupNode> scg = std::move(cg);
+                covergroup_map[cname] = scg;
+                covergroup_map[pkg->name + "::" + cname] = scg;
+                global_covergroups.push_back(scg);
             }
             continue;
         }

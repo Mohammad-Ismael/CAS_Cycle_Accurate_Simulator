@@ -461,6 +461,12 @@ struct CovergroupNode : public ASTNode {
     std::vector<std::unique_ptr<CoverCrossNode>> crosses;
     std::unordered_map<std::string, CoverCrossNode*> cross_map;
 
+    std::vector<PortNode> arguments;
+    bool has_event_trigger = false;
+    EdgeType event_edge = EdgeType::POSEDGE;
+    std::string event_signal = "";
+    bool per_instance = false;
+
     explicit CovergroupNode(std::string n) : name(std::move(n)) {}
 
     void add_coverpoint(std::unique_ptr<CoverpointNode> cp) {

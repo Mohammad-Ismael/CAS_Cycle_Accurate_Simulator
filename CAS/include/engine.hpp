@@ -13,6 +13,7 @@
 #include "common/dpic_types.hpp"
 #include "common/sync_types.hpp"
 #include <unordered_map>
+#include <cmath>
 #include <iostream>
 #include <vector>
 
@@ -70,6 +71,7 @@ private:
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;
     std::unordered_map<uint64_t, std::shared_ptr<CovergroupInstance>> covergroup_heap;
+    std::vector<uint64_t> event_triggered_covergroups;
     std::vector<SvaAssertionInstance> sva_assertions;
     std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
     std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;
@@ -391,17 +393,85 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<CovergroupInstance> allocate_covergroup_instance(const std::string& cg_type, const std::string& creation_scope = "") {
+    std::shared_ptr<CovergroupInstance> allocate_covergroup_instance(
+        const std::string& cg_type,
+        const std::string& creation_scope = "",
+        const std::vector<std::unique_ptr<ExpressionNode>>& actual_args = {},
+        const std::function<LogicVal(ExpressionNode*)>& eval_expr = nullptr
+    ) {
         uint64_t id = next_handle_id++;
         const CovergroupNode* def = get_covergroup_def(cg_type);
         auto inst = std::make_shared<CovergroupInstance>(id, cg_type, def, creation_scope);
         if (def) {
+            inst->per_instance = def->per_instance;
+
+            std::unordered_map<std::string, const ExpressionNode*> ref_map;
+            std::unordered_map<std::string, uint64_t> const_map;
+
+            for (size_t i = 0; i < def->arguments.size(); ++i) {
+                const auto& formal = def->arguments[i];
+                const ExpressionNode* actual_expr = (i < actual_args.size()) ? actual_args[i].get() : formal.default_value.get();
+                if (!actual_expr) continue;
+
+                if (formal.direction == "ref") {
+                    ref_map[formal.name] = actual_expr;
+                } else {
+                    uint64_t val = 0;
+                    if (eval_expr) {
+                        LogicVal lv = eval_expr(const_cast<ExpressionNode*>(actual_expr));
+                        val = lv.is_real ? static_cast<uint64_t>(std::round(lv.real_val)) : lv.aval;
+                    } else if (auto num = dynamic_cast<const NumberNode*>(actual_expr)) {
+                        val = num->aval;
+                    }
+                    const_map[formal.name] = val;
+                }
+            }
+
+            std::function<std::unique_ptr<ExpressionNode>(const ExpressionNode*)> subst =
+                [&](const ExpressionNode* expr) -> std::unique_ptr<ExpressionNode> {
+                    if (!expr) return nullptr;
+                    if (auto id_expr = dynamic_cast<const IdentifierNode*>(expr)) {
+                        auto it_ref = ref_map.find(id_expr->name);
+                        if (it_ref != ref_map.end()) {
+                            return it_ref->second->clone();
+                        }
+                        auto it_c = const_map.find(id_expr->name);
+                        if (it_c != const_map.end()) {
+                            return std::make_unique<NumberNode>(it_c->second, 32);
+                        }
+                        return id_expr->clone();
+                    }
+                    if (auto num = dynamic_cast<const NumberNode*>(expr)) {
+                        return num->clone();
+                    }
+                    if (auto bin = dynamic_cast<const BinaryOpNode*>(expr)) {
+                        return std::make_unique<BinaryOpNode>(bin->op, subst(bin->lhs.get()), subst(bin->rhs.get()));
+                    }
+                    if (auto un = dynamic_cast<const UnaryOpNode*>(expr)) {
+                        return std::make_unique<UnaryOpNode>(un->op, subst(un->operand.get()));
+                    }
+                    if (auto ter = dynamic_cast<const TernaryOpNode*>(expr)) {
+                        return std::make_unique<TernaryOpNode>(subst(ter->condition.get()), subst(ter->true_expr.get()), subst(ter->false_expr.get()));
+                    }
+                    if (auto idx = dynamic_cast<const IndexSelectNode*>(expr)) {
+                        if (idx->is_part_select) {
+                            return std::make_unique<IndexSelectNode>(idx->name, subst(idx->msb_expr.get()), subst(idx->lsb_expr.get()));
+                        } else {
+                            return std::make_unique<IndexSelectNode>(idx->name, subst(idx->msb_expr.get()));
+                        }
+                    }
+                    if (auto cast = dynamic_cast<const CastNode*>(expr)) {
+                        return std::make_unique<CastNode>(cast->target_type, subst(cast->expr.get()));
+                    }
+                    return expr->clone();
+                };
+
             for (const auto& cp_node : def->coverpoints) {
-                CoverpointItem cp_item(cp_node->label, cp_node->target_expr ? cp_node->target_expr->clone() : nullptr);
+                CoverpointItem cp_item(cp_node->label, subst(cp_node->target_expr.get()));
                 for (const auto& bin_node : cp_node->bins) {
                     std::vector<InsideRange> bin_ranges;
                     for (const auto& r : bin_node->ranges) {
-                        bin_ranges.push_back({r.low ? r.low->clone() : nullptr, r.high ? r.high->clone() : nullptr});
+                        bin_ranges.push_back({subst(r.low.get()), subst(r.high.get())});
                     }
                     cp_item.add_bin(CovergroupBin(bin_node->name, std::move(bin_ranges)));
                 }
@@ -421,6 +491,20 @@ public:
                 }
                 cr_item.generate_cartesian(inst->coverpoints);
                 inst->crosses.push_back(std::move(cr_item));
+            }
+
+            if (def->has_event_trigger) {
+                inst->has_event_trigger = true;
+                inst->clock_edge = def->event_edge;
+                std::string clk_name = def->event_signal;
+                auto it_ref = ref_map.find(clk_name);
+                if (it_ref != ref_map.end()) {
+                    if (auto id_clk = dynamic_cast<const IdentifierNode*>(it_ref->second)) {
+                        clk_name = id_clk->name;
+                    }
+                }
+                inst->clock_net_id = get_net_id(creation_scope, clk_name);
+                event_triggered_covergroups.push_back(id);
             }
         }
         covergroup_heap[id] = inst;

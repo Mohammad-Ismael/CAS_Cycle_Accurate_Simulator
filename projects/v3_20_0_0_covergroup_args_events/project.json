@@ -1,0 +1,11 @@
+{
+  "name": "v3_20_0_0_covergroup_args_events",
+  "version": "v3.20.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§19.4, §19.8",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_20_0_0_regression"
+}

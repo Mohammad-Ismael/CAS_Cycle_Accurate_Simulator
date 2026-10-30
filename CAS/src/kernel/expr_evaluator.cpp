@@ -2,6 +2,7 @@
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
 #include <algorithm>
+#include <cmath>
 
 ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
@@ -440,6 +441,34 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
         LogicVal val = eval(cast_node->expr.get(), scope);
+        if (cast_node->target_type == "int" || cast_node->target_type == "integer") {
+            if (val.is_real) {
+                return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)));
+            }
+            return LogicOps::cast_width(val, 32, true);
+        }
+        if (cast_node->target_type == "shortint") {
+            if (val.is_real) {
+                return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)));
+            }
+            return LogicOps::cast_width(val, 16, true);
+        }
+        if (cast_node->target_type == "byte") {
+            if (val.is_real) {
+                return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)));
+            }
+            return LogicOps::cast_width(val, 8, true);
+        }
+        if (cast_node->target_type == "longint") {
+            if (val.is_real) {
+                return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)));
+            }
+            return LogicOps::cast_width(val, 64, true);
+        }
+        if (cast_node->target_type == "real" || cast_node->target_type == "shortreal") {
+            if (val.is_real) return val;
+            return LogicVal::make_real(static_cast<double>(val.aval));
+        }
         std::string scoped_type = scope.empty() ? cast_node->target_type : (scope + "." + cast_node->target_type);
         const EnumType* et = nullptr;
         if (engine.enum_types.find(scoped_type) != engine.enum_types.end()) {

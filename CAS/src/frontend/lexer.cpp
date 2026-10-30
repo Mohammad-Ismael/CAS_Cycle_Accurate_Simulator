@@ -357,6 +357,7 @@ Token Lexer::next_token() {
         if (ident == "input") return {TokenType::TOKEN_INPUT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "output") return {TokenType::TOKEN_OUTPUT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "inout") return {TokenType::TOKEN_INOUT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "ref") return {TokenType::TOKEN_REF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "logic") return {TokenType::TOKEN_LOGIC, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "wire") return {TokenType::TOKEN_WIRE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "wand") return {TokenType::TOKEN_WAND, ident, 0, 0, cur_file, cur_line, 0};

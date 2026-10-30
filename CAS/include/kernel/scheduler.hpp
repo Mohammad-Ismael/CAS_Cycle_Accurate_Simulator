@@ -80,6 +80,7 @@ private:
     bool trigger_intra_event_nbas();
     bool trigger_intra_event_blocking();
     void evaluate_clocking_blocks();
+    void evaluate_covergroup_events();
     void capture_preponed_samples();
     bool evaluate_sva_assertions();
     std::vector<LogicVal> preponed_net_values;

@@ -1636,7 +1636,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 if (!cg_type.empty()) {
-                    auto inst = engine.allocate_covergroup_instance(cg_type, bp.scope);
+                    auto inst = engine.allocate_covergroup_instance(cg_type, bp.scope, new_node->args, [&](ExpressionNode* e) {
+                        return this->eval_expr(e, bp.scope);
+                    });
                     LogicVal handle_val(64, inst->handle_id, 0);
                     if (local) {
                         local->value = handle_val;
