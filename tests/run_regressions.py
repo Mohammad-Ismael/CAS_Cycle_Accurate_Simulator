@@ -34,7 +34,8 @@ suites = [
     ("v3.8.0.0", "v3_8_0_0_cross_coverage", ["design.sv", "testbench.sv"]),
     ("v3.9.0.0", "v3_9_0_0_sva_concurrent", ["design.sv", "testbench.sv"]),
     ("v3.10.0.0", "v3_10_0_0_sva_sampled_functions", ["design.sv", "testbench.sv"]),
-    ("v3.11.0.0", "v3_11_0_0_sva_repetitions", ["design.sv", "testbench.sv"])
+    ("v3.11.0.0", "v3_11_0_0_sva_repetitions", ["design.sv", "testbench.sv"]),
+    ("v3.12.0.0", "v3_12_0_0_dpic_foreign_interface", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")
@@ -47,6 +48,9 @@ print("-" * 80)
 
 for ver, s_dir, files in suites:
     dir_path = os.path.join("projects", s_dir)
+    c_source = os.path.join(dir_path, "c_model.c")
+    if os.path.exists(c_source):
+        subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
     cmd = [cas_bin] + files
     
     proc = subprocess.run(cmd, cwd=dir_path, capture_output=True, text=True)

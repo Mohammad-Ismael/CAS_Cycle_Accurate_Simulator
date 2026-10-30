@@ -187,4 +187,6 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /usr/include/c++/13.2.1/functional \
  /usr/include/c++/13.2.1/bits/std_function.h \
  /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare \
+ /app/CAS/src/kernel/../../include/common/dpic_types.hpp \
+ /usr/include/dlfcn.h \
  /app/CAS/src/kernel/../../include/kernel/logic_ops.hpp

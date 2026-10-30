@@ -161,7 +161,11 @@ enum class TokenType {
     TOKEN_PAST,
     TOKEN_REP_CONSEC,
     TOKEN_REP_NON_CONSEC,
-    TOKEN_REP_GOTO
+    TOKEN_REP_GOTO,
+    TOKEN_IMPORT,
+    TOKEN_PURE,
+    TOKEN_CONTEXT,
+    TOKEN_VOID
 };
 
 struct Token {

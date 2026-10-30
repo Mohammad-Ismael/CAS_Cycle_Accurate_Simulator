@@ -444,6 +444,10 @@ Token Lexer::next_token() {
         if (ident == "$fell") return {TokenType::TOKEN_FELL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$stable") return {TokenType::TOKEN_STABLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$past") return {TokenType::TOKEN_PAST, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "import") return {TokenType::TOKEN_IMPORT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "pure") return {TokenType::TOKEN_PURE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "context") return {TokenType::TOKEN_CONTEXT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "void") return {TokenType::TOKEN_VOID, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

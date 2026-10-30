@@ -113,6 +113,12 @@ int main(int argc, char* argv[]) {
         }
 
         Engine engine;
+        for (const auto& file : source_files) {
+            size_t slash = file.find_last_of("/\\");
+            if (slash != std::string::npos) {
+                engine.source_search_paths.push_back(file.substr(0, slash));
+            }
+        }
         engine.set_vcd_allowed(enable_vcd);
         engine.set_display_allowed(enable_display);
         engine.set_monitor_allowed(enable_monitor);

@@ -464,6 +464,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             } else if (dynamic_cast<SequenceConcatNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context in continuous assignment per IEEE 1800-2023 section 16.9.2");
             } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+                if (result.dpi_import_map.find(fc->func_name) != result.dpi_import_map.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used in continuous assignment per IEEE 1800-2023 section 35");
+                }
                 for (auto& a : fc->args) check_expr(a.get());
             }
         };
@@ -491,6 +494,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         f->scope = scope;
         result.function_map[scope + "." + f->name] = f.get();
         result.function_map[f->name] = f.get();
+    }
+
+    for (auto& dpi : mod->dpi_imports) {
+        result.dpi_import_map[scope + "." + dpi->sv_name] = dpi.get();
+        result.dpi_import_map[dpi->sv_name] = dpi.get();
     }
 
     for (const auto& ev_name : mod->events) {
@@ -786,6 +794,9 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
         for (auto& cg : mod->covergroups) {
             result.covergroup_defs[cg->name] = cg.get();
+        }
+        for (auto& dpi : mod->dpi_imports) {
+            result.dpi_import_map[dpi->sv_name] = dpi.get();
         }
     }
 

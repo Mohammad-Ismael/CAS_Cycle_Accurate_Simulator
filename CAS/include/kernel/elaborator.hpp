@@ -181,6 +181,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> assertion_names;
     std::unordered_set<std::string> property_names;
     std::unordered_set<std::string> sequence_names;
+    std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
 };
 
 class Elaborator {

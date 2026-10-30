@@ -25,3 +25,5 @@ add_executable(cas
     src/frontend/parser_task.cpp
     src/main.cpp
 )
+
+target_link_libraries(cas ${CMAKE_DL_LIBS})

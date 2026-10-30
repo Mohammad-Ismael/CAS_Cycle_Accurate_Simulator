@@ -1,0 +1,12 @@
+{
+  "name": "v3_12_0_0_dpic_foreign_interface",
+  "version": "v3.12.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35",
+  "description": "Direct Programming Interface (DPI-C): import 'DPI-C', pure functions, C ABI parameter marshalling, dynamic shared library linking, and Context Diagnostic [CAS-DTINPCIL]",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v3_12_0_0_regression"
+}

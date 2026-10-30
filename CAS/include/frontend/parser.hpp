@@ -77,15 +77,22 @@ public:
 
     std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_map;
     std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_map;
+    std::unordered_map<std::string, std::shared_ptr<DpiImportNode>> dpi_import_map;
+    std::vector<std::shared_ptr<DpiImportNode>> global_dpi_imports;
+
     bool is_property(const std::string& name) const {
         return property_map.find(name) != property_map.end();
     }
     bool is_sequence(const std::string& name) const {
         return sequence_map.find(name) != sequence_map.end();
     }
+    bool is_dpi_import(const std::string& name) const {
+        return dpi_import_map.find(name) != dpi_import_map.end();
+    }
     std::unique_ptr<PropertyNode> parse_property();
     std::unique_ptr<SequenceNode> parse_sequence();
     std::unique_ptr<AssertPropertyStatementNode> parse_assert_property(const std::string& label = "");
+    std::unique_ptr<DpiImportNode> parse_dpi_import();
 
     explicit Parser(Lexer& lex);
 

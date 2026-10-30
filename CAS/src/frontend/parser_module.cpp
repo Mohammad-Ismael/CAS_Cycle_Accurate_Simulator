@@ -80,6 +80,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_IMPORT) {
+            auto dpi = parse_dpi_import();
+            if (dpi) {
+                std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                dpi_import_map[sdpi->sv_name] = sdpi;
+                global_dpi_imports.push_back(sdpi);
+            }
+            continue;
+        }
+
         bool is_iface = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
             is_iface = true;
@@ -109,6 +119,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         for (const auto& gc : global_classes) {
             mod->classes.push_back(gc);
             mod->class_map[gc->name] = gc.get();
+        }
+
+        for (const auto& gdpi : global_dpi_imports) {
+            mod->dpi_imports.push_back(gdpi);
+            mod->dpi_import_map[gdpi->sv_name] = gdpi.get();
         }
 
         if (match(TokenType::TOKEN_HASH)) {
@@ -641,19 +656,28 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            bool is_ident_int = (current.type == TokenType::TOKEN_IDENTIFIER && 
+                                 (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SIGNED) {
+                current.type == TokenType::TOKEN_SIGNED || is_ident_int) {
                 
                 bool is_signed_sig = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     is_signed_sig = true;
                     advance();
                 }
+                std::string int_type_name = "";
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
+                if (is_ident_int) {
+                    int_type_name = current.text;
+                    is_int = true;
+                    is_signed_sig = true;
+                }
                 if (is_int) is_signed_sig = true;
                 bool is_real_sig = (current.type == TokenType::TOKEN_REAL);
 
@@ -685,7 +709,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
                 } else if (is_int) {
-                    msb = std::make_unique<NumberNode>(31, 32);
+                    uint32_t iw = 32;
+                    if (int_type_name == "byte") iw = 8;
+                    else if (int_type_name == "shortint") iw = 16;
+                    else if (int_type_name == "longint") iw = 64;
+                    msb = std::make_unique<NumberNode>(iw - 1, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
                 } else if (is_real_sig) {
                     msb = std::make_unique<NumberNode>(63, 32);
@@ -697,6 +725,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     if (is_bit_type) sig.type_name = "bit";
                     if (is_real_sig) sig.type_name = "real";
+                    if (!int_type_name.empty()) sig.type_name = int_type_name;
 
                     if (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
@@ -822,6 +851,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (t) {
                     t->is_virtual = is_virt;
                     mod->tasks.push_back(std::move(t));
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IMPORT) {
+                auto dpi = parse_dpi_import();
+                if (dpi) {
+                    std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                    mod->dpi_imports.push_back(sdpi);
+                    mod->dpi_import_map[sdpi->sv_name] = sdpi.get();
                 }
                 continue;
             }
@@ -1595,4 +1634,196 @@ std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const
 
     match(TokenType::TOKEN_SEMICOLON);
     return assert_node;
+}
+
+std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
+    expect(TokenType::TOKEN_IMPORT, "Expected 'import'");
+    if (current.type != TokenType::TOKEN_STRING || (current.text != "DPI-C" && current.text != "DPI")) {
+        throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+            ": error: Expected '\"DPI-C\"' or '\"DPI\"' in DPI import (found: '" + current.text + "')");
+    }
+    advance();
+
+    auto dpi_node = std::make_unique<DpiImportNode>();
+
+    while (current.type == TokenType::TOKEN_PURE || current.type == TokenType::TOKEN_CONTEXT) {
+        if (current.type == TokenType::TOKEN_PURE) {
+            dpi_node->is_pure = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_CONTEXT) {
+            dpi_node->is_context = true;
+            advance();
+        }
+    }
+
+    std::string explicit_c_name = "";
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_EQUAL) {
+        explicit_c_name = current.text;
+        advance();
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' after foreign C identifier in DPI import");
+    }
+
+    if (current.type == TokenType::TOKEN_FUNCTION) {
+        dpi_node->is_task = false;
+        advance();
+
+        uint32_t ret_w = 32;
+        bool ret_signed = true;
+        std::string ret_type = "int";
+
+        if (current.type == TokenType::TOKEN_VOID || current.text == "void") {
+            ret_type = "void";
+            ret_w = 0;
+            ret_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+            ret_type = "int";
+            ret_w = 32;
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+            ret_type = "byte";
+            ret_w = 8;
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+            ret_type = "shortint";
+            ret_w = 16;
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+            ret_type = "longint";
+            ret_w = 64;
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
+            ret_type = current.text;
+            ret_w = 1;
+            ret_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type != TokenType::TOKEN_LPAREN) {
+            ret_type = current.text;
+            ret_w = 32;
+            advance();
+        }
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in return type range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in return type range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    ret_w = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+
+        dpi_node->return_type = ret_type;
+        dpi_node->return_width = ret_w;
+        dpi_node->return_signed = ret_signed;
+
+        if (explicit_c_name.empty() && current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_EQUAL) {
+            explicit_c_name = current.text;
+            advance();
+            expect(TokenType::TOKEN_EQUAL, "Expected '=' after foreign C identifier in DPI import");
+        }
+
+        std::string fname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected function identifier in DPI import");
+        dpi_node->sv_name = fname;
+    } else if (current.type == TokenType::TOKEN_TASK) {
+        dpi_node->is_task = true;
+        dpi_node->return_type = "void";
+        dpi_node->return_width = 0;
+        advance();
+
+        if (explicit_c_name.empty() && current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_EQUAL) {
+            explicit_c_name = current.text;
+            advance();
+            expect(TokenType::TOKEN_EQUAL, "Expected '=' after foreign C identifier in DPI import");
+        }
+
+        std::string tname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected task identifier in DPI import");
+        dpi_node->sv_name = tname;
+    } else {
+        throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+            ": error: Expected 'function' or 'task' in DPI import declaration");
+    }
+
+    dpi_node->c_name = explicit_c_name.empty() ? dpi_node->sv_name : explicit_c_name;
+
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' in DPI import port list");
+    if (current.type != TokenType::TOKEN_RPAREN) {
+        while (true) {
+            std::string pdir = "input";
+            if (current.type == TokenType::TOKEN_INPUT) { pdir = "input"; advance(); }
+            else if (current.type == TokenType::TOKEN_OUTPUT) { pdir = "output"; advance(); }
+            else if (current.type == TokenType::TOKEN_INOUT) { pdir = "inout"; advance(); }
+
+            std::string ptype = "logic";
+            uint32_t pw = 32;
+            bool psigned = false;
+
+            if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+                ptype = "int";
+                pw = 32;
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                ptype = "byte";
+                pw = 8;
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                ptype = "shortint";
+                pw = 16;
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                ptype = "longint";
+                pw = 64;
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
+                ptype = current.text;
+                pw = 1;
+                psigned = false;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+                ptype = current.text;
+                pw = 32;
+                advance();
+            }
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        pw = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
+                }
+            }
+
+            std::string pname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier in DPI import");
+
+            PortNode port(pname, pdir, nullptr, nullptr, psigned, NetKind::WIRE);
+            port.type_name = ptype;
+            port.msb_expr = std::make_unique<NumberNode>(pw > 0 ? pw - 1 : 0, 32);
+            port.lsb_expr = std::make_unique<NumberNode>(0, 32);
+            dpi_node->tf_ports.push_back(std::move(port));
+
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+    }
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing DPI import port list");
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after DPI import declaration");
+
+    return dpi_node;
 }

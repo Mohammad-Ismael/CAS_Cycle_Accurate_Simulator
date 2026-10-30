@@ -428,6 +428,20 @@ struct AssertPropertyStatementNode : public StatementNode {
     std::vector<std::unique_ptr<StatementNode>> fail_statements;
 };
 
+struct DpiImportNode : public ASTNode {
+    std::string sv_name;
+    std::string c_name;
+    bool is_pure = false;
+    bool is_context = false;
+    bool is_task = false;
+    std::string return_type = "int";
+    uint32_t return_width = 32;
+    bool return_signed = true;
+    std::vector<PortNode> tf_ports;
+
+    DpiImportNode() = default;
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
@@ -458,6 +472,8 @@ struct ModuleNode : public ASTNode {
     std::vector<std::shared_ptr<PropertyNode>> properties;
     std::unordered_map<std::string, PropertyNode*> property_map;
     std::vector<std::unique_ptr<AssertPropertyStatementNode>> assertions;
+    std::vector<std::shared_ptr<DpiImportNode>> dpi_imports;
+    std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
 
     ModuleNode() = default;
 };

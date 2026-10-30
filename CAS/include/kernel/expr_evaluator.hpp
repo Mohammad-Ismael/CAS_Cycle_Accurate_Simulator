@@ -8,6 +8,7 @@
 class Engine;
 struct BoundProcess;
 struct FunctionNode;
+struct DpiImportNode;
 
 class ExprEvaluator {
 private:
@@ -37,6 +38,8 @@ public:
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
     LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);
+    LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope);
+    LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args);
     bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
 };

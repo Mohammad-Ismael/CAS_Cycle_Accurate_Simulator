@@ -704,6 +704,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
+        DpiImportNode* dpi_node = nullptr;
+        if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end()) {
+            dpi_node = engine.dpi_import_map.at(scoped_tname);
+        } else if (engine.dpi_import_map.find(tcall->task_name) != engine.dpi_import_map.end()) {
+            dpi_node = engine.dpi_import_map.at(tcall->task_name);
+        }
+        if (dpi_node) {
+            expr_eval.eval_dpi_call(dpi_node, tcall->args, bp.scope);
+            return;
+        }
+
         TaskNode* target_task = nullptr;
         if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
             target_task = engine.task_map.at(scoped_tname);
@@ -821,6 +832,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (dynamic_cast<SequenceConcatNode*>(expr)) {
                     throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used directly in $monitor per IEEE 1800-2023 section 16.9.2 & 21.2.3");
                 } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+                    if (engine.dpi_import_map.find(fc->func_name) != engine.dpi_import_map.end()) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used directly in $monitor per IEEE 1800-2023 section 35 & 21.2.3");
+                    }
                     for (auto& a : fc->args) check_mon_expr(a.get());
                 }
             };

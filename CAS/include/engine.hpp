@@ -10,6 +10,7 @@
 #include "common/constraint_solver.hpp"
 #include "common/coverage_types.hpp"
 #include "common/sva_types.hpp"
+#include "common/dpic_types.hpp"
 #include <unordered_map>
 #include <iostream>
 #include <vector>
@@ -87,6 +88,9 @@ private:
 
 public:
     ConstraintSolver solver;
+    DpiRegistry dpi_registry;
+    std::vector<std::string> source_search_paths;
+    std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
 
     Engine();
     ~Engine() = default;
