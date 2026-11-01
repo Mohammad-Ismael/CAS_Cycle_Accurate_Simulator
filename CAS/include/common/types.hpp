@@ -10,3 +10,4 @@
 #include "assoc_array_types.hpp"
 #include "class_types.hpp"
 #include "clocking_types.hpp"
+#include "timing_check_types.hpp"

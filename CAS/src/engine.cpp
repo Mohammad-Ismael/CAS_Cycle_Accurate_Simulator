@@ -53,6 +53,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
         }
     }
     module_path_delays = std::move(elab_res.module_path_delays);
+    timing_checks = std::move(elab_res.timing_checks);
     memory_map = std::move(elab_res.memory_map);
     queue_map = std::move(elab_res.queue_map);
     dynamic_array_map = std::move(elab_res.dynamic_array_map);

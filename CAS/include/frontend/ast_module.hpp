@@ -242,6 +242,24 @@ struct PathDelayNode : public ASTNode {
     PathDelayNode() = default;
 };
 
+struct TimingCheckEvent {
+    TimingCheckEdge edge = TimingCheckEdge::ANY;
+    std::string signal_name;
+};
+
+struct TimingCheckNode : public ASTNode {
+    TimingCheckType type = TimingCheckType::SETUP;
+    TimingCheckEvent data_event;
+    TimingCheckEvent ref_event;
+    std::unique_ptr<ExpressionNode> limit_expr;
+    std::unique_ptr<ExpressionNode> threshold_expr;
+    std::string notifier_name;
+    std::string file;
+    int line = 0;
+
+    TimingCheckNode() = default;
+};
+
 struct GatePrimitiveNode : public ASTNode {
     GateType type = GateType::AND;
     std::string instance_name = "";
@@ -680,6 +698,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::shared_ptr<PathDelayNode>> path_delays;
+    std::vector<std::shared_ptr<TimingCheckNode>> timing_checks;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<FunctionNode>> functions;

@@ -335,6 +335,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.var_to_struct_type[scope + "." + p.name] = p.type_name;
             result.var_to_struct_type[p.name] = p.type_name;
         }
+        if (p.default_value) {
+            uint64_t init_val = eval_const_expr(p.default_value.get(), scope);
+            LogicVal iv = LogicVal(w, init_val, 0);
+            result.netlist[pid].value = iv;
+            result.netlist[pid].prev_value = iv;
+            result.netlist[pid].modified = false;
+        }
     }
 
     for (auto& s : mod->signals) {
@@ -457,6 +464,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.var_to_enum_type[s.name] = s.type_name;
                 result.var_to_struct_type[scope + "." + s.name] = s.type_name;
                 result.var_to_struct_type[s.name] = s.type_name;
+            }
+            if (s.default_value) {
+                uint64_t init_val = eval_const_expr(s.default_value.get(), scope);
+                LogicVal iv = LogicVal(w, init_val, 0);
+                result.netlist[sid].value = iv;
+                result.netlist[sid].prev_value = iv;
+                result.netlist[sid].modified = false;
             }
         }
     }
@@ -860,6 +874,63 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.netlist[d_id].prev_value = LogicVal::make_x(result.netlist[d_id].width);
             }
         }
+    }
+
+    for (auto& tc : mod->timing_checks) {
+        RuntimeTimingCheck rtc;
+        rtc.type = tc->type;
+        rtc.scope = scope;
+        rtc.file = tc->file;
+        rtc.line = tc->line;
+
+        // Resolve reference signal
+        std::string scoped_ref = scope + "." + tc->ref_event.signal_name;
+        auto it_ref = result.net_map.find(scoped_ref);
+        if (it_ref != result.net_map.end()) {
+            rtc.ref_net_id = it_ref->second;
+            rtc.ref_name = tc->ref_event.signal_name;
+        } else {
+            rtc.ref_name = tc->ref_event.signal_name;
+        }
+        rtc.ref_edge = tc->ref_event.edge;
+
+        // Resolve data signal (if applicable)
+        if (!tc->data_event.signal_name.empty()) {
+            std::string scoped_data = scope + "." + tc->data_event.signal_name;
+            auto it_data = result.net_map.find(scoped_data);
+            if (it_data != result.net_map.end()) {
+                rtc.data_net_id = it_data->second;
+                rtc.data_name = tc->data_event.signal_name;
+            } else {
+                rtc.data_name = tc->data_event.signal_name;
+            }
+            rtc.data_edge = tc->data_event.edge;
+        }
+
+        uint64_t ratio = Lexer::get_timescale_ratio();
+        if (ratio == 0) ratio = 1;
+
+        if (tc->limit_expr) {
+            uint64_t base_limit = eval_const_expr(tc->limit_expr.get(), scope);
+            rtc.limit_ticks = base_limit * ratio;
+        }
+        if (tc->threshold_expr) {
+            uint64_t base_thresh = eval_const_expr(tc->threshold_expr.get(), scope);
+            rtc.threshold_ticks = base_thresh * ratio;
+        }
+
+        if (!tc->notifier_name.empty()) {
+            std::string scoped_notif = scope + "." + tc->notifier_name;
+            auto it_notif = result.net_map.find(scoped_notif);
+            if (it_notif != result.net_map.end()) {
+                rtc.notifier_net_id = it_notif->second;
+                rtc.notifier_name = tc->notifier_name;
+            } else {
+                rtc.notifier_name = tc->notifier_name;
+            }
+        }
+
+        result.timing_checks.push_back(rtc);
     }
 
     for (const auto& ev_name : mod->events) {
@@ -1632,6 +1703,12 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         mpd.dst_net_id = dsu.find(mpd.dst_net_id);
     }
 
+    for (auto& tc : result.timing_checks) {
+        if (tc.ref_net_id != (size_t)-1) tc.ref_net_id = dsu.find(tc.ref_net_id);
+        if (tc.data_net_id != (size_t)-1) tc.data_net_id = dsu.find(tc.data_net_id);
+        if (tc.notifier_net_id != (size_t)-1) tc.notifier_net_id = dsu.find(tc.notifier_net_id);
+    }
+
     std::vector<SliceBinding> remapped_bindings;
     for (auto& bind : result.slice_bindings) {
         bind.src.net_id = dsu.find(bind.src.net_id);
@@ -1858,7 +1935,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);
                 }
                 throw std::runtime_error("[CAS-ICPD] Illegal combination of procedural drivers: variable '" + 
-                                         var_name + "' written in always_ff/always_comb/always_latch cannot be driven by any other process or procedural assign.");
+                                         var_name + "' driven in 'always_ff'/'always_comb' cannot be driven by multiple processes");
             }
         }
 

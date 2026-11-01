@@ -200,7 +200,11 @@ enum class TokenType {
     TOKEN_ENDSPECIFY,
     TOKEN_FAT_ARROW,
     TOKEN_STAR_ARROW,
-    TOKEN_IFNONE
+    TOKEN_IFNONE,
+    TOKEN_SYS_SETUP,
+    TOKEN_SYS_HOLD,
+    TOKEN_SYS_WIDTH,
+    TOKEN_SYS_RECOVERY
 };
 
 struct Token {

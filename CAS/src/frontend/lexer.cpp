@@ -561,6 +561,10 @@ Token Lexer::next_token() {
         if (ident == "specify") return {TokenType::TOKEN_SPECIFY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endspecify") return {TokenType::TOKEN_ENDSPECIFY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "ifnone") return {TokenType::TOKEN_IFNONE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$setup") return {TokenType::TOKEN_SYS_SETUP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$hold") return {TokenType::TOKEN_SYS_HOLD, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$width") return {TokenType::TOKEN_SYS_WIDTH, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$recovery") return {TokenType::TOKEN_SYS_RECOVERY, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

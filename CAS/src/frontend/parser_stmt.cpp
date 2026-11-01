@@ -31,6 +31,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside procedural scope per IEEE 1800-2023 section 32");
     }
 
+    // Diagnostic [CAS-DTINPCIL]: timing check system tasks outside specify block
+    if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
+        current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
+        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted outside specify block per IEEE 1800-2023 section 31.8 & 32.7");
+    }
+
     // 0. Handle 'begin ... end' block statements
     if (match(TokenType::TOKEN_BEGIN)) {
         std::vector<std::unique_ptr<StatementNode>> stmts;

@@ -100,6 +100,7 @@ private:
     size_t nba_commits_count = 0;
 
     void propagate_comb();
+    bool evaluate_timing_checks();
     void evaluate_sequential_blocks();
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();

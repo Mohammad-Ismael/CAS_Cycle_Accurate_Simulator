@@ -994,6 +994,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                     if (match(TokenType::TOKEN_EQUAL)) {
                         auto init_expr = parse_expression();
+                        sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                         init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                         mod->processes.push_back(std::move(init_proc));
@@ -1163,6 +1164,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                     if (match(TokenType::TOKEN_EQUAL)) {
                         auto init_expr = parse_expression();
+                        sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                         init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                         mod->processes.push_back(std::move(init_proc));
@@ -1371,6 +1373,101 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         path_node->cond_expr = std::move(cond_expr);
                         path_node->delay_expr = std::move(delay_expr);
                         mod->path_delays.push_back(path_node);
+                    } else if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
+                               current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
+                        auto parse_tc_event = [&]() -> TimingCheckEvent {
+                            TimingCheckEvent ev;
+                            if (match(TokenType::TOKEN_POSEDGE)) {
+                                ev.edge = TimingCheckEdge::POSEDGE;
+                            } else if (match(TokenType::TOKEN_NEGEDGE)) {
+                                ev.edge = TimingCheckEdge::NEGEDGE;
+                            } else {
+                                ev.edge = TimingCheckEdge::ANY;
+                            }
+                            std::string sig = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in timing check event");
+                            while (match(TokenType::TOKEN_DOT)) {
+                                sig += "." + current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in timing check event");
+                            }
+                            ev.signal_name = sig;
+                            return ev;
+                        };
+
+                        if (match(TokenType::TOKEN_SYS_SETUP)) {
+                            auto tc = std::make_shared<TimingCheckNode>();
+                            tc->type = TimingCheckType::SETUP;
+                            tc->file = current.filename;
+                            tc->line = current.line;
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after $setup");
+                            tc->data_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after data event in $setup");
+                            tc->ref_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after reference event in $setup");
+                            tc->limit_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) {
+                                tc->notifier_name = current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected notifier identifier in $setup");
+                            }
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $setup");
+                            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $setup");
+                            mod->timing_checks.push_back(tc);
+                        } else if (match(TokenType::TOKEN_SYS_HOLD)) {
+                            auto tc = std::make_shared<TimingCheckNode>();
+                            tc->type = TimingCheckType::HOLD;
+                            tc->file = current.filename;
+                            tc->line = current.line;
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after $hold");
+                            tc->ref_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after reference event in $hold");
+                            tc->data_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after data event in $hold");
+                            tc->limit_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) {
+                                tc->notifier_name = current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected notifier identifier in $hold");
+                            }
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $hold");
+                            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $hold");
+                            mod->timing_checks.push_back(tc);
+                        } else if (match(TokenType::TOKEN_SYS_WIDTH)) {
+                            auto tc = std::make_shared<TimingCheckNode>();
+                            tc->type = TimingCheckType::WIDTH;
+                            tc->file = current.filename;
+                            tc->line = current.line;
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after $width");
+                            tc->ref_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after reference event in $width");
+                            tc->limit_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) {
+                                tc->threshold_expr = parse_expression();
+                                if (match(TokenType::TOKEN_COMMA)) {
+                                    tc->notifier_name = current.text;
+                                    expect(TokenType::TOKEN_IDENTIFIER, "Expected notifier identifier in $width");
+                                }
+                            }
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $width");
+                            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $width");
+                            mod->timing_checks.push_back(tc);
+                        } else if (match(TokenType::TOKEN_SYS_RECOVERY)) {
+                            auto tc = std::make_shared<TimingCheckNode>();
+                            tc->type = TimingCheckType::RECOVERY;
+                            tc->file = current.filename;
+                            tc->line = current.line;
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after $recovery");
+                            tc->ref_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after reference event in $recovery");
+                            tc->data_event = parse_tc_event();
+                            expect(TokenType::TOKEN_COMMA, "Expected ',' after data event in $recovery");
+                            tc->limit_expr = parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) {
+                                tc->notifier_name = current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected notifier identifier in $recovery");
+                            }
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $recovery");
+                            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $recovery");
+                            mod->timing_checks.push_back(tc);
+                        }
                     } else {
                         while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDSPECIFY && current.type != TokenType::TOKEN_EOF) {
                             advance();
@@ -1380,6 +1477,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 expect(TokenType::TOKEN_ENDSPECIFY, "Expected 'endspecify'");
                 continue;
+            }
+
+            if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
+                current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted outside specify block per IEEE 1800-2023 section 31.8 & 32.7");
             }
 
             bool is_virt = false;
@@ -1894,6 +1996,10 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_SPECIFY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside class per IEEE 1800-2023 section 32");
+        }
+        if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
+            current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted inside class per IEEE 1800-2023 section 31.8 & 32.7");
         }
         bool is_virt = false;
         bool is_stat = false;
@@ -3174,6 +3280,10 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
     while (current.type != TokenType::TOKEN_ENDPACKAGE && current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_SPECIFY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside package per IEEE 1800-2023 section 32");
+        }
+        if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
+            current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted inside package per IEEE 1800-2023 section 31.8 & 32.7");
         }
         if (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE) {
             std::string loc = current.filename.empty() 

@@ -96,3 +96,29 @@ struct ModulePathDelay {
     std::string scope = "";
     uint64_t delay_ticks = 0;
 };
+
+struct RuntimeTimingCheck {
+    TimingCheckType type = TimingCheckType::SETUP;
+    std::string scope = "";
+    std::string file = "";
+    int line = 0;
+
+    size_t ref_net_id = (size_t)-1;
+    std::string ref_name = "";
+    TimingCheckEdge ref_edge = TimingCheckEdge::ANY;
+
+    size_t data_net_id = (size_t)-1;
+    std::string data_name = "";
+    TimingCheckEdge data_edge = TimingCheckEdge::ANY;
+
+    uint64_t limit_ticks = 0;
+    uint64_t threshold_ticks = 0;
+
+    size_t notifier_net_id = (size_t)-1;
+    std::string notifier_name = "";
+
+    uint64_t t_last_ref = (uint64_t)-1;
+    uint64_t t_last_data = (uint64_t)-1;
+    uint64_t last_ref_change_counter = (uint64_t)-1;
+    uint64_t last_data_change_counter = (uint64_t)-1;
+};

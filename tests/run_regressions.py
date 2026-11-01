@@ -52,7 +52,8 @@ suites = [
     ("v3.26.0.0", "v3_26_0_0_parameter_overrides", ["design.sv", "testbench.sv"]),
     ("v3.27.0.0", "v3_27_0_0_net_aliasing", ["design.sv", "testbench.sv"]),
     ("v3.28.0.0", "v3_28_0_0_gate_primitives", ["design.sv", "testbench.sv"]),
-    ("v3.29.0.0", "v3_29_0_0_specify_paths", ["design.sv", "testbench.sv"])
+    ("v3.29.0.0", "v3_29_0_0_specify_paths", ["design.sv", "testbench.sv"]),
+    ("v3.30.0.0", "v3_30_0_0_timing_checks", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

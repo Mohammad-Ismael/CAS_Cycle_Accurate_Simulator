@@ -1,6 +1,7 @@
 #include "../../include/kernel/scheduler.hpp"
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
+#include "../../include/frontend/lexer.hpp"
 #include <iostream>
 #include <algorithm>
 
@@ -542,6 +543,138 @@ void StratifiedScheduler::propagate_comb() {
     }
 }
 
+bool StratifiedScheduler::evaluate_timing_checks() {
+    bool activity = false;
+    uint64_t ratio = Lexer::get_timescale_ratio();
+    if (ratio == 0) ratio = 1;
+
+    for (auto& rtc : engine.timing_checks) {
+        if (rtc.ref_net_id >= engine.netlist.size()) continue;
+        const auto& ref_net = engine.netlist[rtc.ref_net_id];
+
+        // Check if reference event occurred
+        bool ref_edge_occurred = false;
+        if (ref_net.change_counter != rtc.last_ref_change_counter) {
+            rtc.last_ref_change_counter = ref_net.change_counter;
+            if (rtc.ref_edge == TimingCheckEdge::POSEDGE && ref_net.is_posedge()) {
+                ref_edge_occurred = true;
+            } else if (rtc.ref_edge == TimingCheckEdge::NEGEDGE && ref_net.is_negedge()) {
+                ref_edge_occurred = true;
+            } else if (rtc.ref_edge == TimingCheckEdge::ANY && ref_net.modified) {
+                ref_edge_occurred = true;
+            }
+        }
+
+        // Check if data event occurred
+        bool data_edge_occurred = false;
+        if (rtc.data_net_id < engine.netlist.size()) {
+            const auto& data_net = engine.netlist[rtc.data_net_id];
+            if (data_net.change_counter != rtc.last_data_change_counter) {
+                rtc.last_data_change_counter = data_net.change_counter;
+                if (rtc.data_edge == TimingCheckEdge::POSEDGE && data_net.is_posedge()) {
+                    data_edge_occurred = true;
+                } else if (rtc.data_edge == TimingCheckEdge::NEGEDGE && data_net.is_negedge()) {
+                    data_edge_occurred = true;
+                } else if (rtc.data_edge == TimingCheckEdge::ANY && data_net.modified) {
+                    data_edge_occurred = true;
+                }
+            }
+        }
+
+        auto trigger_notifier = [&]() {
+            if (rtc.notifier_net_id < engine.netlist.size()) {
+                LogicVal cur_val = engine.netlist[rtc.notifier_net_id].value;
+                LogicVal toggled = cur_val.to_bool() ? LogicVal(1, 0) : LogicVal(1, 1);
+                engine.netlist[rtc.notifier_net_id].set(toggled);
+                if (rtc.notifier_net_id < engine.alias_members.size()) {
+                    for (size_t other_id : engine.alias_members[rtc.notifier_net_id]) {
+                        if (other_id != rtc.notifier_net_id && other_id < engine.netlist.size()) {
+                            engine.netlist[other_id].set(toggled);
+                        }
+                    }
+                }
+                activity = true;
+            }
+        };
+
+        std::string fname = rtc.file;
+        auto p = fname.rfind('/');
+        if (p != std::string::npos) fname = fname.substr(p + 1);
+        auto p2 = fname.rfind('\\');
+        if (p2 != std::string::npos) fname = fname.substr(p2 + 1);
+        if (fname.empty()) fname = "design.sv";
+
+        std::string ref_edge_str = (rtc.ref_edge == TimingCheckEdge::POSEDGE) ? "posedge " : (rtc.ref_edge == TimingCheckEdge::NEGEDGE ? "negedge " : "");
+        std::string data_edge_str = (rtc.data_edge == TimingCheckEdge::POSEDGE) ? "posedge " : (rtc.data_edge == TimingCheckEdge::NEGEDGE ? "negedge " : "");
+
+        if (rtc.type == TimingCheckType::SETUP) {
+            if (data_edge_occurred) {
+                rtc.t_last_data = current_sim_time;
+            }
+            if (ref_edge_occurred) {
+                uint64_t t_ref = current_sim_time;
+                if (rtc.t_last_data != (uint64_t)-1) {
+                    uint64_t elapsed = t_ref - rtc.t_last_data;
+                    if (elapsed < rtc.limit_ticks) {
+                        std::cout << "\"" << fname << "\", " << rtc.line << ": Timing violation in " << rtc.scope << "\n";
+                        std::cout << "    $setup( " << rtc.data_name << ":" << (rtc.t_last_data / ratio) << ", "
+                                  << ref_edge_str << rtc.ref_name << ":" << (t_ref / ratio) << ", limit: " << (rtc.limit_ticks / ratio) << " );\n";
+                        trigger_notifier();
+                    }
+                }
+                rtc.t_last_ref = t_ref;
+            }
+        } else if (rtc.type == TimingCheckType::HOLD) {
+            if (ref_edge_occurred) {
+                rtc.t_last_ref = current_sim_time;
+            }
+            if (data_edge_occurred) {
+                uint64_t t_data = current_sim_time;
+                if (rtc.t_last_ref != (uint64_t)-1) {
+                    uint64_t elapsed = t_data - rtc.t_last_ref;
+                    if (elapsed < rtc.limit_ticks) {
+                        std::cout << "\"" << fname << "\", " << rtc.line << ": Timing violation in " << rtc.scope << "\n";
+                        std::cout << "    $hold( " << ref_edge_str << rtc.ref_name << ":" << (rtc.t_last_ref / ratio) << ", "
+                                  << rtc.data_name << ":" << (t_data / ratio) << ", limit: " << (rtc.limit_ticks / ratio) << " );\n";
+                        trigger_notifier();
+                    }
+                }
+                rtc.t_last_data = t_data;
+            }
+        } else if (rtc.type == TimingCheckType::WIDTH) {
+            if (ref_edge_occurred) {
+                if (rtc.t_last_ref != (uint64_t)-1) {
+                    uint64_t elapsed = current_sim_time - rtc.t_last_ref;
+                    if (elapsed < rtc.limit_ticks && elapsed > rtc.threshold_ticks) {
+                        std::cout << "\"" << fname << "\", " << rtc.line << ": Timing violation in " << rtc.scope << "\n";
+                        std::cout << "    $width( " << ref_edge_str << rtc.ref_name << ":" << (current_sim_time / ratio) << ", limit: " << (rtc.limit_ticks / ratio) << " );\n";
+                        trigger_notifier();
+                    }
+                }
+                rtc.t_last_ref = current_sim_time;
+            }
+        } else if (rtc.type == TimingCheckType::RECOVERY) {
+            if (ref_edge_occurred) {
+                rtc.t_last_ref = current_sim_time;
+            }
+            if (data_edge_occurred) {
+                uint64_t t_data = current_sim_time;
+                if (rtc.t_last_ref != (uint64_t)-1) {
+                    uint64_t elapsed = t_data - rtc.t_last_ref;
+                    if (elapsed < rtc.limit_ticks) {
+                        std::cout << "\"" << fname << "\", " << rtc.line << ": Timing violation in " << rtc.scope << "\n";
+                        std::cout << "    $recovery( " << ref_edge_str << rtc.ref_name << ":" << (rtc.t_last_ref / ratio) << ", "
+                                  << data_edge_str << rtc.data_name << ":" << (t_data / ratio) << ", limit: " << (rtc.limit_ticks / ratio) << " );\n";
+                        trigger_notifier();
+                    }
+                }
+                rtc.t_last_data = t_data;
+            }
+        }
+    }
+    return activity;
+}
+
 void StratifiedScheduler::evaluate_sequential_blocks() {
     for (auto& bp : engine.processes) {
         if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
@@ -555,6 +688,7 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
 
             if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) { triggered = true; break; }
             else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) { triggered = true; break; }
+            else if (sens.edge == EdgeType::LEVEL && (net.modified || net.changed_in_current_sim_time || net.value != net.prev_value)) { triggered = true; break; }
         }
 
         if (triggered) {
@@ -1943,6 +2077,9 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
             active_activity = false;
 
             propagate_comb();
+            if (evaluate_timing_checks()) {
+                active_activity = true;
+            }
             evaluate_sequential_blocks();
             evaluate_clocking_blocks();
             evaluate_covergroup_events();
@@ -2013,6 +2150,12 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
 void StratifiedScheduler::run_simulation() {
     current_sim_time = 0;
     simulation_active = true;
+
+    for (auto& n : engine.netlist) {
+        n.prev_value = n.value;
+        n.modified = false;
+        n.changed_in_current_sim_time = false;
+    }
 
     for (auto& bp : engine.processes) {
         bp.fired_in_time_slot = false;
