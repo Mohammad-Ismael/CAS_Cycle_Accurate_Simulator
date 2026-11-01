@@ -6,12 +6,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
     while (current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+            bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
             advance();
             
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                 current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte"))) {
+                current.type == TokenType::TOKEN_SIGNED ||
+                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                 advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                    advance();
+                }
             }
             if (match(TokenType::TOKEN_LBRACKET)) {
                 parse_expression();
@@ -26,9 +31,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
                 auto val_expr = parse_expression();
 
-                ParameterDef pdef;
-                pdef.name = pname;
-                pdef.default_expr = std::move(val_expr);
+                ParameterDef pdef(pname, std::move(val_expr), is_local);
                 global_parameters.push_back(std::move(pdef));
 
                 if (match(TokenType::TOKEN_COMMA)) continue;
@@ -190,14 +193,30 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_HASH)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in module header");
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
                 if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                     advance();
+                }
+                if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                    current.type == TokenType::TOKEN_SIGNED ||
+                    (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
+                    advance();
+                    if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                        advance();
+                    }
+                }
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in parameter range");
+                    parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
                 }
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter definition");
                 auto pexpr = parse_expression();
-                mod->parameters.push_back({pname, std::move(pexpr)});
+                mod->parameters.push_back(ParameterDef(pname, std::move(pexpr), is_local));
 
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 else break;
@@ -482,10 +501,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+                bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
-                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER) {
+                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                    current.type == TokenType::TOKEN_SIGNED ||
+                    (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                     advance();
+                    if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                        advance();
+                    }
                 }
                 if (match(TokenType::TOKEN_LBRACKET)) {
                     parse_expression();
@@ -498,7 +523,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                     expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
                     auto val_expr = parse_expression();
-                    mod->parameters.push_back({pname, std::move(val_expr)});
+                    mod->parameters.push_back(ParameterDef(pname, std::move(val_expr), is_local));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
@@ -1022,6 +1047,29 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
                 mod->continuous_assigns.push_back(std::make_unique<ContinuousAssignNode>(target, std::move(rhs)));
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_DEFPARAM)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: defparam statement is illegal in program scope per IEEE 1800-2023 section 24.3");
+                }
+                while (true) {
+                    std::string hier_path = current.text;
+                    std::string cur_file = current.filename;
+                    size_t cur_line = current.line;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected hierarchical identifier in defparam");
+                    while (match(TokenType::TOKEN_DOT)) {
+                        hier_path += "." + current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in defparam");
+                    }
+                    expect(TokenType::TOKEN_EQUAL, "Expected '=' in defparam assignment");
+                    auto expr = parse_expression();
+                    mod->defparams.push_back(DefparamItemNode(hier_path, std::move(expr), cur_file, cur_line));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after defparam statement");
                 continue;
             }
 

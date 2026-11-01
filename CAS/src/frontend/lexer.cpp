@@ -368,6 +368,7 @@ Token Lexer::next_token() {
         if (ident == "signed") return {TokenType::TOKEN_SIGNED, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "defparam") return {TokenType::TOKEN_DEFPARAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assign") return {TokenType::TOKEN_ASSIGN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "deassign") return {TokenType::TOKEN_DEASSIGN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "always") return {TokenType::TOKEN_ALWAYS, ident, 0, 0, cur_file, cur_line, 0};

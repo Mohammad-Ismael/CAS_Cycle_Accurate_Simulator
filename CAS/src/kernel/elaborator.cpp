@@ -82,6 +82,11 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "*") return l * r;
         if (bin->op == "<<") return l << r;
         if (bin->op == ">>" || bin->op == ">>>") return l >> r;
+        if (bin->op == "|") return l | r;
+        if (bin->op == "&") return l & r;
+        if (bin->op == "^") return l ^ r;
+        if (bin->op == "/" && r != 0) return l / r;
+        if (bin->op == "%" && r != 0) return l % r;
     }
     return 0;
 }
@@ -252,7 +257,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         uint64_t val = 0;
         bool overridden = false;
 
-        if (overrides) {
+        // 1. Check defparam overrides FIRST (defparam takes precedence over instantiation defaults/bindings)
+        auto dp_inst_it = defparam_overrides.find(scope);
+        if (dp_inst_it != defparam_overrides.end()) {
+            auto dp_it = dp_inst_it->second.find(p.name);
+            if (dp_it != dp_inst_it->second.end()) {
+                val = dp_it->second;
+                overridden = true;
+            }
+        }
+
+        // 2. Check instantiation-site #() overrides if not overridden by defparam
+        if (!overridden && overrides && !p.is_localparam) {
             for (size_t oi = 0; oi < overrides->size(); ++oi) {
                 const auto& ov = (*overrides)[oi];
                 if (!ov.param_name.empty() && ov.param_name == p.name) {
@@ -1340,6 +1356,146 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     if (active_config) {
         active_instance_cell_map = active_config->instance_cell_map;
         active_cell_rebind_map = active_config->cell_rebind_map;
+    }
+
+    defparam_overrides.clear();
+
+    // Map instance hierarchy across the design tree starting at top
+    std::unordered_map<std::string, ModuleNode*> instance_to_module;
+    std::function<void(ModuleNode*, const std::string&)> map_hierarchy = 
+        [&](ModuleNode* cur_mod, const std::string& cur_scope) {
+            if (!cur_mod) return;
+            instance_to_module[cur_scope] = cur_mod;
+            valid_instance_paths.insert(cur_scope);
+            for (const auto& inst : cur_mod->instantiations) {
+                std::string child_cell = inst->module_type;
+                if (active_config) {
+                    std::string full_inst_path = cur_scope + "." + inst->instance_name;
+                    if (active_instance_cell_map.find(full_inst_path) != active_instance_cell_map.end()) {
+                        child_cell = active_instance_cell_map.at(full_inst_path);
+                    } else if (active_cell_rebind_map.find(child_cell) != active_cell_rebind_map.end()) {
+                        child_cell = active_cell_rebind_map.at(child_cell);
+                    }
+                }
+                std::string child_scope = cur_scope + "." + inst->instance_name;
+                auto it = module_defs.find(child_cell);
+                if (it != module_defs.end()) {
+                    map_hierarchy(it->second, child_scope);
+                }
+            }
+        };
+    map_hierarchy(top, top->name);
+
+    // Collect pending defparam statements across all instantiated modules
+    struct PendingDefparam {
+        std::string declaring_scope;
+        ModuleNode* declaring_mod;
+        std::string hier_path;
+        ExpressionNode* expr;
+        std::string file;
+        size_t line;
+    };
+    std::vector<PendingDefparam> pending_defparams;
+
+    for (const auto& kv : instance_to_module) {
+        const std::string& inst_scope = kv.first;
+        ModuleNode* mod = kv.second;
+        for (const auto& dp : mod->defparams) {
+            pending_defparams.push_back({inst_scope, mod, dp.hierarchical_path, dp.value_expr.get(), dp.declaring_file, dp.declaring_line});
+        }
+    }
+
+    struct ResolvedDefparam {
+        std::string target_inst_scope;
+        std::string target_param;
+        std::string declaring_scope;
+        ExpressionNode* expr;
+        std::string file;
+        size_t line;
+    };
+    std::vector<ResolvedDefparam> resolved_defparams;
+
+    for (const auto& pdef : pending_defparams) {
+        size_t last_dot = pdef.hier_path.rfind('.');
+        std::string target_param;
+        std::string rel_inst_path;
+        if (last_dot == std::string::npos) {
+            target_param = pdef.hier_path;
+            rel_inst_path = "";
+        } else {
+            rel_inst_path = pdef.hier_path.substr(0, last_dot);
+            target_param = pdef.hier_path.substr(last_dot + 1);
+        }
+
+        std::string target_inst_scope = "";
+        if (rel_inst_path.empty()) {
+            target_inst_scope = pdef.declaring_scope;
+        } else {
+            std::string cand1 = pdef.declaring_scope + "." + rel_inst_path;
+            if (instance_to_module.find(cand1) != instance_to_module.end()) {
+                target_inst_scope = cand1;
+            } else if (instance_to_module.find(rel_inst_path) != instance_to_module.end()) {
+                target_inst_scope = rel_inst_path;
+            } else {
+                std::string cur = pdef.declaring_scope;
+                while (!cur.empty()) {
+                    std::string cand = cur + "." + rel_inst_path;
+                    if (instance_to_module.find(cand) != instance_to_module.end()) {
+                        target_inst_scope = cand;
+                        break;
+                    }
+                    auto pdot = cur.rfind('.');
+                    if (pdot == std::string::npos) break;
+                    cur = cur.substr(0, pdot);
+                }
+            }
+        }
+
+        if (target_inst_scope.empty() || instance_to_module.find(target_inst_scope) == instance_to_module.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] defparam targets non-existent hierarchical path '" + pdef.hier_path + "' per IEEE 1800-2023 section 23.10.1");
+        }
+
+        ModuleNode* target_mod = instance_to_module.at(target_inst_scope);
+        const ParameterDef* target_pdef = nullptr;
+        for (const auto& p : target_mod->parameters) {
+            if (p.name == target_param) {
+                target_pdef = &p;
+                break;
+            }
+        }
+
+        if (!target_pdef) {
+            throw std::runtime_error("[CAS-DTINPCIL] defparam targets non-existent parameter '" + target_param + "' on hierarchical path '" + pdef.hier_path + "' per IEEE 1800-2023 section 23.10.1");
+        }
+
+        if (target_pdef->is_localparam) {
+            throw std::runtime_error("[CAS-DTINPCIL] defparam cannot override localparam '" + target_param + "' on hierarchical path '" + pdef.hier_path + "' per IEEE 1800-2023 section 6.20.4 & 23.10.1");
+        }
+
+        resolved_defparams.push_back({target_inst_scope, target_param, pdef.declaring_scope, pdef.expr, pdef.file, pdef.line});
+    }
+
+    bool changed = true;
+    for (int pass = 0; pass < 10 && changed; ++pass) {
+        changed = false;
+        for (const auto& rdp : resolved_defparams) {
+            uint64_t val = eval_const_expr(rdp.expr, rdp.declaring_scope);
+            auto& inst_map = defparam_overrides[rdp.target_inst_scope];
+            auto it = inst_map.find(rdp.target_param);
+            if (it == inst_map.end() || it->second != val) {
+                inst_map[rdp.target_param] = val;
+                result.param_map[rdp.target_inst_scope + "." + rdp.target_param] = val;
+                changed = true;
+            }
+        }
+    }
+
+    if (debug_out) {
+        for (const auto& kv : defparam_overrides) {
+            for (const auto& p : kv.second) {
+                *debug_out << "  -> Defparam applied: " << kv.first << "." << p.first << " = " << p.second << "\n";
+            }
+        }
     }
 
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);

@@ -56,19 +56,52 @@ struct PortNode : public ASTNode {
 struct ParameterDef {
     std::string name;
     std::unique_ptr<ExpressionNode> default_expr;
+    bool is_localparam = false;
 
     ParameterDef() = default;
-    ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e) : name(std::move(n)), default_expr(std::move(e)) {}
-    ParameterDef(const ParameterDef& other) : name(other.name), default_expr(other.default_expr ? other.default_expr->clone() : nullptr) {}
+    ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false)
+        : name(std::move(n)), default_expr(std::move(e)), is_localparam(is_local) {}
+    ParameterDef(const ParameterDef& other)
+        : name(other.name),
+          default_expr(other.default_expr ? other.default_expr->clone() : nullptr),
+          is_localparam(other.is_localparam) {}
     ParameterDef& operator=(const ParameterDef& other) {
         if (this != &other) {
             name = other.name;
             default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
+            is_localparam = other.is_localparam;
         }
         return *this;
     }
     ParameterDef(ParameterDef&&) = default;
     ParameterDef& operator=(ParameterDef&&) = default;
+};
+
+struct DefparamItemNode : public ASTNode {
+    std::string hierarchical_path;
+    std::unique_ptr<ExpressionNode> value_expr;
+    std::string declaring_file = "";
+    size_t declaring_line = 0;
+
+    DefparamItemNode() = default;
+    DefparamItemNode(std::string path, std::unique_ptr<ExpressionNode> expr, std::string file = "", size_t line = 0)
+        : hierarchical_path(std::move(path)), value_expr(std::move(expr)),
+          declaring_file(std::move(file)), declaring_line(line) {}
+    DefparamItemNode(const DefparamItemNode& other)
+        : hierarchical_path(other.hierarchical_path),
+          value_expr(other.value_expr ? other.value_expr->clone() : nullptr),
+          declaring_file(other.declaring_file), declaring_line(other.declaring_line) {}
+    DefparamItemNode& operator=(const DefparamItemNode& other) {
+        if (this != &other) {
+            hierarchical_path = other.hierarchical_path;
+            value_expr = other.value_expr ? other.value_expr->clone() : nullptr;
+            declaring_file = other.declaring_file;
+            declaring_line = other.declaring_line;
+        }
+        return *this;
+    }
+    DefparamItemNode(DefparamItemNode&&) = default;
+    DefparamItemNode& operator=(DefparamItemNode&&) = default;
 };
 
 struct ParamOverride {
@@ -596,6 +629,7 @@ struct ModuleNode : public ASTNode {
     std::string defined_in_file = "";
     size_t defined_on_line = 0;
     std::vector<ParameterDef> parameters;
+    std::vector<DefparamItemNode> defparams;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
     std::vector<std::string> events;

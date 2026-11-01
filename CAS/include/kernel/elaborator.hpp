@@ -218,6 +218,7 @@ private:
     std::unordered_map<std::string, std::string> active_instance_cell_map;
     std::unordered_map<std::string, std::string> active_cell_rebind_map;
     std::unordered_set<std::string> valid_instance_paths;
+    std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> defparam_overrides;
 
 public:
     Elaborator() = default;
