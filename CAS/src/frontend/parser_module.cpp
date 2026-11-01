@@ -162,6 +162,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
     std::vector<std::unique_ptr<ModuleNode>> modules;
 
     while (current.type != TokenType::TOKEN_EOF) {
+        if (match(TokenType::TOKEN_SEMICOLON)) continue;
         if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
             bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
             advance();
@@ -2486,6 +2487,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     if (match(TokenType::TOKEN_COLON)) {
         if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
+    match(TokenType::TOKEN_SEMICOLON);
     return cls;
 }
 

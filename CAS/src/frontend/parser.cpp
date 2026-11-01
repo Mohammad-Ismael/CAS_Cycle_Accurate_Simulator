@@ -106,6 +106,7 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
 
 void Parser::parse_packages_only() {
     while (current.type != TokenType::TOKEN_EOF) {
+        if (match(TokenType::TOKEN_SEMICOLON)) continue;
         if (current.type == TokenType::TOKEN_PACKAGE) {
             auto pkg = parse_package();
             if (pkg) {
