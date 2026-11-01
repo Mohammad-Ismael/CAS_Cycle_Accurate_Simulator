@@ -488,8 +488,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                          (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "semaphore"));
                 bool is_mailbox_port = (current.type == TokenType::TOKEN_MAILBOX || 
                                        (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
+                bool is_string_port = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
-                if (is_chandle_port || is_semaphore_port || is_mailbox_port) {
+                if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
                     advance();
                     if (is_mailbox_port && match(TokenType::TOKEN_HASH)) {
@@ -537,7 +538,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
-                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port) {
+                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     msb = std::make_unique<NumberNode>(63, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
                 } else if (is_int_port) {
@@ -567,6 +568,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (is_mailbox_port) {
                         port.is_mailbox = true;
                         port.type_name = "mailbox";
+                    }
+                    if (is_string_port) {
+                        port.type_name = "string";
                     }
                     mod->ports.push_back(std::move(port));
 
@@ -767,8 +771,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                          (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "semaphore"));
                 bool is_mailbox_port = (current.type == TokenType::TOKEN_MAILBOX || 
                                        (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
+                bool is_string_port = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
-                if (is_chandle_port || is_semaphore_port || is_mailbox_port) {
+                if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
                     advance();
                     if (is_mailbox_port && match(TokenType::TOKEN_HASH)) {
@@ -806,7 +811,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
-                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port) {
+                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     msb = std::make_unique<NumberNode>(63, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
                 }
@@ -833,6 +838,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 p.is_mailbox = true;
                                 p.type_name = "mailbox";
                             }
+                            if (is_string_port) {
+                                p.type_name = "string";
+                            }
                             found = true;
                             break;
                         }
@@ -850,6 +858,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (is_mailbox_port) {
                             port_decl.is_mailbox = true;
                             port_decl.type_name = "mailbox";
+                        }
+                        if (is_string_port) {
+                            port_decl.type_name = "string";
                         }
                         mod->ports.push_back(std::move(port_decl));
                     }
@@ -1112,13 +1123,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                      (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "semaphore"));
             bool is_mailbox_mod = (current.type == TokenType::TOKEN_MAILBOX || 
                                    (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
+            bool is_ident_string_sig = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
 
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_ident_unsigned || is_chandle_mod ||
+                current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_ident_string_sig || is_ident_unsigned || is_chandle_mod ||
                 is_semaphore_mod || is_mailbox_mod) {
                 
                 bool explicit_signed = false;
@@ -1141,7 +1153,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
                 NetKind sig_kind = NetKind::WIRE;
-                if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod) {
+                if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
                     sig_kind = NetKind::VAR;
                 } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig) {
                     sig_kind = NetKind::VAR;
@@ -1193,7 +1205,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                 }
                 if (packed_dims.empty()) {
-                    if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod) {
+                    if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
                         msb = std::make_unique<NumberNode>(63, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
                     } else if (is_int) {
@@ -1224,6 +1236,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (is_mailbox_mod) {
                         sig.is_mailbox = true;
                         sig.type_name = "mailbox";
+                    }
+                    if (is_ident_string_sig) {
+                        sig.type_name = "string";
                     }
                     if (is_bit_type) sig.type_name = "bit";
                     if (is_real_sig) sig.type_name = "real";

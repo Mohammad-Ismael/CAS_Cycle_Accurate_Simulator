@@ -53,7 +53,7 @@ public:
     LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);
     LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope);
     LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope = "");
-    bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
+    bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out, const std::vector<ExpressionNode*>& caller_exprs = {});
     bool eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
 

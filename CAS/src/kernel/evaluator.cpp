@@ -44,6 +44,9 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
     size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
     const auto& net = engine.netlist[target_id];
     const auto& net_val = net.value;
+    if (net_val.is_string || net.type_name == "string") {
+        return net_val;
+    }
     uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
     uint64_t a = (net_val.aval >> ref.offset) & mask;
     uint64_t b = (net_val.bval >> ref.offset) & mask;
@@ -54,6 +57,10 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
     auto& target_net = engine.netlist[target_id];
     if (target_net.has_procedural_assign) return;
+    if (val.is_string || target_net.type_name == "string") {
+        target_net.set(val);
+        return;
+    }
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
 
     auto cur = target_net.value;
@@ -85,6 +92,10 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
     }
     if (local) {
+        if (local->type_name == "string" || val.is_string) {
+            local->value = val;
+            return;
+        }
         local->value = LogicOps::cast_width(val, local->width, local->is_signed);
         return;
     }
@@ -234,20 +245,22 @@ void Evaluator::check_monitor() {
         size_t fmt_len = engine.monitor_session.format_string.size();
         for (size_t i = 0; i < fmt_len; ++i) {
             if (engine.monitor_session.format_string[i] == '%' && i + 1 < fmt_len) {
-                char spec = engine.monitor_session.format_string[++i];
-                if (spec == '%') {
+                ++i;
+                if (engine.monitor_session.format_string[i] == '%') {
                     std::cout << '%';
                     continue;
                 }
-                bool unpadded = false;
-                if (spec == '0' && i + 1 < fmt_len) {
-                    char next_spec = engine.monitor_session.format_string[i + 1];
-                    if (next_spec == 't' || next_spec == 'h' || next_spec == 'd' || next_spec == 'b' || next_spec == 's' || next_spec == 'f') {
-                        spec = next_spec;
-                        unpadded = true;
-                        ++i;
-                    }
+                bool pad_zero = false;
+                int width = 0;
+                if (engine.monitor_session.format_string[i] == '0') {
+                    pad_zero = true;
+                    ++i;
                 }
+                while (i < fmt_len && std::isdigit((unsigned char)engine.monitor_session.format_string[i])) {
+                    width = width * 10 + (engine.monitor_session.format_string[i] - '0');
+                    ++i;
+                }
+                char spec = (i < fmt_len) ? engine.monitor_session.format_string[i] : ' ';
 
                 if (arg_idx < current_values.size()) {
                     const auto& val = current_values[arg_idx++];
@@ -257,11 +270,27 @@ void Evaluator::check_monitor() {
                     } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                         std::cout << "x";
                     } else {
-                        if (spec == 'd' || spec == 't') std::cout << (val.is_real ? (int64_t)val.real_val : val.aval);
-                        else if (spec == 'f') std::cout << (val.is_real ? val.real_val : (double)val.aval);
-                        else if (spec == 'b') std::cout << val.to_bin_string();
-                        else if (spec == 'h') std::cout << val.to_hex_string(unpadded);
-                        else std::cout << val.aval;
+                        if (spec == 'd' || spec == 't') {
+                            if (val.is_real) {
+                                std::cout << (int64_t)val.real_val;
+                            } else if (val.is_signed) {
+                                std::cout << val.to_signed();
+                            } else {
+                                std::cout << val.aval;
+                            }
+                        } else if (spec == 'f') {
+                            std::cout << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'b') {
+                            std::cout << val.to_bin_string();
+                        } else if (spec == 'h' || spec == 'x') {
+                            std::string hx = val.to_hex_string(true);
+                            if (pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = "0" + hx;
+                            }
+                            std::cout << hx;
+                        } else {
+                            std::cout << val.aval;
+                        }
                     }
                 }
             } else {
@@ -345,7 +374,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (vdecl->init_expr) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    if (vdecl->type_name == "string" || init_val.is_string) {
+                        lv->value = init_val;
+                    } else {
+                        lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    }
                 }
             }
             return;
@@ -376,7 +409,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (vdecl->init_expr) {
                 if (lv) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    if (vdecl->type_name == "string" || init_val.is_string) {
+                        lv->value = init_val;
+                    } else {
+                        lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    }
                 }
             }
             return;
@@ -424,7 +461,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (vdecl->init_expr) {
                 LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                if (vdecl->type_name == "string" || init_val.is_string) {
+                    lv->value = init_val;
+                } else {
+                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                }
             }
         }
         return;
@@ -627,6 +668,65 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (dot != std::string::npos) {
             std::string var_name = tname.substr(0, dot);
             std::string method = tname.substr(dot + 1);
+
+            if (method == "putc") {
+                LocalVar* local_target = nullptr;
+                size_t net_target_id = (size_t)-1;
+                LogicVal str_val;
+                bool found_target = false;
+
+                if (expr_eval.get_context().has_active_frame()) {
+                    local_target = expr_eval.get_context().lookup_local(var_name);
+                    if (local_target) {
+                        str_val = local_target->value;
+                        found_target = true;
+                    }
+                }
+                if (!found_target && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* lv = it->local_frame.get_var(var_name);
+                        if (lv) {
+                            local_target = lv;
+                            str_val = lv->value;
+                            found_target = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found_target) {
+                    size_t nid = engine.get_net_id(bp.scope, var_name);
+                    if (nid != (size_t)-1) {
+                        net_target_id = nid;
+                        str_val = engine.netlist[nid].value;
+                        found_target = true;
+                    }
+                }
+                if (!found_target && expr_eval.get_current_this() && expr_eval.get_current_this()->has_property(var_name)) {
+                    str_val = expr_eval.get_current_this()->get_property(var_name);
+                    found_target = true;
+                }
+                if (found_target && tcall->args.size() >= 2) {
+                    LogicVal iv = eval_expr(tcall->args[0].get(), bp.scope);
+                    LogicVal cv = eval_expr(tcall->args[1].get(), bp.scope);
+                    int idx = (int)iv.to_signed();
+                    if (idx >= 0 && idx < (int)str_val.str_val.size()) {
+                        str_val.str_val[idx] = (char)(cv.aval & 0xFF);
+                        if (local_target) {
+                            local_target->value = str_val;
+                        } else if (net_target_id != (size_t)-1) {
+                            engine.netlist[net_target_id].set(str_val);
+                        } else if (expr_eval.get_current_this()) {
+                            expr_eval.get_current_this()->set_property(var_name, str_val);
+                        }
+                    }
+                }
+                return;
+            }
+            if (method == "len" || method == "getc" || method == "toupper" || method == "tolower" ||
+                method == "compare" || method == "icompare" || method == "substr" || method == "atoi" ||
+                method == "atohex" || method == "atooct" || method == "atobin" || method == "atoreal") {
+                return;
+            }
 
             if (engine.is_semaphore(var_name, bp.scope)) {
                 uint64_t handle_id = engine.get_semaphore_handle_id(var_name, bp.scope, &bp, &expr_eval.get_context());
@@ -1776,7 +1876,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     throw std::runtime_error("[CAS-DTINPCIL] Incompatible class assignment: '" + rhs_obj->class_type_name + "' is not a subtype of '" + local->class_type_name + "' per IEEE 1800-2023 section 8.26");
                 }
             }
-            local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+            if (local->type_name == "string" || rhs_val.is_string) {
+                local->value = rhs_val;
+            } else {
+                local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+            }
             return;
         }
 
@@ -1837,7 +1941,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
 
-            LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+            LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
             if (nassign->has_intra_event) {
                 size_t trig_net_id = engine.get_net_id(bp.scope, nassign->intra_signal);
 
@@ -2391,7 +2495,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             throw std::runtime_error("[CAS-DTINPCIL] Incompatible class assignment: '" + rhs_obj->class_type_name + "' is not a subtype of '" + local->class_type_name + "' per IEEE 1800-2023 section 8.26");
                         }
                     }
-                    local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                    if (local->type_name == "string" || rhs_val.is_string) {
+                local->value = rhs_val;
+            } else {
+                local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+            }
                 }
             } else {
                 std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
@@ -2655,7 +2763,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 throw std::runtime_error("[CAS-DTINPCIL] Incompatible class assignment: '" + rhs_obj->class_type_name + "' is not a subtype of '" + net_type + "' per IEEE 1800-2023 section 8.26");
                             }
                         }
-                        LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                        LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                         engine.netlist[net_id].set(casted);
                     }
                 }

@@ -6,7 +6,7 @@
 
 ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
-bool ExprEvaluator::eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
+bool ExprEvaluator::eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out, const std::vector<ExpressionNode*>& caller_exprs) {
     if (engine.dpi_import_map.find(func_name) != engine.dpi_import_map.end()) {
         std::string call_scope = current_bp ? current_bp->scope : "";
         result_out = eval_dpi_call(engine.dpi_import_map.at(func_name), arg_vals, call_scope);
@@ -28,7 +28,7 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     }
 
     // 1. Declare and initialize function return variable
-    context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed);
+    context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed, target_fn->return_type_name);
     context.current_frame()->func_return_name = target_fn->name;
 
     // 2. Declare and initialize input parameters
@@ -42,7 +42,11 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
                 w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
             }
         }
-        context.declare_local(in_p.name, w, in_p.is_signed);
+        context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
+        if (in_p.type_name == "string") {
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv) lv->value = LogicVal::make_string("");
+        }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -67,8 +71,11 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     BoundProcess bp{target_fn->scope.empty() ? frame_name : target_fn->scope, nullptr, 0, false};
     set_current_process(&bp);
     engine.evaluator.set_current_process(&bp);
-    for (auto& s : target_fn->body) {
+    for (auto& s : target_fn->get_body()) {
         engine.evaluator.execute_statement(s.get(), bp);
+        if (context.current_frame() && context.current_frame()->returned) {
+            break;
+        }
     }
     engine.evaluator.set_current_process(prev_bp);
     set_current_process(prev_bp);
@@ -79,6 +86,23 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
         result_out = ret_var->value;
     } else {
         result_out = LogicVal::make_x(target_fn->return_width);
+    }
+
+    // 5. Write back output / inout arguments to caller
+    if (prev_bp && !caller_exprs.empty()) {
+        for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
+            const auto& in_p = target_fn->inputs[i];
+            if (in_p.direction == "output" || in_p.direction == "inout") {
+                if (i < caller_exprs.size() && caller_exprs[i]) {
+                    if (auto id = dynamic_cast<IdentifierNode*>(caller_exprs[i])) {
+                        LocalVar* out_var = context.current_frame() ? context.current_frame()->get_var(in_p.name) : nullptr;
+                        if (out_var) {
+                            engine.evaluator.write_variable(id->name, out_var->value, *prev_bp);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     context.pop_frame();
@@ -1305,6 +1329,224 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_known(32, 0);
             }
         }
+
+        // IEEE 1800-2023 §6.16: String Built-in Methods
+        std::string sm = method_node->method_name;
+        if (sm == "len" || sm == "putc" || sm == "getc" || sm == "toupper" || sm == "tolower" ||
+            sm == "compare" || sm == "icompare" || sm == "substr" || sm == "atoi" ||
+            sm == "atohex" || sm == "atooct" || sm == "atobin" || sm == "atoreal") {
+
+            LocalVar* local_target = nullptr;
+            size_t net_target_id = (size_t)-1;
+            LogicVal str_val;
+            bool found_target = false;
+            std::string var_tname = "";
+
+            if (context.has_active_frame()) {
+                local_target = context.lookup_local(var_name);
+                if (local_target) {
+                    str_val = local_target->value;
+                    var_tname = local_target->type_name;
+                    found_target = true;
+                }
+            }
+            if (!found_target && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* lv = it->local_frame.get_var(var_name);
+                    if (lv) {
+                        local_target = lv;
+                        str_val = lv->value;
+                        var_tname = lv->type_name;
+                        found_target = true;
+                        break;
+                    }
+                }
+            }
+            if (!found_target) {
+                size_t nid = engine.get_net_id(scope, var_name);
+                if (nid != (size_t)-1) {
+                    net_target_id = nid;
+                    str_val = engine.netlist[nid].value;
+                    var_tname = engine.netlist[nid].type_name;
+                    found_target = true;
+                }
+            }
+            if (!found_target && current_this && current_this->has_property(var_name)) {
+                str_val = current_this->get_property(var_name);
+                found_target = true;
+            }
+
+            if (!found_target || (!str_val.is_string && var_tname != "string")) {
+                throw std::runtime_error("[CAS-DTINPCIL] Non-string target '" + var_name + "' called string method '" + sm + "()' per IEEE 1800-2023 section 6.16");
+            }
+
+            if (sm == "len") {
+                return LogicVal::make_known(32, (uint64_t)str_val.str_val.size(), true);
+            }
+            if (sm == "toupper") {
+                std::string s = str_val.str_val;
+                for (char& c : s) c = (char)std::toupper((unsigned char)c);
+                return LogicVal::make_string(s);
+            }
+            if (sm == "tolower") {
+                std::string s = str_val.str_val;
+                for (char& c : s) c = (char)std::tolower((unsigned char)c);
+                return LogicVal::make_string(s);
+            }
+            if (sm == "getc") {
+                int idx = 0;
+                if (!method_node->args.empty()) {
+                    LogicVal iv = eval(method_node->args[0].get(), scope);
+                    idx = (int)iv.to_signed();
+                }
+                if (idx < 0 || idx >= (int)str_val.str_val.size()) {
+                    return LogicVal::make_known(32, 0);
+                }
+                uint8_t byte_val = (uint8_t)str_val.str_val[idx];
+                return LogicVal::make_known(32, byte_val);
+            }
+            if (sm == "putc") {
+                if (method_node->args.size() >= 2) {
+                    LogicVal iv = eval(method_node->args[0].get(), scope);
+                    LogicVal cv = eval(method_node->args[1].get(), scope);
+                    int idx = (int)iv.to_signed();
+                    if (idx >= 0 && idx < (int)str_val.str_val.size()) {
+                        str_val.str_val[idx] = (char)(cv.aval & 0xFF);
+                        if (local_target) {
+                            local_target->value = str_val;
+                        } else if (net_target_id != (size_t)-1) {
+                            engine.netlist[net_target_id].set(str_val);
+                        } else if (current_this) {
+                            current_this->set_property(var_name, str_val);
+                        }
+                    }
+                }
+                return LogicVal::make_known(32, 0);
+            }
+            if (sm == "compare") {
+                std::string cmp_s = "";
+                if (!method_node->args.empty()) {
+                    LogicVal sv = eval(method_node->args[0].get(), scope);
+                    cmp_s = sv.str_val;
+                }
+                int res = 0;
+                if (str_val.str_val < cmp_s) res = -1;
+                else if (str_val.str_val > cmp_s) res = 1;
+                return LogicVal::make_known(32, (uint64_t)(int64_t)res, true);
+            }
+            if (sm == "icompare") {
+                std::string cmp_s = "";
+                if (!method_node->args.empty()) {
+                    LogicVal sv = eval(method_node->args[0].get(), scope);
+                    cmp_s = sv.str_val;
+                }
+                std::string s1_up = str_val.str_val;
+                std::string s2_up = cmp_s;
+                for (char& c : s1_up) c = (char)std::toupper((unsigned char)c);
+                for (char& c : s2_up) c = (char)std::toupper((unsigned char)c);
+                int res = 0;
+                if (s1_up < s2_up) res = -1;
+                else if (s1_up > s2_up) res = 1;
+                return LogicVal::make_known(32, (uint64_t)(int64_t)res, true);
+            }
+            if (sm == "substr") {
+                int i = 0, j = 0;
+                if (method_node->args.size() >= 2) {
+                    LogicVal iv = eval(method_node->args[0].get(), scope);
+                    LogicVal jv = eval(method_node->args[1].get(), scope);
+                    i = (int)iv.to_signed();
+                    j = (int)jv.to_signed();
+                }
+                if (i < 0 || j < i || j >= (int)str_val.str_val.size()) {
+                    return LogicVal::make_string("");
+                }
+                return LogicVal::make_string(str_val.str_val.substr(i, j - i + 1));
+            }
+            if (sm == "atoi") {
+                int32_t val = 0;
+                try {
+                    std::string s = str_val.str_val;
+                    size_t k = 0;
+                    while (k < s.size() && (s[k] == ' ' || s[k] == '\t' || s[k] == '_')) k++;
+                    bool neg = false;
+                    if (k < s.size() && (s[k] == '+' || s[k] == '-')) {
+                        if (s[k] == '-') neg = true;
+                        k++;
+                    }
+                    int64_t acc = 0;
+                    while (k < s.size() && (std::isdigit((unsigned char)s[k]) || s[k] == '_')) {
+                        if (s[k] != '_') {
+                            acc = acc * 10 + (s[k] - '0');
+                        }
+                        k++;
+                    }
+                    if (neg) acc = -acc;
+                    val = (int32_t)acc;
+                } catch (...) {}
+                return LogicVal::make_known(32, (uint64_t)(int64_t)val, true);
+            }
+            if (sm == "atohex") {
+                int32_t val = 0;
+                try {
+                    std::string s = str_val.str_val;
+                    size_t k = 0;
+                    while (k < s.size() && (s[k] == ' ' || s[k] == '\t' || s[k] == '_')) k++;
+                    if (k + 1 < s.size() && s[k] == '0' && (s[k+1] == 'x' || s[k+1] == 'X')) k += 2;
+                    int64_t acc = 0;
+                    while (k < s.size()) {
+                        char c = s[k++];
+                        if (c == '_') continue;
+                        if (c >= '0' && c <= '9') acc = (acc << 4) | (c - '0');
+                        else if (c >= 'a' && c <= 'f') acc = (acc << 4) | (c - 'a' + 10);
+                        else if (c >= 'A' && c <= 'F') acc = (acc << 4) | (c - 'A' + 10);
+                        else break;
+                    }
+                    val = (int32_t)acc;
+                } catch (...) {}
+                return LogicVal::make_known(32, (uint64_t)(int64_t)val, true);
+            }
+            if (sm == "atooct") {
+                int32_t val = 0;
+                try {
+                    std::string s = str_val.str_val;
+                    size_t k = 0;
+                    while (k < s.size() && (s[k] == ' ' || s[k] == '\t' || s[k] == '_')) k++;
+                    int64_t acc = 0;
+                    while (k < s.size()) {
+                        char c = s[k++];
+                        if (c == '_') continue;
+                        if (c >= '0' && c <= '7') acc = (acc << 3) | (c - '0');
+                        else break;
+                    }
+                    val = (int32_t)acc;
+                } catch (...) {}
+                return LogicVal::make_known(32, (uint64_t)(int64_t)val, true);
+            }
+            if (sm == "atobin") {
+                int32_t val = 0;
+                try {
+                    std::string s = str_val.str_val;
+                    size_t k = 0;
+                    while (k < s.size() && (s[k] == ' ' || s[k] == '\t' || s[k] == '_')) k++;
+                    int64_t acc = 0;
+                    while (k < s.size()) {
+                        char c = s[k++];
+                        if (c == '_') continue;
+                        if (c == '0' || c == '1') acc = (acc << 1) | (c - '0');
+                        else break;
+                    }
+                    val = (int32_t)acc;
+                } catch (...) {}
+                return LogicVal::make_known(32, (uint64_t)(int64_t)val, true);
+            }
+            if (sm == "atoreal") {
+                double r = 0.0;
+                try {
+                    r = std::stod(str_val.str_val);
+                } catch (...) {}
+                return LogicVal::make_real(r);
+            }
+        }
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         std::string type_name = "";
@@ -1686,6 +1928,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
 
             std::vector<LogicVal> evaluated_args(num_formals);
+            std::vector<ExpressionNode*> caller_nodes(num_formals, nullptr);
             for (size_t j = 0; j < num_formals; ++j) {
                 const auto& in_p = target_fn->inputs[j];
                 ExpressionNode* val_expr = nullptr;
@@ -1709,6 +1952,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
 
+                caller_nodes[j] = val_expr;
                 if (val_expr) {
                     evaluated_args[j] = eval(val_expr, scope);
                 } else {
@@ -1717,26 +1961,28 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
 
             LogicVal ret(32, 0, 0);
-            if (eval_function(scoped_fn, evaluated_args, ret)) {
+            if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
                 return ret;
             }
-            if (eval_function(fn_call->func_name, evaluated_args, ret)) {
+            if (eval_function(fn_call->func_name, evaluated_args, ret, caller_nodes)) {
                 return ret;
             }
             return LogicVal::make_x(32);
         }
 
         std::vector<LogicVal> evaluated_args;
+        std::vector<ExpressionNode*> caller_nodes;
         for (const auto& a : fn_call->args) {
             evaluated_args.push_back(a ? eval(a.get(), scope) : LogicVal::make_x(32));
+            caller_nodes.push_back(a.get());
         }
 
         LogicVal ret(32, 0, 0);
 
-        if (eval_function(scoped_fn, evaluated_args, ret)) {
+        if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
             return ret;
         }
-        if (eval_function(fn_call->func_name, evaluated_args, ret)) {
+        if (eval_function(fn_call->func_name, evaluated_args, ret, caller_nodes)) {
             return ret;
         }
         return LogicVal::make_x(32);
@@ -1854,10 +2100,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         uint32_t total_w = 0;
         std::vector<LogicVal> vals;
+        bool any_string = false;
         for (auto& elem : cat->elements) {
             LogicVal v = eval(elem.get(), scope);
+            if (v.is_string) any_string = true;
             vals.push_back(v);
             total_w += v.width;
+        }
+
+        if (any_string) {
+            std::string res_str = "";
+            for (const auto& v : vals) {
+                if (v.is_string) {
+                    res_str += v.str_val;
+                } else {
+                    for (int i = (int)v.width - 8; i >= 0; i -= 8) {
+                        char c = (char)((v.aval >> i) & 0xFF);
+                        if (c != '\0') res_str.push_back(c);
+                    }
+                }
+            }
+            return LogicVal::make_string(res_str);
         }
 
         uint64_t new_a = 0;
@@ -2160,6 +2423,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (l.is_string || r.is_string) {
             if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
             if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (l.str_val != r.str_val) ? 1 : 0);
+            if (bin->op == "<")  return LogicVal::make_known(1, (l.str_val < r.str_val) ? 1 : 0);
+            if (bin->op == "<=") return LogicVal::make_known(1, (l.str_val <= r.str_val) ? 1 : 0);
+            if (bin->op == ">")  return LogicVal::make_known(1, (l.str_val > r.str_val) ? 1 : 0);
+            if (bin->op == ">=") return LogicVal::make_known(1, (l.str_val >= r.str_val) ? 1 : 0);
         }
         if (bin->op == "==" || bin->op == "!=") {
             uint32_t w = std::max(l.width, r.width);

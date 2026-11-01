@@ -911,6 +911,17 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         std::string var_name = tcall->task_name.substr(0, dot);
         std::string method_name = tcall->task_name.substr(dot + 1);
 
+        if (engine.is_semaphore(var_name, bp.scope) || engine.is_mailbox(var_name, bp.scope) ||
+            method_name == "putc" || method_name == "len" || method_name == "toupper" ||
+            method_name == "tolower" || method_name == "substr" || method_name == "getc" ||
+            method_name == "atoi" || method_name == "atohex" || method_name == "atooct" ||
+            method_name == "atobin" || method_name == "atoreal" || method_name == "compare" ||
+            method_name == "icompare") {
+            engine.evaluator.execute_statement(tcall, bp);
+            bp.pc++;
+            return;
+        }
+
         if (var_name == "this" || var_name == "super") {
             cl_obj = engine.evaluator.get_expr_eval().get_current_this();
         } else {

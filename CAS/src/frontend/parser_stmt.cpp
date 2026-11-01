@@ -290,66 +290,81 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             packed_dims.push_back(std::move(ad));
         }
 
-        std::string vname = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
-        bool is_q = false;
-        bool is_dyn = false;
-        bool is_assoc = false;
-        std::string assoc_key_type = "";
-        uint32_t assoc_key_width = 32;
-        std::vector<AstDimension> unpacked_dims;
-        while (match(TokenType::TOKEN_LBRACKET)) {
-            if (match(TokenType::TOKEN_DOLLAR)) {
-                is_q = true;
-                if (match(TokenType::TOKEN_COLON)) {
-                    parse_expression();
+        std::vector<std::unique_ptr<StatementNode>> vstmts;
+        std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_real_var ? "real" : (is_ident_string_type ? "string" : (!int_type_name.empty() ? int_type_name : "")))));
+        while (true) {
+            std::string vname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+            bool is_q = false;
+            bool is_dyn = false;
+            bool is_assoc = false;
+            std::string assoc_key_type = "";
+            uint32_t assoc_key_width = 32;
+            std::vector<AstDimension> unpacked_dims;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    is_q = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    break;
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    is_dyn = true;
+                    break;
+                } else if (is_assoc_key_token(current)) {
+                    is_assoc = true;
+                    parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                    break;
+                } else {
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    unpacked_dims.push_back(std::move(ad));
                 }
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                break;
-            } else if (match(TokenType::TOKEN_RBRACKET)) {
-                is_dyn = true;
-                break;
-            } else if (is_assoc_key_token(current)) {
-                is_assoc = true;
-                parse_assoc_key_type(assoc_key_type, assoc_key_width);
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                break;
-            } else {
-                auto l = parse_expression();
-                std::unique_ptr<ExpressionNode> r = nullptr;
-                bool is_single = true;
-                if (match(TokenType::TOKEN_COLON)) {
-                    r = parse_expression();
-                    is_single = false;
-                }
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                AstDimension ad;
-                ad.left_expr = std::move(l);
-                ad.right_expr = std::move(r);
-                ad.is_single = is_single;
-                unpacked_dims.push_back(std::move(ad));
             }
-        }
-        if (match(TokenType::TOKEN_REP_CONSEC)) {
-            is_assoc = true;
-            assoc_key_type = "*";
-            assoc_key_width = 64;
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-        }
-        std::unique_ptr<ExpressionNode> init_expr = nullptr;
-        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
-            init_expr = parse_expression();
+            if (match(TokenType::TOKEN_REP_CONSEC)) {
+                is_assoc = true;
+                assoc_key_type = "*";
+                assoc_key_width = 64;
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+            }
+            std::unique_ptr<ExpressionNode> init_expr = nullptr;
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                init_expr = parse_expression();
+            }
+            auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            std::vector<AstDimension> cloned_packed;
+            for (const auto& pd : packed_dims) {
+                AstDimension cad;
+                cad.left_expr = pd.left_expr ? pd.left_expr->clone() : nullptr;
+                cad.right_expr = pd.right_expr ? pd.right_expr->clone() : nullptr;
+                cad.is_single = pd.is_single;
+                cloned_packed.push_back(std::move(cad));
+            }
+            vnode->packed_dimensions = std::move(cloned_packed);
+            vnode->unpacked_dimensions = std::move(unpacked_dims);
+            vnode->is_chandle = is_chandle_stmt;
+            vnode->is_semaphore = is_semaphore_stmt;
+            vnode->is_mailbox = is_mailbox_stmt;
+            vnode->init_expr = std::move(init_expr);
+            vstmts.push_back(std::move(vnode));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_real_var ? "real" : (is_ident_string_type ? "string" : (!int_type_name.empty() ? int_type_name : "")))));
-        auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
-        vnode->packed_dimensions = std::move(packed_dims);
-        vnode->unpacked_dimensions = std::move(unpacked_dims);
-        vnode->is_chandle = is_chandle_stmt;
-        vnode->is_semaphore = is_semaphore_stmt;
-        vnode->is_mailbox = is_mailbox_stmt;
-        vnode->init_expr = std::move(init_expr);
-        return vnode;
+        if (vstmts.size() == 1) return std::move(vstmts[0]);
+        return std::make_unique<BlockStatementNode>(std::move(vstmts));
     }
 
     // Cycle Delay Statement (##N; or ##(expr);)

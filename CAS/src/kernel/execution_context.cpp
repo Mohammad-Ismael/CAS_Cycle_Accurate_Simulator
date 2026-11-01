@@ -43,6 +43,10 @@ LocalVar* ExecutionContext::lookup_local(const std::string& name) {
 bool ExecutionContext::set_local_value(const std::string& name, const LogicVal& val) {
     LocalVar* var = lookup_local(name);
     if (!var) return false;
+    if (var->type_name == "string" || val.is_string) {
+        var->value = val;
+        return true;
+    }
     var->value = LogicOps::cast_width(val, var->width, var->is_signed);
     return true;
 }

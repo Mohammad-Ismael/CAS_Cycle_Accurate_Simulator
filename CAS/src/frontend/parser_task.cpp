@@ -28,6 +28,7 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
             bool is_vif = false;
             std::string vif_iface = "";
             std::string vif_mp = "";
+            std::string arg_type_name = "";
             if (match(TokenType::TOKEN_VIRTUAL)) {
                 is_vif = true;
                 if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
@@ -50,9 +51,15 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
                     is_int = true;
                 }
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
-                is_s = true;
-                is_int = true;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string")) {
+                if (current.text == "string") {
+                    arg_type_name = "string";
+                    is_int = true;
+                    is_s = false;
+                } else {
+                    is_s = true;
+                    is_int = true;
+                }
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
@@ -81,6 +88,7 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
             std::string pname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected port name");
             PortNode pnode(pname, dir, std::move(msb), std::move(lsb), is_s);
+            pnode.type_name = arg_type_name;
             pnode.is_virtual_interface = is_vif;
             pnode.interface_name = vif_iface;
             pnode.modport_name = vif_mp;

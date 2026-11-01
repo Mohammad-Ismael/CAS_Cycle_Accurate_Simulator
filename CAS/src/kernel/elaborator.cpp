@@ -372,6 +372,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.open_array_names.insert(scope + "." + p.name);
             result.open_array_names.insert(p.name);
         }
+        if (p.type_name == "string") {
+            result.netlist[pid].type_name = "string";
+            result.netlist[pid].value = LogicVal::make_string("");
+            result.netlist[pid].prev_value = LogicVal::make_string("");
+            result.string_net_names.insert(scope + "." + p.name);
+            result.string_net_names.insert(p.name);
+        }
         if (!p.type_name.empty()) {
             result.netlist[pid].type_name = p.type_name;
             result.var_to_enum_type[scope + "." + p.name] = p.type_name;
@@ -608,6 +615,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.open_array_names.insert(scope + "." + s.name);
                 result.open_array_names.insert(s.name);
             }
+            if (s.type_name == "string") {
+                result.netlist[sid].type_name = "string";
+                result.netlist[sid].value = LogicVal::make_string("");
+                result.netlist[sid].prev_value = LogicVal::make_string("");
+                result.string_net_names.insert(scope + "." + s.name);
+                result.string_net_names.insert(s.name);
+            }
             if (s.is_class_handle) {
                 result.netlist[sid].is_class_handle = true;
                 result.netlist[sid].value = LogicVal(64, 0, 0);
@@ -843,6 +857,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.mailbox_handle_names.find(id->name) != result.mailbox_handle_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: mailbox '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 15.4");
                 }
+                if (result.string_net_names.find(s_id) != result.string_net_names.end() ||
+                    result.string_net_names.find(id->name) != result.string_net_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: string variable '" + id->name + "' used directly in continuous assignment per IEEE 1800-2023 section 6.16");
+                }
                 if (result.open_array_names.find(s_id) != result.open_array_names.end() ||
                     result.open_array_names.find(id->name) != result.open_array_names.end() ||
                     result.memory_map.find(s_id) != result.memory_map.end() ||
@@ -933,6 +951,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.open_array_names.find(mc->var_name) != result.open_array_names.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: array method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.12");
                 }
+                if (mc->method_name == "len" || mc->method_name == "putc" || mc->method_name == "getc" ||
+                    mc->method_name == "toupper" || mc->method_name == "tolower" || mc->method_name == "compare" ||
+                    mc->method_name == "icompare" || mc->method_name == "substr" || mc->method_name == "atoi" ||
+                    mc->method_name == "atohex" || mc->method_name == "atooct" || mc->method_name == "atobin" ||
+                    mc->method_name == "atoreal") {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: string method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 6.16");
+                }
                 for (auto& a : mc->args) check_expr(a.get());
             } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
                 if (bin->op == "==" || bin->op == "!=") {
@@ -977,6 +1002,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 for (auto& a : fc->args) check_expr(a.get());
             }
         };
+        {
+            std::string t_id = scope + "." + ca->target_name;
+            if (result.string_net_names.find(t_id) != result.string_net_names.end() ||
+                result.string_net_names.find(ca->target_name) != result.string_net_names.end()) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: string variable '" + ca->target_name + "' driven by continuous assignment per IEEE 1800-2023 section 6.16");
+            }
+        }
         check_expr(ca->rhs.get());
         size_t target_id = result.net_map.at(scoped_target);
         result.continuous_assigns.push_back({scope, {target_id, 0, result.netlist[target_id].width}, ca->rhs.get()});

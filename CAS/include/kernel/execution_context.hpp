@@ -50,6 +50,9 @@ struct LocalVar {
             is_mailbox = true;
             value = LogicVal(64, 0, 0);
         }
+        if (type_name == "string") {
+            value = LogicVal::make_string("");
+        }
     }
 };
 

@@ -174,6 +174,7 @@ struct FunctionNode : public ASTNode {
     bool is_pure = false;
     uint32_t return_width = 32;
     bool return_signed = false;
+    std::string return_type_name = "";
     std::unique_ptr<ExpressionNode> return_msb_expr;
     std::unique_ptr<ExpressionNode> return_lsb_expr;
     std::vector<PortNode> inputs;

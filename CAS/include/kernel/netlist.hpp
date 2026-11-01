@@ -38,10 +38,16 @@ struct Net {
           modified(false), vcd_id("") {}
 
     void set(const LogicVal& val) {
-        LogicVal clamped(width, val.aval, val.bval);
-        if (val.is_real) {
+        LogicVal clamped;
+        if (val.is_string || type_name == "string") {
+            clamped = val;
+            clamped.is_string = true;
+        } else if (val.is_real) {
+            clamped = LogicVal(width, val.aval, val.bval);
             clamped.is_real = true;
             clamped.real_val = val.real_val;
+        } else {
+            clamped = LogicVal(width, val.aval, val.bval);
         }
         if (value != clamped) {
             prev_value = value;

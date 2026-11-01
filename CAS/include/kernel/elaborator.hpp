@@ -205,6 +205,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> semaphore_handle_names;
     std::unordered_set<std::string> mailbox_handle_names;
     std::unordered_set<std::string> virtual_interface_names;
+    std::unordered_set<std::string> string_net_names;
     std::vector<ModulePathDelay> module_path_delays;
     std::vector<RuntimeTimingCheck> timing_checks;
     std::unordered_map<std::string, VariableDimMetadata> var_dimensions;
