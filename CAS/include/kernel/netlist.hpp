@@ -94,6 +94,13 @@ struct MemoryBinding {
     std::string dst;
 };
 
+struct MemoryContinuousAssign {
+    std::string scope;
+    std::string mem_name;
+    std::unique_ptr<ExpressionNode> index_expr;
+    std::unique_ptr<ExpressionNode> rhs;
+};
+
 struct NamedEvent {
     std::string name;
     uint64_t last_triggered_time = (uint64_t)-1;

@@ -58,7 +58,8 @@ suites = [
     ("v3.32.0.0", "v3_32_0_0_interface_classes", ["design.sv", "testbench.sv"]),
     ("v3.33.0.0", "v3_33_0_0_array_queries", ["design.sv", "testbench.sv"]),
     ("v3.34.0.0", "v3_34_0_0_string_methods", ["design.sv", "testbench.sv"]),
-    ("v3.35.0.0", "v3_35_0_0_streaming_operators", ["design.sv", "testbench.sv"])
+    ("v3.35.0.0", "v3_35_0_0_streaming_operators", ["design.sv", "testbench.sv"]),
+    ("v3.36.0.0", "v3_36_0_0_generate_constructs", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

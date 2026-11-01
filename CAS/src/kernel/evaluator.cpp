@@ -2009,7 +2009,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         std::string scoped_mem = bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name);
         if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
-            if (engine.memory_map.find(mem_assign->mem_name) != engine.memory_map.end()) {
+            std::string cur_s = bp.scope;
+            while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + mem_assign->mem_name) == engine.memory_map.end()) {
+                auto dot = cur_s.rfind('.');
+                if (dot == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot);
+            }
+            if (!cur_s.empty()) scoped_mem = cur_s + "." + mem_assign->mem_name;
+            else if (engine.memory_map.find(mem_assign->mem_name) != engine.memory_map.end()) {
                 scoped_mem = mem_assign->mem_name;
             }
         }

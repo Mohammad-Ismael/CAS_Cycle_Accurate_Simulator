@@ -10,6 +10,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     alias_members = std::move(elab_res.alias_members);
     slice_bindings = std::move(elab_res.slice_bindings);
     memory_bindings = std::move(elab_res.memory_bindings);
+    memory_continuous_assigns = std::move(elab_res.memory_continuous_assigns);
+    generated_processes = std::move(elab_res.generated_processes);
+    generated_continuous_assigns = std::move(elab_res.generated_continuous_assigns);
     continuous_assigns = std::move(elab_res.continuous_assigns);
     resolved_continuous_assigns.clear();
     std::unordered_map<uint64_t, size_t> slice_to_rca;
@@ -290,16 +293,24 @@ std::string Engine::resolve_scoped_name(const std::string& scope, const std::str
 }
 
 size_t Engine::get_net_id(const std::string& scope, const std::string& name) const {
-    std::string resolved = resolve_scoped_name(scope, name);
-    auto it = net_map.find(resolved);
-    if (it != net_map.end()) return it->second;
+    std::string cur_scope = scope;
+    while (true) {
+        std::string resolved = resolve_scoped_name(cur_scope, name);
+        auto it = net_map.find(resolved);
+        if (it != net_map.end()) return it->second;
+
+        std::string scoped = cur_scope.empty() ? name : (cur_scope + "." + name);
+        auto it3 = net_map.find(scoped);
+        if (it3 != net_map.end()) return it3->second;
+
+        if (cur_scope.empty()) break;
+        auto dot = cur_scope.rfind('.');
+        if (dot == std::string::npos) cur_scope = "";
+        else cur_scope = cur_scope.substr(0, dot);
+    }
 
     auto it2 = net_map.find(name);
     if (it2 != net_map.end()) return it2->second;
-
-    std::string scoped = scope.empty() ? name : (scope + "." + name);
-    auto it3 = net_map.find(scoped);
-    if (it3 != net_map.end()) return it3->second;
 
     return (size_t)-1;
 }

@@ -168,7 +168,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                 current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                current.type == TokenType::TOKEN_SIGNED ||
+                current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
                 (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                 advance();
                 if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
@@ -401,7 +401,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                    current.type == TokenType::TOKEN_SIGNED ||
+                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
                     (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                     advance();
                     if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
@@ -753,7 +753,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                    current.type == TokenType::TOKEN_SIGNED ||
+                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
                     (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                     advance();
                     if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
@@ -1405,10 +1405,52 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     target += "." + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in assign target");
                 }
+                std::unique_ptr<ExpressionNode> target_idx = nullptr;
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    target_idx = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                }
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in assign statement");
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
-                mod->continuous_assigns.push_back(std::make_unique<ContinuousAssignNode>(target, std::move(rhs)));
+                auto ca = std::make_unique<ContinuousAssignNode>(target, std::move(rhs));
+                ca->target_index_expr = std::move(target_idx);
+                mod->continuous_assigns.push_back(std::move(ca));
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_GENVAR)) {
+                while (true) {
+                    std::string gname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar identifier");
+                    mod->genvars.insert(gname);
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after genvar declaration");
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_GENERATE)) {
+                while (current.type != TokenType::TOKEN_ENDGENERATE && current.type != TokenType::TOKEN_EOF) {
+                    parse_generate_item(mod.get(), nullptr);
+                }
+                expect(TokenType::TOKEN_ENDGENERATE, "Expected 'endgenerate'");
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_FOR) {
+                mod->generate_nodes.push_back(parse_generate_for(mod.get()));
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IF) {
+                mod->generate_nodes.push_back(parse_generate_if(mod.get()));
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_CASE) {
+                mod->generate_nodes.push_back(parse_generate_case(mod.get()));
                 continue;
             }
 
@@ -3559,6 +3601,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             advance();
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                 current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                current.type == TokenType::TOKEN_BIT ||
                 (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
                 advance();
             }
@@ -3853,4 +3896,340 @@ std::shared_ptr<ConfigNode> Parser::parse_config() {
         }
     }
     return cfg;
+}
+
+std::shared_ptr<LoopGenerateNode> Parser::parse_generate_for(ModuleNode* mod) {
+    expect(TokenType::TOKEN_FOR, "Expected 'for' in loop generate");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");
+    if (match(TokenType::TOKEN_GENVAR)) {
+        // inline genvar
+    }
+    std::string gname = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar identifier in for loop header");
+    mod->genvars.insert(gname);
+    expect(TokenType::TOKEN_EQUAL, "Expected '=' in for loop header");
+    auto init_e = parse_expression();
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for loop init");
+    auto cond_e = parse_expression();
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for loop condition");
+    
+    std::string step_op = "=";
+    std::unique_ptr<ExpressionNode> step_e = nullptr;
+    if (match(TokenType::TOKEN_PLUS_PLUS)) {
+        step_op = "++";
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar name after '++'");
+    } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
+        step_op = "--";
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar name after '--'");
+    } else {
+        std::string step_target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar identifier in step");
+        if (match(TokenType::TOKEN_PLUS_PLUS)) {
+            step_op = "++";
+        } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
+            step_op = "--";
+        } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
+            step_op = "+=";
+            step_e = parse_expression();
+        } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
+            step_op = "-=";
+            step_e = parse_expression();
+        } else if (match(TokenType::TOKEN_EQUAL)) {
+            step_op = "=";
+            step_e = parse_expression();
+        }
+    }
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing for loop header");
+
+    auto loop = std::make_shared<LoopGenerateNode>();
+    loop->genvar_name = gname;
+    loop->init_expr = std::move(init_e);
+    loop->cond_expr = std::move(cond_e);
+    loop->step_op = step_op;
+    loop->step_expr = std::move(step_e);
+
+    if (match(TokenType::TOKEN_BEGIN)) {
+        if (match(TokenType::TOKEN_COLON)) {
+            loop->block_label = current.text;
+            loop->body->label = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block label after ':'");
+        }
+        while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+            parse_generate_item(mod, loop->body.get());
+        }
+        expect(TokenType::TOKEN_END, "Expected 'end' closing generate block");
+        if (match(TokenType::TOKEN_COLON)) {
+            match(TokenType::TOKEN_IDENTIFIER);
+        }
+    } else {
+        parse_generate_item(mod, loop->body.get());
+    }
+    return loop;
+}
+
+std::shared_ptr<IfGenerateNode> Parser::parse_generate_if(ModuleNode* mod) {
+    expect(TokenType::TOKEN_IF, "Expected 'if' in conditional generate");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
+    auto cond_e = parse_expression();
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing if condition");
+
+    auto if_node = std::make_shared<IfGenerateNode>();
+    if_node->cond_expr = std::move(cond_e);
+
+    if (match(TokenType::TOKEN_BEGIN)) {
+        if (match(TokenType::TOKEN_COLON)) {
+            if_node->then_label = current.text;
+            if_node->then_block->label = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block label after ':'");
+        }
+        while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+            parse_generate_item(mod, if_node->then_block.get());
+        }
+        expect(TokenType::TOKEN_END, "Expected 'end' closing generate block");
+        if (match(TokenType::TOKEN_COLON)) {
+            match(TokenType::TOKEN_IDENTIFIER);
+        }
+    } else {
+        parse_generate_item(mod, if_node->then_block.get());
+    }
+
+    if (match(TokenType::TOKEN_ELSE)) {
+        if_node->has_else = true;
+        if (match(TokenType::TOKEN_BEGIN)) {
+            if (match(TokenType::TOKEN_COLON)) {
+                if_node->else_label = current.text;
+                if_node->else_block->label = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected block label after ':'");
+            }
+            while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                parse_generate_item(mod, if_node->else_block.get());
+            }
+            expect(TokenType::TOKEN_END, "Expected 'end' closing generate block");
+            if (match(TokenType::TOKEN_COLON)) {
+                match(TokenType::TOKEN_IDENTIFIER);
+            }
+        } else {
+            parse_generate_item(mod, if_node->else_block.get());
+        }
+    }
+    return if_node;
+}
+
+std::shared_ptr<CaseGenerateNode> Parser::parse_generate_case(ModuleNode* mod) {
+    expect(TokenType::TOKEN_CASE, "Expected 'case' in case generate");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case'");
+    auto sel_e = parse_expression();
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing case select");
+
+    auto case_node = std::make_shared<CaseGenerateNode>();
+    case_node->select_expr = std::move(sel_e);
+
+    while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+        CaseGenerateItem item;
+        item.block = std::make_unique<GenerateBlock>();
+        if (match(TokenType::TOKEN_DEFAULT)) {
+            match(TokenType::TOKEN_COLON);
+            item.is_default = true;
+        } else {
+            while (true) {
+                item.match_exprs.push_back(parse_expression());
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_COLON, "Expected ':' after case item");
+        }
+        if (match(TokenType::TOKEN_BEGIN)) {
+            if (match(TokenType::TOKEN_COLON)) {
+                item.label = current.text;
+                item.block->label = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected block label after ':'");
+            }
+            while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
+                parse_generate_item(mod, item.block.get());
+            }
+            expect(TokenType::TOKEN_END, "Expected 'end' closing generate block");
+            if (match(TokenType::TOKEN_COLON)) {
+                match(TokenType::TOKEN_IDENTIFIER);
+            }
+        } else {
+            parse_generate_item(mod, item.block.get());
+        }
+        case_node->items.push_back(std::move(item));
+    }
+    expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase'");
+    return case_node;
+}
+
+void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
+    if (match(TokenType::TOKEN_GENVAR)) {
+        while (true) {
+            std::string gname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar identifier");
+            mod->genvars.insert(gname);
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after genvar declaration");
+        return;
+    }
+    if (current.type == TokenType::TOKEN_FOR) {
+        auto node = parse_generate_for(mod);
+        if (blk) blk->nested_generates.push_back(node);
+        else mod->generate_nodes.push_back(node);
+        return;
+    }
+    if (current.type == TokenType::TOKEN_IF) {
+        auto node = parse_generate_if(mod);
+        if (blk) blk->nested_generates.push_back(node);
+        else mod->generate_nodes.push_back(node);
+        return;
+    }
+    if (current.type == TokenType::TOKEN_CASE) {
+        auto node = parse_generate_case(mod);
+        if (blk) blk->nested_generates.push_back(node);
+        else mod->generate_nodes.push_back(node);
+        return;
+    }
+    if (match(TokenType::TOKEN_GENERATE)) {
+        while (current.type != TokenType::TOKEN_ENDGENERATE && current.type != TokenType::TOKEN_EOF) {
+            parse_generate_item(mod, blk);
+        }
+        expect(TokenType::TOKEN_ENDGENERATE, "Expected 'endgenerate'");
+        return;
+    }
+    if (match(TokenType::TOKEN_ASSIGN)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in assign");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in assign target");
+        }
+        std::unique_ptr<ExpressionNode> target_idx = nullptr;
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            target_idx = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+        }
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' in assign statement");
+        auto rhs = parse_expression();
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
+        auto ca = std::make_unique<ContinuousAssignNode>(target, std::move(rhs));
+        ca->target_index_expr = std::move(target_idx);
+        if (blk) blk->continuous_assigns.push_back(std::move(ca));
+        else mod->continuous_assigns.push_back(std::move(ca));
+        return;
+    }
+    if (match(TokenType::TOKEN_ALWAYS_FF)) {
+        auto proc = parse_always_ff();
+        proc->is_always_ff = true;
+        if (blk) blk->processes.push_back(std::move(proc));
+        else mod->processes.push_back(std::move(proc));
+        return;
+    }
+    if (match(TokenType::TOKEN_ALWAYS_COMB)) {
+        auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+        proc->is_always_comb = true;
+        proc->body = parse_statement_or_block();
+        if (blk) blk->processes.push_back(std::move(proc));
+        else mod->processes.push_back(std::move(proc));
+        return;
+    }
+    if (match(TokenType::TOKEN_ALWAYS_LATCH)) {
+        auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+        proc->is_always_latch = true;
+        proc->body = parse_statement_or_block();
+        if (blk) blk->processes.push_back(std::move(proc));
+        else mod->processes.push_back(std::move(proc));
+        return;
+    }
+    if (match(TokenType::TOKEN_ALWAYS)) {
+        if (current.type == TokenType::TOKEN_AT) {
+            advance();
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+            auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
+            while (true) {
+                EdgeType edge = EdgeType::LEVEL;
+                if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+                else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                std::string sig = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                while (match(TokenType::TOKEN_DOT)) {
+                    sig += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                }
+                proc->sensitivity_list.push_back({edge, sig});
+                if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
+            proc->body = parse_statement_or_block();
+            if (blk) blk->processes.push_back(std::move(proc));
+            else mod->processes.push_back(std::move(proc));
+        } else {
+            auto proc = std::make_unique<ProcessNode>(ProcessType::ALWAYS);
+            proc->body = parse_statement_or_block();
+            if (blk) blk->processes.push_back(std::move(proc));
+            else mod->processes.push_back(std::move(proc));
+        }
+        return;
+    }
+    if (match(TokenType::TOKEN_INITIAL)) {
+        auto proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+        proc->body = parse_statement_or_block();
+        if (blk) blk->processes.push_back(std::move(proc));
+        else mod->processes.push_back(std::move(proc));
+        return;
+    }
+    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+        current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
+        current.type == TokenType::TOKEN_TRI   || current.type == TokenType::TOKEN_REG  || 
+        current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT ||
+        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+        
+        NetKind pkind = NetKind::VAR;
+        if (current.type == TokenType::TOKEN_WIRE) pkind = NetKind::WIRE;
+        else if (current.type == TokenType::TOKEN_WAND) pkind = NetKind::WAND;
+        else if (current.type == TokenType::TOKEN_WOR) pkind = NetKind::WOR;
+        else if (current.type == TokenType::TOKEN_TRI) pkind = NetKind::TRI;
+        std::string tname = current.text;
+        advance();
+
+        std::unique_ptr<ExpressionNode> msb = nullptr;
+        std::unique_ptr<ExpressionNode> lsb = nullptr;
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            msb = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in signal range");
+            lsb = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in signal range");
+        }
+
+        while (true) {
+            std::string sname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+            PortNode pnode(sname, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, false, pkind);
+            pnode.type_name = tname;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                pnode.is_array = true;
+                auto l = parse_expression();
+                std::unique_ptr<ExpressionNode> r = nullptr;
+                bool is_single = true;
+                if (match(TokenType::TOKEN_COLON)) {
+                    r = parse_expression();
+                    is_single = false;
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in array dimension");
+                AstDimension ad;
+                ad.left_expr = std::move(l);
+                ad.right_expr = std::move(r);
+                ad.is_single = is_single;
+                pnode.unpacked_dimensions.push_back(std::move(ad));
+            }
+            if (blk) blk->signals.push_back(std::move(pnode));
+            else mod->signals.push_back(std::move(pnode));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+        return;
+    }
+    advance();
 }

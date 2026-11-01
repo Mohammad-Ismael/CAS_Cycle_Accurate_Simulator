@@ -455,6 +455,36 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
+        // Continuous assignments targeting memory array words (IEEE 1800-2023 §27)
+        for (auto& mca : engine.memory_continuous_assigns) {
+            std::string cur_s = mca.scope;
+            auto it = engine.memory_map.end();
+            while (true) {
+                std::string scoped = cur_s.empty() ? mca.mem_name : (cur_s + "." + mca.mem_name);
+                it = engine.memory_map.find(scoped);
+                if (it != engine.memory_map.end()) break;
+                if (cur_s.empty()) break;
+                auto dot = cur_s.rfind('.');
+                if (dot == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot);
+            }
+            if (it == engine.memory_map.end()) {
+                it = engine.memory_map.find(mca.mem_name);
+            }
+            if (it != engine.memory_map.end()) {
+                LogicVal idx_val = engine.evaluator.eval_expr(mca.index_expr.get(), mca.scope);
+                if (!idx_val.is_unknown()) {
+                    int64_t addr = (int64_t)idx_val.aval;
+                    LogicVal rhs_val = engine.evaluator.eval_expr(mca.rhs.get(), mca.scope);
+                    LogicVal cur_val = it->second.get_word(addr);
+                    if (cur_val != rhs_val) {
+                        it->second.set_word(addr, rhs_val);
+                        changed = true;
+                    }
+                }
+            }
+        }
+
         // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution
         for (auto& rca : engine.resolved_continuous_assigns) {
             if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;

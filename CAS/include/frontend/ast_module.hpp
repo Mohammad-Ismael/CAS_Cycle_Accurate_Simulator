@@ -53,6 +53,39 @@ struct PortNode : public ASTNode {
         : name(std::move(n)), direction(std::move(dir)),
           msb_expr(std::move(msb)), lsb_expr(std::move(lsb)),
           is_signed(signed_flag), net_kind(kind) {}
+
+    PortNode clone() const {
+        PortNode p(name, direction, msb_expr ? msb_expr->clone() : nullptr, lsb_expr ? lsb_expr->clone() : nullptr, is_signed, net_kind);
+        p.is_array = is_array;
+        if (bound1_expr) p.bound1_expr = bound1_expr->clone();
+        if (bound2_expr) p.bound2_expr = bound2_expr->clone();
+        for (const auto& d : packed_dimensions) {
+            p.packed_dimensions.push_back(d.clone());
+        }
+        for (const auto& d : unpacked_dimensions) {
+            p.unpacked_dimensions.push_back(d.clone());
+        }
+        p.type_name = type_name;
+        p.is_interface = is_interface;
+        p.interface_type_name = interface_type_name;
+        p.modport_name = modport_name;
+        p.is_queue = is_queue;
+        p.is_dynamic_array = is_dynamic_array;
+        p.is_associative_array = is_associative_array;
+        p.assoc_key_type = assoc_key_type;
+        p.assoc_key_width = assoc_key_width;
+        p.is_class_handle = is_class_handle;
+        p.class_type_name = class_type_name;
+        p.is_covergroup_handle = is_covergroup_handle;
+        p.covergroup_type_name = covergroup_type_name;
+        p.is_chandle = is_chandle;
+        p.is_semaphore = is_semaphore;
+        p.is_mailbox = is_mailbox;
+        p.is_virtual_interface = is_virtual_interface;
+        p.interface_name = interface_name;
+        if (default_value) p.default_value = default_value->clone();
+        return p;
+    }
 };
 
 struct ParameterDef {
@@ -143,6 +176,18 @@ struct ProcessNode : public ASTNode {
 
     ProcessNode() = default;
     explicit ProcessNode(ProcessType t) : type(t) {}
+
+    std::unique_ptr<ProcessNode> clone() const {
+        auto p = std::make_unique<ProcessNode>(type);
+        p->sensitivity_list = sensitivity_list;
+        p->is_always_ff = is_always_ff;
+        p->is_always_comb = is_always_comb;
+        p->is_always_latch = is_always_latch;
+        for (const auto& s : body) {
+            p->body.push_back(s ? s->clone() : nullptr);
+        }
+        return p;
+    }
 };
 
 struct TaskNode : public ASTNode {
@@ -207,16 +252,35 @@ struct InstantiationNode : public ASTNode {
 
     InstantiationNode(std::string type, std::string inst, bool positional)
         : module_type(std::move(type)), instance_name(std::move(inst)), is_positional(positional) {}
+
+    std::unique_ptr<InstantiationNode> clone() const {
+        auto node = std::make_unique<InstantiationNode>(module_type, instance_name, is_positional);
+        for (const auto& po : param_overrides) {
+            node->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+        }
+        for (const auto& conn : connections) {
+            node->connections.push_back({conn.port_name, conn.expr ? conn.expr->clone() : nullptr});
+        }
+        return node;
+    }
 };
 
 struct ContinuousAssignNode : public ASTNode {
     std::string target_name;
+    std::unique_ptr<ExpressionNode> target_index_expr = nullptr;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<StreamingConcatNode> stream_target = nullptr;
 
     ContinuousAssignNode() = default;
     ContinuousAssignNode(std::string target, std::unique_ptr<ExpressionNode> r)
         : target_name(std::move(target)), rhs(std::move(r)) {}
+
+    std::unique_ptr<ContinuousAssignNode> clone() const {
+        auto node = std::make_unique<ContinuousAssignNode>(target_name, rhs ? rhs->clone() : nullptr);
+        if (target_index_expr) node->target_index_expr = target_index_expr->clone();
+        if (stream_target) node->stream_target = std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_target->clone().release()));
+        return node;
+    }
 };
 
 struct UdpTableRow {
@@ -281,6 +345,14 @@ struct GatePrimitiveNode : public ASTNode {
                       std::string udp = "")
         : type(t), instance_name(std::move(inst)), out_expr(std::move(out)),
           in_exprs(std::move(ins)), udp_name(std::move(udp)) {}
+
+    std::unique_ptr<GatePrimitiveNode> clone() const {
+        std::vector<std::unique_ptr<ExpressionNode>> ins;
+        for (const auto& in_e : in_exprs) {
+            ins.push_back(in_e ? in_e->clone() : nullptr);
+        }
+        return std::make_unique<GatePrimitiveNode>(type, out_expr ? out_expr->clone() : nullptr, std::move(ins), instance_name, udp_name);
+    }
 };
 
 struct EnumTypeNode : public ASTNode {
@@ -696,12 +768,79 @@ struct PackageNode : public ASTNode {
     PackageNode() = default;
 };
 
+struct GenerateBlock {
+    std::string label;
+    std::vector<PortNode> signals;
+    std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
+    std::vector<std::unique_ptr<ProcessNode>> processes;
+    std::vector<std::unique_ptr<InstantiationNode>> instantiations;
+    std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
+    std::vector<std::unique_ptr<AliasStatementNode>> aliases;
+    std::vector<std::unique_ptr<TaskNode>> tasks;
+    std::vector<std::unique_ptr<FunctionNode>> functions;
+    std::vector<std::shared_ptr<ASTNode>> nested_generates;
+
+    GenerateBlock() = default;
+    GenerateBlock(GenerateBlock&&) = default;
+    GenerateBlock& operator=(GenerateBlock&&) = default;
+    ~GenerateBlock() = default;
+};
+
+struct GenvarDeclNode : public ASTNode {
+    std::string name;
+    GenvarDeclNode() = default;
+    explicit GenvarDeclNode(std::string n) : name(std::move(n)) {}
+};
+
+struct LoopGenerateNode : public ASTNode {
+    std::string genvar_name;
+    std::unique_ptr<ExpressionNode> init_expr;
+    std::unique_ptr<ExpressionNode> cond_expr;
+    std::unique_ptr<ExpressionNode> step_expr;
+    std::string step_op = "=";
+    std::string block_label;
+    std::unique_ptr<GenerateBlock> body;
+
+    LoopGenerateNode() : body(std::make_unique<GenerateBlock>()) {}
+};
+
+struct IfGenerateNode : public ASTNode {
+    std::unique_ptr<ExpressionNode> cond_expr;
+    std::string then_label;
+    std::unique_ptr<GenerateBlock> then_block;
+    std::string else_label;
+    std::unique_ptr<GenerateBlock> else_block;
+    bool has_else = false;
+
+    IfGenerateNode() : then_block(std::make_unique<GenerateBlock>()), else_block(std::make_unique<GenerateBlock>()) {}
+};
+
+struct CaseGenerateItem {
+    std::vector<std::unique_ptr<ExpressionNode>> match_exprs;
+    bool is_default = false;
+    std::string label;
+    std::unique_ptr<GenerateBlock> block;
+
+    CaseGenerateItem() : block(std::make_unique<GenerateBlock>()) {}
+    CaseGenerateItem(CaseGenerateItem&&) = default;
+    CaseGenerateItem& operator=(CaseGenerateItem&&) = default;
+};
+
+struct CaseGenerateNode : public ASTNode {
+    std::unique_ptr<ExpressionNode> select_expr;
+    std::vector<CaseGenerateItem> items;
+
+    CaseGenerateNode() = default;
+};
+
 struct ModuleNode : public ASTNode {
     std::string name;
     bool is_interface = false;
     bool is_program = false;
     std::string defined_in_file = "";
     size_t defined_on_line = 0;
+    std::unordered_set<std::string> genvars;
+    std::vector<std::shared_ptr<ASTNode>> generate_nodes;
     std::vector<ParameterDef> parameters;
     std::vector<DefparamItemNode> defparams;
     std::vector<std::unique_ptr<AliasStatementNode>> aliases;

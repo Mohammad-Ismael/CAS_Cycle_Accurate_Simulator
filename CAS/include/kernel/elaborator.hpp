@@ -163,6 +163,9 @@ struct ElaborationResult {
     std::unordered_map<std::string, size_t> net_map;
     std::vector<SliceBinding> slice_bindings;
     std::vector<MemoryBinding> memory_bindings;
+    std::vector<MemoryContinuousAssign> memory_continuous_assigns;
+    std::vector<std::unique_ptr<ProcessNode>> generated_processes;
+    std::vector<std::unique_ptr<ContinuousAssignNode>> generated_continuous_assigns;
     std::vector<ContinuousAssignBinding> continuous_assigns;
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;
@@ -238,6 +241,21 @@ private:
                           const std::vector<ParamOverride>* overrides = nullptr,
                           const std::string& parent_scope = "",
                           std::ostream* debug_out = nullptr);
+
+    void unroll_generate_node(ASTNode* node,
+                              const std::string& scope,
+                              const std::string& parent_gname,
+                              int64_t parent_gval,
+                              bool has_parent_gvar,
+                              std::ostream* debug_out);
+
+    void unroll_generate_block(GenerateBlock* blk,
+                               const std::string& current_scope,
+                               const std::string& parent_scope,
+                               const std::string& gname,
+                               int64_t gval,
+                               bool has_genvar,
+                               std::ostream* debug_out);
 
     ConfigNode* active_config = nullptr;
     std::unordered_map<std::string, std::string> active_instance_cell_map;

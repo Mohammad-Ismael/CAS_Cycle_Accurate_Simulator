@@ -2054,8 +2054,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             uint64_t hid = const_cast<Engine&>(engine).get_or_create_vif_handle(resolved_path, "");
             return LogicVal(64, hid, 0);
         }
-        if (engine.net_map.find(scoped_ident) != engine.net_map.end()) {
-            size_t nid = engine.net_map.at(scoped_ident);
+        size_t nid = engine.get_net_id(scope, ident->name);
+        if (nid != (size_t)-1) {
             if (preponed_override && nid < preponed_override->size()) {
                 return (*preponed_override)[nid];
             }
@@ -2063,13 +2063,6 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (engine.param_map.find(ident->name) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(ident->name));
-        }
-        if (engine.net_map.find(ident->name) != engine.net_map.end()) {
-            size_t nid = engine.net_map.at(ident->name);
-            if (preponed_override && nid < preponed_override->size()) {
-                return (*preponed_override)[nid];
-            }
-            return engine.netlist[nid].value;
         }
         auto dot_pos = ident->name.rfind('.');
         if (dot_pos != std::string::npos) {
@@ -2275,7 +2268,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
             std::string scoped_mem = scoped_ident;
             if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
-                if (engine.memory_map.find(idx_node->name) != engine.memory_map.end()) {
+                std::string cur_s = scope;
+                while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + idx_node->name) == engine.memory_map.end()) {
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) cur_s = "";
+                    else cur_s = cur_s.substr(0, dot);
+                }
+                if (!cur_s.empty()) scoped_mem = cur_s + "." + idx_node->name;
+                else if (engine.memory_map.find(idx_node->name) != engine.memory_map.end()) {
                     scoped_mem = idx_node->name;
                 }
             }

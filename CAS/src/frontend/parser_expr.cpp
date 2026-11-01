@@ -311,9 +311,29 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     return std::make_unique<IndexSelectNode>(name + "." + sub_name, std::move(msb), std::move(lsb));
                 }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                if (match(TokenType::TOKEN_DOT)) {
+                    std::string idx_str = "0";
+                    if (auto num = dynamic_cast<NumberNode*>(msb.get())) idx_str = std::to_string(num->aval);
+                    std::string path = name + "." + sub_name + "[" + idx_str + "]";
+                    std::string mem = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                    while (match(TokenType::TOKEN_DOT)) {
+                        path += "." + mem;
+                        mem = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                    }
+                    return std::make_unique<MemberAccessNode>(path, mem);
+                }
                 return std::make_unique<IndexSelectNode>(name + "." + sub_name, std::move(msb));
             } else {
-                return std::make_unique<MemberAccessNode>(name, sub_name);
+                std::string path = name;
+                std::string mem = sub_name;
+                while (match(TokenType::TOKEN_DOT)) {
+                    path += "." + mem;
+                    mem = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+                return std::make_unique<MemberAccessNode>(path, mem);
             }
         }
 
@@ -331,6 +351,19 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return std::make_unique<IndexSelectNode>(name, std::move(msb), std::move(lsb));
             }
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+            if (match(TokenType::TOKEN_DOT)) {
+                std::string idx_str = "0";
+                if (auto num = dynamic_cast<NumberNode*>(msb.get())) idx_str = std::to_string(num->aval);
+                std::string path = name + "[" + idx_str + "]";
+                std::string mem = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                while (match(TokenType::TOKEN_DOT)) {
+                    path += "." + mem;
+                    mem = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+                return std::make_unique<MemberAccessNode>(path, mem);
+            }
             auto idx_node = std::make_unique<IndexSelectNode>(name, std::move(msb));
             if (match(TokenType::TOKEN_LBRACKET)) {
                 idx_node->has_bit_select = true;

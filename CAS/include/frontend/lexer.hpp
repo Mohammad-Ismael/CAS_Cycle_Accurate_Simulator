@@ -220,7 +220,10 @@ enum class TokenType {
     TOKEN_SYS_LOW,
     TOKEN_SYS_HIGH,
     TOKEN_SYS_SIZE,
-    TOKEN_SYS_INCREMENT
+    TOKEN_SYS_INCREMENT,
+    TOKEN_GENERATE,
+    TOKEN_ENDGENERATE,
+    TOKEN_GENVAR
 };
 
 struct Token {

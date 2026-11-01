@@ -953,6 +953,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             }
         }
 
+        if (current_parsing_module && current_parsing_module->genvars.count(ident)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: genvar '" + ident + "' modified in procedural context per IEEE 1800-2023 section 27.4");
+        }
+
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto idx_expr = parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");

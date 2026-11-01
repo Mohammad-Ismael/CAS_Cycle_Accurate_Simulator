@@ -246,6 +246,10 @@ public:
     ParsedCallArgs parse_call_argument_list();
     std::unique_ptr<ProcessNode> parse_always_ff();
     std::unique_ptr<ExpressionNode> parse_net_lvalue();
+    std::shared_ptr<LoopGenerateNode> parse_generate_for(ModuleNode* mod);
+    std::shared_ptr<IfGenerateNode> parse_generate_if(ModuleNode* mod);
+    std::shared_ptr<CaseGenerateNode> parse_generate_case(ModuleNode* mod);
+    void parse_generate_item(ModuleNode* mod, GenerateBlock* blk);
 
     std::unique_ptr<ExpressionNode> parse_expression();
     std::unique_ptr<ExpressionNode> parse_logical_or();

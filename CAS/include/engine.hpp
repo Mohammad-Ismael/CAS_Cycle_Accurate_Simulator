@@ -43,6 +43,9 @@ private:
 
     std::vector<SliceBinding> slice_bindings;
     std::vector<MemoryBinding> memory_bindings;
+    std::vector<MemoryContinuousAssign> memory_continuous_assigns;
+    std::vector<std::unique_ptr<ProcessNode>> generated_processes;
+    std::vector<std::unique_ptr<ContinuousAssignNode>> generated_continuous_assigns;
     std::vector<ContinuousAssignBinding> continuous_assigns;
     std::vector<ResolvedContinuousAssign> resolved_continuous_assigns;
     std::vector<GateInstance> gates;

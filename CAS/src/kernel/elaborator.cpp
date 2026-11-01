@@ -31,15 +31,21 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         return num->aval;
     }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
-        std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
-        if (result.param_map.find(scoped_id) != result.param_map.end()) {
-            return result.param_map.at(scoped_id);
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            std::string scoped_id = cur_scope + "." + id->name;
+            if (result.param_map.find(scoped_id) != result.param_map.end()) {
+                return result.param_map.at(scoped_id);
+            }
+            if (result.enum_constant_map.find(scoped_id) != result.enum_constant_map.end()) {
+                return result.enum_constant_map.at(scoped_id).aval;
+            }
+            auto dot = cur_scope.rfind('.');
+            if (dot == std::string::npos) cur_scope = "";
+            else cur_scope = cur_scope.substr(0, dot);
         }
         if (result.param_map.find(id->name) != result.param_map.end()) {
             return result.param_map.at(id->name);
-        }
-        if (result.enum_constant_map.find(scoped_id) != result.enum_constant_map.end()) {
-            return result.enum_constant_map.at(scoped_id).aval;
         }
         if (result.enum_constant_map.find(id->name) != result.enum_constant_map.end()) {
             return result.enum_constant_map.at(id->name).aval;
@@ -87,6 +93,24 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "^") return l ^ r;
         if (bin->op == "/" && r != 0) return l / r;
         if (bin->op == "%" && r != 0) return l % r;
+        if (bin->op == "<") return (l < r) ? 1 : 0;
+        if (bin->op == ">") return (l > r) ? 1 : 0;
+        if (bin->op == "<=") return (l <= r) ? 1 : 0;
+        if (bin->op == ">=") return (l >= r) ? 1 : 0;
+        if (bin->op == "==" || bin->op == "===") return (l == r) ? 1 : 0;
+        if (bin->op == "!=" || bin->op == "!==") return (l != r) ? 1 : 0;
+        if (bin->op == "&&") return (l && r) ? 1 : 0;
+        if (bin->op == "||") return (l || r) ? 1 : 0;
+    }
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        uint64_t val = eval_const_expr(un->operand.get(), scope);
+        if (un->op == "!" || un->op == "~") return !val;
+        if (un->op == "-") return -val;
+        return val;
+    }
+    if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+        uint64_t c = eval_const_expr(ter->condition.get(), scope);
+        return c ? eval_const_expr(ter->true_expr.get(), scope) : eval_const_expr(ter->false_expr.get(), scope);
     }
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
@@ -189,6 +213,284 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
     size_t id = get_or_create_net(temp_net_name, synth_width, false);
     result.continuous_assigns.push_back({scope, {id, 0, synth_width}, expr});
     return {id, 0, synth_width};
+}
+
+static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode* expr, const std::string& gname, int64_t val) {
+    if (!expr) return nullptr;
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        if (id->name == gname) {
+            return std::make_unique<NumberNode>((uint64_t)val, 32, false);
+        }
+        return std::make_unique<IdentifierNode>(id->name);
+    }
+    if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        return num->clone();
+    }
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        return std::make_unique<BinaryOpNode>(bin->op,
+            substitute_genvar_in_expr(bin->lhs.get(), gname, val),
+            substitute_genvar_in_expr(bin->rhs.get(), gname, val));
+    }
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        return std::make_unique<UnaryOpNode>(un->op,
+            substitute_genvar_in_expr(un->operand.get(), gname, val));
+    }
+    if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+        return std::make_unique<TernaryOpNode>(
+            substitute_genvar_in_expr(ter->condition.get(), gname, val),
+            substitute_genvar_in_expr(ter->true_expr.get(), gname, val),
+            substitute_genvar_in_expr(ter->false_expr.get(), gname, val));
+    }
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        auto node = std::make_unique<IndexSelectNode>(idx->name,
+            substitute_genvar_in_expr(idx->msb_expr.get(), gname, val));
+        if (idx->lsb_expr) node->lsb_expr = substitute_genvar_in_expr(idx->lsb_expr.get(), gname, val);
+        node->is_part_select = idx->is_part_select;
+        node->has_bit_select = idx->has_bit_select;
+        if (idx->bit_msb_expr) node->bit_msb_expr = substitute_genvar_in_expr(idx->bit_msb_expr.get(), gname, val);
+        if (idx->bit_lsb_expr) node->bit_lsb_expr = substitute_genvar_in_expr(idx->bit_lsb_expr.get(), gname, val);
+        return node;
+    }
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> els;
+        for (auto& e : cat->elements) els.push_back(substitute_genvar_in_expr(e.get(), gname, val));
+        return std::make_unique<ConcatNode>(std::move(els));
+    }
+    if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
+        return std::make_unique<ReplicateNode>(
+            substitute_genvar_in_expr(rep->count_expr.get(), gname, val),
+            substitute_genvar_in_expr(rep->target_expr.get(), gname, val));
+    }
+    if (auto fn = dynamic_cast<FunctionCallNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        for (auto& a : fn->args) args.push_back(substitute_genvar_in_expr(a.get(), gname, val));
+        return std::make_unique<FunctionCallNode>(fn->func_name, std::move(args), fn->arg_names);
+    }
+    if (auto cst = dynamic_cast<CastNode*>(expr)) {
+        return std::make_unique<CastNode>(cst->target_type, substitute_genvar_in_expr(cst->expr.get(), gname, val));
+    }
+    if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+        return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);
+    }
+    return expr->clone();
+}
+
+static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* stmt, const std::string& gname, int64_t val) {
+    if (!stmt) return nullptr;
+    if (auto mem = dynamic_cast<MemAssignNode*>(stmt)) {
+        auto node = std::make_unique<MemAssignNode>(mem->mem_name,
+            substitute_genvar_in_expr(mem->addr_expr.get(), gname, val),
+            substitute_genvar_in_expr(mem->rhs.get(), gname, val),
+            mem->is_non_blocking, mem->intra_delay);
+        node->has_intra_event = mem->has_intra_event;
+        node->intra_edge = mem->intra_edge;
+        node->intra_signal = mem->intra_signal;
+        return node;
+    }
+    if (auto nba = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        auto node = std::make_unique<NonBlockingAssignNode>(nba->target,
+            substitute_genvar_in_expr(nba->rhs.get(), gname, val), nba->intra_delay);
+        node->has_intra_event = nba->has_intra_event;
+        node->intra_edge = nba->intra_edge;
+        node->intra_signal = nba->intra_signal;
+        return node;
+    }
+    if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        auto node = std::make_unique<BlockingAssignNode>(ba->lhs_targets,
+            substitute_genvar_in_expr(ba->rhs.get(), gname, val), ba->intra_delay);
+        node->bit_idx = substitute_genvar_in_expr(ba->bit_idx.get(), gname, val);
+        node->has_intra_event = ba->has_intra_event;
+        node->intra_edge = ba->intra_edge;
+        node->intra_signal = ba->intra_signal;
+        return node;
+    }
+    if (auto ifs = dynamic_cast<IfStatementNode*>(stmt)) {
+        auto node = std::make_unique<IfStatementNode>(
+            substitute_genvar_in_expr(ifs->condition.get(), gname, val));
+        for (auto& s : ifs->then_branch) node->then_branch.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
+        for (auto& s : ifs->else_branch) node->else_branch.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
+        return node;
+    }
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        std::vector<std::unique_ptr<StatementNode>> stmts;
+        for (auto& s : blk->statements) stmts.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
+        return std::make_unique<BlockStatementNode>(std::move(stmts));
+    }
+    return stmt->clone();
+}
+
+void Elaborator::unroll_generate_block(GenerateBlock* blk,
+                                       const std::string& current_scope,
+                                       const std::string& parent_scope,
+                                       const std::string& gname,
+                                       int64_t gval,
+                                       bool has_genvar,
+                                       std::ostream* debug_out) {
+    if (!blk) return;
+
+    for (const auto& sig : blk->signals) {
+        PortNode p = sig.clone();
+        if (has_genvar) {
+            if (p.msb_expr) p.msb_expr = substitute_genvar_in_expr(p.msb_expr.get(), gname, gval);
+            if (p.lsb_expr) p.lsb_expr = substitute_genvar_in_expr(p.lsb_expr.get(), gname, gval);
+        }
+        uint32_t w = 1;
+        if (p.msb_expr && p.lsb_expr) {
+            uint64_t msb = eval_const_expr(p.msb_expr.get(), current_scope);
+            uint64_t lsb = eval_const_expr(p.lsb_expr.get(), current_scope);
+            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+        }
+        std::string full_name = current_scope + "." + p.name;
+        size_t nid = get_or_create_net(full_name, w, p.is_signed, p.net_kind);
+        result.netlist[nid].value = LogicVal::make_x(w);
+        result.netlist[nid].prev_value = LogicVal::make_x(w);
+        if (debug_out) {
+            *debug_out << "     * Generated Net allocated: " << full_name << " [" << w << "-bit]\n";
+        }
+    }
+
+    for (const auto& ca : blk->continuous_assigns) {
+        auto ca_copy = ca->clone();
+        if (has_genvar) {
+            if (ca_copy->target_index_expr) {
+                ca_copy->target_index_expr = substitute_genvar_in_expr(ca_copy->target_index_expr.get(), gname, gval);
+            }
+            if (ca_copy->rhs) {
+                ca_copy->rhs = substitute_genvar_in_expr(ca_copy->rhs.get(), gname, gval);
+            }
+        }
+        if (ca_copy->target_index_expr) {
+            result.memory_continuous_assigns.push_back({current_scope, ca_copy->target_name, std::move(ca_copy->target_index_expr), std::move(ca_copy->rhs)});
+        } else {
+            std::string full_target = current_scope + "." + ca_copy->target_name;
+            size_t tid = (size_t)-1;
+            if (result.net_map.find(full_target) != result.net_map.end()) {
+                tid = result.net_map.at(full_target);
+            } else if (result.net_map.find(parent_scope + "." + ca_copy->target_name) != result.net_map.end()) {
+                tid = result.net_map.at(parent_scope + "." + ca_copy->target_name);
+            }
+            if (tid != (size_t)-1) {
+                auto rhs_ptr = ca_copy->rhs.get();
+                result.generated_continuous_assigns.push_back(std::move(ca_copy));
+                result.continuous_assigns.push_back({current_scope, {tid, 0, result.netlist[tid].width}, rhs_ptr});
+            }
+        }
+    }
+
+    for (const auto& proc : blk->processes) {
+        auto proc_copy = proc->clone();
+        if (has_genvar) {
+            for (size_t i = 0; i < proc_copy->body.size(); ++i) {
+                proc_copy->body[i] = substitute_genvar_in_stmt(proc_copy->body[i].get(), gname, gval);
+            }
+        }
+        BoundProcess bp(current_scope, proc_copy.get(), 0, false);
+        bp.pid = result.processes.size();
+        result.generated_processes.push_back(std::move(proc_copy));
+        bp.proc = result.generated_processes.back().get();
+        result.processes.push_back(std::move(bp));
+    }
+
+    for (const auto& gen_ast : blk->nested_generates) {
+        unroll_generate_node(gen_ast.get(), current_scope, gname, gval, has_genvar, debug_out);
+    }
+}
+
+void Elaborator::unroll_generate_node(ASTNode* node,
+                                      const std::string& scope,
+                                      const std::string& parent_gname,
+                                      int64_t parent_gval,
+                                      bool has_parent_gvar,
+                                      std::ostream* debug_out) {
+    if (auto loop = dynamic_cast<LoopGenerateNode*>(node)) {
+        auto init_expr = has_parent_gvar ? substitute_genvar_in_expr(loop->init_expr.get(), parent_gname, parent_gval) : loop->init_expr->clone();
+        int64_t val = (int64_t)eval_const_expr(init_expr.get(), scope);
+        std::string gname = loop->genvar_name;
+
+        while (true) {
+            auto cond_e = substitute_genvar_in_expr(loop->cond_expr.get(), gname, val);
+            if (has_parent_gvar) cond_e = substitute_genvar_in_expr(cond_e.get(), parent_gname, parent_gval);
+            uint64_t cval = 0;
+            try {
+                cval = eval_const_expr(cond_e.get(), scope);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("[CAS-DTINPCIL] Dynamic type in non-procedural context: generate condition cannot be evaluated as elaboration-time constant per IEEE 1800-2023 section 27.5: ") + e.what());
+            }
+            if (cval == 0) break;
+
+            std::string iter_label = loop->block_label.empty() ? ("genblk" + std::to_string(val)) : (loop->block_label + "[" + std::to_string(val) + "]");
+            std::string iter_scope = scope + "." + iter_label;
+            result.param_map[iter_scope + "." + gname] = (uint64_t)val;
+
+            unroll_generate_block(loop->body.get(), iter_scope, scope, gname, val, true, debug_out);
+
+            // Step
+            if (loop->step_op == "++") {
+                val++;
+            } else if (loop->step_op == "--") {
+                val--;
+            } else if (loop->step_op == "+=") {
+                auto se = substitute_genvar_in_expr(loop->step_expr.get(), gname, val);
+                if (has_parent_gvar) se = substitute_genvar_in_expr(se.get(), parent_gname, parent_gval);
+                val += (int64_t)eval_const_expr(se.get(), scope);
+            } else if (loop->step_op == "-=") {
+                auto se = substitute_genvar_in_expr(loop->step_expr.get(), gname, val);
+                if (has_parent_gvar) se = substitute_genvar_in_expr(se.get(), parent_gname, parent_gval);
+                val -= (int64_t)eval_const_expr(se.get(), scope);
+            } else if (loop->step_op == "=") {
+                auto se = substitute_genvar_in_expr(loop->step_expr.get(), gname, val);
+                if (has_parent_gvar) se = substitute_genvar_in_expr(se.get(), parent_gname, parent_gval);
+                val = (int64_t)eval_const_expr(se.get(), scope);
+            }
+        }
+    } else if (auto if_node = dynamic_cast<IfGenerateNode*>(node)) {
+        auto cond_e = has_parent_gvar ? substitute_genvar_in_expr(if_node->cond_expr.get(), parent_gname, parent_gval) : if_node->cond_expr->clone();
+        uint64_t cval = 0;
+        try {
+            cval = eval_const_expr(cond_e.get(), scope);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("[CAS-DTINPCIL] Dynamic type in non-procedural context: generate condition cannot be evaluated as elaboration-time constant per IEEE 1800-2023 section 27.5: ") + e.what());
+        }
+        if (cval != 0) {
+            std::string sub_scope = if_node->then_label.empty() ? scope : (scope + "." + if_node->then_label);
+            unroll_generate_block(if_node->then_block.get(), sub_scope, scope, parent_gname, parent_gval, has_parent_gvar, debug_out);
+        } else if (if_node->has_else) {
+            std::string sub_scope = if_node->else_label.empty() ? scope : (scope + "." + if_node->else_label);
+            unroll_generate_block(if_node->else_block.get(), sub_scope, scope, parent_gname, parent_gval, has_parent_gvar, debug_out);
+        }
+    } else if (auto case_node = dynamic_cast<CaseGenerateNode*>(node)) {
+        auto sel_e = has_parent_gvar ? substitute_genvar_in_expr(case_node->select_expr.get(), parent_gname, parent_gval) : case_node->select_expr->clone();
+        uint64_t sel_val = 0;
+        try {
+            sel_val = eval_const_expr(sel_e.get(), scope);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("[CAS-DTINPCIL] Dynamic type in non-procedural context: generate condition cannot be evaluated as elaboration-time constant per IEEE 1800-2023 section 27.5: ") + e.what());
+        }
+        bool matched = false;
+        for (const auto& item : case_node->items) {
+            if (!item.is_default) {
+                for (const auto& me : item.match_exprs) {
+                    auto me_sub = has_parent_gvar ? substitute_genvar_in_expr(me.get(), parent_gname, parent_gval) : me->clone();
+                    if (eval_const_expr(me_sub.get(), scope) == sel_val) {
+                        matched = true;
+                        std::string sub_scope = item.label.empty() ? scope : (scope + "." + item.label);
+                        unroll_generate_block(item.block.get(), sub_scope, scope, parent_gname, parent_gval, has_parent_gvar, debug_out);
+                        break;
+                    }
+                }
+                if (matched) break;
+            }
+        }
+        if (!matched) {
+            for (const auto& item : case_node->items) {
+                if (item.is_default) {
+                    std::string sub_scope = item.label.empty() ? scope : (scope + "." + item.label);
+                    unroll_generate_block(item.block.get(), sub_scope, scope, parent_gname, parent_gval, has_parent_gvar, debug_out);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
@@ -861,8 +1163,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         if (result.open_array_names.find(scoped_target) != result.open_array_names.end() ||
             result.open_array_names.find(ca->target_name) != result.open_array_names.end() ||
-            result.memory_map.find(scoped_target) != result.memory_map.end() ||
-            result.memory_map.find(ca->target_name) != result.memory_map.end()) {
+            (!ca->target_index_expr && (result.memory_map.find(scoped_target) != result.memory_map.end() ||
+                                        result.memory_map.find(ca->target_name) != result.memory_map.end()))) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to open array or unpacked array '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 35.5.6.1");
         }
         if (result.sva_local_var_names.find(scoped_target) != result.sva_local_var_names.end() ||
@@ -1098,6 +1400,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         };
         if (ca->stream_target) {
             check_expr(ca->rhs.get());
+            continue;
+        }
+        if (ca->target_index_expr) {
+            check_expr(ca->rhs.get());
+            result.memory_continuous_assigns.push_back({scope, ca->target_name, ca->target_index_expr->clone(), ca->rhs->clone()});
             continue;
         }
         {
@@ -1348,6 +1655,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             bp.is_program_process = true;
         }
         result.processes.push_back(std::move(bp));
+    }
+
+    // IEEE 1800-2023 §27: Unroll generate blocks
+    for (auto& gnode : mod->generate_nodes) {
+        unroll_generate_node(gnode.get(), scope, "", 0, false, debug_out);
     }
 
     for (auto& prop : mod->properties) {
