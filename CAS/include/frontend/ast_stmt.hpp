@@ -237,6 +237,21 @@ struct ForStatementNode : public StatementNode {
     }
 };
 
+struct ForeachStatementNode : public StatementNode {
+    std::string array_name;
+    std::string loop_var;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    ForeachStatementNode(std::string arr, std::string lvar, std::vector<std::unique_ptr<StatementNode>> b)
+        : array_name(std::move(arr)), loop_var(std::move(lvar)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<ForeachStatementNode>(array_name, loop_var, std::move(b));
+    }
+};
+
 struct WhileStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> condition;
     std::vector<std::unique_ptr<StatementNode>> body;

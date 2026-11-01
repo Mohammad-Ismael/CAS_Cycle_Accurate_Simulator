@@ -6,6 +6,8 @@ std::unordered_map<std::string, std::shared_ptr<ConfigNode>> Parser::global_conf
 std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> Parser::global_udp_defs;
 std::vector<std::string> Parser::global_wildcard_imports;
 std::unordered_map<std::string, std::pair<std::string, std::string>> Parser::global_explicit_imports;
+std::unordered_map<std::string, std::shared_ptr<ClassNode>> Parser::class_map;
+std::vector<std::shared_ptr<ClassNode>> Parser::global_classes;
 
 Parser::Parser(Lexer& lex) : lexer(lex) {
     advance();
@@ -118,6 +120,37 @@ void Parser::parse_packages_only() {
             auto udp = parse_udp();
             if (udp) {
                 global_udp_defs[udp->name] = udp;
+            }
+        } else if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'interface'
+            auto cls = parse_class(true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
+            }
+        } else if (current.type == TokenType::TOKEN_CLASS) {
+            auto cls = parse_class(false);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
             }
         } else {
             advance();

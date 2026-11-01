@@ -939,6 +939,14 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
 
         if (cl_obj && cl_obj->class_def) {
             target_task = cl_obj->class_def->find_task(method_name);
+            if (!target_task) {
+                FunctionNode* fn = cl_obj->class_def->dispatch_function(method_name);
+                if (fn) {
+                    engine.evaluator.execute_statement(tcall, bp);
+                    bp.pc++;
+                    return;
+                }
+            }
         }
     }
 
@@ -947,6 +955,11 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             target_task = engine.task_map.at(scoped_tname);
         } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
             target_task = engine.task_map.at(tcall->task_name);
+        } else if (engine.function_map.find(scoped_tname) != engine.function_map.end() ||
+                   engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
+            engine.evaluator.execute_statement(tcall, bp);
+            bp.pc++;
+            return;
         }
     }
 

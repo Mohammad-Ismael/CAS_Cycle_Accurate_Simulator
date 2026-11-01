@@ -32,8 +32,8 @@ public:
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> typedef_map;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedef_map;
     std::vector<std::unique_ptr<TypedefNode>> global_typedefs;
-    std::unordered_map<std::string, std::shared_ptr<ClassNode>> class_map;
-    std::vector<std::shared_ptr<ClassNode>> global_classes;
+    static std::unordered_map<std::string, std::shared_ptr<ClassNode>> class_map;
+    static std::vector<std::shared_ptr<ClassNode>> global_classes;
     std::unordered_map<std::string, std::shared_ptr<CovergroupNode>> covergroup_map;
     std::vector<std::shared_ptr<CovergroupNode>> global_covergroups;
     ModuleNode* current_parsing_module = nullptr;
@@ -50,10 +50,21 @@ public:
         global_explicit_imports.clear();
         global_configs.clear();
         global_udp_defs.clear();
+        class_map.clear();
+        global_classes.clear();
     }
 
     bool is_package(const std::string& name) const {
         return global_packages.find(name) != global_packages.end();
+    }
+
+    bool is_builtin_type_name(const std::string& name) const {
+        return name == "int" || name == "byte" || name == "shortint" || name == "longint" ||
+               name == "integer" || name == "time" || name == "realtime" || name == "real" ||
+               name == "shortreal" || name == "string" || name == "chandle" || name == "semaphore" ||
+               name == "mailbox" || name == "bit" || name == "logic" || name == "reg" ||
+               name == "wire" || name == "wand" || name == "wor" || name == "tri" ||
+               name == "signed" || name == "unsigned" || name == "void";
     }
 
     bool is_class(const std::string& name) const {
@@ -66,7 +77,7 @@ public:
         }
         return false;
     }
-    std::unique_ptr<ClassNode> parse_class();
+    std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false);
     std::string parse_class_type_and_specialize();
     uint64_t eval_const_expr(ExpressionNode* expr);
     uint64_t eval_const_expr_with_params(ExpressionNode* expr, const std::unordered_map<std::string, uint64_t>& params);
@@ -228,8 +239,8 @@ public:
     explicit Parser(Lexer& lex);
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();
-    std::unique_ptr<FunctionNode> parse_function();
-    std::unique_ptr<TaskNode> parse_task();
+    std::unique_ptr<FunctionNode> parse_function(bool is_pure = false);
+    std::unique_ptr<TaskNode> parse_task(bool is_pure = false);
     std::unique_ptr<StatementNode> parse_statement();
     std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
     ParsedCallArgs parse_call_argument_list();

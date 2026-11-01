@@ -204,12 +204,39 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'interface'
+            auto cls = parse_class(true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_CLASS) {
             auto cls = parse_class();
             if (cls) {
                 std::shared_ptr<ClassNode> scls = std::move(cls);
                 class_map[scls->name] = scls;
-                global_classes.push_back(scls);
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
             }
             continue;
         }
@@ -307,6 +334,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         bool is_iface = false;
         bool is_prog = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
+            if (peek_token().type == TokenType::TOKEN_CLASS) {
+                advance(); // consume 'interface'
+                auto cls = parse_class(true);
+                if (cls) {
+                    std::shared_ptr<ClassNode> scls = std::move(cls);
+                    class_map[scls->name] = scls;
+                    global_classes.push_back(scls);
+                }
+                continue;
+            }
             is_iface = true;
             advance();
         } else if (current.type == TokenType::TOKEN_PROGRAM) {
@@ -891,6 +928,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected class handle identifier");
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                        match(TokenType::TOKEN_RBRACKET);
+                    }
+                    if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                        parse_expression();
+                    }
                     auto msb = std::make_unique<NumberNode>(63, 32);
                     auto lsb = std::make_unique<NumberNode>(0, 32);
                     PortNode sig(signame, "internal", std::move(msb), std::move(lsb), false, NetKind::VAR);
@@ -1952,12 +1996,13 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     return std::make_unique<TypedefNode>(type_name, enum_node);
 }
 
-std::unique_ptr<ClassNode> Parser::parse_class() {
+std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class) {
     expect(TokenType::TOKEN_CLASS, "Expected 'class'");
     std::string class_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
 
     auto cls = std::make_unique<ClassNode>(class_name);
+    cls->is_interface_class = is_interface_class;
 
     if (match(TokenType::TOKEN_HASH)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class parameter list");
@@ -1985,13 +2030,37 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing class parameter list");
     }
 
-    std::string base_class_name = "";
-    if (match(TokenType::TOKEN_EXTENDS)) {
-        base_class_name = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
+    if (is_interface_class) {
+        if (match(TokenType::TOKEN_EXTENDS)) {
+            while (true) {
+                std::string parent_iface = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after 'extends'");
+                cls->extended_interfaces.push_back(parent_iface);
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+        }
+        if (match(TokenType::TOKEN_IMPLEMENTS)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' cannot use 'implements' clause per IEEE 1800-2023 section 8.26");
+        }
+    } else {
+        std::string base_class_name = "";
+        if (match(TokenType::TOKEN_EXTENDS)) {
+            base_class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
+            cls->base_class_name = base_class_name;
+        }
+        if (match(TokenType::TOKEN_IMPLEMENTS)) {
+            while (true) {
+                std::string iface_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after 'implements'");
+                cls->implemented_interfaces.push_back(iface_name);
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+        }
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
-    cls->base_class_name = base_class_name;
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_SPECIFY) {
@@ -2001,30 +2070,60 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
             current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted inside class per IEEE 1800-2023 section 31.8 & 32.7");
         }
+        bool is_pure = false;
         bool is_virt = false;
         bool is_stat = false;
-        if (match(TokenType::TOKEN_VIRTUAL)) {
+        if (match(TokenType::TOKEN_PURE)) {
+            is_pure = true;
+            if (match(TokenType::TOKEN_VIRTUAL)) {
+                is_virt = true;
+            } else {
+                throw std::runtime_error("[CAS-DTINPCIL] Expected 'virtual' after 'pure' per IEEE 1800-2023 section 8.26");
+            }
+        } else if (match(TokenType::TOKEN_VIRTUAL)) {
             is_virt = true;
+            if (match(TokenType::TOKEN_PURE)) {
+                is_pure = true;
+            }
         } else if (match(TokenType::TOKEN_STATIC)) {
             is_stat = true;
         }
+
         if (current.type == TokenType::TOKEN_FUNCTION) {
             advance();
-            auto fn = parse_function();
+            if (is_interface_class && (!is_pure || !is_virt)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' can only contain pure virtual method declarations per IEEE 1800-2023 section 8.26");
+            }
+            auto fn = parse_function(is_pure);
             if (fn) {
+                if (is_interface_class && fn->name == "new") {
+                    throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' cannot define constructor 'new' per IEEE 1800-2023 section 8.26");
+                }
+                fn->is_pure = is_pure;
                 fn->is_virtual = is_virt;
                 fn->is_static = is_stat || fn->is_static;
                 cls->add_function(std::move(fn));
             }
+            continue;
         } else if (current.type == TokenType::TOKEN_TASK) {
             advance();
-            auto t = parse_task();
+            if (is_interface_class && (!is_pure || !is_virt)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' can only contain pure virtual method declarations per IEEE 1800-2023 section 8.26");
+            }
+            auto t = parse_task(is_pure);
             if (t) {
+                t->is_pure = is_pure;
                 t->is_virtual = is_virt;
                 t->is_static = is_stat || t->is_static;
                 cls->add_task(std::move(t));
             }
-        } else if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            continue;
+        }
+
+        if (is_interface_class) {
+            throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' can only contain pure virtual method declarations per IEEE 1800-2023 section 8.26");
+        }
+        if (current.type == TokenType::TOKEN_CONSTRAINT) {
             advance();
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
@@ -2106,6 +2205,18 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                 while (true) {
                     std::string var_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                    bool is_dyn = false;
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        if (match(TokenType::TOKEN_RBRACKET)) {
+                            is_dyn = true;
+                        } else {
+                            parse_expression();
+                            if (match(TokenType::TOKEN_COLON)) {
+                                parse_expression();
+                            }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        }
+                    }
                     std::unique_ptr<ExpressionNode> def_val = nullptr;
                     if (match(TokenType::TOKEN_EQUAL)) {
                         def_val = parse_expression();
@@ -2114,6 +2225,7 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
                     mvar.name = var_name;
                     mvar.width = width;
                     mvar.is_signed = is_s;
+                    mvar.is_dynamic_array = is_dyn;
                     mvar.default_expr = std::move(def_val);
                     mvar.is_rand = is_rand;
                     mvar.is_randc = is_randc;
@@ -3358,6 +3470,17 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             if (t) {
                 pkg->task_map[t->name] = t.get();
                 pkg->tasks.push_back(std::move(t));
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'interface'
+            auto cls = parse_class(true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                pkg->class_map[scls->name] = scls.get();
+                pkg->classes.push_back(scls);
             }
             continue;
         }

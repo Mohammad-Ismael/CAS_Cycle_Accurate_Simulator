@@ -1370,14 +1370,31 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
+    for (const auto& gc : Parser::global_classes) {
+        if (result.class_defs.find(gc->name) == result.class_defs.end()) {
+            result.class_defs[gc->name] = gc.get();
+        }
+    }
+
+    // 1. Resolve base classes and interface inheritance / implementations
     for (auto& kv : result.class_defs) {
         ClassNode* cls = const_cast<ClassNode*>(kv.second);
+
+        // Validation: if cls is an interface class, it cannot have base_class_name
+        if (cls->is_interface_class && !cls->base_class_name.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + cls->name + "' cannot extend a non-interface class per IEEE 1800-2023 section 8.26");
+        }
+
+        // Base class for normal classes
         if (!cls->base_class_name.empty()) {
             auto it = result.class_defs.find(cls->base_class_name);
             if (it == result.class_defs.end()) {
                 throw std::runtime_error("Class '" + cls->name + "' extends unknown base class '" + cls->base_class_name + "'");
             }
             cls->base_class = const_cast<ClassNode*>(it->second);
+            if (cls->base_class->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' cannot extend interface class '" + cls->base_class_name + "' per IEEE 1800-2023 section 8.26 (use 'implements')");
+            }
 
             const ClassNode* cur = cls->base_class;
             while (cur) {
@@ -1385,6 +1402,125 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     throw std::runtime_error("Circular inheritance detected for class '" + cls->name + "'");
                 }
                 cur = cur->base_class;
+            }
+        }
+
+        // Extended interfaces for interface classes
+        for (const auto& parent_iface_name : cls->extended_interfaces) {
+            auto it = result.class_defs.find(parent_iface_name);
+            if (it == result.class_defs.end()) {
+                throw std::runtime_error("Interface class '" + cls->name + "' extends unknown interface class '" + parent_iface_name + "'");
+            }
+            if (!it->second->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + cls->name + "' cannot extend non-interface class '" + parent_iface_name + "' per IEEE 1800-2023 section 8.26");
+            }
+        }
+
+        // Implemented interfaces for normal classes
+        for (const auto& iface_name : cls->implemented_interfaces) {
+            auto it = result.class_defs.find(iface_name);
+            if (it == result.class_defs.end()) {
+                throw std::runtime_error("Class '" + cls->name + "' implements unknown interface class '" + iface_name + "'");
+            }
+            if (!it->second->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' cannot implement non-interface class '" + iface_name + "' per IEEE 1800-2023 section 8.26");
+            }
+        }
+    }
+
+    // 2. Compute transitive closure of extended/implemented interfaces
+    std::unordered_set<ClassNode*> visited_iface_closure;
+    std::function<void(ClassNode*, std::unordered_set<ClassNode*>&)> compute_iface_closure = [&](ClassNode* iface, std::unordered_set<ClassNode*>& active_path) {
+        if (!iface) return;
+        if (active_path.count(iface)) {
+            throw std::runtime_error("Circular interface extension detected for interface class '" + iface->name + "'");
+        }
+        if (visited_iface_closure.count(iface)) return;
+        active_path.insert(iface);
+        iface->all_implemented_interfaces.insert(iface->name);
+        for (const auto& parent_name : iface->extended_interfaces) {
+            auto pit = result.class_defs.find(parent_name);
+            if (pit != result.class_defs.end()) {
+                ClassNode* pcls = const_cast<ClassNode*>(pit->second);
+                compute_iface_closure(pcls, active_path);
+                for (const auto& ancestor : pcls->all_implemented_interfaces) {
+                    iface->all_implemented_interfaces.insert(ancestor);
+                }
+            }
+        }
+        active_path.erase(iface);
+        visited_iface_closure.insert(iface);
+    };
+
+    for (auto& kv : result.class_defs) {
+        ClassNode* cls = const_cast<ClassNode*>(kv.second);
+        if (cls->is_interface_class) {
+            std::unordered_set<ClassNode*> active_path;
+            compute_iface_closure(cls, active_path);
+        }
+    }
+
+    // For normal classes: collect all implemented interfaces
+    std::function<void(ClassNode*)> compute_class_implements = [&](ClassNode* cls) {
+        if (!cls) return;
+        if (cls->base_class) {
+            compute_class_implements(cls->base_class);
+            for (const auto& iface : cls->base_class->all_implemented_interfaces) {
+                cls->all_implemented_interfaces.insert(iface);
+            }
+        }
+        for (const auto& iface_name : cls->implemented_interfaces) {
+            auto it = result.class_defs.find(iface_name);
+            if (it != result.class_defs.end()) {
+                ClassNode* iface_cls = const_cast<ClassNode*>(it->second);
+                for (const auto& anc : iface_cls->all_implemented_interfaces) {
+                    cls->all_implemented_interfaces.insert(anc);
+                }
+            }
+        }
+    };
+
+    for (auto& kv : result.class_defs) {
+        ClassNode* cls = const_cast<ClassNode*>(kv.second);
+        if (!cls->is_interface_class) {
+            compute_class_implements(cls);
+        }
+    }
+
+    // 3. Verify that concrete classes implement all pure virtual methods of implemented interfaces
+    for (auto& kv : result.class_defs) {
+        ClassNode* cls = const_cast<ClassNode*>(kv.second);
+        if (cls->is_interface_class) continue;
+
+        for (const auto& iface_name : cls->all_implemented_interfaces) {
+            auto it = result.class_defs.find(iface_name);
+            if (it == result.class_defs.end()) continue;
+            const ClassNode* iface = it->second;
+
+            // Check pure virtual functions
+            for (const auto& ifn : iface->functions) {
+                if (ifn->is_pure) {
+                    FunctionNode* impl = cls->find_function(ifn->name);
+                    if (!impl || impl->is_pure) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' fails to implement pure virtual method '" + ifn->name + "' from interface class '" + iface_name + "' per IEEE 1800-2023 section 8.26");
+                    }
+                    if (impl->inputs.size() != ifn->inputs.size()) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' method '" + ifn->name + "' argument count mismatch with interface class '" + iface_name + "' per IEEE 1800-2023 section 8.26");
+                    }
+                }
+            }
+
+            // Check pure virtual tasks
+            for (const auto& itk : iface->tasks) {
+                if (itk->is_pure) {
+                    TaskNode* impl = cls->find_task(itk->name);
+                    if (!impl || impl->is_pure) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' fails to implement pure virtual method '" + itk->name + "' from interface class '" + iface_name + "' per IEEE 1800-2023 section 8.26");
+                    }
+                    if (impl->ports.size() != itk->ports.size()) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' method '" + itk->name + "' argument count mismatch with interface class '" + iface_name + "' per IEEE 1800-2023 section 8.26");
+                    }
+                }
             }
         }
     }
@@ -1397,6 +1533,19 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             cls->virtual_method_names = cls->base_class->virtual_method_names;
             cls->vtable_functions = cls->base_class->vtable_functions;
             cls->vtable_tasks = cls->base_class->vtable_tasks;
+        }
+        // Inherit virtual method names from implemented interfaces
+        for (const auto& iface_name : cls->all_implemented_interfaces) {
+            auto it = result.class_defs.find(iface_name);
+            if (it != result.class_defs.end()) {
+                const ClassNode* iface = it->second;
+                for (const auto& fn : iface->functions) {
+                    cls->virtual_method_names.insert(fn->name);
+                }
+                for (const auto& t : iface->tasks) {
+                    cls->virtual_method_names.insert(t->name);
+                }
+            }
         }
         for (auto& fn : cls->functions) {
             if (fn->is_virtual || cls->virtual_method_names.count(fn->name)) {

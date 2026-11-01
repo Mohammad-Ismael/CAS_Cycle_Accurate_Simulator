@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 #include "logic_val.hpp"
+#include "dynamic_array_types.hpp"
 
 struct ClassNode;
 
@@ -21,6 +22,7 @@ struct ClassObject {
     std::string class_type_name;
     const ClassNode* class_def = nullptr;
     std::unordered_map<std::string, LogicVal> properties;
+    std::unordered_map<std::string, DynamicArrayObject> dynamic_arrays;
     std::unordered_map<std::string, VirtualInterfaceHandle> virtual_interfaces;
     uint32_t prng_state = 0x12345678;
 
@@ -40,6 +42,16 @@ struct ClassObject {
 
     void set_property(const std::string& name, const LogicVal& val) {
         properties[name] = val;
+    }
+
+    bool has_dynamic_array(const std::string& name) const {
+        return dynamic_arrays.find(name) != dynamic_arrays.end();
+    }
+
+    DynamicArrayObject* get_dynamic_array(const std::string& name) {
+        auto it = dynamic_arrays.find(name);
+        if (it != dynamic_arrays.end()) return &it->second;
+        return nullptr;
     }
 
     bool has_virtual_interface(const std::string& name) const {

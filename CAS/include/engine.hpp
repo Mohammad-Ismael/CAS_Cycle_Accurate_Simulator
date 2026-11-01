@@ -220,8 +220,11 @@ public:
     }
 
     std::shared_ptr<ClassObject> allocate_class_object(const std::string& class_type) {
-        uint64_t id = next_handle_id++;
         const ClassNode* def = get_class_def(class_type);
+        if (def && def->is_interface_class) {
+            throw std::runtime_error("[CAS-DTINPCIL] Cannot instantiate interface class '" + class_type + "' per IEEE 1800-2023 section 8.26");
+        }
+        uint64_t id = next_handle_id++;
         auto obj = std::make_shared<ClassObject>(id, class_type, def);
         if (def) {
             std::vector<const ClassNode*> hierarchy;
@@ -233,7 +236,11 @@ public:
             for (auto it = hierarchy.rbegin(); it != hierarchy.rend(); ++it) {
                 for (const auto& m : (*it)->member_vars) {
                     if (!m.is_static) {
-                        obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                        if (m.is_dynamic_array) {
+                            obj->dynamic_arrays[m.name] = DynamicArrayObject(m.name, m.width, m.is_signed);
+                        } else {
+                            obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                        }
                         if (m.is_virtual_interface) {
                             VirtualInterfaceHandle h;
                             h.iface_type = m.interface_name;

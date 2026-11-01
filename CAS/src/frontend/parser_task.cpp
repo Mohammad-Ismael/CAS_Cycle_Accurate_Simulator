@@ -1,8 +1,9 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
-std::unique_ptr<TaskNode> Parser::parse_task() {
+std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
     auto task_node = std::make_unique<TaskNode>();
+    task_node->is_pure = is_pure;
 
     if (match(TokenType::TOKEN_AUTOMATIC)) {
         task_node->is_automatic = true;
@@ -20,6 +21,7 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
             if (match(TokenType::TOKEN_INPUT)) dir = "input";
             else if (match(TokenType::TOKEN_OUTPUT)) dir = "output";
             else if (match(TokenType::TOKEN_INOUT)) dir = "inout";
+            else if (match(TokenType::TOKEN_REF)) dir = "ref";
 
             bool is_s = false;
             bool is_int = false;
@@ -92,6 +94,10 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing task port list");
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after task header");
+
+    if (is_pure) {
+        return task_node;
+    }
 
     while (current.type != TokenType::TOKEN_ENDTASK && current.type != TokenType::TOKEN_EOF) {
         task_node->body.push_back(parse_statement());

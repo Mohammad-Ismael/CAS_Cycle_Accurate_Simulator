@@ -1,8 +1,9 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
-std::unique_ptr<FunctionNode> Parser::parse_function() {
+std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure) {
     auto func = std::make_unique<FunctionNode>();
+    func->is_pure = is_pure;
     if (match(TokenType::TOKEN_AUTOMATIC)) {
         func->is_automatic = true;
     } else if (match(TokenType::TOKEN_STATIC)) {
@@ -15,9 +16,12 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         func->return_width = 0;
         advance();
     } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
-        current.type == TokenType::TOKEN_BIT) {
-        if (current.type == TokenType::TOKEN_INTEGER) func->return_signed = true;
+        current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
+        func->return_width = 1;
+        advance();
+    } else if (current.type == TokenType::TOKEN_INTEGER) {
+        func->return_width = 32;
+        func->return_signed = true;
         advance();
     } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
         if (current.text == "string") func->return_width = 64;
@@ -70,13 +74,19 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
 
     if (match(TokenType::TOKEN_LPAREN)) {
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-            match(TokenType::TOKEN_INPUT);
+            std::string dir = "input";
+            if (match(TokenType::TOKEN_INPUT)) dir = "input";
+            else if (match(TokenType::TOKEN_OUTPUT)) dir = "output";
+            else if (match(TokenType::TOKEN_INOUT)) dir = "inout";
+            else if (match(TokenType::TOKEN_REF)) dir = "ref";
+
             bool is_s = false;
             bool is_int = false;
             uint32_t def_w = 1;
             bool is_vif = false;
             std::string vif_iface = "";
             std::string vif_mp = "";
+            std::string arg_type_name = "";
             if (match(TokenType::TOKEN_VIRTUAL)) {
                 is_vif = true;
                 if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
@@ -97,13 +107,20 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 current.type == TokenType::TOKEN_BIT) {
                 if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
-                is_s = true;
-                is_int = true;
-                if (current.text == "byte") def_w = 8;
-                else if (current.text == "shortint") def_w = 16;
-                else if (current.text == "longint") def_w = 64;
-                else def_w = 32;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string")) {
+                if (current.text == "string") {
+                    is_s = false;
+                    is_int = true;
+                    def_w = 64;
+                    arg_type_name = "string";
+                } else {
+                    is_s = true;
+                    is_int = true;
+                    if (current.text == "byte") def_w = 8;
+                    else if (current.text == "shortint") def_w = 16;
+                    else if (current.text == "longint") def_w = 64;
+                    else def_w = 32;
+                }
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
@@ -142,7 +159,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
 
             std::string arg_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected argument name");
-            PortNode pnode(arg_name, "input", std::move(msb), std::move(lsb), is_s);
+            PortNode pnode(arg_name, dir, std::move(msb), std::move(lsb), is_s);
+            pnode.type_name = arg_type_name;
             pnode.is_virtual_interface = is_vif;
             pnode.interface_name = vif_iface;
             pnode.modport_name = vif_mp;
@@ -156,6 +174,10 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing function argument list");
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after function header");
+
+    if (is_pure) {
+        return func;
+    }
 
     while (current.type != TokenType::TOKEN_ENDFUNCTION && current.type != TokenType::TOKEN_EOF) {
         func->body.push_back(parse_statement());

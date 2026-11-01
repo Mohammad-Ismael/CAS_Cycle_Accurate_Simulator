@@ -149,6 +149,7 @@ struct TaskNode : public ASTNode {
     bool is_automatic = false;
     bool is_virtual = false;
     bool is_static = false;
+    bool is_pure = false;
     std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
     const std::vector<std::unique_ptr<StatementNode>>* shared_body = nullptr;
@@ -168,6 +169,7 @@ struct FunctionNode : public ASTNode {
     bool is_automatic = false;
     bool is_virtual = false;
     bool is_static = false;
+    bool is_pure = false;
     uint32_t return_width = 32;
     bool return_signed = false;
     std::unique_ptr<ExpressionNode> return_msb_expr;
@@ -361,6 +363,7 @@ struct ClassMemberVar {
     std::string name;
     uint32_t width = 32;
     bool is_signed = false;
+    bool is_dynamic_array = false;
     std::unique_ptr<ExpressionNode> default_expr;
     bool is_rand = false;
     bool is_randc = false;
@@ -378,6 +381,7 @@ struct ClassMemberVar {
         name = other.name;
         width = other.width;
         is_signed = other.is_signed;
+        is_dynamic_array = other.is_dynamic_array;
         if (other.default_expr) default_expr = other.default_expr->clone();
         is_rand = other.is_rand;
         is_randc = other.is_randc;
@@ -393,6 +397,7 @@ struct ClassMemberVar {
             name = other.name;
             width = other.width;
             is_signed = other.is_signed;
+            is_dynamic_array = other.is_dynamic_array;
             default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
             is_rand = other.is_rand;
             is_randc = other.is_randc;
@@ -423,6 +428,10 @@ struct ClassNode : public ASTNode {
     std::string name;
     std::string base_class_name;
     ClassNode* base_class = nullptr;
+    bool is_interface_class = false;
+    std::vector<std::string> implemented_interfaces;
+    std::vector<std::string> extended_interfaces;
+    std::unordered_set<std::string> all_implemented_interfaces;
     std::vector<ParameterDef> parameters;
     bool is_parameterized = false;
     std::unordered_map<std::string, uint64_t> param_values;
@@ -455,6 +464,7 @@ struct ClassNode : public ASTNode {
 
     bool is_subclass_of(const std::string& target_type) const {
         if (name == target_type) return true;
+        if (all_implemented_interfaces.find(target_type) != all_implemented_interfaces.end()) return true;
         if (base_class) return base_class->is_subclass_of(target_type);
         return false;
     }

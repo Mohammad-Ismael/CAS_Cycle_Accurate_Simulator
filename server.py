@@ -300,12 +300,12 @@ def simulate(req: SimRequest):
                 so_name = os.path.splitext(f)[0] + '.so'
                 subprocess.run(['gcc', '-shared', '-fPIC', '-O2', os.path.join(tmpdir, f), '-o', os.path.join(tmpdir, so_name)], check=False)
 
-        files_to_run = [os.path.join(tmpdir, entry_tb)]
-
+        files_to_run = []
         tb_text = processed_files.get(entry_tb, "")
-        if "design.sv" in processed_files:
+        if "design.sv" in processed_files and entry_tb != "design.sv":
             if '`include "design.sv"' not in tb_text and "`include 'design.sv'" not in tb_text:
                 files_to_run.append(os.path.join(tmpdir, "design.sv"))
+        files_to_run.append(os.path.join(tmpdir, entry_tb))
 
         cas_bin = "/app/CAS/build/cas"
         options = []

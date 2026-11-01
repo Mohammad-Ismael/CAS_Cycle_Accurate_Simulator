@@ -147,7 +147,7 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     // 4. Retrieve return variable
     LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(fn->name) : nullptr;
     if (ret_var) {
-        result_out = ret_var->value;
+        result_out = LogicOps::cast_width(ret_var->value, fn->return_width, fn->return_signed);
     } else {
         result_out = LogicVal(fn->return_width, 0, 0);
     }
@@ -218,7 +218,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     // 4. Retrieve return variable
     LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(fn->name) : nullptr;
     if (ret_var) {
-        result_out = ret_var->value;
+        result_out = LogicOps::cast_width(ret_var->value, fn->return_width, fn->return_signed);
     } else {
         result_out = LogicVal(fn->return_width, 0, 0);
     }
@@ -889,6 +889,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
         }
+        if (!da && current_this && current_this->has_dynamic_array(var_name)) {
+            da = current_this->get_dynamic_array(var_name);
+        }
         if (!da) {
             da = engine.get_dynamic_array(var_name, scope);
         }
@@ -1316,6 +1319,63 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
+        if (fn_call->func_name == "$sformatf") {
+            if (fn_call->args.empty()) {
+                return LogicVal::make_string("");
+            }
+            LogicVal fmt_val = eval(fn_call->args[0].get(), scope);
+            std::string fmt_str = fmt_val.is_string ? fmt_val.str_val : "";
+            std::stringstream ss;
+            size_t arg_idx = 1;
+            size_t fmt_len = fmt_str.size();
+            for (size_t i = 0; i < fmt_len; ++i) {
+                if (fmt_str[i] == '%' && i + 1 < fmt_len) {
+                    ++i;
+                    if (fmt_str[i] == '%') {
+                        ss << '%';
+                        continue;
+                    }
+                    bool pad_zero = false;
+                    int width = 0;
+                    if (fmt_str[i] == '0') {
+                        pad_zero = true;
+                        ++i;
+                    }
+                    while (i < fmt_len && std::isdigit((unsigned char)fmt_str[i])) {
+                        width = width * 10 + (fmt_str[i] - '0');
+                        ++i;
+                    }
+                    char spec = (i < fmt_len) ? fmt_str[i] : ' ';
+
+                    if (arg_idx < fn_call->args.size()) {
+                        LogicVal val = eval(fn_call->args[arg_idx++].get(), scope);
+                        if (spec == 's') {
+                            if (val.is_string) ss << val.str_val;
+                            else ss << val.aval;
+                        } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
+                            ss << "x";
+                        } else if (spec == 'd' || spec == 't') {
+                            ss << (val.is_real ? (int64_t)val.real_val : val.aval);
+                        } else if (spec == 'f') {
+                            ss << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'b') {
+                            ss << val.to_bin_string();
+                        } else if (spec == 'h' || spec == 'x') {
+                            std::string hx = val.to_hex_string(true);
+                            if (pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = "0" + hx;
+                            }
+                            ss << hx;
+                        } else {
+                            ss << val.aval;
+                        }
+                    }
+                } else {
+                    ss << fmt_str[i];
+                }
+            }
+            return LogicVal::make_string(ss.str());
+        }
         if (fn_call->func_name == "$rtoi") {
             if (!fn_call->args.empty()) {
                 LogicVal arg_val = eval(fn_call->args[0].get(), scope);
@@ -1345,6 +1405,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             target_fn = engine.function_map.at(scoped_fn);
         } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
             target_fn = engine.function_map.at(fn_call->func_name);
+        }
+
+        if (!target_fn && current_this && current_this->class_def) {
+            FunctionNode* mfn = current_this->class_def->dispatch_function(fn_call->func_name);
+            if (mfn) {
+                std::vector<LogicVal> arg_vals;
+                for (auto& a : fn_call->args) {
+                    arg_vals.push_back(eval(a.get(), scope));
+                }
+                LogicVal res;
+                if (eval_class_method(current_this, mfn, arg_vals, res)) {
+                    return res;
+                }
+            }
         }
 
         if (target_fn) {
@@ -1622,6 +1696,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     break;
                 }
             }
+        }
+        if (!da && current_this && current_this->has_dynamic_array(idx_node->name)) {
+            da = current_this->get_dynamic_array(idx_node->name);
         }
         if (!da) {
             da = engine.get_dynamic_array(idx_node->name, scope);

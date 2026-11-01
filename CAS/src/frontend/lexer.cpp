@@ -233,12 +233,23 @@ Token Lexer::next_token() {
         return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0};
     }
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
-    if (c == '^') { advance(); return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '^') {
+        advance();
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_XOR_EQUAL, "^=", 0, 0, cur_file, cur_line, 0};
+        }
+        return {TokenType::TOKEN_XOR, "^", 0, 0, cur_file, cur_line, 0};
+    }
     if (c == '+') {
         advance();
         if (peek() == '+') {
             advance();
             return {TokenType::TOKEN_PLUS_PLUS, "++", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_PLUS_EQUAL, "+=", 0, 0, cur_file, cur_line, 0};
         }
         return {TokenType::TOKEN_PLUS, "+", 0, 0, cur_file, cur_line, 0};
     }
@@ -247,6 +258,10 @@ Token Lexer::next_token() {
         if (peek() == '-') {
             advance();
             return {TokenType::TOKEN_MINUS_MINUS, "--", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_MINUS_EQUAL, "-=", 0, 0, cur_file, cur_line, 0};
         }
         if (peek() == '>') {
             advance();
@@ -261,6 +276,7 @@ Token Lexer::next_token() {
     if (c == '*') {
         advance();
         if (peek() == '>') { advance(); return {TokenType::TOKEN_STAR_ARROW, "*>", 0, 0, cur_file, cur_line, 0}; }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_STAR_EQUAL, "*=", 0, 0, cur_file, cur_line, 0}; }
         return {TokenType::TOKEN_STAR, "*", 0, 0, cur_file, cur_line, 0};
     }
 
@@ -268,6 +284,7 @@ Token Lexer::next_token() {
     if (c == '&') {
         advance();
         if (peek() == '&') { advance(); return {TokenType::TOKEN_LOGICAL_AND, "&&", 0, 0, cur_file, cur_line, 0}; }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_AND_EQUAL, "&=", 0, 0, cur_file, cur_line, 0}; }
         return {TokenType::TOKEN_AND, "&", 0, 0, cur_file, cur_line, 0};
     }
     if (c == '|') {
@@ -280,6 +297,7 @@ Token Lexer::next_token() {
             advance(); advance();
             return {TokenType::TOKEN_NON_OVERLAP_IMP, "|=>", 0, 0, cur_file, cur_line, 0};
         }
+        if (peek() == '=') { advance(); return {TokenType::TOKEN_OR_EQUAL, "|=", 0, 0, cur_file, cur_line, 0}; }
         if (peek() == '|') { advance(); return {TokenType::TOKEN_LOGICAL_OR, "||", 0, 0, cur_file, cur_line, 0}; }
         return {TokenType::TOKEN_OR_BIT, "|", 0, 0, cur_file, cur_line, 0};
     }
@@ -448,6 +466,7 @@ Token Lexer::next_token() {
         if (ident == "static") return {TokenType::TOKEN_STATIC, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "for") return {TokenType::TOKEN_FOR, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "foreach") return {TokenType::TOKEN_FOREACH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "while") return {TokenType::TOKEN_WHILE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "repeat") return {TokenType::TOKEN_REPEAT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "forever") return {TokenType::TOKEN_FOREVER, ident, 0, 0, cur_file, cur_line, 0};
@@ -510,6 +529,7 @@ Token Lexer::next_token() {
         if (ident == "bit") return {TokenType::TOKEN_BIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "return") return {TokenType::TOKEN_RETURN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "implements") return {TokenType::TOKEN_IMPLEMENTS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
