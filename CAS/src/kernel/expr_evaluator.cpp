@@ -56,6 +56,9 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
         }
         if (i < arg_vals.size()) {
             context.set_local_value(in_p.name, arg_vals[i]);
+        } else if (in_p.default_value) {
+            LogicVal def_v = eval(in_p.default_value.get(), target_fn->scope);
+            context.set_local_value(in_p.name, def_v);
         }
     }
 
@@ -1337,9 +1340,93 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return eval_dpi_call(dpi_node, fn_call->args, scope);
         }
 
+        FunctionNode* target_fn = nullptr;
+        if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
+            target_fn = engine.function_map.at(scoped_fn);
+        } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
+            target_fn = engine.function_map.at(fn_call->func_name);
+        }
+
+        if (target_fn) {
+            const size_t num_formals = target_fn->inputs.size();
+            struct ArgBinding {
+                ExpressionNode* actual_expr = nullptr;
+                bool is_passed = false;
+            };
+            std::vector<ArgBinding> bindings(num_formals);
+
+            for (size_t i = 0; i < fn_call->args.size(); ++i) {
+                bool is_named = (i < fn_call->arg_names.size() && !fn_call->arg_names[i].empty());
+                if (!is_named) {
+                    if (i >= num_formals) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Too many positional arguments in subroutine call '" + fn_call->func_name + "' per IEEE 1800-2023 section 13.5");
+                    }
+                    bindings[i].is_passed = true;
+                    bindings[i].actual_expr = fn_call->args[i].get();
+                } else {
+                    const std::string& port_name = fn_call->arg_names[i];
+                    int formal_idx = -1;
+                    for (size_t k = 0; k < num_formals; ++k) {
+                        if (target_fn->inputs[k].name == port_name) {
+                            formal_idx = (int)k;
+                            break;
+                        }
+                    }
+                    if (formal_idx == -1) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Unrecognized formal argument name '" + port_name + "' in function call '" + fn_call->func_name + "' per IEEE 1800-2023 section 13.5.1");
+                    }
+                    if (bindings[formal_idx].is_passed) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Duplicate binding for formal argument '" + port_name + "' in function call '" + fn_call->func_name + "' per IEEE 1800-2023 section 13.5.1");
+                    }
+                    bindings[formal_idx].is_passed = true;
+                    bindings[formal_idx].actual_expr = fn_call->args[i].get();
+                }
+            }
+
+            std::vector<LogicVal> evaluated_args(num_formals);
+            for (size_t j = 0; j < num_formals; ++j) {
+                const auto& in_p = target_fn->inputs[j];
+                ExpressionNode* val_expr = nullptr;
+                if (bindings[j].is_passed) {
+                    if (bindings[j].actual_expr != nullptr) {
+                        val_expr = bindings[j].actual_expr;
+                    } else {
+                        // Empty slot
+                        if (in_p.default_value) {
+                            val_expr = in_p.default_value.get();
+                        } else {
+                            throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + in_p.name + "' without default value in function call '" + fn_call->func_name + "' per IEEE 1800-2023 section 13.5.3");
+                        }
+                    }
+                } else {
+                    // Omitted in call
+                    if (in_p.default_value) {
+                        val_expr = in_p.default_value.get();
+                    } else {
+                        throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + in_p.name + "' without default value in function call '" + fn_call->func_name + "' per IEEE 1800-2023 section 13.5.3");
+                    }
+                }
+
+                if (val_expr) {
+                    evaluated_args[j] = eval(val_expr, scope);
+                } else {
+                    evaluated_args[j] = LogicVal::make_x(32);
+                }
+            }
+
+            LogicVal ret(32, 0, 0);
+            if (eval_function(scoped_fn, evaluated_args, ret)) {
+                return ret;
+            }
+            if (eval_function(fn_call->func_name, evaluated_args, ret)) {
+                return ret;
+            }
+            return LogicVal::make_x(32);
+        }
+
         std::vector<LogicVal> evaluated_args;
         for (const auto& a : fn_call->args) {
-            evaluated_args.push_back(eval(a.get(), scope));
+            evaluated_args.push_back(a ? eval(a.get(), scope) : LogicVal::make_x(32));
         }
 
         LogicVal ret(32, 0, 0);

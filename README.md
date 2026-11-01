@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.30.0.0`  
-**Status:** Production Milestone v3.30.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.31.0.0`  
+**Status:** Production Milestone v3.31.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[█████████████████████████████████░░░░░░░░░░░░░] 64.0%`
+`[██████████████████████████████████░░░░░░░░░░░░] 65.4%`
 
-*Current Baseline (v3.30.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), and System Timing Checks (§31.8 & §32.7 $setup, $hold, $width, $recovery timing check evaluation, notifier toggling, X-corruption, and [CAS-ICPD] always_ff procedural driver exclusivity).
-*Upcoming Domains:* Task/Function Default & Named Args (§13.5 & §13.6), Interface Classes (§8.26), Built-in Array Query & Sizing Methods (§7.11).
+*Current Baseline (v3.31.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), and Subroutine Formal Defaults, Named Argument Invocations & Empty Positional Slots (§13.5 & §13.6).
+*Upcoming Domains:* Interface Classes (§8.26), Built-in Array Query & Sizing Methods (§7.11).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§13.5, §13.6** | **Subroutine Default Arguments, Named Invocation & Empty Slots** | Subroutine formal default value declarations (`input int b = 10`), named argument invocation syntax (`.name(expr)` and `.name()`), empty positional argument slots (`(arg1, , arg3)`), out-of-order formal binding with defaults preservation, copy-back binding for outputs and inouts across process and task contexts, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of positional arguments following named arguments per §13.5.1, rejection of unrecognized formal argument names, duplicate bindings, and missing mandatory arguments without defaults). |
 | **§31.8, §32.7** | **Specify System Timing Checks & Notifiers** | Specify block system timing checks (`$setup`, `$hold`, `$width`, `$recovery`), reference and data event edge tracking, timing window violation reporting with standard IEEE diagnostic format, notifier register toggling triggering downstream corruption processes (`always @(notifier) q <= 1'bx;`), procedural driver exclusivity rule `[CAS-ICPD]` per §9.2.2.4 prohibiting multiple processes driving `always_ff`/`always_comb` targets, and context diagnostic `[CAS-DTINPCIL]` prohibiting timing check tasks outside specify blocks. |
 | **§32** | **Specify Blocks & Module Path Delays** | Structural `specify ... endspecify` blocks in modules, parallel module path delays (`(src => dst) = delay;`), conditional state-dependent path delays (`if (cond) (src => dst) = delay;`), `#` timescale scaling with `` `timescale `` directives, inertial time-wheel scheduling with glitch preemption, 4-state unknown initialization (`'x'`), and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of specify blocks in procedural blocks, interfaces, classes, and packages, and prohibiting variable/reg path terminals). |
 | **§28, §29** | **Built-in Gate Primitives, Tri-State Gates & UDPs** | Built-in multiple-input gates (`and`, `nand`, `or`, `nor`, `xor`, `xnor`, `buf`, `not`), 3-terminal tri-state control gates (`bufif0`, `bufif1`, `notif0`, `notif1`) conforming to IEEE Tables 28-5 & 28-6, combinational User-Defined Primitives (`primitive ... table ... endprimitive`) with symbol matching for `'0'`, `'1'`, `'x'`, don't-care `'?'`, binary `'b'`, and retain `'-'`; automatic registration in multi-driver resolved continuous assignments with 4-state net resolution, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of gate/UDP instantiations in procedural scopes, and prohibiting driving variable/reg targets). |

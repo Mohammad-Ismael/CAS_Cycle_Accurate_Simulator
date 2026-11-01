@@ -1096,10 +1096,142 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             target_task = engine.task_map.at(tcall->task_name);
         }
         if (target_task) {
+            const size_t num_formals = target_task->ports.size();
+            struct ArgBinding {
+                ExpressionNode* actual_expr = nullptr;
+                bool is_passed = false;
+            };
+            std::vector<ArgBinding> bindings(num_formals);
+
+            for (size_t i = 0; i < tcall->args.size(); ++i) {
+                bool is_named = (i < tcall->arg_names.size() && !tcall->arg_names[i].empty());
+                if (!is_named) {
+                    if (i >= num_formals) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Too many positional arguments in subroutine call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5");
+                    }
+                    bindings[i].is_passed = true;
+                    bindings[i].actual_expr = tcall->args[i].get();
+                } else {
+                    const std::string& port_name = tcall->arg_names[i];
+                    int formal_idx = -1;
+                    for (size_t k = 0; k < num_formals; ++k) {
+                        if (target_task->ports[k].name == port_name) {
+                            formal_idx = (int)k;
+                            break;
+                        }
+                    }
+                    if (formal_idx == -1) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Unrecognized formal argument name '" + port_name + "' in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.1");
+                    }
+                    if (bindings[formal_idx].is_passed) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Duplicate binding for formal argument '" + port_name + "' in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.1");
+                    }
+                    bindings[formal_idx].is_passed = true;
+                    bindings[formal_idx].actual_expr = tcall->args[i].get();
+                }
+            }
+
+            std::string frame_name = (bp.scope.empty() ? "" : (bp.scope + ".")) + target_task->name + "__call";
+            expr_eval.get_context().push_frame(frame_name);
+
+            std::vector<std::pair<std::string, std::string>> output_bindings;
+
+            for (size_t i = 0; i < num_formals; ++i) {
+                const auto& p = target_task->ports[i];
+                uint32_t w = 32;
+                if (p.msb_expr && p.lsb_expr) {
+                    auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
+                    auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
+                    if (msb_n && lsb_n) {
+                        w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
+                    }
+                }
+                expr_eval.get_context().declare_local(p.name, w, p.is_signed);
+
+                ExpressionNode* val_expr = nullptr;
+                if (bindings[i].is_passed) {
+                    if (bindings[i].actual_expr != nullptr) {
+                        val_expr = bindings[i].actual_expr;
+                    } else {
+                        if (p.default_value) {
+                            val_expr = p.default_value.get();
+                        } else {
+                            throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + p.name + "' without default value in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.3");
+                        }
+                    }
+                } else {
+                    if (p.default_value) {
+                        val_expr = p.default_value.get();
+                    } else {
+                        throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + p.name + "' without default value in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.3");
+                    }
+                }
+
+                if (p.direction == "input" || p.direction == "inout") {
+                    if (val_expr) {
+                        LogicVal arg_val = eval_expr(val_expr, bp.scope);
+                        expr_eval.get_context().set_local_value(p.name, LogicOps::cast_width(arg_val, w, p.is_signed));
+                    }
+                }
+
+                if (p.direction == "output" || p.direction == "inout") {
+                    if (bindings[i].actual_expr) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(bindings[i].actual_expr)) {
+                            output_bindings.push_back({p.name, id->name});
+                        }
+                    }
+                }
+            }
+
             for (auto& s : target_task->body) {
                 execute_statement(s.get(), bp);
-                if (!engine.scheduler.is_active()) return;
+                if (!engine.scheduler.is_active()) break;
             }
+
+            // Save output values from task frame
+            std::vector<std::pair<std::string, LogicVal>> output_vals;
+            for (const auto& binding : output_bindings) {
+                LocalVar* lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(binding.first) : nullptr;
+                if (lv) {
+                    output_vals.push_back({binding.second, lv->value});
+                }
+            }
+
+            // Pop task frame
+            expr_eval.get_context().pop_frame();
+
+            // Write back output values to caller context
+            for (const auto& out : output_vals) {
+                bool written = false;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* caller_local = expr_eval.get_context().lookup_local(out.first);
+                    if (caller_local) {
+                        caller_local->value = LogicOps::cast_width(out.second, caller_local->width, caller_local->is_signed);
+                        written = true;
+                    }
+                }
+                if (!written && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(out.first);
+                        if (local) {
+                            local->value = LogicOps::cast_width(out.second, local->width, local->is_signed);
+                            written = true;
+                            break;
+                        }
+                    }
+                }
+                if (!written) {
+                    std::string scoped_target = bp.scope.empty() ? out.first : (bp.scope + "." + out.first);
+                    size_t net_id = (size_t)-1;
+                    if (engine.net_map.find(scoped_target) != engine.net_map.end()) net_id = engine.net_map.at(scoped_target);
+                    else if (engine.net_map.find(out.first) != engine.net_map.end()) net_id = engine.net_map.at(out.first);
+                    if (net_id != (size_t)-1) {
+                        auto& net = engine.netlist[net_id];
+                        net.set(LogicOps::cast_width(out.second, net.width, net.is_signed));
+                    }
+                }
+            }
+            return;
         }
         return;
     }

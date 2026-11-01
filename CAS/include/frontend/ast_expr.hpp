@@ -47,14 +47,15 @@ struct IdentifierNode : public ExpressionNode {
 struct FunctionCallNode : public ExpressionNode {
     std::string func_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names = {};
 
-    FunctionCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a)
-        : func_name(std::move(name)), args(std::move(a)) {}
+    FunctionCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {})
+        : func_name(std::move(name)), args(std::move(a)), arg_names(std::move(anames)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> c_args;
         for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
-        return std::make_unique<FunctionCallNode>(func_name, std::move(c_args));
+        return std::make_unique<FunctionCallNode>(func_name, std::move(c_args), arg_names);
     }
 };
 
@@ -177,15 +178,16 @@ struct MethodCallNode : public ExpressionNode {
     std::string var_name;
     std::string method_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names = {};
     std::unique_ptr<ExpressionNode> with_expr = nullptr;
 
-    MethodCallNode(std::string v, std::string m, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::unique_ptr<ExpressionNode> w = nullptr)
-        : var_name(std::move(v)), method_name(std::move(m)), args(std::move(a)), with_expr(std::move(w)) {}
+    MethodCallNode(std::string v, std::string m, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::unique_ptr<ExpressionNode> w = nullptr, std::vector<std::string> anames = {})
+        : var_name(std::move(v)), method_name(std::move(m)), args(std::move(a)), arg_names(std::move(anames)), with_expr(std::move(w)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> c_args;
         for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
-        return std::make_unique<MethodCallNode>(var_name, method_name, std::move(c_args), with_expr ? with_expr->clone() : nullptr);
+        return std::make_unique<MethodCallNode>(var_name, method_name, std::move(c_args), with_expr ? with_expr->clone() : nullptr, arg_names);
     }
 };
 
@@ -258,16 +260,17 @@ struct ThisNode : public ExpressionNode {
 struct ClassNewNode : public ExpressionNode {
     std::string class_type_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names = {};
 
-    ClassNewNode(std::string type_name, std::vector<std::unique_ptr<ExpressionNode>> a)
-        : class_type_name(std::move(type_name)), args(std::move(a)) {}
+    ClassNewNode(std::string type_name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {})
+        : class_type_name(std::move(type_name)), args(std::move(a)), arg_names(std::move(anames)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> cloned_args;
         for (const auto& arg : args) {
             cloned_args.push_back(arg ? arg->clone() : nullptr);
         }
-        return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args));
+        return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args), arg_names);
     }
 };
 
@@ -448,14 +451,15 @@ struct StaticMethodCallNode : public ExpressionNode {
     std::string class_type_name;
     std::string method_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names = {};
 
-    StaticMethodCallNode(std::string cls_type, std::string m_name, std::vector<std::unique_ptr<ExpressionNode>> a)
-        : class_type_name(std::move(cls_type)), method_name(std::move(m_name)), args(std::move(a)) {}
+    StaticMethodCallNode(std::string cls_type, std::string m_name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {})
+        : class_type_name(std::move(cls_type)), method_name(std::move(m_name)), args(std::move(a)), arg_names(std::move(anames)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> c_args;
         for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
-        return std::make_unique<StaticMethodCallNode>(class_type_name, method_name, std::move(c_args));
+        return std::make_unique<StaticMethodCallNode>(class_type_name, method_name, std::move(c_args), arg_names);
     }
 };
 

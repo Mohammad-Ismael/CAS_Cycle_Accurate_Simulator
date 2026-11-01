@@ -10,6 +10,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
+struct ParsedCallArgs {
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names;
+};
+
 class Parser {
 private:
     Lexer& lexer;
@@ -227,6 +232,7 @@ public:
     std::unique_ptr<TaskNode> parse_task();
     std::unique_ptr<StatementNode> parse_statement();
     std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
+    ParsedCallArgs parse_call_argument_list();
     std::unique_ptr<ProcessNode> parse_always_ff();
     std::unique_ptr<ExpressionNode> parse_net_lvalue();
 

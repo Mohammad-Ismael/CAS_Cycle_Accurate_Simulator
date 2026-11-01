@@ -956,15 +956,50 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
 
     TaskActivationFrame frame(tcall->task_name, target_task, cl_obj);
 
+    const size_t num_formals = target_task->ports.size();
+    struct ArgBinding {
+        ExpressionNode* actual_expr = nullptr;
+        bool is_passed = false;
+    };
+    std::vector<ArgBinding> bindings(num_formals);
+
+    for (size_t i = 0; i < tcall->args.size(); ++i) {
+        bool is_named = (i < tcall->arg_names.size() && !tcall->arg_names[i].empty());
+        if (!is_named) {
+            if (i >= num_formals) {
+                throw std::runtime_error("[CAS-DTINPCIL] Too many positional arguments in subroutine call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5");
+            }
+            bindings[i].is_passed = true;
+            bindings[i].actual_expr = tcall->args[i].get();
+        } else {
+            const std::string& port_name = tcall->arg_names[i];
+            int formal_idx = -1;
+            for (size_t k = 0; k < num_formals; ++k) {
+                if (target_task->ports[k].name == port_name) {
+                    formal_idx = (int)k;
+                    break;
+                }
+            }
+            if (formal_idx == -1) {
+                throw std::runtime_error("[CAS-DTINPCIL] Unrecognized formal argument name '" + port_name + "' in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.1");
+            }
+            if (bindings[formal_idx].is_passed) {
+                throw std::runtime_error("[CAS-DTINPCIL] Duplicate binding for formal argument '" + port_name + "' in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.1");
+            }
+            bindings[formal_idx].is_passed = true;
+            bindings[formal_idx].actual_expr = tcall->args[i].get();
+        }
+    }
+
     // 1. Formal port bindings & argument passing
-    for (size_t i = 0; i < target_task->ports.size(); ++i) {
+    for (size_t i = 0; i < num_formals; ++i) {
         const auto& p = target_task->ports[i];
         uint32_t w = 32;
         if (p.msb_expr && p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
             if (msb_n && lsb_n) {
-                w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
+                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
             }
         }
         frame.local_frame.declare_var(p.name, w, p.is_signed);
@@ -977,9 +1012,28 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             }
         }
 
+        ExpressionNode* val_expr = nullptr;
+        if (bindings[i].is_passed) {
+            if (bindings[i].actual_expr != nullptr) {
+                val_expr = bindings[i].actual_expr;
+            } else {
+                if (p.default_value) {
+                    val_expr = p.default_value.get();
+                } else {
+                    throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + p.name + "' without default value in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.3");
+                }
+            }
+        } else {
+            if (p.default_value) {
+                val_expr = p.default_value.get();
+            } else {
+                throw std::runtime_error("[CAS-DTINPCIL] Missing mandatory subroutine argument '" + p.name + "' without default value in task call '" + tcall->task_name + "' per IEEE 1800-2023 section 13.5.3");
+            }
+        }
+
         if (p.direction == "input" || p.direction == "inout") {
-            if (i < tcall->args.size()) {
-                LogicVal arg_val = engine.evaluator.eval_expr(tcall->args[i].get(), bp.scope);
+            if (val_expr) {
+                LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
                 LocalVar* lv = frame.local_frame.get_var(p.name);
                 if (lv) {
                     lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
@@ -991,8 +1045,8 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         }
 
         if (p.direction == "output" || p.direction == "inout") {
-            if (i < tcall->args.size()) {
-                if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[i].get())) {
+            if (bindings[i].actual_expr) {
+                if (auto id = dynamic_cast<IdentifierNode*>(bindings[i].actual_expr)) {
                     frame.output_bindings.push_back({p.name, id->name});
                 }
             }
@@ -1032,6 +1086,14 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
     if (engine.evaluator.get_expr_eval().get_current_this() && engine.evaluator.get_expr_eval().get_current_this()->has_property(actual_name)) {
         engine.evaluator.get_expr_eval().get_current_this()->set_property(actual_name, val);
         return;
+    }
+
+    if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+        LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(actual_name);
+        if (local) {
+            local->value = LogicOps::cast_width(val, local->width, local->is_signed);
+            return;
+        }
     }
 
     std::string scoped_target = bp.scope.empty() ? actual_name : (bp.scope + "." + actual_name);

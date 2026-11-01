@@ -363,14 +363,15 @@ struct TaskCallNode : public StatementNode {
     std::string task_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
     std::string class_type_name = "";
+    std::vector<std::string> arg_names = {};
 
-    explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::string cls_type = "")
-        : task_name(std::move(name)), args(std::move(a)), class_type_name(std::move(cls_type)) {}
+    explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::string cls_type = "", std::vector<std::string> anames = {})
+        : task_name(std::move(name)), args(std::move(a)), class_type_name(std::move(cls_type)), arg_names(std::move(anames)) {}
 
     std::unique_ptr<StatementNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> a;
         for (const auto& arg : args) a.push_back(arg ? arg->clone() : nullptr);
-        return std::make_unique<TaskCallNode>(task_name, std::move(a), class_type_name);
+        return std::make_unique<TaskCallNode>(task_name, std::move(a), class_type_name, arg_names);
     }
 };
 

@@ -14,17 +14,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return std::make_unique<NewArrayNode>(std::move(size_expr), std::move(copy_src));
         }
         std::vector<std::unique_ptr<ExpressionNode>> args;
+        std::vector<std::string> arg_names;
         if (match(TokenType::TOKEN_LPAREN)) {
-            if (current.type != TokenType::TOKEN_RPAREN) {
-                while (true) {
-                    args.push_back(parse_expression());
-                    if (match(TokenType::TOKEN_COMMA)) continue;
-                    break;
-                }
-            }
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing constructor arguments");
+            auto parsed = parse_call_argument_list();
+            args = std::move(parsed.args);
+            arg_names = std::move(parsed.arg_names);
         }
-        return std::make_unique<ClassNewNode>("", std::move(args));
+        return std::make_unique<ClassNewNode>("", std::move(args), std::move(arg_names));
     }
 
     if (match(TokenType::TOKEN_NULL)) {
@@ -89,16 +85,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after 'super.'");
             }
             if (match(TokenType::TOKEN_LPAREN)) {
-                std::vector<std::unique_ptr<ExpressionNode>> args;
-                if (current.type != TokenType::TOKEN_RPAREN) {
-                    while (true) {
-                        args.push_back(parse_expression());
-                        if (match(TokenType::TOKEN_COMMA)) continue;
-                        break;
-                    }
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
-                return std::make_unique<MethodCallNode>("super", sub_name, std::move(args));
+                auto parsed = parse_call_argument_list();
+                return std::make_unique<MethodCallNode>("super", sub_name, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
             } else {
                 return std::make_unique<MemberAccessNode>("super", sub_name);
             }
@@ -136,16 +124,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return std::make_unique<RandomizeCallNode>(std::make_unique<ThisNode>(), std::move(inline_constraints));
             }
             if (match(TokenType::TOKEN_LPAREN)) {
-                std::vector<std::unique_ptr<ExpressionNode>> args;
-                if (current.type != TokenType::TOKEN_RPAREN) {
-                    while (true) {
-                        args.push_back(parse_expression());
-                        if (match(TokenType::TOKEN_COMMA)) continue;
-                        break;
-                    }
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
-                return std::make_unique<MethodCallNode>("this", sub_name, std::move(args));
+                auto parsed = parse_call_argument_list();
+                return std::make_unique<MethodCallNode>("this", sub_name, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
             } else {
                 return std::make_unique<MemberAccessNode>("this", sub_name);
             }
@@ -179,16 +159,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 std::string member = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
                 if (match(TokenType::TOKEN_LPAREN)) {
-                    std::vector<std::unique_ptr<ExpressionNode>> args;
-                    if (current.type != TokenType::TOKEN_RPAREN) {
-                        while (true) {
-                            args.push_back(parse_expression());
-                            if (match(TokenType::TOKEN_COMMA)) continue;
-                            break;
-                        }
-                    }
-                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method argument list");
-                    return std::make_unique<StaticMethodCallNode>(class_type, member, std::move(args));
+                    auto parsed = parse_call_argument_list();
+                    return std::make_unique<StaticMethodCallNode>(class_type, member, std::move(parsed.args), std::move(parsed.arg_names));
                 }
                 return std::make_unique<StaticMemberAccessNode>(class_type, member);
             }
@@ -201,16 +173,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             std::string member = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
             if (match(TokenType::TOKEN_LPAREN)) {
-                std::vector<std::unique_ptr<ExpressionNode>> args;
-                if (current.type != TokenType::TOKEN_RPAREN) {
-                    while (true) {
-                        args.push_back(parse_expression());
-                        if (match(TokenType::TOKEN_COMMA)) continue;
-                        break;
-                    }
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method argument list");
-                return std::make_unique<StaticMethodCallNode>(name, member, std::move(args));
+                auto parsed = parse_call_argument_list();
+                return std::make_unique<StaticMethodCallNode>(name, member, std::move(parsed.args), std::move(parsed.arg_names));
             }
             if (match(TokenType::TOKEN_APOSTROPHE)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
@@ -294,22 +258,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return std::make_unique<RandomizeCallNode>(std::make_unique<IdentifierNode>(name), std::move(inline_constraints));
             }
             if (match(TokenType::TOKEN_LPAREN)) {
-                std::vector<std::unique_ptr<ExpressionNode>> args;
-                if (current.type != TokenType::TOKEN_RPAREN) {
-                    while (true) {
-                        args.push_back(parse_expression());
-                        if (match(TokenType::TOKEN_COMMA)) continue;
-                        break;
-                    }
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method call");
+                auto parsed = parse_call_argument_list();
                 std::unique_ptr<ExpressionNode> with_expr = nullptr;
                 if (match(TokenType::TOKEN_WITH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
                     with_expr = parse_expression();
                     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
                 }
-                return std::make_unique<MethodCallNode>(name, sub_name, std::move(args), std::move(with_expr));
+                return std::make_unique<MethodCallNode>(name, sub_name, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
             } else if (match(TokenType::TOKEN_WITH)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
                 auto with_expr = parse_expression();
@@ -331,16 +287,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
         // Function call: identifier followed immediately by '('
         if (match(TokenType::TOKEN_LPAREN)) {
-            std::vector<std::unique_ptr<ExpressionNode>> args;
-            if (current.type != TokenType::TOKEN_RPAREN) {
-                while (true) {
-                    args.push_back(parse_expression());
-                    if (match(TokenType::TOKEN_COMMA)) continue;
-                    break;
-                }
-            }
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing function call arguments");
-            return std::make_unique<FunctionCallNode>(name, std::move(args));
+            auto parsed = parse_call_argument_list();
+            return std::make_unique<FunctionCallNode>(name, std::move(parsed.args), std::move(parsed.arg_names));
         }
 
         if (match(TokenType::TOKEN_LBRACKET)) {

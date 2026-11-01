@@ -110,17 +110,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 return std::make_unique<BlockingAssignNode>(class_type + "::" + member, std::move(rhs));
             }
             if (match(TokenType::TOKEN_LPAREN)) {
-                std::vector<std::unique_ptr<ExpressionNode>> args;
-                if (current.type != TokenType::TOKEN_RPAREN) {
-                    while (true) {
-                        args.push_back(parse_expression());
-                        if (match(TokenType::TOKEN_COMMA)) continue;
-                        break;
-                    }
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing static method arguments");
+                auto parsed = parse_call_argument_list();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static method call");
-                return std::make_unique<TaskCallNode>(member, std::move(args), class_type);
+                return std::make_unique<TaskCallNode>(member, std::move(parsed.args), class_type, std::move(parsed.arg_names));
             }
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static member statement");
             return std::make_unique<TaskCallNode>(member, std::vector<std::unique_ptr<ExpressionNode>>(), class_type);
@@ -931,18 +923,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
 
         std::vector<std::unique_ptr<ExpressionNode>> task_args;
+        std::vector<std::string> task_arg_names;
         if (match(TokenType::TOKEN_LPAREN)) {
-            if (current.type != TokenType::TOKEN_RPAREN) {
-                while (true) {
-                    task_args.push_back(parse_expression());
-                    if (match(TokenType::TOKEN_COMMA)) continue;
-                    break;
-                }
-            }
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' in task call");
+            auto parsed = parse_call_argument_list();
+            task_args = std::move(parsed.args);
+            task_arg_names = std::move(parsed.arg_names);
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after statement");
-        return std::make_unique<TaskCallNode>(ident, std::move(task_args));
+        return std::make_unique<TaskCallNode>(ident, std::move(task_args), "", std::move(task_arg_names));
     }
 
     std::string loc = current.filename.empty() 
@@ -1006,4 +994,59 @@ std::unique_ptr<ProcessNode> Parser::parse_always_ff() {
     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
     proc->body = parse_statement_or_block();
     return proc;
+}
+
+ParsedCallArgs Parser::parse_call_argument_list() {
+    ParsedCallArgs result;
+    if (match(TokenType::TOKEN_RPAREN)) {
+        return result;
+    }
+
+    bool seen_named = false;
+    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+        if (match(TokenType::TOKEN_DOT)) {
+            // IEEE Std 1800-2023 §13.5.1: Named argument .name( [expr] )
+            seen_named = true;
+            std::string port_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected argument name after '.' in named argument call");
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after argument name in named argument call");
+            std::unique_ptr<ExpressionNode> arg_expr = nullptr;
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                arg_expr = parse_expression();
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing named argument");
+            result.args.push_back(std::move(arg_expr));
+            result.arg_names.push_back(port_name);
+        } else if (current.type == TokenType::TOKEN_COMMA) {
+            // IEEE Std 1800-2023 §13.5.3: Empty positional argument slot
+            if (seen_named) {
+                throw std::runtime_error("[CAS-DTINPCIL] Positional argument cannot follow named argument in subroutine call per IEEE 1800-2023 section 13.5.1");
+            }
+            result.args.push_back(nullptr);
+            result.arg_names.push_back("");
+        } else {
+            // Positional argument expression
+            if (seen_named) {
+                throw std::runtime_error("[CAS-DTINPCIL] Positional argument cannot follow named argument in subroutine call per IEEE 1800-2023 section 13.5.1");
+            }
+            result.args.push_back(parse_expression());
+            result.arg_names.push_back("");
+        }
+
+        if (match(TokenType::TOKEN_COMMA)) {
+            if (current.type == TokenType::TOKEN_RPAREN) {
+                // Trailing comma before ')' -> empty slot
+                if (seen_named) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Positional argument cannot follow named argument in subroutine call per IEEE 1800-2023 section 13.5.1");
+                }
+                result.args.push_back(nullptr);
+                result.arg_names.push_back("");
+                break;
+            }
+            continue;
+        }
+        break;
+    }
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing subroutine argument list");
+    return result;
 }
