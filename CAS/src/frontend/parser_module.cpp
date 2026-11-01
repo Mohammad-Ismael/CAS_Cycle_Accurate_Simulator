@@ -554,6 +554,28 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                     PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        port.is_array = true;
+                        auto l = parse_expression();
+                        std::unique_ptr<ExpressionNode> r = nullptr;
+                        bool is_single = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            r = parse_expression();
+                            is_single = false;
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        AstDimension ad;
+                        ad.left_expr = std::move(l);
+                        ad.right_expr = std::move(r);
+                        ad.is_single = is_single;
+                        port.unpacked_dimensions.push_back(std::move(ad));
+                    }
+                    if (!port.unpacked_dimensions.empty()) {
+                        port.bound1_expr = port.unpacked_dimensions[0].left_expr->clone();
+                        if (port.unpacked_dimensions[0].right_expr) {
+                            port.bound2_expr = port.unpacked_dimensions[0].right_expr->clone();
+                        }
+                    }
                     if (is_int_port) {
                         port.type_name = int_port_type;
                     }
@@ -1331,6 +1353,52 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ASSIGN)) {
+                if (match(TokenType::TOKEN_LBRACE)) {
+                    if (current.type == TokenType::TOKEN_SHR || current.type == TokenType::TOKEN_SHL) {
+                        bool is_shr = (current.type == TokenType::TOKEN_SHR);
+                        advance();
+                        StreamDirection dir = is_shr ? StreamDirection::LEFT_TO_RIGHT : StreamDirection::RIGHT_TO_LEFT;
+                        std::unique_ptr<ExpressionNode> slice_sz = nullptr;
+                        if (current.type != TokenType::TOKEN_LBRACE) {
+                            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                                advance();
+                                slice_sz = std::make_unique<NumberNode>(8ULL, 32);
+                            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                                advance();
+                                slice_sz = std::make_unique<NumberNode>(16ULL, 32);
+                            } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+                                advance();
+                                slice_sz = std::make_unique<NumberNode>(32ULL, 32);
+                            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                                advance();
+                                slice_sz = std::make_unique<NumberNode>(64ULL, 32);
+                            } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
+                                advance();
+                                slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+                            } else {
+                                slice_sz = parse_expression();
+                            }
+                        } else {
+                            slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+                        }
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' in streaming concatenation");
+                        std::vector<std::unique_ptr<ExpressionNode>> items;
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            items.push_back(parse_expression());
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation items");
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation");
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' in continuous assign statement");
+                        auto rhs = parse_expression();
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
+                        auto ca = std::make_unique<ContinuousAssignNode>("", std::move(rhs));
+                        ca->stream_target = std::make_unique<StreamingConcatNode>(dir, std::move(slice_sz), std::move(items));
+                        mod->continuous_assigns.push_back(std::move(ca));
+                        continue;
+                    }
+                }
                 std::string target = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected target identifier in assign");
                 while (match(TokenType::TOKEN_DOT)) {

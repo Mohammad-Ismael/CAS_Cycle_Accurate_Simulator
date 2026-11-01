@@ -1796,6 +1796,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Non-blocking Assignment (with optional intra-assignment delay)
     if (auto nassign = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        if (nassign->stream_lhs) {
+            execute_streaming_assign(nassign->stream_lhs.get(), nassign->rhs.get(), bp, true);
+            return;
+        }
+
         std::string target_name = nassign->target;
         std::string base_var = target_name;
         std::string member_name = "";
@@ -2032,6 +2037,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.6.1: Blocking Assignment
     if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        if (assign->stream_lhs) {
+            execute_streaming_assign(assign->stream_lhs.get(), assign->rhs.get(), bp, false);
+            return;
+        }
+
         if (assign->intra_delay > 0) {
             return;
         }
@@ -2832,5 +2842,215 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         }
         return;
+    }
+}
+
+void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNode* rhs, BoundProcess& bp, bool is_nba) {
+    if (!slhs || !rhs) return;
+
+    int slice_sz = 1;
+    if (slhs->slice_size) {
+        LogicVal sz_v = eval_expr(slhs->slice_size.get(), bp.scope);
+        slice_sz = (int)sz_v.to_signed();
+        if (slice_sz <= 0) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid streaming slice size <= 0 (" + std::to_string(slice_sz) + ") per IEEE 1800-2023 section 11.4.14");
+        }
+    }
+
+    std::vector<std::pair<bool, bool>> rhs_bits;
+    expr_eval.get_stream_bits(rhs, bp.scope, rhs_bits);
+
+    std::vector<std::pair<bool, bool>> stream_bits;
+    if (slhs->direction == StreamDirection::LEFT_TO_RIGHT) {
+        stream_bits = std::move(rhs_bits);
+    } else {
+        // RIGHT_TO_LEFT (<<)
+        int N = (int)rhs_bits.size();
+        std::vector<std::vector<std::pair<bool, bool>>> slices;
+        int cur = N;
+        while (cur > 0) {
+            int start = std::max(0, cur - slice_sz);
+            std::vector<std::pair<bool, bool>> sl(rhs_bits.begin() + start, rhs_bits.begin() + cur);
+            slices.push_back(sl);
+            cur = start;
+        }
+        for (const auto& sl : slices) {
+            stream_bits.insert(stream_bits.end(), sl.begin(), sl.end());
+        }
+    }
+
+    size_t bit_cursor = 0;
+    for (const auto& item_expr : slhs->stream_items) {
+        if (!item_expr) continue;
+
+        if (auto id = dynamic_cast<IdentifierNode*>(item_expr.get())) {
+            std::string tname = id->name;
+            LocalVar* local = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                local = expr_eval.get_context().lookup_local(tname);
+            }
+            if (!local && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    local = it->local_frame.get_var(tname);
+                    if (local) break;
+                }
+            }
+
+            if (local && local->is_queue) {
+                uint32_t elem_w = local->width;
+                if (elem_w == 0) elem_w = 8;
+                size_t num_elems = (stream_bits.size() > bit_cursor) ? ((stream_bits.size() - bit_cursor) / elem_w) : 0;
+                local->queue_data.elements.clear();
+                for (size_t e = 0; e < num_elems; ++e) {
+                    uint64_t a = 0, b = 0;
+                    for (size_t bi = 0; bi < elem_w; ++bi) {
+                        if (bit_cursor < stream_bits.size()) {
+                            if (stream_bits[bit_cursor].first) a |= (1ULL << (elem_w - 1 - bi));
+                            if (stream_bits[bit_cursor].second) b |= (1ULL << (elem_w - 1 - bi));
+                            bit_cursor++;
+                        }
+                    }
+                    local->queue_data.elements.push_back(LogicVal(elem_w, a, b, local->is_signed));
+                }
+                continue;
+            }
+
+            if (local && local->is_dynamic_array) {
+                uint32_t elem_w = local->width;
+                if (elem_w == 0) elem_w = 8;
+                size_t num_elems = (stream_bits.size() > bit_cursor) ? ((stream_bits.size() - bit_cursor) / elem_w) : 0;
+                local->dyn_array_data.elements.clear();
+                for (size_t e = 0; e < num_elems; ++e) {
+                    uint64_t a = 0, b = 0;
+                    for (size_t bi = 0; bi < elem_w; ++bi) {
+                        if (bit_cursor < stream_bits.size()) {
+                            if (stream_bits[bit_cursor].first) a |= (1ULL << (elem_w - 1 - bi));
+                            if (stream_bits[bit_cursor].second) b |= (1ULL << (elem_w - 1 - bi));
+                            bit_cursor++;
+                        }
+                    }
+                    local->dyn_array_data.elements.push_back(LogicVal(elem_w, a, b, local->is_signed));
+                }
+                continue;
+            }
+
+            QueueObject* q = engine.get_queue(tname, bp.scope);
+            if (q) {
+                uint32_t elem_w = q->elem_width;
+                if (elem_w == 0) elem_w = 8;
+                size_t num_elems = (stream_bits.size() > bit_cursor) ? ((stream_bits.size() - bit_cursor) / elem_w) : 0;
+                q->elements.clear();
+                for (size_t e = 0; e < num_elems; ++e) {
+                    uint64_t a = 0, b = 0;
+                    for (size_t bi = 0; bi < elem_w; ++bi) {
+                        if (bit_cursor < stream_bits.size()) {
+                            if (stream_bits[bit_cursor].first) a |= (1ULL << (elem_w - 1 - bi));
+                            if (stream_bits[bit_cursor].second) b |= (1ULL << (elem_w - 1 - bi));
+                            bit_cursor++;
+                        }
+                    }
+                    q->elements.push_back(LogicVal(elem_w, a, b, q->is_signed));
+                }
+                continue;
+            }
+
+            DynamicArrayObject* da = engine.get_dynamic_array(tname, bp.scope);
+            if (da) {
+                uint32_t elem_w = da->elem_width;
+                if (elem_w == 0) elem_w = 8;
+                size_t num_elems = (stream_bits.size() > bit_cursor) ? ((stream_bits.size() - bit_cursor) / elem_w) : 0;
+                da->elements.clear();
+                for (size_t e = 0; e < num_elems; ++e) {
+                    uint64_t a = 0, b = 0;
+                    for (size_t bi = 0; bi < elem_w; ++bi) {
+                        if (bit_cursor < stream_bits.size()) {
+                            if (stream_bits[bit_cursor].first) a |= (1ULL << (elem_w - 1 - bi));
+                            if (stream_bits[bit_cursor].second) b |= (1ULL << (elem_w - 1 - bi));
+                            bit_cursor++;
+                        }
+                    }
+                    da->elements.push_back(LogicVal(elem_w, a, b, da->is_signed));
+                }
+                continue;
+            }
+
+            std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+            auto it_mem = engine.memory_map.find(scoped_tname);
+            if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(tname);
+            if (it_mem != engine.memory_map.end()) {
+                auto& mem = it_mem->second;
+                for (size_t i = 0; i < mem.words.size(); ++i) {
+                    if (bit_cursor >= stream_bits.size()) break;
+                    uint32_t ew = mem.word_width;
+                    uint64_t a = 0, b = 0;
+                    for (size_t bi = 0; bi < ew; ++bi) {
+                        if (bit_cursor < stream_bits.size()) {
+                            if (stream_bits[bit_cursor].first) a |= (1ULL << (ew - 1 - bi));
+                            if (stream_bits[bit_cursor].second) b |= (1ULL << (ew - 1 - bi));
+                            bit_cursor++;
+                        }
+                    }
+                    if (i < mem.words.size()) mem.words[i] = LogicVal(ew, a, b);
+                }
+                continue;
+            }
+
+            if (local) {
+                uint32_t w = local->width;
+                uint64_t a = 0, b = 0;
+                for (size_t bi = 0; bi < w; ++bi) {
+                    if (bit_cursor < stream_bits.size()) {
+                        if (stream_bits[bit_cursor].first) a |= (1ULL << (w - 1 - bi));
+                        if (stream_bits[bit_cursor].second) b |= (1ULL << (w - 1 - bi));
+                        bit_cursor++;
+                    }
+                }
+                local->value = LogicVal(w, a, b, local->is_signed);
+                continue;
+            }
+
+            size_t net_id = engine.get_net_id(bp.scope, tname);
+            if (net_id != (size_t)-1) {
+                uint32_t w = engine.netlist[net_id].width;
+                uint64_t a = 0, b = 0;
+                for (size_t bi = 0; bi < w; ++bi) {
+                    if (bit_cursor < stream_bits.size()) {
+                        if (stream_bits[bit_cursor].first) a |= (1ULL << (w - 1 - bi));
+                        if (stream_bits[bit_cursor].second) b |= (1ULL << (w - 1 - bi));
+                        bit_cursor++;
+                    }
+                }
+                LogicVal val(w, a, b, engine.netlist[net_id].is_signed);
+                if (is_nba) {
+                    engine.scheduler.queue_nba(net_id, val);
+                } else {
+                    engine.netlist[net_id].set(val);
+                }
+                continue;
+            }
+        }
+
+        if (auto idx_node = dynamic_cast<IndexSelectNode*>(item_expr.get())) {
+            std::string tname = idx_node->name;
+            LogicVal idx_val = eval_expr(idx_node->msb_expr.get(), bp.scope);
+            int64_t idx = (int64_t)idx_val.to_signed();
+            std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+            auto it_mem = engine.memory_map.find(scoped_tname);
+            if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(tname);
+            if (it_mem != engine.memory_map.end()) {
+                auto& mem = it_mem->second;
+                uint32_t ew = mem.word_width;
+                uint64_t a = 0, b = 0;
+                for (size_t bi = 0; bi < ew; ++bi) {
+                    if (bit_cursor < stream_bits.size()) {
+                        if (stream_bits[bit_cursor].first) a |= (1ULL << (ew - 1 - bi));
+                        if (stream_bits[bit_cursor].second) b |= (1ULL << (ew - 1 - bi));
+                        bit_cursor++;
+                    }
+                }
+                mem.set_word(idx, LogicVal(ew, a, b));
+                continue;
+            }
+        }
     }
 }

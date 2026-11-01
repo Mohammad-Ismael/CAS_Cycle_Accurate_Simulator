@@ -9,6 +9,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     canonical_net_map = std::move(elab_res.canonical_net_map);
     alias_members = std::move(elab_res.alias_members);
     slice_bindings = std::move(elab_res.slice_bindings);
+    memory_bindings = std::move(elab_res.memory_bindings);
     continuous_assigns = std::move(elab_res.continuous_assigns);
     resolved_continuous_assigns.clear();
     std::unordered_map<uint64_t, size_t> slice_to_rca;

@@ -404,6 +404,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (match(TokenType::TOKEN_LBRACE)) {
+        if (current.type == TokenType::TOKEN_SHR || current.type == TokenType::TOKEN_SHL) {
+            bool is_shr = (current.type == TokenType::TOKEN_SHR);
+            advance();
+            StreamDirection dir = is_shr ? StreamDirection::LEFT_TO_RIGHT : StreamDirection::RIGHT_TO_LEFT;
+            std::unique_ptr<ExpressionNode> slice_sz = nullptr;
+            if (current.type != TokenType::TOKEN_LBRACE) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(8ULL, 32);
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(16ULL, 32);
+                } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(32ULL, 32);
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(64ULL, 32);
+                } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+                } else {
+                    slice_sz = parse_expression();
+                }
+            } else {
+                slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+            }
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' in streaming concatenation");
+            std::vector<std::unique_ptr<ExpressionNode>> items;
+            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                items.push_back(parse_expression());
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation items");
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation");
+            return std::make_unique<StreamingConcatNode>(dir, std::move(slice_sz), std::move(items));
+        }
+
         auto first_expr = parse_expression();
 
         if (match(TokenType::TOKEN_LBRACE)) {

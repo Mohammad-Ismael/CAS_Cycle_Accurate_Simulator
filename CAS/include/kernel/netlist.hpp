@@ -89,6 +89,11 @@ struct SliceBinding {
     NetSliceRef dst;
 };
 
+struct MemoryBinding {
+    std::string src;
+    std::string dst;
+};
+
 struct NamedEvent {
     std::string name;
     uint64_t last_triggered_time = (uint64_t)-1;

@@ -343,6 +343,95 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
+        if (p.is_array) {
+            std::vector<ArrayDimInfo> all_dims;
+            uint32_t total_depth = 1;
+            if (!p.unpacked_dimensions.empty()) {
+                for (const auto& udim : p.unpacked_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), scope);
+                    int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), scope) : 0;
+                    if (udim.is_single) {
+                        b2 = b1 > 0 ? (b1 - 1) : 0;
+                        b1 = 0;
+                    }
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = true;
+                    all_dims.push_back(info);
+                    total_depth *= (uint32_t)info.size();
+                }
+            } else {
+                int64_t b1 = 0;
+                int64_t b2 = 0;
+                if (p.bound1_expr && p.bound2_expr) {
+                    b1 = (int64_t)eval_const_expr(p.bound1_expr.get(), scope);
+                    b2 = (int64_t)eval_const_expr(p.bound2_expr.get(), scope);
+                } else if (p.bound1_expr) {
+                    uint32_t d = (uint32_t)eval_const_expr(p.bound1_expr.get(), scope);
+                    b1 = 0;
+                    b2 = d > 0 ? (int64_t)(d - 1) : 0;
+                }
+                ArrayDimInfo info;
+                info.left = b1;
+                info.right = b2;
+                info.is_unpacked = true;
+                all_dims.push_back(info);
+                total_depth = (uint32_t)info.size();
+            }
+            uint32_t unpacked_cnt = (uint32_t)all_dims.size();
+
+            // Packed dimensions
+            if (!p.packed_dimensions.empty()) {
+                for (const auto& pdim : p.packed_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = false;
+                    all_dims.push_back(info);
+                }
+            } else if (p.msb_expr) {
+                int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+                int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
+                ArrayDimInfo info;
+                info.left = b1;
+                info.right = b2;
+                info.is_unpacked = false;
+                all_dims.push_back(info);
+            } else if (p.type_name == "int" || p.type_name == "integer") {
+                all_dims.push_back({31, 0, false, false, false});
+            } else if (p.type_name == "byte") {
+                all_dims.push_back({7, 0, false, false, false});
+            } else if (p.type_name == "shortint") {
+                all_dims.push_back({15, 0, false, false, false});
+            } else if (p.type_name == "longint" || p.type_name == "time") {
+                all_dims.push_back({63, 0, false, false, false});
+            }
+
+            std::string mem_scope = scope + "." + p.name;
+            int64_t b1_first = all_dims.empty() ? 0 : all_dims[0].left;
+            int64_t b2_first = all_dims.empty() ? 0 : all_dims[0].right;
+            MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
+            marr.dimensions = all_dims;
+            marr.unpacked_dims_count = unpacked_cnt;
+            result.memory_map[mem_scope] = marr;
+
+            VariableDimMetadata vdm;
+            vdm.name = mem_scope;
+            vdm.dimensions = all_dims;
+            vdm.unpacked_dims = unpacked_cnt;
+            vdm.is_vector_or_array = true;
+            result.var_dimensions[mem_scope] = vdm;
+            result.var_dimensions[p.name] = vdm;
+
+            if (debug_out) {
+                *debug_out << "     * Port Memory allocated: " << mem_scope 
+                           << " [" << w << "-bit x " << total_depth << " words]\n";
+            }
+            continue;
+        }
         size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
         if (p.is_chandle || p.type_name == "chandle") {
             result.netlist[pid].is_chandle = true;
@@ -991,6 +1080,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 throw std::runtime_error("[CAS-DTINPCIL] SVA sequence repetition operator used outside sequence/property context in continuous assignment per IEEE 1800-2023 section 16.9.2");
             } else if (dynamic_cast<SequenceConcatNode*>(expr)) {
                 throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context in continuous assignment per IEEE 1800-2023 section 16.9.2");
+            } else if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
+                if (sc->slice_size) check_expr(sc->slice_size.get());
+                for (auto& item : sc->stream_items) {
+                    check_expr(item.get());
+                }
             } else if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
                 if (result.dpi_import_map.find(fc->func_name) != result.dpi_import_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C foreign function '" + fc->func_name + "' used in continuous assignment per IEEE 1800-2023 section 35");
@@ -1002,6 +1096,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 for (auto& a : fc->args) check_expr(a.get());
             }
         };
+        if (ca->stream_target) {
+            check_expr(ca->rhs.get());
+            continue;
+        }
         {
             std::string t_id = scope + "." + ca->target_name;
             if (result.string_net_names.find(t_id) != result.string_net_names.end() ||
@@ -1465,6 +1563,23 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
 
             std::string dir = formal_p ? formal_p->direction : "input";
+            if (formal_p && formal_p->is_array) {
+                std::string child_mem_key = child_scope + "." + target_port_name;
+                std::string parent_mem_key = "";
+                if (auto pid = dynamic_cast<IdentifierNode*>(conn.expr.get())) {
+                    parent_mem_key = scope.empty() ? pid->name : (scope + "." + pid->name);
+                }
+                if (dir == "inout") {
+                    result.memory_bindings.push_back({parent_mem_key, child_mem_key});
+                    result.memory_bindings.push_back({child_mem_key, parent_mem_key});
+                } else if (dir == "input") {
+                    result.memory_bindings.push_back({parent_mem_key, child_mem_key});
+                } else {
+                    result.memory_bindings.push_back({child_mem_key, parent_mem_key});
+                }
+                continue;
+            }
+
             NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
             size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
             NetSliceRef child_ref = {child_net_id, 0, result.netlist[child_net_id].width};

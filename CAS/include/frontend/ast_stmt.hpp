@@ -123,6 +123,7 @@ struct BlockingAssignNode : public StatementNode {
     std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
+    std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
     EdgeType intra_edge = EdgeType::LEVEL;
@@ -143,6 +144,7 @@ struct BlockingAssignNode : public StatementNode {
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<BlockingAssignNode>(lhs_targets, rhs ? rhs->clone() : nullptr, intra_delay);
         node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
+        node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;
@@ -153,6 +155,7 @@ struct BlockingAssignNode : public StatementNode {
 struct NonBlockingAssignNode : public StatementNode {
     std::string target;
     std::unique_ptr<ExpressionNode> rhs;
+    std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
     EdgeType intra_edge = EdgeType::LEVEL;
@@ -169,6 +172,7 @@ struct NonBlockingAssignNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<NonBlockingAssignNode>(target, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;

@@ -442,6 +442,19 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
+        for (auto& mbind : engine.memory_bindings) {
+            auto it_src = engine.memory_map.find(mbind.src);
+            auto it_dst = engine.memory_map.find(mbind.dst);
+            if (it_src != engine.memory_map.end() && it_dst != engine.memory_map.end()) {
+                for (size_t i = 0; i < it_src->second.words.size() && i < it_dst->second.words.size(); ++i) {
+                    if (it_dst->second.words[i] != it_src->second.words[i]) {
+                        it_dst->second.words[i] = it_src->second.words[i];
+                        changed = true;
+                    }
+                }
+            }
+        }
+
         // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution
         for (auto& rca : engine.resolved_continuous_assigns) {
             if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;

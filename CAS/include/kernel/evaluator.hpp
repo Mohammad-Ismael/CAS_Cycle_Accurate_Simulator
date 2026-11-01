@@ -30,6 +30,7 @@ public:
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
     LogicVal eval_gate(const GateInstance& g);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
+    void execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNode* rhs, BoundProcess& bp, bool is_nba);
     void check_monitor();
     std::vector<size_t> get_connected_nets(size_t start_id);
 };

@@ -108,6 +108,33 @@ struct ConcatNode : public ExpressionNode {
     }
 };
 
+enum class StreamDirection {
+    LEFT_TO_RIGHT, // >>
+    RIGHT_TO_LEFT  // <<
+};
+
+struct StreamingConcatNode : public ExpressionNode {
+    StreamDirection direction = StreamDirection::LEFT_TO_RIGHT;
+    std::unique_ptr<ExpressionNode> slice_size = nullptr; // nullptr means 1 bit
+    std::vector<std::unique_ptr<ExpressionNode>> stream_items;
+
+    StreamingConcatNode() = default;
+    StreamingConcatNode(StreamDirection dir, std::unique_ptr<ExpressionNode> sz, std::vector<std::unique_ptr<ExpressionNode>> items)
+        : direction(dir), slice_size(std::move(sz)), stream_items(std::move(items)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> cloned_items;
+        for (const auto& item : stream_items) {
+            cloned_items.push_back(item ? item->clone() : nullptr);
+        }
+        return std::make_unique<StreamingConcatNode>(
+            direction,
+            slice_size ? slice_size->clone() : nullptr,
+            std::move(cloned_items)
+        );
+    }
+};
+
 struct ReplicateNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> count_expr;
     std::unique_ptr<ExpressionNode> target_expr;

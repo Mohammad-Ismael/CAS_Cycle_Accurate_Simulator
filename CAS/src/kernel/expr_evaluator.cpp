@@ -2138,6 +2138,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(total_w, new_a, new_b);
     }
 
+    if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
+        return eval_streaming_concat(sc, scope);
+    }
+
     if (auto idx_node = dynamic_cast<IndexSelectNode*>(expr)) {
         QueueObject* q = nullptr;
         if (context.has_active_frame()) {
@@ -3115,4 +3119,152 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
     }
 
     return {};
+}
+
+bool ExprEvaluator::get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits) {
+    if (!expr) return false;
+
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        // 1. Check local queue / dynamic array
+        LocalVar* lv = nullptr;
+        if (context.has_active_frame()) {
+            lv = context.lookup_local(id->name);
+        }
+        if (!lv && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                lv = it->local_frame.get_var(id->name);
+                if (lv) break;
+            }
+        }
+        if (lv) {
+            if (lv->is_queue) {
+                for (const auto& elem : lv->queue_data.elements) {
+                    for (int b = (int)elem.width - 1; b >= 0; --b) {
+                        out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                    }
+                }
+                return true;
+            }
+            if (lv->is_dynamic_array) {
+                for (const auto& elem : lv->dyn_array_data.elements) {
+                    for (int b = (int)elem.width - 1; b >= 0; --b) {
+                        out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                    }
+                }
+                return true;
+            }
+        }
+
+        // 2. Check engine queue
+        QueueObject* q = engine.get_queue(id->name, scope);
+        if (q) {
+            for (const auto& elem : q->elements) {
+                for (int b = (int)elem.width - 1; b >= 0; --b) {
+                    out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                }
+            }
+            return true;
+        }
+
+        // 3. Check engine dynamic array
+        DynamicArrayObject* da = engine.get_dynamic_array(id->name, scope);
+        if (da) {
+            for (const auto& elem : da->elements) {
+                for (int b = (int)elem.width - 1; b >= 0; --b) {
+                    out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                }
+            }
+            return true;
+        }
+
+        // 4. Check unpacked memory
+        std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
+        auto it_mem = engine.memory_map.find(scoped_id);
+        if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(id->name);
+        if (it_mem != engine.memory_map.end()) {
+            const auto& mem = it_mem->second;
+            for (size_t i = 0; i < mem.words.size(); ++i) {
+                const LogicVal& w = mem.words[i];
+                for (int b = (int)w.width - 1; b >= 0; --b) {
+                    out_bits.push_back({ (bool)((w.aval >> b) & 1), (bool)((w.bval >> b) & 1) });
+                }
+            }
+            return true;
+        }
+    }
+
+    LogicVal val = eval(expr, scope);
+    if (val.is_string) {
+        for (char c : val.str_val) {
+            for (int b = 7; b >= 0; --b) {
+                out_bits.push_back({ (bool)((c >> b) & 1), false });
+            }
+        }
+        return true;
+    }
+
+    for (int b = (int)val.width - 1; b >= 0; --b) {
+        out_bits.push_back({ (bool)((val.aval >> b) & 1), (bool)((val.bval >> b) & 1) });
+    }
+    return true;
+}
+
+LogicVal ExprEvaluator::eval_streaming_concat(StreamingConcatNode* sc, const std::string& scope) {
+    if (!sc) return LogicVal::make_x(1);
+
+    int slice_sz = 1;
+    if (sc->slice_size) {
+        LogicVal sz_v = eval(sc->slice_size.get(), scope);
+        slice_sz = (int)sz_v.to_signed();
+        if (slice_sz <= 0) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid streaming slice size <= 0 (" + std::to_string(slice_sz) + ") per IEEE 1800-2023 section 11.4.14");
+        }
+    }
+
+    std::vector<std::pair<bool, bool>> bits;
+    for (const auto& item : sc->stream_items) {
+        get_stream_bits(item.get(), scope, bits);
+    }
+
+    if (bits.empty()) {
+        return LogicVal(0, 0, 0);
+    }
+
+    std::vector<std::pair<bool, bool>> result_bits;
+    if (sc->direction == StreamDirection::LEFT_TO_RIGHT) {
+        result_bits = std::move(bits);
+    } else {
+        // RIGHT_TO_LEFT (<<)
+        int N = (int)bits.size();
+        std::vector<std::vector<std::pair<bool, bool>>> slices;
+        int cur = N;
+        while (cur > 0) {
+            int start = std::max(0, cur - slice_sz);
+            std::vector<std::pair<bool, bool>> sl(bits.begin() + start, bits.begin() + cur);
+            slices.push_back(sl);
+            cur = start;
+        }
+        for (const auto& sl : slices) {
+            result_bits.insert(result_bits.end(), sl.begin(), sl.end());
+        }
+    }
+
+    uint32_t total_w = (uint32_t)result_bits.size();
+    if (total_w <= 64) {
+        uint64_t aval = 0;
+        uint64_t bval = 0;
+        for (size_t i = 0; i < result_bits.size(); ++i) {
+            if (result_bits[i].first) aval |= (1ULL << (total_w - 1 - i));
+            if (result_bits[i].second) bval |= (1ULL << (total_w - 1 - i));
+        }
+        return LogicVal(total_w, aval, bval);
+    } else {
+        uint64_t aval = 0;
+        uint64_t bval = 0;
+        for (size_t i = 0; i < 64 && i < result_bits.size(); ++i) {
+            if (result_bits[i].first) aval |= (1ULL << (63 - i));
+            if (result_bits[i].second) bval |= (1ULL << (63 - i));
+        }
+        return LogicVal(64, aval, bval);
+    }
 }

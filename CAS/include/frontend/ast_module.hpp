@@ -212,6 +212,7 @@ struct InstantiationNode : public ASTNode {
 struct ContinuousAssignNode : public ASTNode {
     std::string target_name;
     std::unique_ptr<ExpressionNode> rhs;
+    std::unique_ptr<StreamingConcatNode> stream_target = nullptr;
 
     ContinuousAssignNode() = default;
     ContinuousAssignNode(std::string target, std::unique_ptr<ExpressionNode> r)

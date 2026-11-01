@@ -162,6 +162,7 @@ struct ElaborationResult {
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
     std::vector<SliceBinding> slice_bindings;
+    std::vector<MemoryBinding> memory_bindings;
     std::vector<ContinuousAssignBinding> continuous_assigns;
     std::vector<GateInstance> gates;
     std::unordered_map<std::string, MemoryArray> memory_map;

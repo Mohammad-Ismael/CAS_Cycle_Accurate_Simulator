@@ -833,8 +833,75 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
     };
 
-    // 14. Multi-target concatenation assignment ({a, b} = expr;)
+    // 14. Multi-target concatenation assignment ({a, b} = expr; or { >> {a, b}} = expr;)
     if (match(TokenType::TOKEN_LBRACE)) {
+        if (current.type == TokenType::TOKEN_SHR || current.type == TokenType::TOKEN_SHL) {
+            bool is_shr = (current.type == TokenType::TOKEN_SHR);
+            advance();
+            StreamDirection dir = is_shr ? StreamDirection::LEFT_TO_RIGHT : StreamDirection::RIGHT_TO_LEFT;
+            std::unique_ptr<ExpressionNode> slice_sz = nullptr;
+            if (current.type != TokenType::TOKEN_LBRACE) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(8ULL, 32);
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(16ULL, 32);
+                } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(32ULL, 32);
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(64ULL, 32);
+                } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
+                    advance();
+                    slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+                } else {
+                    slice_sz = parse_expression();
+                }
+            } else {
+                slice_sz = std::make_unique<NumberNode>(1ULL, 32);
+            }
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' in streaming concatenation");
+            std::vector<std::unique_ptr<ExpressionNode>> items;
+            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                items.push_back(parse_expression());
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation items");
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation");
+
+            auto stream_node = std::make_unique<StreamingConcatNode>(dir, std::move(slice_sz), std::move(items));
+
+            if (match(TokenType::TOKEN_LE)) {
+                uint64_t intra_delay = 0;
+                bool has_intra_ev = false;
+                EdgeType intra_edge = EdgeType::LEVEL;
+                std::string intra_sig = "";
+                parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after streaming assignment");
+                auto node = std::make_unique<NonBlockingAssignNode>("", std::move(rhs), intra_delay);
+                node->stream_lhs = std::move(stream_node);
+                if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                return node;
+            } else {
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in streaming assignment");
+                uint64_t intra_delay = 0;
+                bool has_intra_ev = false;
+                EdgeType intra_edge = EdgeType::LEVEL;
+                std::string intra_sig = "";
+                parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after streaming assignment");
+                auto node = std::make_unique<BlockingAssignNode>("", std::move(rhs), nullptr, intra_delay);
+                node->stream_lhs = std::move(stream_node);
+                if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                return node;
+            }
+        }
+
         std::vector<std::string> targets;
         while (true) {
             targets.push_back(current.text);
