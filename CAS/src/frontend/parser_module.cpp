@@ -1,6 +1,26 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
+std::unique_ptr<ExpressionNode> Parser::parse_net_lvalue() {
+    std::string name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected net identifier in alias statement");
+    while (match(TokenType::TOKEN_DOT)) {
+        name += "." + current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in alias statement");
+    }
+    if (match(TokenType::TOKEN_LBRACKET)) {
+        auto msb = parse_expression();
+        if (match(TokenType::TOKEN_COLON)) {
+            auto lsb = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range in alias statement");
+            return std::make_unique<IndexSelectNode>(name, std::move(msb), std::move(lsb));
+        }
+        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index in alias statement");
+        return std::make_unique<IndexSelectNode>(name, std::move(msb));
+    }
+    return std::make_unique<IdentifierNode>(name);
+}
+
 std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
     std::vector<std::unique_ptr<ModuleNode>> modules;
 
@@ -1070,6 +1090,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     break;
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after defparam statement");
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_ALIAS)) {
+                if (is_prog) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'alias' construct is not permitted in program scope per IEEE 1800-2023 section 24.3");
+                }
+                std::string cur_file = current.filename;
+                size_t cur_line = current.line;
+                std::vector<std::unique_ptr<ExpressionNode>> aliased_exprs;
+                aliased_exprs.push_back(parse_net_lvalue());
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in alias statement");
+                aliased_exprs.push_back(parse_net_lvalue());
+                while (match(TokenType::TOKEN_EQUAL)) {
+                    aliased_exprs.push_back(parse_net_lvalue());
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after alias statement");
+                mod->aliases.push_back(std::make_unique<AliasStatementNode>(std::move(aliased_exprs), cur_file, cur_line));
                 continue;
             }
 

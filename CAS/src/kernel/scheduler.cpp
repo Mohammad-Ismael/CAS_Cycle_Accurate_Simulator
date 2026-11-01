@@ -379,6 +379,20 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
+                    if (net_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[net_id]) {
+                            if (other_id != net_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(casted);
+                            }
+                        }
+                    }
+                    if (net_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[net_id]) {
+                            if (other_id != net_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(casted);
+                            }
+                        }
+                    }
                 }
             }
             // Resume the waiting process
@@ -598,18 +612,34 @@ bool StratifiedScheduler::commit_nba_updates() {
 
     nba_commits_count++;
     for (const auto& update : nba_queue) {
-        if (!engine.netlist[update.net_id].has_procedural_assign) {
+        size_t target_id = (update.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[update.net_id] : update.net_id;
+        if (!engine.netlist[target_id].has_procedural_assign) {
             if (update.is_slice) {
-                auto& net = engine.netlist[update.net_id];
+                auto& net = engine.netlist[target_id];
                 uint32_t w = update.slice_width;
                 uint32_t off = update.offset;
                 uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
                 uint64_t full_mask = mask << off;
                 uint64_t new_a = (net.value.aval & ~full_mask) | ((update.val.aval & mask) << off);
                 uint64_t new_b = (net.value.bval & ~full_mask) | ((update.val.bval & mask) << off);
-                net.set(LogicVal(net.width, new_a, new_b));
+                LogicVal new_val(net.width, new_a, new_b);
+                net.set(new_val);
+                if (target_id < engine.alias_members.size()) {
+                    for (size_t other_id : engine.alias_members[target_id]) {
+                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                            engine.netlist[other_id].set(new_val);
+                        }
+                    }
+                }
             } else {
-                engine.netlist[update.net_id].set(update.val);
+                engine.netlist[target_id].set(update.val);
+                if (target_id < engine.alias_members.size()) {
+                    for (size_t other_id : engine.alias_members[target_id]) {
+                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                            engine.netlist[other_id].set(update.val);
+                        }
+                    }
+                }
             }
         }
     }
@@ -2074,6 +2104,13 @@ void StratifiedScheduler::run_simulation() {
                     size_t net_id = engine.net_map.at(scoped_target);
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
+                    if (net_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[net_id]) {
+                            if (other_id != net_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(casted);
+                            }
+                        }
+                    }
                 }
                 if (b_item.pid < engine.processes.size()) {
                     engine.processes[b_item.pid].is_delayed = false;

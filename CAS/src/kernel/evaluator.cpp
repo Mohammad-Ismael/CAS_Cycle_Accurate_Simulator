@@ -40,7 +40,8 @@ std::vector<size_t> Evaluator::get_connected_nets(size_t start_id) {
 }
 
 LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
-    const auto& net = engine.netlist[ref.net_id];
+    size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
+    const auto& net = engine.netlist[target_id];
     const auto& net_val = net.value;
     uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
     uint64_t a = (net_val.aval >> ref.offset) & mask;
@@ -49,7 +50,8 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
 }
 
 void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
-    auto& target_net = engine.netlist[ref.net_id];
+    size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
+    auto& target_net = engine.netlist[target_id];
     if (target_net.has_procedural_assign) return;
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
 
@@ -59,7 +61,15 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
 
     uint64_t new_a = (cur.aval & clear_mask) | ((casted.aval & mask) << ref.offset);
     uint64_t new_b = (cur.bval & clear_mask) | ((casted.bval & mask) << ref.offset);
-    target_net.set(LogicVal(cur.width, new_a, new_b));
+    LogicVal new_val(cur.width, new_a, new_b);
+    target_net.set(new_val);
+    if (target_id < engine.alias_members.size()) {
+        for (size_t other_id : engine.alias_members[target_id]) {
+            if (other_id != target_id && other_id < engine.netlist.size()) {
+                engine.netlist[other_id].set(new_val);
+            }
+        }
+    }
 }
 
 void Evaluator::write_variable(const std::string& var_name, const LogicVal& val, BoundProcess& bp) {

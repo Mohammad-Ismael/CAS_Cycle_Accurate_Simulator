@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.26.0.0`  
-**Status:** Production Milestone v3.26.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.27.0.0`  
+**Status:** Production Milestone v3.27.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[█████████████████████████████░░░░░░░░░░░░░░░░░] 58.4%`
+`[██████████████████████████████░░░░░░░░░░░░░░░░] 59.8%`
 
-*Current Baseline (v3.26.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), and Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10 defparam statements, instance parameter assignment by name, hierarchical constant evaluation, localparam dependency cascades, and context diagnostic `[CAS-DTINPCIL]`).
-*Upcoming Domains:* Net Aliasing (§10.6), Gate-Level Primitives & UDPs (§30 & §31), Specify Blocks & Path Delays (§32).
+*Current Baseline (v3.27.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), and Net Aliasing & Bidirectional Unification (§10.6 `alias` keyword, bidirectional net unification, multi-net driver merging in netlist graph, tri-state and 4-state contention resolution, and context diagnostic `[CAS-DTINPCIL]`).
+*Upcoming Domains:* Gate-Level Primitives & UDPs (§30 & §31), Specify Blocks & Path Delays (§32).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§10.6** | **Net Aliasing & Bidirectional Net Unification** | Structural `alias` construct (`alias net1 = net2 { = net3 };`), delay-free topological net unification via Disjoint Set Union (DSU), canonical NetID remapping across continuous assigns, gate outputs, and inout port drivers; multi-driver 4-state wired contention resolution (`'z'` vs active value, conflicting active values to `'x'`), and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of `alias` in procedural blocks, non-net variable operands, and bit-width mismatches). |
 | **§6.20, §23.10** | **Defparam & Hierarchical Parameter Overrides** | Hierarchical `defparam` statements across module boundaries (`defparam top.sub.leaf.PARAM = val;`), named instance parameter bindings (`#(.WIDTH(16), .SHIFT(4))`), multi-pass elaboration-time constant dependency propagation, cascading `localparam` re-evaluation, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of `defparam` inside procedural blocks, localparam override prohibition, and non-existent hierarchical path detection). |
 | **§7.12, §7.4.6** | **Array Reduction & Locator Methods & Slicing** | Built-in array reduction methods (`sum()`, `product()`, `and()`, `or()`, `xor()`) with optional `with (expression)`, array locator methods (`min()`, `max()`, `find() with (item ...)`), dynamic array and queue slice selection (`arr[start:end]`), and context diagnostic `[CAS-DTINPCIL]` (prohibiting reduction and locator invocations on dynamic arrays/queues/unpacked arrays in continuous assignments). |
 | **§25.9** | **Virtual Interfaces in Object-Oriented Classes** | `virtual [interface_identifier] [ . modport_identifier ]` type declarations in class member variables, routine ports, and procedural statements; dynamic handle assignment (`drv.vif = intf.drv_mp`); hierarchical signal dereferencing across modports and clock nets (`vif.clk`, `vif.req`, `vif.addr`, `vif.rdata`); non-blocking assignments through virtual interfaces (`vif.req <= 1'b1;`); time-consuming class task activation frames (`TaskActivationFrame` with `this_obj` preservation); and context diagnostic `[CAS-DTINPCIL]` (prohibiting driving virtual interfaces via continuous assignments, and null virtual interface dereference enforcement). |

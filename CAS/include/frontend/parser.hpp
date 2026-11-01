@@ -222,6 +222,7 @@ public:
     std::unique_ptr<StatementNode> parse_statement();
     std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
     std::unique_ptr<ProcessNode> parse_always_ff();
+    std::unique_ptr<ExpressionNode> parse_net_lvalue();
 
     std::unique_ptr<ExpressionNode> parse_expression();
     std::unique_ptr<ExpressionNode> parse_logical_or();

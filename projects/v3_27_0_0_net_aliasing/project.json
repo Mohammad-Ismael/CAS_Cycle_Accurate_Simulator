@@ -1,0 +1,8 @@
+{
+  "name": "v3_27_0_0_net_aliasing",
+  "version": "v3.27.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§10.6",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_27_0_0_regression"
+}

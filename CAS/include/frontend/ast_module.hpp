@@ -104,6 +104,16 @@ struct DefparamItemNode : public ASTNode {
     DefparamItemNode& operator=(DefparamItemNode&&) = default;
 };
 
+struct AliasStatementNode : public ASTNode {
+    std::vector<std::unique_ptr<ExpressionNode>> aliased_exprs;
+    std::string declaring_file = "";
+    size_t declaring_line = 0;
+
+    AliasStatementNode() = default;
+    AliasStatementNode(std::vector<std::unique_ptr<ExpressionNode>> exprs, std::string file = "", size_t line = 0)
+        : aliased_exprs(std::move(exprs)), declaring_file(std::move(file)), declaring_line(line) {}
+};
+
 struct ParamOverride {
     std::string param_name;
     std::unique_ptr<ExpressionNode> expr;
@@ -630,6 +640,7 @@ struct ModuleNode : public ASTNode {
     size_t defined_on_line = 0;
     std::vector<ParameterDef> parameters;
     std::vector<DefparamItemNode> defparams;
+    std::vector<std::unique_ptr<AliasStatementNode>> aliases;
     std::vector<PortNode> ports;
     std::vector<PortNode> signals;
     std::vector<std::string> events;

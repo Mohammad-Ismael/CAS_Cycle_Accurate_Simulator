@@ -484,6 +484,7 @@ Token Lexer::next_token() {
         if (ident == "use") return {TokenType::TOKEN_USE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "program") return {TokenType::TOKEN_PROGRAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endprogram") return {TokenType::TOKEN_ENDPROGRAM, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "alias") return {TokenType::TOKEN_ALIAS, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

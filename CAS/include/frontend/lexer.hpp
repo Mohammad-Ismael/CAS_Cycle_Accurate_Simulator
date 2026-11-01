@@ -186,7 +186,8 @@ enum class TokenType {
     TOKEN_ENDPROGRAM,
     TOKEN_EXIT,
     TOKEN_PLUS_PLUS,
-    TOKEN_MINUS_MINUS
+    TOKEN_MINUS_MINUS,
+    TOKEN_ALIAS
 };
 
 struct Token {

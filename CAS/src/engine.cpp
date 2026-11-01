@@ -6,6 +6,8 @@ Engine::Engine() : evaluator(*this), scheduler(*this) {}
 void Engine::load_elaboration(ElaborationResult&& elab_res) {
     netlist = std::move(elab_res.netlist);
     net_map = std::move(elab_res.net_map);
+    canonical_net_map = std::move(elab_res.canonical_net_map);
+    alias_members = std::move(elab_res.alias_members);
     slice_bindings = std::move(elab_res.slice_bindings);
     continuous_assigns = std::move(elab_res.continuous_assigns);
     resolved_continuous_assigns.clear();

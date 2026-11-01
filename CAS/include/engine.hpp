@@ -37,6 +37,8 @@ class Engine {
 private:
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
+    std::vector<size_t> canonical_net_map;
+    std::vector<std::vector<size_t>> alias_members;
     std::vector<BoundProcess> processes;
 
     std::vector<SliceBinding> slice_bindings;

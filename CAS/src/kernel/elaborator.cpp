@@ -785,6 +785,37 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.continuous_assigns.push_back({scope, {target_id, 0, result.netlist[target_id].width}, ca->rhs.get()});
     }
 
+    // IEEE 1800-2023 §10.6: Process alias statements
+    for (auto& al : mod->aliases) {
+        if (al->aliased_exprs.size() < 2) continue;
+        NetSliceRef first_ref = resolve_slice_ref(al->aliased_exprs[0].get(), scope);
+        if (result.netlist[first_ref.net_id].kind == NetKind::VAR) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: alias operand is a variable, only nets are permitted per IEEE 1800-2023 section 10.6");
+        }
+        for (size_t k = 1; k < al->aliased_exprs.size(); ++k) {
+            NetSliceRef ref = resolve_slice_ref(al->aliased_exprs[k].get(), scope);
+            if (result.netlist[ref.net_id].kind == NetKind::VAR) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: alias operand is a variable, only nets are permitted per IEEE 1800-2023 section 10.6");
+            }
+            if (ref.width != first_ref.width) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: bit width mismatch between aliased nets per IEEE 1800-2023 section 10.6");
+            }
+            NetKind k1 = result.netlist[first_ref.net_id].kind;
+            NetKind k2 = result.netlist[ref.net_id].kind;
+            if ((k1 == NetKind::WAND && k2 == NetKind::WOR) || (k1 == NetKind::WOR && k2 == NetKind::WAND)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: net type mismatch in alias per IEEE 1800-2023 section 10.6");
+            }
+            if (first_ref.offset == 0 && ref.offset == 0 &&
+                first_ref.width == result.netlist[first_ref.net_id].width &&
+                ref.width == result.netlist[ref.net_id].width) {
+                alias_pairs.push_back(NetAliasPair(first_ref.net_id, ref.net_id, al->declaring_file, al->declaring_line));
+            } else {
+                result.slice_bindings.push_back({first_ref, ref});
+                result.slice_bindings.push_back({ref, first_ref});
+            }
+        }
+    }
+
     for (auto& g : mod->gates) {
         GateInstance gi;
         gi.type = g->type;
@@ -1115,7 +1146,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
             NetSliceRef child_ref = {child_net_id, 0, result.netlist[child_net_id].width};
 
-            if (dir == "input") {
+            if (dir == "inout") {
+                if (result.netlist[parent_ref.net_id].kind == NetKind::VAR) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: variable connected to inout port per IEEE 1800-2023 section 23.3.3.1");
+                }
+                if (parent_ref.width != child_ref.width) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: bit width mismatch on inout port per IEEE 1800-2023 section 23.3.3.1");
+                }
+                alias_pairs.push_back(NetAliasPair(parent_ref.net_id, child_net_id, "", 0));
+            } else if (dir == "input") {
                 result.slice_bindings.push_back({parent_ref, child_ref});
             } else {
                 result.slice_bindings.push_back({child_ref, parent_ref});
@@ -1129,6 +1168,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                                        std::ostream* debug_out) {
     if (debug_out) *debug_out << "[PHASE 3: Elaboration] Synthesizing Netlist Hierarchy...\n";
     result = ElaborationResult();
+    alias_pairs.clear();
 
     for (const auto& kv : Parser::global_packages) {
         const std::string& pkg_name = kv.first;
@@ -1500,6 +1540,83 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
     elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
     result.top_scope = top->name;
+
+    // IEEE 1800-2023 §10.6: Net Aliasing & Canonical Net Unification
+    struct NetDSU {
+        std::vector<size_t> parent;
+        void init(size_t n) {
+            parent.resize(n);
+            for (size_t i = 0; i < n; ++i) parent[i] = i;
+        }
+        size_t find(size_t i) {
+            if (i >= parent.size()) return i;
+            if (parent[i] == i) return i;
+            return parent[i] = find(parent[i]);
+        }
+        void unite(size_t i, size_t j) {
+            size_t r1 = find(i);
+            size_t r2 = find(j);
+            if (r1 != r2) {
+                if (r1 < r2) parent[r2] = r1;
+                else parent[r1] = r2;
+            }
+        }
+    };
+
+    NetDSU dsu;
+    dsu.init(result.netlist.size());
+    for (const auto& pair : alias_pairs) {
+        dsu.unite(pair.net_id1, pair.net_id2);
+    }
+
+    result.canonical_net_map.resize(result.netlist.size());
+    result.alias_members.resize(result.netlist.size());
+    for (size_t i = 0; i < result.netlist.size(); ++i) {
+        size_t canon = dsu.find(i);
+        result.canonical_net_map[i] = canon;
+        result.alias_members[canon].push_back(i);
+    }
+
+    // Remap all references in net_map to canonical NetIDs
+    for (auto& kv : result.net_map) {
+        kv.second = dsu.find(kv.second);
+    }
+
+    for (auto& ca : result.continuous_assigns) {
+        ca.target.net_id = dsu.find(ca.target.net_id);
+    }
+
+    for (auto& g : result.gates) {
+        g.out_target.net_id = dsu.find(g.out_target.net_id);
+    }
+
+    std::vector<SliceBinding> remapped_bindings;
+    for (auto& bind : result.slice_bindings) {
+        bind.src.net_id = dsu.find(bind.src.net_id);
+        bind.dst.net_id = dsu.find(bind.dst.net_id);
+        if (bind.src.net_id == bind.dst.net_id && bind.src.offset == bind.dst.offset && bind.src.width == bind.dst.width) {
+            continue;
+        }
+        remapped_bindings.push_back(bind);
+    }
+    result.slice_bindings = std::move(remapped_bindings);
+
+    for (auto& bp : result.processes) {
+        if (bp.wait_target.net_id != (size_t)-1) {
+            bp.wait_target.net_id = dsu.find(bp.wait_target.net_id);
+        }
+    }
+
+    for (auto& cb : result.clocking_blocks) {
+        if (cb.clock_net_id != (size_t)-1) {
+            cb.clock_net_id = dsu.find(cb.clock_net_id);
+        }
+        for (auto& sig_kv : cb.signals) {
+            if (sig_kv.second.net_id != (size_t)-1) {
+                sig_kv.second.net_id = dsu.find(sig_kv.second.net_id);
+            }
+        }
+    }
 
     // Validate that all instance rules target valid hierarchical paths [CAS-DTINPCIL]
     if (active_config) {

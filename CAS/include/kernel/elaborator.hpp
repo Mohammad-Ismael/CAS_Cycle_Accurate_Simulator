@@ -197,12 +197,24 @@ struct ElaborationResult {
     std::unordered_set<std::string> semaphore_handle_names;
     std::unordered_set<std::string> mailbox_handle_names;
     std::unordered_set<std::string> virtual_interface_names;
+    std::vector<size_t> canonical_net_map;
+    std::vector<std::vector<size_t>> alias_members;
     std::string top_scope;
 };
 
 class Elaborator {
 private:
     ElaborationResult result;
+
+    struct NetAliasPair {
+        size_t net_id1;
+        size_t net_id2;
+        std::string file;
+        size_t line;
+        NetAliasPair(size_t id1 = 0, size_t id2 = 0, std::string f = "", size_t l = 0)
+            : net_id1(id1), net_id2(id2), file(std::move(f)), line(l) {}
+    };
+    std::vector<NetAliasPair> alias_pairs;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false, NetKind kind = NetKind::WIRE);
     uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);

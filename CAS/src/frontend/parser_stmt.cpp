@@ -8,6 +8,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'defparam' statement is illegal inside procedural scope per IEEE 1800-2023 section 23.10.1");
     }
 
+    // Diagnostic [CAS-DTINPCIL]: alias inside procedural scopes
+    if (current.type == TokenType::TOKEN_ALIAS) {
+        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'alias' construct is not permitted in procedural context per IEEE 1800-2023 section 10.6");
+    }
+
     // 0. Handle 'begin ... end' block statements
     if (match(TokenType::TOKEN_BEGIN)) {
         std::vector<std::unique_ptr<StatementNode>> stmts;
