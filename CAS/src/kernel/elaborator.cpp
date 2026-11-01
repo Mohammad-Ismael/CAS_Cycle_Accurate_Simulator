@@ -830,6 +830,38 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.gates.push_back(gi);
     }
 
+    for (auto& pd : mod->path_delays) {
+        uint64_t base_delay = eval_const_expr(pd->delay_expr.get(), scope);
+        uint64_t delay_ticks = base_delay * Lexer::get_timescale_ratio();
+        for (const auto& s_name : pd->sources) {
+            std::string scoped_s = scope + "." + s_name;
+            auto it_s = result.net_map.find(scoped_s);
+            if (it_s == result.net_map.end()) continue;
+            size_t s_id = it_s->second;
+            if (result.netlist[s_id].kind == NetKind::VAR) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: specify path terminal '" + scoped_s + "' cannot be a variable/reg per IEEE 1800-2023 section 32");
+            }
+            for (const auto& d_name : pd->destinations) {
+                std::string scoped_d = scope + "." + d_name;
+                auto it_d = result.net_map.find(scoped_d);
+                if (it_d == result.net_map.end()) continue;
+                size_t d_id = it_d->second;
+                if (result.netlist[d_id].kind == NetKind::VAR) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: specify path terminal '" + scoped_d + "' cannot be a variable/reg per IEEE 1800-2023 section 32");
+                }
+                ModulePathDelay mpd;
+                mpd.src_net_id = s_id;
+                mpd.dst_net_id = d_id;
+                mpd.cond_expr = pd->cond_expr.get();
+                mpd.scope = scope;
+                mpd.delay_ticks = delay_ticks;
+                result.module_path_delays.push_back(mpd);
+                result.netlist[d_id].value = LogicVal::make_x(result.netlist[d_id].width);
+                result.netlist[d_id].prev_value = LogicVal::make_x(result.netlist[d_id].width);
+            }
+        }
+    }
+
     for (const auto& ev_name : mod->events) {
         std::string scoped_ev = scope + "." + ev_name;
         size_t ev_id = result.named_events.size();
@@ -1593,6 +1625,11 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
     for (auto& g : result.gates) {
         g.out_target.net_id = dsu.find(g.out_target.net_id);
+    }
+
+    for (auto& mpd : result.module_path_delays) {
+        mpd.src_net_id = dsu.find(mpd.src_net_id);
+        mpd.dst_net_id = dsu.find(mpd.dst_net_id);
     }
 
     std::vector<SliceBinding> remapped_bindings;

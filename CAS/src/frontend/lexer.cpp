@@ -4,6 +4,9 @@
 #include <stdexcept>
 #include <fstream>
 #include <sstream>
+#include <cmath>
+
+uint64_t Lexer::global_timescale_ratio = 1;
 
 Lexer::Lexer(const std::string& filename, const std::string& source, const std::string& base_dir, std::ostream* debug_stream)
     : current_dir(base_dir), debug_out(debug_stream) {
@@ -81,6 +84,58 @@ void Lexer::handle_include() {
     file_stack.push_back({inc_path, content, 0, 1});
 }
 
+static uint64_t parse_time_fs(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size() && (std::isdigit(s[i]) || s[i] == '.')) i++;
+    double num = 1.0;
+    if (i > 0) {
+        try { num = std::stod(s.substr(0, i)); } catch (...) { num = 1.0; }
+    }
+    std::string unit = s.substr(i);
+    while (!unit.empty() && std::isspace(unit.front())) unit.erase(unit.begin());
+    while (!unit.empty() && std::isspace(unit.back())) unit.pop_back();
+    double mult = 1e15; // default 1s
+    if (unit == "s") mult = 1e15;
+    else if (unit == "ms") mult = 1e12;
+    else if (unit == "us") mult = 1e9;
+    else if (unit == "ns") mult = 1e6;
+    else if (unit == "ps") mult = 1e3;
+    else if (unit == "fs") mult = 1.0;
+    return static_cast<uint64_t>(std::round(num * mult));
+}
+
+void Lexer::handle_timescale() {
+    auto& cur = file_stack.back();
+    while (cur.cursor < cur.src.size() && (cur.src[cur.cursor] == ' ' || cur.src[cur.cursor] == '\t')) {
+        cur.cursor++;
+    }
+    std::string unit_str = "";
+    while (cur.cursor < cur.src.size() && cur.src[cur.cursor] != '/' && cur.src[cur.cursor] != '\n' && cur.src[cur.cursor] != '\0') {
+        if (!std::isspace(cur.src[cur.cursor])) unit_str += cur.src[cur.cursor];
+        cur.cursor++;
+    }
+    if (cur.cursor < cur.src.size() && cur.src[cur.cursor] == '/') {
+        cur.cursor++;
+    }
+    while (cur.cursor < cur.src.size() && (cur.src[cur.cursor] == ' ' || cur.src[cur.cursor] == '\t')) {
+        cur.cursor++;
+    }
+    std::string prec_str = "";
+    while (cur.cursor < cur.src.size() && cur.src[cur.cursor] != '\n' && cur.src[cur.cursor] != '\0') {
+        if (!std::isspace(cur.src[cur.cursor])) prec_str += cur.src[cur.cursor];
+        cur.cursor++;
+    }
+    if (!unit_str.empty() && !prec_str.empty()) {
+        uint64_t unit_fs = parse_time_fs(unit_str);
+        uint64_t prec_fs = parse_time_fs(prec_str);
+        if (prec_fs > 0 && unit_fs >= prec_fs) {
+            global_timescale_ratio = unit_fs / prec_fs;
+        } else {
+            global_timescale_ratio = 1;
+        }
+    }
+}
+
 void Lexer::skip_whitespace_and_comments() {
     while (!file_stack.empty()) {
         auto& cur = file_stack.back();
@@ -114,6 +169,8 @@ void Lexer::skip_whitespace_and_comments() {
             while (std::isalpha(peek())) directive += advance();
             if (directive == "include") {
                 handle_include();
+            } else if (directive == "timescale") {
+                handle_timescale();
             } else {
                 cur.cursor = saved_cursor;
                 break;
@@ -201,7 +258,11 @@ Token Lexer::next_token() {
         }
         return {TokenType::TOKEN_MINUS, "-", 0, 0, cur_file, cur_line, 0};
     }
-    if (c == '*') { advance(); return {TokenType::TOKEN_STAR, "*", 0, 0, cur_file, cur_line, 0}; }
+    if (c == '*') {
+        advance();
+        if (peek() == '>') { advance(); return {TokenType::TOKEN_STAR_ARROW, "*>", 0, 0, cur_file, cur_line, 0}; }
+        return {TokenType::TOKEN_STAR, "*", 0, 0, cur_file, cur_line, 0};
+    }
 
     // Multi-character Operators
     if (c == '&') {
@@ -243,6 +304,10 @@ Token Lexer::next_token() {
                 return {TokenType::TOKEN_CASE_EQ, "===", 0, 0, cur_file, cur_line, 0};
             }
             return {TokenType::TOKEN_EQ, "==", 0, 0, cur_file, cur_line, 0};
+        }
+        if (peek() == '>') {
+            advance();
+            return {TokenType::TOKEN_FAT_ARROW, "=>", 0, 0, cur_file, cur_line, 0};
         }
         return {TokenType::TOKEN_EQUAL, "=", 0, 0, cur_file, cur_line, 0};
     }
@@ -493,6 +558,9 @@ Token Lexer::next_token() {
         if (ident == "endprimitive") return {TokenType::TOKEN_ENDPRIMITIVE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "table") return {TokenType::TOKEN_TABLE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endtable") return {TokenType::TOKEN_ENDTABLE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "specify") return {TokenType::TOKEN_SPECIFY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endspecify") return {TokenType::TOKEN_ENDSPECIFY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "ifnone") return {TokenType::TOKEN_IFNONE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

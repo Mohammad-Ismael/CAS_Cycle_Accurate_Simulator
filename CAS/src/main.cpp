@@ -66,6 +66,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::unique_ptr<ModuleNode>> all_modules;
     size_t total_bytes = 0;
+    Lexer::reset_timescale();
     Parser::clear_global_packages();
 
     struct FileSourceEntry {

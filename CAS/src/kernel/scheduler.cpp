@@ -403,6 +403,19 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
         }
         delayed_blocking_queue.erase(bit);
     }
+
+    // 3. Commit due specify path events
+    std::vector<size_t> committed_specify_nets;
+    for (auto& kv : pending_specify_events) {
+        if (kv.second.target_time <= target_time) {
+            size_t nid = kv.second.net_id;
+            engine.evaluator.write_slice({nid, 0, engine.netlist[nid].width}, kv.second.new_val);
+            committed_specify_nets.push_back(kv.first);
+        }
+    }
+    for (size_t nid : committed_specify_nets) {
+        pending_specify_events.erase(nid);
+    }
 }
 
 void StratifiedScheduler::terminate() {
@@ -459,8 +472,44 @@ void StratifiedScheduler::propagate_comb() {
 
             LogicVal cur = engine.evaluator.read_slice(rca.target);
             if (cur != resolved) {
+                size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+
+                bool has_path_delay = false;
+                uint64_t min_delay = UINT64_MAX;
+                for (const auto& mpd : engine.module_path_delays) {
+                    if (mpd.dst_net_id == target_id) {
+                        if (engine.netlist[mpd.src_net_id].changed_in_current_sim_time) {
+                            bool cond_met = true;
+                            if (mpd.cond_expr) {
+                                LogicVal cval = engine.evaluator.eval_expr(mpd.cond_expr, mpd.scope);
+                                cond_met = cval.to_bool();
+                            }
+                            if (cond_met) {
+                                has_path_delay = true;
+                                if (mpd.delay_ticks < min_delay) {
+                                    min_delay = mpd.delay_ticks;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (has_path_delay && min_delay > 0) {
+                    uint64_t target_time = current_sim_time + min_delay;
+                    pending_specify_events[target_id] = {target_id, resolved, target_time};
+                    time_wheel.schedule(target_time, UINT32_MAX);
+                    continue;
+                }
+
+                if (pending_specify_events.find(target_id) != pending_specify_events.end()) {
+                    continue;
+                }
+
                 engine.evaluator.write_slice(rca.target, resolved);
                 changed = true;
+            } else {
+                size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+                pending_specify_events.erase(target_id);
             }
         }
 
@@ -2024,6 +2073,11 @@ void StratifiedScheduler::run_simulation() {
     while (simulation_active && !time_wheel.empty()) {
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
+
+        for (auto& n : engine.netlist) {
+            n.changed_in_current_sim_time = false;
+        }
+        transfer_due_delayed_updates(slot_time);
 
         for (auto& bp : engine.processes) {
             bp.fired_in_time_slot = false;

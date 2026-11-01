@@ -169,4 +169,18 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: \
  /usr/include/c++/13.2.1/bits/unordered_set.h \
  /usr/include/c++/13.2.1/functional \
  /usr/include/c++/13.2.1/bits/std_function.h \
- /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare
+ /usr/include/c++/13.2.1/array /usr/include/c++/13.2.1/compare \
+ /usr/include/c++/13.2.1/cmath /usr/include/math.h \
+ /usr/include/c++/13.2.1/bits/specfun.h /usr/include/c++/13.2.1/limits \
+ /usr/include/c++/13.2.1/tr1/gamma.tcc \
+ /usr/include/c++/13.2.1/tr1/special_function_util.h \
+ /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+ /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+ /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+ /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+ /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+ /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+ /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+ /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+ /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+ /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc

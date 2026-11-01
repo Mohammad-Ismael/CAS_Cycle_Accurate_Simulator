@@ -15,6 +15,7 @@ struct Net {
     LogicVal prev_value;
     bool modified;
     uint64_t change_counter = 0;
+    bool changed_in_current_sim_time = true;
     std::string vcd_id;
     bool has_procedural_assign = false;
     ExpressionNode* procedural_assign_rhs = nullptr;
@@ -47,6 +48,7 @@ struct Net {
             value = clamped;
             modified = true;
             change_counter++;
+            changed_in_current_sim_time = true;
         }
     }
 
@@ -85,4 +87,12 @@ struct NamedEvent {
     std::string name;
     uint64_t last_triggered_time = (uint64_t)-1;
     std::vector<size_t> waiting_pids;
+};
+
+struct ModulePathDelay {
+    size_t src_net_id = (size_t)-1;
+    size_t dst_net_id = (size_t)-1;
+    ExpressionNode* cond_expr = nullptr;
+    std::string scope = "";
+    uint64_t delay_ticks = 0;
 };

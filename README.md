@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.28.0.0`  
-**Status:** Production Milestone v3.28.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.29.0.0`  
+**Status:** Production Milestone v3.29.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[███████████████████████████████░░░░░░░░░░░░░░░] 61.2%`
+`[████████████████████████████████░░░░░░░░░░░░░░] 62.6%`
 
-*Current Baseline (v3.28.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Bidirectional Unification (§10.6), and Gate Primitives & User-Defined Primitives (§28 & §29 built-in gate primitives `xor`, `and`, `nand`, `or`, `nor`, `xnor`, `buf`, `not`, tri-state control gates `bufif0`, `bufif1`, `notif0`, `notif1`, user-defined primitives `primitive...table...endprimitive` with combinational don't care `'?'` and retain `'-'`, multi-driver contention resolution, and context diagnostic `[CAS-DTINPCIL]`).
-*Upcoming Domains:* Specify Blocks & Path Delays (§30 & §31), Pulse Filtering & Timing Checks (§32).
+*Current Baseline (v3.29.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Bidirectional Unification (§10.6), Gate Primitives & User-Defined Primitives (§28 & §29), and Specify Blocks & Module Path Delays (§32 specify blocks `specify...endspecify`, parallel paths `(src => dst) = delay;`, conditional paths `if (cond) (src => dst) = delay;`, `` `timescale `` unit/precision ratio computation, high-precision delay scaling and rounding, inertial time-wheel scheduling, 4-state unknown net initialization `'x'`, and context diagnostic `[CAS-DTINPCIL]`).
+*Upcoming Domains:* Pulse Filtering & Timing Checks (§30 & §31), Generate Blocks (§27).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§32** | **Specify Blocks & Module Path Delays** | Structural `specify ... endspecify` blocks in modules, parallel module path delays (`(src => dst) = delay;`), conditional state-dependent path delays (`if (cond) (src => dst) = delay;`), `#` timescale scaling with `` `timescale `` directives, inertial time-wheel scheduling with glitch preemption, 4-state unknown initialization (`'x'`), and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of specify blocks in procedural blocks, interfaces, classes, and packages, and prohibiting variable/reg path terminals). |
 | **§28, §29** | **Built-in Gate Primitives, Tri-State Gates & UDPs** | Built-in multiple-input gates (`and`, `nand`, `or`, `nor`, `xor`, `xnor`, `buf`, `not`), 3-terminal tri-state control gates (`bufif0`, `bufif1`, `notif0`, `notif1`) conforming to IEEE Tables 28-5 & 28-6, combinational User-Defined Primitives (`primitive ... table ... endprimitive`) with symbol matching for `'0'`, `'1'`, `'x'`, don't-care `'?'`, binary `'b'`, and retain `'-'`; automatic registration in multi-driver resolved continuous assignments with 4-state net resolution, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of gate/UDP instantiations in procedural scopes, and prohibiting driving variable/reg targets). |
 | **§10.6** | **Net Aliasing & Bidirectional Net Unification** | Structural `alias` construct (`alias net1 = net2 { = net3 };`), delay-free topological net unification via Disjoint Set Union (DSU), canonical NetID remapping across continuous assigns, gate outputs, and inout port drivers; multi-driver 4-state wired contention resolution (`'z'` vs active value, conflicting active values to `'x'`), and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of `alias` in procedural blocks, non-net variable operands, and bit-width mismatches). |
 | **§6.20, §23.10** | **Defparam & Hierarchical Parameter Overrides** | Hierarchical `defparam` statements across module boundaries (`defparam top.sub.leaf.PARAM = val;`), named instance parameter bindings (`#(.WIDTH(16), .SHIFT(4))`), multi-pass elaboration-time constant dependency propagation, cascading `localparam` re-evaluation, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of `defparam` inside procedural blocks, localparam override prohibition, and non-existent hierarchical path detection). |

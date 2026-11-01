@@ -1309,6 +1309,79 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_SPECIFY) {
+                if (mod->is_interface) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside interface per IEEE 1800-2023 section 32");
+                }
+                if (mod->is_program) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside program per IEEE 1800-2023 section 32");
+                }
+                advance(); // consume 'specify'
+                while (current.type != TokenType::TOKEN_ENDSPECIFY && current.type != TokenType::TOKEN_EOF) {
+                    std::unique_ptr<ExpressionNode> cond_expr = nullptr;
+                    if (match(TokenType::TOKEN_IF)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if' in specify block");
+                        cond_expr = parse_expression();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' after condition in specify block");
+                    } else if (match(TokenType::TOKEN_IFNONE)) {
+                        // ifnone path
+                    }
+
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        std::vector<std::string> sources;
+                        while (true) {
+                            sources.push_back(current.text);
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected source terminal in path declaration");
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
+
+                        bool is_full_conn = false;
+                        if (match(TokenType::TOKEN_FAT_ARROW)) {
+                            is_full_conn = false;
+                        } else if (match(TokenType::TOKEN_STAR_ARROW)) {
+                            is_full_conn = true;
+                        } else {
+                            expect(TokenType::TOKEN_FAT_ARROW, "Expected '=>' or '*>' in path declaration");
+                        }
+
+                        std::vector<std::string> dests;
+                        while (true) {
+                            dests.push_back(current.text);
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected destination terminal in path declaration");
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing path terminals");
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' in path delay assignment");
+
+                        std::unique_ptr<ExpressionNode> delay_expr = nullptr;
+                        if (match(TokenType::TOKEN_LPAREN)) {
+                            delay_expr = parse_expression();
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing delay value");
+                        } else {
+                            delay_expr = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after path delay declaration");
+
+                        auto path_node = std::make_shared<PathDelayNode>();
+                        path_node->sources = std::move(sources);
+                        path_node->destinations = std::move(dests);
+                        path_node->is_full_connection = is_full_conn;
+                        path_node->cond_expr = std::move(cond_expr);
+                        path_node->delay_expr = std::move(delay_expr);
+                        mod->path_delays.push_back(path_node);
+                    } else {
+                        while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDSPECIFY && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        match(TokenType::TOKEN_SEMICOLON);
+                    }
+                }
+                expect(TokenType::TOKEN_ENDSPECIFY, "Expected 'endspecify'");
+                continue;
+            }
+
             bool is_virt = false;
             if (match(TokenType::TOKEN_VIRTUAL)) is_virt = true;
             // Function declaration parsed by parser_function.cpp
@@ -1819,6 +1892,9 @@ std::unique_ptr<ClassNode> Parser::parse_class() {
     cls->base_class_name = base_class_name;
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_SPECIFY) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside class per IEEE 1800-2023 section 32");
+        }
         bool is_virt = false;
         bool is_stat = false;
         if (match(TokenType::TOKEN_VIRTUAL)) {
@@ -3096,6 +3172,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
     global_packages[pkg->name] = pkg;
 
     while (current.type != TokenType::TOKEN_ENDPACKAGE && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_SPECIFY) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside package per IEEE 1800-2023 section 32");
+        }
         if (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE) {
             std::string loc = current.filename.empty() 
                 ? ("line " + std::to_string(current.line)) 

@@ -195,7 +195,12 @@ enum class TokenType {
     TOKEN_PRIMITIVE,
     TOKEN_ENDPRIMITIVE,
     TOKEN_TABLE,
-    TOKEN_ENDTABLE
+    TOKEN_ENDTABLE,
+    TOKEN_SPECIFY,
+    TOKEN_ENDSPECIFY,
+    TOKEN_FAT_ARROW,
+    TOKEN_STAR_ARROW,
+    TOKEN_IFNONE
 };
 
 struct Token {
@@ -229,8 +234,13 @@ private:
     char advance();
     void skip_whitespace_and_comments();
     void handle_include();
+    void handle_timescale();
 
 public:
+    static uint64_t global_timescale_ratio;
+    static uint64_t get_timescale_ratio() { return global_timescale_ratio; }
+    static void reset_timescale() { global_timescale_ratio = 1; }
+
     explicit Lexer(const std::string& filename, const std::string& source, 
                    const std::string& base_dir = ".", std::ostream* debug_stream = nullptr);
     Token next_token();

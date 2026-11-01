@@ -63,6 +63,12 @@ struct NBAEventItem {
     size_t event_id;
 };
 
+struct PendingSpecifyNetEvent {
+    size_t net_id;
+    LogicVal new_val;
+    uint64_t target_time;
+};
+
 class StratifiedScheduler {
 private:
     Engine& engine;
@@ -74,6 +80,7 @@ private:
     std::map<uint64_t, std::vector<NBAUpdate>> delayed_nba_queue;
     std::map<uint64_t, std::vector<NBAMemUpdate>> delayed_nba_mem_queue;
     std::map<uint64_t, std::vector<DelayedBlockingAssign>> delayed_blocking_queue;
+    std::unordered_map<size_t, PendingSpecifyNetEvent> pending_specify_events;
     std::vector<IntraEventNbaItem> intra_event_nba_queue;
     std::vector<IntraEventBlockingItem> intra_event_blocking_queue;
 

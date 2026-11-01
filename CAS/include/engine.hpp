@@ -45,6 +45,7 @@ private:
     std::vector<ContinuousAssignBinding> continuous_assigns;
     std::vector<ResolvedContinuousAssign> resolved_continuous_assigns;
     std::vector<GateInstance> gates;
+    std::vector<ModulePathDelay> module_path_delays;
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;

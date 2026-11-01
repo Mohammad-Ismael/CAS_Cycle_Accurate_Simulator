@@ -1,6 +1,7 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 #include <functional>
+#include <cmath>
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
     // Diagnostic [CAS-DTINPCIL]: defparam inside procedural scopes
@@ -23,6 +24,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         current.type == TokenType::TOKEN_PRIMITIVE ||
         (current.type == TokenType::TOKEN_IDENTIFIER && Parser::global_udp_defs.find(current.text) != Parser::global_udp_defs.end())) {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: gate or primitive instantiation is not permitted inside procedural scope per IEEE 1800-2023 section 28 & 29");
+    }
+
+    // Diagnostic [CAS-DTINPCIL]: specify block inside procedural scopes
+    if (current.type == TokenType::TOKEN_SPECIFY) {
+        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside procedural scope per IEEE 1800-2023 section 32");
     }
 
     // 0. Handle 'begin ... end' block statements
@@ -328,7 +334,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::unique_ptr<ExpressionNode> delay_expr = nullptr;
         uint64_t d = 0;
         if (current.type == TokenType::TOKEN_NUMBER) {
-            d = current.num_val;
+            if (current.is_real) {
+                d = static_cast<uint64_t>(std::round(current.real_val * Lexer::get_timescale_ratio()));
+            } else {
+                d = current.num_val * Lexer::get_timescale_ratio();
+            }
             advance();
         } else if (match(TokenType::TOKEN_LPAREN)) {
             delay_expr = parse_expression();

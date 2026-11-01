@@ -231,6 +231,17 @@ struct UdpDefinitionNode : public ASTNode {
     UdpDefinitionNode() = default;
 };
 
+struct PathDelayNode : public ASTNode {
+    std::vector<std::string> sources;
+    std::vector<std::string> destinations;
+    bool is_full_connection = false;
+    std::unique_ptr<ExpressionNode> cond_expr = nullptr;
+    std::unique_ptr<ExpressionNode> delay_expr = nullptr;
+    uint64_t delay_val = 0;
+
+    PathDelayNode() = default;
+};
+
 struct GatePrimitiveNode : public ASTNode {
     GateType type = GateType::AND;
     std::string instance_name = "";
@@ -668,6 +679,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
+    std::vector<std::shared_ptr<PathDelayNode>> path_delays;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<FunctionNode>> functions;

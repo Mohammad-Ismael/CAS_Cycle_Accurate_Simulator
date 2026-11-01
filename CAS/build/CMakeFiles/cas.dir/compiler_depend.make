@@ -299,6 +299,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/bits/range_access.h \
   /usr/include/c++/13.2.1/bits/refwrap.h \
   /usr/include/c++/13.2.1/bits/requires_hosted.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/stl_algobase.h \
@@ -322,6 +323,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/cctype \
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
   /usr/include/c++/13.2.1/cstdio \
@@ -341,6 +343,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/ios \
   /usr/include/c++/13.2.1/iosfwd \
   /usr/include/c++/13.2.1/istream \
+  /usr/include/c++/13.2.1/limits \
   /usr/include/c++/13.2.1/new \
   /usr/include/c++/13.2.1/ostream \
   /usr/include/c++/13.2.1/pstl/pstl_config.h \
@@ -350,6 +353,18 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -376,6 +391,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -1380,6 +1396,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/bits/shared_ptr.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h \
   /usr/include/c++/13.2.1/bits/shared_ptr_base.h \
+  /usr/include/c++/13.2.1/bits/specfun.h \
   /usr/include/c++/13.2.1/bits/sstream.tcc \
   /usr/include/c++/13.2.1/bits/std_abs.h \
   /usr/include/c++/13.2.1/bits/std_function.h \
@@ -1416,6 +1433,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/cctype \
   /usr/include/c++/13.2.1/cerrno \
   /usr/include/c++/13.2.1/clocale \
+  /usr/include/c++/13.2.1/cmath \
   /usr/include/c++/13.2.1/compare \
   /usr/include/c++/13.2.1/cstddef \
   /usr/include/c++/13.2.1/cstdint \
@@ -1442,6 +1460,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/iosfwd \
   /usr/include/c++/13.2.1/iostream \
   /usr/include/c++/13.2.1/istream \
+  /usr/include/c++/13.2.1/limits \
   /usr/include/c++/13.2.1/locale \
   /usr/include/c++/13.2.1/map \
   /usr/include/c++/13.2.1/memory \
@@ -1457,6 +1476,18 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/c++/13.2.1/string \
   /usr/include/c++/13.2.1/string_view \
   /usr/include/c++/13.2.1/system_error \
+  /usr/include/c++/13.2.1/tr1/bessel_function.tcc \
+  /usr/include/c++/13.2.1/tr1/beta_function.tcc \
+  /usr/include/c++/13.2.1/tr1/ell_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/exp_integral.tcc \
+  /usr/include/c++/13.2.1/tr1/gamma.tcc \
+  /usr/include/c++/13.2.1/tr1/hypergeometric.tcc \
+  /usr/include/c++/13.2.1/tr1/legendre_function.tcc \
+  /usr/include/c++/13.2.1/tr1/modified_bessel_func.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_hermite.tcc \
+  /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc \
+  /usr/include/c++/13.2.1/tr1/riemann_zeta.tcc \
+  /usr/include/c++/13.2.1/tr1/special_function_util.h \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
@@ -1485,6 +1516,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/fortify/wchar.h \
   /usr/include/limits.h \
   /usr/include/locale.h \
+  /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/sched.h \
   /usr/include/stdc-predef.h \
@@ -1924,6 +1956,8 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/common/dpic_types.hpp \
   /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/frontend/lexer.hpp \
+  /app/CAS/include/frontend/parser.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/common/sva_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \

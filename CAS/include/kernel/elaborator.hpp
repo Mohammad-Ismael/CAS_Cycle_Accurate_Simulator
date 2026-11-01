@@ -201,6 +201,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> semaphore_handle_names;
     std::unordered_set<std::string> mailbox_handle_names;
     std::unordered_set<std::string> virtual_interface_names;
+    std::vector<ModulePathDelay> module_path_delays;
     std::vector<size_t> canonical_net_map;
     std::vector<std::vector<size_t>> alias_members;
     std::string top_scope;

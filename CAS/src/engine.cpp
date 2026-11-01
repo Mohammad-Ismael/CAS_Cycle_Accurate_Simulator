@@ -52,6 +52,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
             resolved_continuous_assigns[it->second].drivers.push_back(drv);
         }
     }
+    module_path_delays = std::move(elab_res.module_path_delays);
     memory_map = std::move(elab_res.memory_map);
     queue_map = std::move(elab_res.queue_map);
     dynamic_array_map = std::move(elab_res.dynamic_array_map);
