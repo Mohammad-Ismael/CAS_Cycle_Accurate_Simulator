@@ -833,6 +833,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             bool is_ident_int = (current.type == TokenType::TOKEN_IDENTIFIER && 
                                  (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+            bool is_ident_unsigned = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned");
             bool is_chandle_mod = (current.type == TokenType::TOKEN_CHANDLE || 
                                    (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
             bool is_semaphore_mod = (current.type == TokenType::TOKEN_SEMAPHORE || 
@@ -845,22 +846,25 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_chandle_mod ||
+                current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_ident_unsigned || is_chandle_mod ||
                 is_semaphore_mod || is_mailbox_mod) {
                 
-                bool is_signed_sig = false;
+                bool explicit_signed = false;
+                bool explicit_unsigned = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
-                    is_signed_sig = true;
+                    explicit_signed = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                    explicit_unsigned = true;
                     advance();
                 }
                 std::string int_type_name = "";
                 bool is_int = (current.type == TokenType::TOKEN_INTEGER);
-                if (is_ident_int) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER && 
+                    (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
                     int_type_name = current.text;
                     is_int = true;
-                    is_signed_sig = true;
                 }
-                if (is_int) is_signed_sig = true;
                 bool is_real_sig = (current.type == TokenType::TOKEN_REAL);
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
@@ -886,9 +890,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
 
                 if (current.type == TokenType::TOKEN_SIGNED) {
-                    is_signed_sig = true;
+                    explicit_signed = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                    explicit_unsigned = true;
                     advance();
                 }
+
+                bool is_signed_sig = false;
+                if (explicit_signed) is_signed_sig = true;
+                else if (explicit_unsigned) is_signed_sig = false;
+                else if (is_int) is_signed_sig = true;
 
                 std::unique_ptr<ExpressionNode> msb = nullptr;
                 std::unique_ptr<ExpressionNode> lsb = nullptr;

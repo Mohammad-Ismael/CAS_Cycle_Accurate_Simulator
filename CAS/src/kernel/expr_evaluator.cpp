@@ -798,6 +798,31 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
+        std::vector<LogicVal> array_elems;
+        uint32_t a_elem_width = 32;
+        bool a_is_signed = false;
+        if (get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed)) {
+            std::string method = method_node->method_name;
+            std::string iter_name = "item";
+            if (!method_node->args.empty()) {
+                if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                    iter_name = id->name;
+                }
+            }
+            if (method == "sum" || method == "product" || method == "and" || method == "or" || method == "xor") {
+                return eval_array_reduction(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
+            }
+            if (method == "min" || method == "max") {
+                auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
+                return loc_res.empty() ? LogicVal::make_x(a_elem_width) : loc_res[0];
+            }
+            if (method == "find" || method == "find_index" || method == "find_first" || method == "find_last" ||
+                method == "find_first_index" || method == "find_last_index") {
+                auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
+                return LogicVal::make_known(32, (uint64_t)loc_res.size());
+            }
+        }
+
         QueueObject* q = nullptr;
         if (context.has_active_frame()) {
             LocalVar* local = context.lookup_local(var_name);
@@ -1485,7 +1510,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_x(q->elem_width);
             }
             int64_t idx = (int64_t)addr_val.aval;
-            return q->get_elem(idx);
+            LogicVal elem = q->get_elem(idx);
+            if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                uint64_t b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
+                uint32_t w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                uint64_t val = (elem.aval >> b_lsb) & mask;
+                return LogicVal::make_known(w, val);
+            }
+            return elem;
         }
 
         DynamicArrayObject* da = nullptr;
@@ -1511,7 +1545,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_x(da->elem_width);
             }
             int64_t idx = (int64_t)addr_val.aval;
-            return da->get_elem(idx);
+            LogicVal elem = da->get_elem(idx);
+            if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                uint64_t b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
+                uint32_t w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                uint64_t val = (elem.aval >> b_lsb) & mask;
+                return LogicVal::make_known(w, val);
+            }
+            return elem;
         }
 
         AssociativeArrayObject* assoc = nullptr;
@@ -1584,7 +1627,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     return LogicVal::make_x(mem.word_width);
                 }
                 int64_t addr = (int64_t)addr_val.aval;
-                return mem.get_word(addr);
+                LogicVal elem = mem.get_word(addr);
+                if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                    uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                    uint64_t b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
+                    uint32_t w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                    uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                    uint64_t val = (elem.aval >> b_lsb) & mask;
+                    return LogicVal::make_known(w, val);
+                }
+                return elem;
             }
 
             size_t nid = (size_t)-1;
@@ -2102,4 +2154,301 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<Logi
     }
 
     return invoke_c_symbol(sym, dpi, c_args);
+}
+
+bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::string& scope,
+                                       std::vector<LogicVal>& out_elements, uint32_t& out_elem_width, bool& out_is_signed) {
+    out_elements.clear();
+    out_elem_width = 32;
+    out_is_signed = false;
+
+    // 1. Check local variable
+    if (context.has_active_frame()) {
+        LocalVar* loc = context.lookup_local(var_name);
+        if (loc) {
+            if (loc->is_dynamic_array) {
+                out_elements = loc->dyn_array_data.elements;
+                out_elem_width = loc->dyn_array_data.elem_width;
+                out_is_signed = loc->dyn_array_data.is_signed;
+                return true;
+            }
+            if (loc->is_queue) {
+                out_elements.assign(loc->queue_data.elements.begin(), loc->queue_data.elements.end());
+                out_elem_width = loc->queue_data.elem_width;
+                out_is_signed = loc->queue_data.is_signed;
+                return true;
+            }
+        }
+    }
+
+    // 2. Check call stack
+    if (current_bp && !current_bp->call_stack.empty()) {
+        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+            LocalVar* loc = it->local_frame.get_var(var_name);
+            if (loc) {
+                if (loc->is_dynamic_array) {
+                    out_elements = loc->dyn_array_data.elements;
+                    out_elem_width = loc->dyn_array_data.elem_width;
+                    out_is_signed = loc->dyn_array_data.is_signed;
+                    return true;
+                }
+                if (loc->is_queue) {
+                    out_elements.assign(loc->queue_data.elements.begin(), loc->queue_data.elements.end());
+                    out_elem_width = loc->queue_data.elem_width;
+                    out_is_signed = loc->queue_data.is_signed;
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 3. Check engine dynamic array
+    DynamicArrayObject* da = engine.get_dynamic_array(var_name, scope);
+    if (da) {
+        out_elements = da->elements;
+        out_elem_width = da->elem_width;
+        out_is_signed = da->is_signed;
+        return true;
+    }
+
+    // 4. Check engine queue
+    QueueObject* q = engine.get_queue(var_name, scope);
+    if (q) {
+        out_elements.assign(q->elements.begin(), q->elements.end());
+        out_elem_width = q->elem_width;
+        out_is_signed = q->is_signed;
+        return true;
+    }
+
+    // 5. Check engine memory (unpacked array)
+    std::string s_id = scope.empty() ? var_name : (scope + "." + var_name);
+    std::string mem_key = "";
+    if (engine.memory_map.find(s_id) != engine.memory_map.end()) mem_key = s_id;
+    else if (engine.memory_map.find(var_name) != engine.memory_map.end()) mem_key = var_name;
+    if (!mem_key.empty()) {
+        auto& mem = engine.memory_map.at(mem_key);
+        out_elements.reserve(mem.depth);
+        for (size_t i = 0; i < mem.depth; ++i) {
+            out_elements.push_back(mem.get_word(i));
+        }
+        out_elem_width = mem.word_width;
+        out_is_signed = false;
+        return true;
+    }
+
+    // 6. Check engine associative array
+    AssociativeArrayObject* assoc = engine.get_assoc_array(var_name, scope);
+    if (assoc) {
+        for (const auto& pair : assoc->elements) {
+            out_elements.push_back(pair.second);
+        }
+        for (const auto& pair : assoc->str_elements) {
+            out_elements.push_back(pair.second);
+        }
+        out_elem_width = assoc->val_width;
+        out_is_signed = assoc->is_signed;
+        return true;
+    }
+
+    return false;
+}
+
+LogicVal ExprEvaluator::eval_array_reduction(
+    const std::string& method,
+    const std::vector<LogicVal>& elements,
+    uint32_t elem_width,
+    bool is_signed,
+    ExpressionNode* with_expr,
+    const std::string& iter_name,
+    const std::string& scope) {
+
+    if (elements.empty()) {
+        return LogicVal::make_known(elem_width, 0);
+    }
+
+    uint64_t total = 0;
+    uint64_t prod = 1;
+    uint64_t bit_and = (elem_width >= 64) ? ~0ULL : ((1ULL << elem_width) - 1);
+    uint64_t bit_or = 0;
+    uint64_t bit_xor = 0;
+
+    for (const auto& elem : elements) {
+        LogicVal val = elem;
+        if (with_expr) {
+            context.push_frame("with_frame");
+            context.declare_local(iter_name, elem_width, is_signed);
+            context.set_local_value(iter_name, elem);
+            val = eval(with_expr, scope);
+            context.pop_frame();
+        }
+
+        uint64_t cur = val.aval;
+        total += cur;
+        prod *= cur;
+        bit_and &= cur;
+        bit_or |= cur;
+        bit_xor ^= cur;
+    }
+
+    uint64_t mask = (elem_width >= 64) ? ~0ULL : ((1ULL << elem_width) - 1);
+
+    if (method == "sum") {
+        return LogicVal::make_known(elem_width, total & mask);
+    } else if (method == "product") {
+        return LogicVal::make_known(elem_width, prod & mask);
+    } else if (method == "and") {
+        return LogicVal::make_known(elem_width, bit_and & mask);
+    } else if (method == "or") {
+        return LogicVal::make_known(elem_width, bit_or & mask);
+    } else if (method == "xor") {
+        return LogicVal::make_known(elem_width, bit_xor & mask);
+    }
+
+    return LogicVal::make_known(elem_width, 0);
+}
+
+std::vector<LogicVal> ExprEvaluator::eval_array_locator(
+    const std::string& method,
+    const std::vector<LogicVal>& elements,
+    uint32_t elem_width,
+    bool is_signed,
+    ExpressionNode* with_expr,
+    const std::string& iter_name,
+    const std::string& scope) {
+
+    std::vector<LogicVal> result;
+    if (elements.empty()) return result;
+
+    if (method == "min" || method == "max") {
+        bool is_min = (method == "min");
+        size_t best_idx = 0;
+        LogicVal best_key;
+
+        for (size_t i = 0; i < elements.size(); ++i) {
+            LogicVal key = elements[i];
+            if (with_expr) {
+                context.push_frame("with_frame");
+                context.declare_local(iter_name, elem_width, is_signed);
+                context.set_local_value(iter_name, elements[i]);
+                key = eval(with_expr, scope);
+                context.pop_frame();
+            }
+
+            if (i == 0) {
+                best_idx = 0;
+                best_key = key;
+            } else {
+                bool better = false;
+                if (is_signed) {
+                    int64_t s_cur = (int64_t)LogicOps::cast_width(key, 64, true).aval;
+                    int64_t s_best = (int64_t)LogicOps::cast_width(best_key, 64, true).aval;
+                    better = is_min ? (s_cur < s_best) : (s_cur > s_best);
+                } else {
+                    better = is_min ? (key.aval < best_key.aval) : (key.aval > best_key.aval);
+                }
+                if (better) {
+                    best_idx = i;
+                    best_key = key;
+                }
+            }
+        }
+        result.push_back(elements[best_idx]);
+        return result;
+    }
+
+    if (method == "find" || method == "find_index" ||
+        method == "find_first" || method == "find_last" ||
+        method == "find_first_index" || method == "find_last_index") {
+
+        for (size_t i = 0; i < elements.size(); ++i) {
+            bool matches = true;
+            if (with_expr) {
+                context.push_frame("with_frame");
+                context.declare_local(iter_name, elem_width, is_signed);
+                context.set_local_value(iter_name, elements[i]);
+                LogicVal cond = eval(with_expr, scope);
+                context.pop_frame();
+                matches = (!cond.is_unknown() && cond.aval != 0);
+            }
+
+            if (matches) {
+                LogicVal item_val = (method == "find_index" || method == "find_first_index" || method == "find_last_index")
+                                    ? LogicVal::make_known(32, i)
+                                    : elements[i];
+                if (method == "find_first" || method == "find_first_index") {
+                    result.push_back(item_val);
+                    return result;
+                }
+                if (method == "find_last" || method == "find_last_index") {
+                    result.clear();
+                    result.push_back(item_val);
+                } else {
+                    result.push_back(item_val);
+                }
+            }
+        }
+        return result;
+    }
+
+    return result;
+}
+
+std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const std::string& scope) {
+    if (!expr) return {};
+
+    if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+        std::vector<LogicVal> elements;
+        uint32_t elem_width = 32;
+        bool is_signed = false;
+        if (get_array_elements(mc->var_name, scope, elements, elem_width, is_signed)) {
+            std::string iter_name = "item";
+            if (!mc->args.empty()) {
+                if (auto id = dynamic_cast<IdentifierNode*>(mc->args[0].get())) {
+                    iter_name = id->name;
+                }
+            }
+            if (mc->method_name == "min" || mc->method_name == "max" ||
+                mc->method_name == "find" || mc->method_name == "find_index" ||
+                mc->method_name == "find_first" || mc->method_name == "find_last" ||
+                mc->method_name == "find_first_index" || mc->method_name == "find_last_index") {
+                return eval_array_locator(mc->method_name, elements, elem_width, is_signed, mc->with_expr.get(), iter_name, scope);
+            }
+        }
+    }
+
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        if (idx->is_part_select && idx->lsb_expr) {
+            std::vector<LogicVal> elements;
+            uint32_t elem_width = 32;
+            bool is_signed = false;
+            if (get_array_elements(idx->name, scope, elements, elem_width, is_signed)) {
+                int64_t msb = (int64_t)eval(idx->msb_expr.get(), scope).aval;
+                int64_t lsb = (int64_t)eval(idx->lsb_expr.get(), scope).aval;
+                std::vector<LogicVal> slice;
+                if (msb <= lsb) {
+                    for (int64_t i = msb; i <= lsb; ++i) {
+                        if (i >= 0 && (size_t)i < elements.size()) slice.push_back(elements[i]);
+                        else slice.push_back(LogicVal::make_x(elem_width));
+                    }
+                } else {
+                    for (int64_t i = msb; i >= lsb; --i) {
+                        if (i >= 0 && (size_t)i < elements.size()) slice.push_back(elements[i]);
+                        else slice.push_back(LogicVal::make_x(elem_width));
+                    }
+                }
+                return slice;
+            }
+        }
+    }
+
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        std::vector<LogicVal> elements;
+        uint32_t elem_width = 32;
+        bool is_signed = false;
+        if (get_array_elements(id->name, scope, elements, elem_width, is_signed)) {
+            return elements;
+        }
+    }
+
+    return {};
 }

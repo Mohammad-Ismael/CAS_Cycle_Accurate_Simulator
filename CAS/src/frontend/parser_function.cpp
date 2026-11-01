@@ -91,6 +91,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 is_int = true;
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT) {
@@ -104,7 +105,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function() {
                 else if (current.text == "longint") def_w = 64;
                 else def_w = 32;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            }
+            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 std::string p_name = current.text;
                 advance(); advance();
                 std::string t_name = current.text;

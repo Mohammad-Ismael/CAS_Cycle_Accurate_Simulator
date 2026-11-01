@@ -39,6 +39,7 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
                 is_int = true;
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT) {
@@ -51,7 +52,9 @@ std::unique_ptr<TaskNode> Parser::parse_task() {
                 is_s = true;
                 is_int = true;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            }
+            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 advance(); advance();
                 is_int = true;
                 advance();

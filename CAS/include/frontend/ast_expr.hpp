@@ -63,6 +63,9 @@ struct IndexSelectNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
     bool is_part_select = false;
+    std::unique_ptr<ExpressionNode> bit_msb_expr = nullptr;
+    std::unique_ptr<ExpressionNode> bit_lsb_expr = nullptr;
+    bool has_bit_select = false;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
         : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) {}
@@ -71,15 +74,20 @@ struct IndexSelectNode : public ExpressionNode {
         : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
+        std::unique_ptr<IndexSelectNode> node;
         if (!is_part_select) {
-            return std::make_unique<IndexSelectNode>(name, msb_expr ? msb_expr->clone() : nullptr);
+            node = std::make_unique<IndexSelectNode>(name, msb_expr ? msb_expr->clone() : nullptr);
         } else {
-            return std::make_unique<IndexSelectNode>(
+            node = std::make_unique<IndexSelectNode>(
                 name,
                 msb_expr ? msb_expr->clone() : nullptr,
                 lsb_expr ? lsb_expr->clone() : nullptr
             );
         }
+        node->has_bit_select = has_bit_select;
+        node->bit_msb_expr = bit_msb_expr ? bit_msb_expr->clone() : nullptr;
+        node->bit_lsb_expr = bit_lsb_expr ? bit_lsb_expr->clone() : nullptr;
+        return node;
     }
 };
 
@@ -169,14 +177,15 @@ struct MethodCallNode : public ExpressionNode {
     std::string var_name;
     std::string method_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::unique_ptr<ExpressionNode> with_expr = nullptr;
 
-    MethodCallNode(std::string v, std::string m, std::vector<std::unique_ptr<ExpressionNode>> a = {})
-        : var_name(std::move(v)), method_name(std::move(m)), args(std::move(a)) {}
+    MethodCallNode(std::string v, std::string m, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::unique_ptr<ExpressionNode> w = nullptr)
+        : var_name(std::move(v)), method_name(std::move(m)), args(std::move(a)), with_expr(std::move(w)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> c_args;
         for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
-        return std::make_unique<MethodCallNode>(var_name, method_name, std::move(c_args));
+        return std::make_unique<MethodCallNode>(var_name, method_name, std::move(c_args), with_expr ? with_expr->clone() : nullptr);
     }
 };
 

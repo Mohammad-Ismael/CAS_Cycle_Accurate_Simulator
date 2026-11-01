@@ -1,5 +1,6 @@
 #pragma once
 #include "ast_base.hpp"
+#include "ast_expr.hpp"
 #include "../common/types.hpp"
 #include <string>
 #include <vector>
@@ -12,6 +13,10 @@ struct EventControlStatementNode : public StatementNode {
 
     EventControlStatementNode(EdgeType e, std::string sig)
         : edge(e), signal_name(std::move(sig)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<EventControlStatementNode>(edge, signal_name);
+    }
 };
 
 struct ForeverStatementNode : public StatementNode {
@@ -19,6 +24,12 @@ struct ForeverStatementNode : public StatementNode {
 
     explicit ForeverStatementNode(std::vector<std::unique_ptr<StatementNode>> b)
         : body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<ForeverStatementNode>(std::move(b));
+    }
 };
 
 struct BlockStatementNode : public StatementNode {
@@ -27,6 +38,12 @@ struct BlockStatementNode : public StatementNode {
     BlockStatementNode() = default;
     explicit BlockStatementNode(std::vector<std::unique_ptr<StatementNode>> stmts)
         : statements(std::move(stmts)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> stmts;
+        for (const auto& s : statements) stmts.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<BlockStatementNode>(std::move(stmts));
+    }
 };
 
 struct VarDeclStatementNode : public StatementNode {
@@ -53,6 +70,22 @@ struct VarDeclStatementNode : public StatementNode {
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)
         : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc), assoc_key_type(std::move(key_t)), assoc_key_width(key_w) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<VarDeclStatementNode>(var_name, width, is_signed, type_name, is_queue, is_dynamic_array, is_associative_array, assoc_key_type, assoc_key_width);
+        node->is_class_handle = is_class_handle;
+        node->class_type_name = class_type_name;
+        node->is_covergroup_handle = is_covergroup_handle;
+        node->covergroup_type_name = covergroup_type_name;
+        node->is_chandle = is_chandle;
+        node->is_semaphore = is_semaphore;
+        node->is_mailbox = is_mailbox;
+        node->is_virtual_interface = is_virtual_interface;
+        node->interface_name = interface_name;
+        node->modport_name = modport_name;
+        node->init_expr = init_expr ? init_expr->clone() : nullptr;
+        return node;
+    }
 };
 
 struct BlockingAssignNode : public StatementNode {
@@ -75,6 +108,15 @@ struct BlockingAssignNode : public StatementNode {
 
     explicit BlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
         : lhs_targets(std::move(targets)), rhs(std::move(r)), intra_delay(delay) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<BlockingAssignNode>(lhs_targets, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
+        node->has_intra_event = has_intra_event;
+        node->intra_edge = intra_edge;
+        node->intra_signal = intra_signal;
+        return node;
+    }
 };
 
 struct NonBlockingAssignNode : public StatementNode {
@@ -93,6 +135,14 @@ struct NonBlockingAssignNode : public StatementNode {
 
     NonBlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
         : target(std::move(t)), rhs(std::move(r)), intra_delay(delay) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<NonBlockingAssignNode>(target, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->has_intra_event = has_intra_event;
+        node->intra_edge = intra_edge;
+        node->intra_signal = intra_signal;
+        return node;
+    }
 };
 
 struct MemAssignNode : public StatementNode {
@@ -115,6 +165,15 @@ struct MemAssignNode : public StatementNode {
                   std::unique_ptr<ExpressionNode> r, bool nba = false, uint64_t delay = 0)
         : mem_name(std::move(name)), addr_expr(std::move(addr)),
           rhs(std::move(r)), is_non_blocking(nba), intra_delay(delay) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<MemAssignNode>(mem_name, addr_expr ? addr_expr->clone() : nullptr,
+                                                    rhs ? rhs->clone() : nullptr, is_non_blocking, intra_delay);
+        node->has_intra_event = has_intra_event;
+        node->intra_edge = intra_edge;
+        node->intra_signal = intra_signal;
+        return node;
+    }
 };
 
 struct ProceduralAssignNode : public StatementNode {
@@ -123,6 +182,10 @@ struct ProceduralAssignNode : public StatementNode {
 
     ProceduralAssignNode(std::string t, std::unique_ptr<ExpressionNode> r)
         : target(std::move(t)), rhs(std::move(r)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ProceduralAssignNode>(target, rhs ? rhs->clone() : nullptr);
+    }
 };
 
 struct ProceduralDeassignNode : public StatementNode {
@@ -130,6 +193,10 @@ struct ProceduralDeassignNode : public StatementNode {
 
     explicit ProceduralDeassignNode(std::string t)
         : target(std::move(t)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ProceduralDeassignNode>(target);
+    }
 };
 
 struct IfStatementNode : public StatementNode {
@@ -138,6 +205,13 @@ struct IfStatementNode : public StatementNode {
     std::vector<std::unique_ptr<StatementNode>> else_branch;
     explicit IfStatementNode(std::unique_ptr<ExpressionNode> cond)
         : condition(std::move(cond)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<IfStatementNode>(condition ? condition->clone() : nullptr);
+        for (const auto& s : then_branch) node->then_branch.push_back(s ? s->clone() : nullptr);
+        for (const auto& s : else_branch) node->else_branch.push_back(s ? s->clone() : nullptr);
+        return node;
+    }
 };
 
 struct ForStatementNode : public StatementNode {
@@ -152,6 +226,15 @@ struct ForStatementNode : public StatementNode {
                      std::vector<std::unique_ptr<StatementNode>> b)
         : init_stmt(std::move(init)), condition(std::move(cond)),
           step_stmt(std::move(step)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<ForStatementNode>(init_stmt ? init_stmt->clone() : nullptr,
+                                                 condition ? condition->clone() : nullptr,
+                                                 step_stmt ? step_stmt->clone() : nullptr,
+                                                 std::move(b));
+    }
 };
 
 struct WhileStatementNode : public StatementNode {
@@ -161,6 +244,12 @@ struct WhileStatementNode : public StatementNode {
     WhileStatementNode(std::unique_ptr<ExpressionNode> cond,
                        std::vector<std::unique_ptr<StatementNode>> b)
         : condition(std::move(cond)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<WhileStatementNode>(condition ? condition->clone() : nullptr, std::move(b));
+    }
 };
 
 struct RepeatStatementNode : public StatementNode {
@@ -170,6 +259,12 @@ struct RepeatStatementNode : public StatementNode {
     RepeatStatementNode(std::unique_ptr<ExpressionNode> count,
                         std::vector<std::unique_ptr<StatementNode>> b)
         : count_expr(std::move(count)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<RepeatStatementNode>(count_expr ? count_expr->clone() : nullptr, std::move(b));
+    }
 };
 
 enum class CaseType {
@@ -191,6 +286,19 @@ struct CaseStatementNode : public StatementNode {
     std::vector<CaseItem> items;
     explicit CaseStatementNode(std::unique_ptr<ExpressionNode> sel, CaseType ct = CaseType::CASE)
         : case_type(ct), selector(std::move(sel)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<CaseStatementNode>(selector ? selector->clone() : nullptr, case_type);
+        for (const auto& item : items) {
+            CaseItem ci;
+            ci.is_default = item.is_default;
+            ci.match_expr = item.match_expr ? item.match_expr->clone() : nullptr;
+            for (const auto& me : item.match_exprs) ci.match_exprs.push_back(me ? me->clone() : nullptr);
+            for (const auto& st : item.statements) ci.statements.push_back(st ? st->clone() : nullptr);
+            node->items.push_back(std::move(ci));
+        }
+        return node;
+    }
 };
 
 enum class JoinType {
@@ -205,14 +313,28 @@ struct ForkStatementNode : public StatementNode {
 
     explicit ForkStatementNode(JoinType jt, std::vector<std::unique_ptr<StatementNode>> b)
         : join_type(jt), branches(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> br;
+        for (const auto& s : branches) br.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<ForkStatementNode>(join_type, std::move(br));
+    }
 };
 
 struct DisableForkStatementNode : public StatementNode {
     DisableForkStatementNode() = default;
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<DisableForkStatementNode>();
+    }
 };
 
 struct WaitForkStatementNode : public StatementNode {
     WaitForkStatementNode() = default;
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<WaitForkStatementNode>();
+    }
 };
 
 struct EventTriggerStatementNode : public StatementNode {
@@ -221,12 +343,20 @@ struct EventTriggerStatementNode : public StatementNode {
 
     EventTriggerStatementNode(std::string name, bool nb = false)
         : event_name(std::move(name)), is_nonblocking(nb) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<EventTriggerStatementNode>(event_name, is_nonblocking);
+    }
 };
 
 struct WaitEventTriggeredStatementNode : public StatementNode {
     std::string event_name;
     explicit WaitEventTriggeredStatementNode(std::string name)
         : event_name(std::move(name)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<WaitEventTriggeredStatementNode>(event_name);
+    }
 };
 
 struct TaskCallNode : public StatementNode {
@@ -236,6 +366,12 @@ struct TaskCallNode : public StatementNode {
 
     explicit TaskCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a = {}, std::string cls_type = "")
         : task_name(std::move(name)), args(std::move(a)), class_type_name(std::move(cls_type)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> a;
+        for (const auto& arg : args) a.push_back(arg ? arg->clone() : nullptr);
+        return std::make_unique<TaskCallNode>(task_name, std::move(a), class_type_name);
+    }
 };
 
 struct DelayStatementNode : public StatementNode {
@@ -244,6 +380,10 @@ struct DelayStatementNode : public StatementNode {
 
     explicit DelayStatementNode(uint64_t d, std::unique_ptr<ExpressionNode> expr = nullptr)
         : delay(d), delay_expr(std::move(expr)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<DelayStatementNode>(delay, delay_expr ? delay_expr->clone() : nullptr);
+    }
 };
 
 struct DisplayStatementNode : public StatementNode {
@@ -259,6 +399,12 @@ struct DisplayStatementNode : public StatementNode {
                                   std::string file = "", size_t line = 0)
         : format_string(std::move(fmt)), arg_exprs(std::move(a)), is_monitor(mon),
           has_leading_time(lead_time), src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> a;
+        for (const auto& arg : arg_exprs) a.push_back(arg ? arg->clone() : nullptr);
+        return std::make_unique<DisplayStatementNode>(format_string, std::move(a), is_monitor, has_leading_time, src_file, src_line);
+    }
 };
 
 struct FinishStatementNode : public StatementNode {
@@ -267,6 +413,10 @@ struct FinishStatementNode : public StatementNode {
 
     explicit FinishStatementNode(std::string file = "", size_t line = 0)
         : src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<FinishStatementNode>(src_file, src_line);
+    }
 };
 
 struct ExitStatementNode : public StatementNode {
@@ -275,16 +425,28 @@ struct ExitStatementNode : public StatementNode {
 
     explicit ExitStatementNode(std::string file = "", size_t line = 0)
         : src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ExitStatementNode>(src_file, src_line);
+    }
 };
 
 struct DumpFileStatementNode : public StatementNode {
     std::string filename;
     explicit DumpFileStatementNode(std::string f) : filename(std::move(f)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<DumpFileStatementNode>(filename);
+    }
 };
 
 struct DumpVarsStatementNode : public StatementNode {
     uint32_t levels = 0;
     explicit DumpVarsStatementNode(uint32_t lvl = 0) : levels(lvl) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<DumpVarsStatementNode>(levels);
+    }
 };
 
 struct CycleDelayStatementNode : public StatementNode {
@@ -293,11 +455,19 @@ struct CycleDelayStatementNode : public StatementNode {
 
     explicit CycleDelayStatementNode(std::unique_ptr<ExpressionNode> expr = nullptr, std::string cb = "")
         : cycle_expr(std::move(expr)), clocking_name(std::move(cb)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<CycleDelayStatementNode>(cycle_expr ? cycle_expr->clone() : nullptr, clocking_name);
+    }
 };
 
 struct ReturnStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> expr;
     explicit ReturnStatementNode(std::unique_ptr<ExpressionNode> e = nullptr) : expr(std::move(e)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ReturnStatementNode>(expr ? expr->clone() : nullptr);
+    }
 };
 
 struct SysCastStatementNode : public StatementNode {
@@ -306,6 +476,10 @@ struct SysCastStatementNode : public StatementNode {
 
     SysCastStatementNode(std::unique_ptr<ExpressionNode> d, std::unique_ptr<ExpressionNode> s)
         : dest_expr(std::move(d)), src_expr(std::move(s)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<SysCastStatementNode>(dest_expr ? dest_expr->clone() : nullptr, src_expr ? src_expr->clone() : nullptr);
+    }
 };
 
 struct RandomizeStatementNode : public StatementNode {
@@ -313,4 +487,8 @@ struct RandomizeStatementNode : public StatementNode {
 
     explicit RandomizeStatementNode(std::unique_ptr<ExpressionNode> c)
         : call(std::move(c)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<RandomizeStatementNode>(call ? call->clone() : nullptr);
+    }
 };

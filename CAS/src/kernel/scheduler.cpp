@@ -1035,6 +1035,45 @@ void StratifiedScheduler::notify_parent_child_completed(size_t child_pid) {
         anc_pid = anc.parent_pid;
     }
 }
+static bool stmt_has_timing_control(const StatementNode* stmt) {
+    if (!stmt) return false;
+    if (dynamic_cast<const EventControlStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const DelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const CycleDelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitEventTriggeredStatementNode*>(stmt)) return true;
+    if (auto blk = dynamic_cast<const BlockStatementNode*>(stmt)) {
+        for (const auto& s : blk->statements) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+    }
+    if (auto if_s = dynamic_cast<const IfStatementNode*>(stmt)) {
+        for (const auto& s : if_s->then_branch) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+        for (const auto& s : if_s->else_branch) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+    }
+    if (auto for_s = dynamic_cast<const ForStatementNode*>(stmt)) {
+        if (stmt_has_timing_control(for_s->init_stmt.get())) return true;
+        if (stmt_has_timing_control(for_s->step_stmt.get())) return true;
+        for (const auto& s : for_s->body) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+    }
+    if (auto wh_s = dynamic_cast<const WhileStatementNode*>(stmt)) {
+        for (const auto& s : wh_s->body) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+    }
+    if (auto rep_s = dynamic_cast<const RepeatStatementNode*>(stmt)) {
+        for (const auto& s : rep_s->body) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+    }
+    return false;
+}
+
 void StratifiedScheduler::step_process(size_t pid) {
     if (!simulation_active) return;
     if (pid >= engine.processes.size()) return;
@@ -1519,6 +1558,47 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
             bp.proc->body = std::move(new_body);
             continue;
+        }
+
+        // 0b. Loop unrolling / expansion for ForStatementNode with blocking timing controls
+        if (auto for_stmt = dynamic_cast<ForStatementNode*>(stmt)) {
+            if (stmt_has_timing_control(for_stmt)) {
+                if (for_stmt->init_stmt) {
+                    engine.evaluator.execute_statement(for_stmt->init_stmt.get(), bp);
+                    for_stmt->init_stmt.reset();
+                }
+                bool cond = true;
+                if (for_stmt->condition) {
+                    cond = engine.evaluator.eval_expr(for_stmt->condition.get(), bp.scope).to_bool();
+                }
+                if (cond) {
+                    std::vector<std::unique_ptr<StatementNode>> new_body;
+                    for (size_t i = 0; i < bp.pc; ++i) {
+                        new_body.push_back(std::move(bp.proc->body[i]));
+                    }
+                    for (auto& s : for_stmt->body) {
+                        if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                            for (auto& bs : blk->statements) {
+                                if (bs) new_body.push_back(bs->clone());
+                            }
+                        } else if (s) {
+                            new_body.push_back(s->clone());
+                        }
+                    }
+                    if (for_stmt->step_stmt) {
+                        new_body.push_back(for_stmt->step_stmt->clone());
+                    }
+                    new_body.push_back(std::move(bp.proc->body[bp.pc]));
+                    for (size_t i = bp.pc + 1; i < bp.proc->body.size(); ++i) {
+                        new_body.push_back(std::move(bp.proc->body[i]));
+                    }
+                    bp.proc->body = std::move(new_body);
+                    continue;
+                } else {
+                    bp.pc++;
+                    continue;
+                }
+            }
         }
 
         // 1. Procedural In-Body Event Control: @(...)

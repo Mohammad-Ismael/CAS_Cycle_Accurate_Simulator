@@ -168,6 +168,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+    bool is_ident_unsigned_type = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned");
     bool is_chandle_stmt = (current.type == TokenType::TOKEN_CHANDLE ||
                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
     bool is_semaphore_stmt = (current.type == TokenType::TOKEN_SEMAPHORE ||
@@ -178,13 +179,25 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL ||
-        is_ident_int_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) {
-        bool is_signed_var = (current.type == TokenType::TOKEN_INTEGER || is_ident_int_type);
+        is_ident_int_type || is_ident_unsigned_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) {
+
+        bool explicit_signed = false;
+        bool explicit_unsigned = false;
+        if (current.type == TokenType::TOKEN_SIGNED) {
+            explicit_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+            explicit_unsigned = true;
+            advance();
+        }
+
         bool is_real_var = (current.type == TokenType::TOKEN_REAL);
-        bool is_int = is_signed_var;
+        bool is_int = (current.type == TokenType::TOKEN_INTEGER);
         std::string int_type_name = "";
-        if (is_ident_int_type) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER &&
+            (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
             int_type_name = current.text;
+            is_int = true;
         }
         advance();
         if (is_mailbox_stmt && match(TokenType::TOKEN_HASH)) {
@@ -193,9 +206,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
         }
         if (current.type == TokenType::TOKEN_SIGNED) {
-            is_signed_var = true;
+            explicit_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+            explicit_unsigned = true;
             advance();
         }
+
+        bool is_signed_var = false;
+        if (explicit_signed) is_signed_var = true;
+        else if (explicit_unsigned) is_signed_var = false;
+        else if (is_int) is_signed_var = true;
 
         uint32_t width = (is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) ? 64 : (is_int ? 32 : (is_real_var ? 64 : 1));
         if (int_type_name == "byte") width = 8;

@@ -1843,6 +1843,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                 }
+                if (local->is_queue) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t idx = (int64_t)idx_val.aval;
+                            local->queue_data.set_elem(idx, rhs_val);
+                        }
+                        return;
+                    } else {
+                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        local->queue_data.elements.assign(elems.begin(), elems.end());
+                        return;
+                    }
+                }
                 if (local->is_dynamic_array) {
                     if (assign->bit_idx) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
@@ -1906,6 +1920,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             local->dyn_array_data.elements = src_da->elements;
                             return;
                         }
+                    } else {
+                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                            local->dyn_array_data.elements = std::move(elems);
+                            return;
+                        }
                     }
                 } else if (assign->bit_idx) {
                     LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
@@ -1940,13 +1960,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (!q) {
                     q = engine.get_queue(target_name, bp.scope);
                 }
-                if (q && assign->bit_idx) {
-                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                    if (!idx_val.is_unknown()) {
-                        int64_t idx = (int64_t)idx_val.aval;
-                        q->set_elem(idx, rhs_val);
+                if (q) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t idx = (int64_t)idx_val.aval;
+                            q->set_elem(idx, rhs_val);
+                        }
+                        return;
+                    } else {
+                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        q->elements.assign(elems.begin(), elems.end());
+                        return;
                     }
-                    return;
                 }
                 DynamicArrayObject* da = nullptr;
                 if (expr_eval.get_context().has_active_frame()) {
@@ -2026,6 +2052,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         if (src_da) {
                             da->elements = src_da->elements;
+                            return;
+                        }
+                    } else {
+                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                            da->elements = std::move(elems);
                             return;
                         }
                     }

@@ -714,6 +714,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.assoc_array_map.find(mc->var_name) != result.assoc_array_map.end()) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: associative array method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.8");
                 }
+                if (result.memory_map.find(s_id) != result.memory_map.end() ||
+                    result.memory_map.find(mc->var_name) != result.memory_map.end() ||
+                    result.open_array_names.find(s_id) != result.open_array_names.end() ||
+                    result.open_array_names.find(mc->var_name) != result.open_array_names.end()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: array method '" + mc->var_name + "." + mc->method_name + "()' used in continuous assignment per IEEE 1800-2023 section 7.12");
+                }
                 for (auto& a : mc->args) check_expr(a.get());
             } else if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
                 if (bin->op == "==" || bin->op == "!=") {

@@ -56,4 +56,9 @@ public:
     bool eval_function(const std::string& func_name, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_class_method(ClassObject* obj, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
     bool eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
+
+    bool get_array_elements(const std::string& var_name, const std::string& scope, std::vector<LogicVal>& out_elements, uint32_t& out_elem_width, bool& out_is_signed);
+    std::vector<LogicVal> eval_array_expr(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_array_reduction(const std::string& method, const std::vector<LogicVal>& elements, uint32_t elem_width, bool is_signed, ExpressionNode* with_expr, const std::string& iter_name, const std::string& scope);
+    std::vector<LogicVal> eval_array_locator(const std::string& method, const std::vector<LogicVal>& elements, uint32_t elem_width, bool is_signed, ExpressionNode* with_expr, const std::string& iter_name, const std::string& scope);
 };
