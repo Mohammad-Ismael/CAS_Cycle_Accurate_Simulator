@@ -10,6 +10,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /app/CAS/include/common/dpic_types.hpp \
   /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -507,6 +508,7 @@ CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: /app/CAS/src/frontend/numbe
   /usr/include/wchar.h
 
 CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -709,6 +711,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_expr.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -911,6 +914,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/parser_function.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1113,6 +1117,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parser_module.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1315,6 +1320,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_stmt.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1537,6 +1543,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_task.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1742,6 +1749,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /app/CAS/include/frontend/lexer.hpp \
   /app/CAS/include/frontend/parser.hpp \
   /app/CAS/include/common/sva_types.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -1968,6 +1976,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /app/CAS/include/frontend/parser.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/common/sva_types.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2206,6 +2215,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execution_context.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2412,6 +2422,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/engine.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2651,6 +2662,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
 
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp \
   /app/CAS/include/frontend/ast_module.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -2907,6 +2919,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /app/CAS/include/common/dpic_types.hpp \
   /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -3303,6 +3316,7 @@ CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: /app/CAS/src/profiler/profiler.c
   /usr/include/wctype.h
 
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.cpp \
+  /app/CAS/include/common/array_query_types.hpp \
   /app/CAS/include/common/assoc_array_types.hpp \
   /app/CAS/include/common/class_types.hpp \
   /app/CAS/include/common/clocking_types.hpp \
@@ -3529,8 +3543,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/src/kernel/elaborator.cpp:
 
-/app/CAS/include/kernel/evaluator.hpp:
-
 /usr/include/c++/13.2.1/bits/stl_tempbuf.h:
 
 /usr/include/c++/13.2.1/bits/locale_conv.h:
@@ -3555,8 +3567,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/bits/vector.tcc:
 
-/usr/include/c++/13.2.1/bits/predefined_ops.h:
-
 /usr/include/c++/13.2.1/bits/shared_ptr_atomic.h:
 
 /usr/include/c++/13.2.1/ext/type_traits.h:
@@ -3568,6 +3578,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/requires_hosted.h:
 
 /app/CAS/include/common/sync_types.hpp:
+
+/usr/include/c++/13.2.1/bits/predefined_ops.h:
 
 /usr/include/c++/13.2.1/bits/postypes.h:
 
@@ -3627,10 +3639,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/unordered_set:
 
-/app/CAS/src/frontend/parser_module.cpp:
-
-/usr/include/c++/13.2.1/bits/stl_function.h:
-
 /usr/include/c++/13.2.1/bits/exception_defines.h:
 
 /usr/include/c++/13.2.1/bits/stl_iterator.h:
@@ -3671,10 +3679,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /app/CAS/include/common/dpic_types.hpp:
 
-/usr/include/c++/13.2.1/bits/stl_tree.h:
-
-/usr/include/c++/13.2.1/bits/charconv.h:
-
 /usr/include/c++/13.2.1/tr1/hypergeometric.tcc:
 
 /app/CAS/include/kernel/logic_ops.hpp:
@@ -3699,12 +3703,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 
 /usr/include/c++/13.2.1/streambuf:
 
-/usr/include/c++/13.2.1/bits/basic_ios.tcc:
-
-/usr/include/c++/13.2.1/stdexcept:
-
-/app/CAS/include/common/queue_types.hpp:
-
 /app/CAS/include/common/enum_types.hpp:
 
 /usr/include/bits/limits.h:
@@ -3714,14 +3712,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/algorithm:
 
 /usr/include/string.h:
-
-/usr/include/c++/13.2.1/bits/concept_check.h:
-
-/app/CAS/include/common/dynamic_array_types.hpp:
-
-/usr/include/c++/13.2.1/bits/stl_multimap.h:
-
-/usr/include/c++/13.2.1/backward/binders.h:
 
 /app/CAS/include/common/timing_check_types.hpp:
 
@@ -3736,6 +3726,12 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/shared_ptr.h:
 
 /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/os_defines.h:
+
+/usr/include/c++/13.2.1/bits/concept_check.h:
+
+/app/CAS/include/common/dynamic_array_types.hpp:
+
+/usr/include/c++/13.2.1/bits/basic_ios.tcc:
 
 /usr/include/c++/13.2.1/bits/string_view.tcc:
 
@@ -3754,6 +3750,24 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/include/common/net_types.hpp:
 
 /usr/include/c++/13.2.1/bits/basic_string.h:
+
+/usr/include/c++/13.2.1/backward/binders.h:
+
+/usr/include/c++/13.2.1/bits/stl_multimap.h:
+
+/app/CAS/include/kernel/evaluator.hpp:
+
+/usr/include/c++/13.2.1/bits/charconv.h:
+
+/usr/include/c++/13.2.1/bits/stl_tree.h:
+
+/app/CAS/include/common/queue_types.hpp:
+
+/usr/include/c++/13.2.1/stdexcept:
+
+/usr/include/c++/13.2.1/bits/stl_function.h:
+
+/app/CAS/src/frontend/parser_module.cpp:
 
 /usr/include/c++/13.2.1/bits/locale_facets.h:
 
@@ -3822,6 +3836,8 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/stdc-predef.h:
 
 /usr/include/c++/13.2.1/bits/allocated_ptr.h:
+
+/app/CAS/include/common/array_query_types.hpp:
 
 /app/CAS/include/common/gate_types.hpp:
 

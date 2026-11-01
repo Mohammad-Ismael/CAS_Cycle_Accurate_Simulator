@@ -244,6 +244,228 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return eval_sampled_func(sfn, scope);
     }
 
+    if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
+        std::string var_name = "";
+        if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
+            var_name = id->name;
+        } else if (auto ma = dynamic_cast<MemberAccessNode*>(aqn->array_expr.get())) {
+            var_name = ma->var_name + "." + ma->member_name;
+        }
+
+        VariableDimMetadata meta;
+        bool found = false;
+
+        // Check local variables in execution context
+        if (!var_name.empty() && context.has_active_frame()) {
+            LocalVar* loc = context.lookup_local(var_name);
+            if (loc) {
+                if (loc->is_dynamic_array) {
+                    meta.is_dynamic = true;
+                    meta.is_vector_or_array = true;
+                    meta.unpacked_dims = 1;
+                    int64_t n = (int64_t)loc->dyn_array_data.size();
+                    int64_t r = (n > 0) ? (n - 1) : -1;
+                    meta.dimensions.push_back({0, r, true, true, false});
+                    if (loc->dyn_array_data.elem_width > 1) {
+                        meta.dimensions.push_back({(int64_t)loc->dyn_array_data.elem_width - 1, 0, false, false, false});
+                    }
+                    found = true;
+                } else if (loc->is_queue) {
+                    meta.is_queue = true;
+                    meta.is_vector_or_array = true;
+                    meta.unpacked_dims = 1;
+                    int64_t n = (int64_t)loc->queue_data.size();
+                    int64_t r = (n > 0) ? (n - 1) : -1;
+                    meta.dimensions.push_back({0, r, true, false, true});
+                    if (loc->queue_data.elem_width > 1) {
+                        meta.dimensions.push_back({(int64_t)loc->queue_data.elem_width - 1, 0, false, false, false});
+                    }
+                    found = true;
+                } else if (!loc->dimensions.empty()) {
+                    meta.dimensions = loc->dimensions;
+                    meta.unpacked_dims = loc->unpacked_dims;
+                    meta.is_vector_or_array = true;
+                    found = true;
+                } else if (loc->width > 1) {
+                    meta.dimensions.push_back({(int64_t)loc->width - 1, 0, false, false, false});
+                    meta.unpacked_dims = 0;
+                    meta.is_vector_or_array = true;
+                    found = true;
+                }
+            }
+        }
+
+        // Check call stack
+        if (!found && !var_name.empty() && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                LocalVar* loc = it->local_frame.get_var(var_name);
+                if (loc) {
+                    if (loc->is_dynamic_array) {
+                        meta.is_dynamic = true;
+                        meta.is_vector_or_array = true;
+                        meta.unpacked_dims = 1;
+                        int64_t n = (int64_t)loc->dyn_array_data.size();
+                        int64_t r = (n > 0) ? (n - 1) : -1;
+                        meta.dimensions.push_back({0, r, true, true, false});
+                        if (loc->dyn_array_data.elem_width > 1) {
+                            meta.dimensions.push_back({(int64_t)loc->dyn_array_data.elem_width - 1, 0, false, false, false});
+                        }
+                        found = true;
+                        break;
+                    } else if (loc->is_queue) {
+                        meta.is_queue = true;
+                        meta.is_vector_or_array = true;
+                        meta.unpacked_dims = 1;
+                        int64_t n = (int64_t)loc->queue_data.size();
+                        int64_t r = (n > 0) ? (n - 1) : -1;
+                        meta.dimensions.push_back({0, r, true, false, true});
+                        if (loc->queue_data.elem_width > 1) {
+                            meta.dimensions.push_back({(int64_t)loc->queue_data.elem_width - 1, 0, false, false, false});
+                        }
+                        found = true;
+                        break;
+                    } else if (!loc->dimensions.empty()) {
+                        meta.dimensions = loc->dimensions;
+                        meta.unpacked_dims = loc->unpacked_dims;
+                        meta.is_vector_or_array = true;
+                        found = true;
+                        break;
+                    } else if (loc->width > 1) {
+                        meta.dimensions.push_back({(int64_t)loc->width - 1, 0, false, false, false});
+                        meta.unpacked_dims = 0;
+                        meta.is_vector_or_array = true;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Check engine dynamic array
+        if (!found && !var_name.empty()) {
+            DynamicArrayObject* da = engine.get_dynamic_array(var_name, scope);
+            if (da) {
+                meta.is_dynamic = true;
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 1;
+                int64_t n = (int64_t)da->size();
+                int64_t r = (n > 0) ? (n - 1) : -1;
+                meta.dimensions.push_back({0, r, true, true, false});
+                if (da->elem_width > 1) {
+                    meta.dimensions.push_back({(int64_t)da->elem_width - 1, 0, false, false, false});
+                }
+                found = true;
+            }
+        }
+
+        // Check engine queue
+        if (!found && !var_name.empty()) {
+            QueueObject* q = engine.get_queue(var_name, scope);
+            if (q) {
+                meta.is_queue = true;
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 1;
+                int64_t n = (int64_t)q->size();
+                int64_t r = (n > 0) ? (n - 1) : -1;
+                meta.dimensions.push_back({0, r, true, false, true});
+                if (q->elem_width > 1) {
+                    meta.dimensions.push_back({(int64_t)q->elem_width - 1, 0, false, false, false});
+                }
+                found = true;
+            }
+        }
+
+        // Check engine memory_map (unpacked array)
+        if (!found && !var_name.empty()) {
+            std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+            std::string mem_key = "";
+            if (engine.memory_map.find(scoped_var) != engine.memory_map.end()) mem_key = scoped_var;
+            else if (engine.memory_map.find(var_name) != engine.memory_map.end()) mem_key = var_name;
+            if (!mem_key.empty()) {
+                const auto& mem = engine.memory_map.at(mem_key);
+                meta.dimensions = mem.dimensions;
+                meta.unpacked_dims = mem.unpacked_dims_count;
+                meta.is_vector_or_array = true;
+                found = true;
+            }
+        }
+
+        // Check engine.var_dimensions
+        if (!found && !var_name.empty()) {
+            std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+            if (engine.var_dimensions.find(scoped_var) != engine.var_dimensions.end()) {
+                meta = engine.var_dimensions.at(scoped_var);
+                found = true;
+            } else if (engine.var_dimensions.find(var_name) != engine.var_dimensions.end()) {
+                meta = engine.var_dimensions.at(var_name);
+                found = true;
+            }
+        }
+
+        // Check engine.net_map
+        if (!found && !var_name.empty()) {
+            std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+            size_t nid = (size_t)-1;
+            if (engine.net_map.find(scoped_var) != engine.net_map.end()) nid = engine.net_map.at(scoped_var);
+            else if (engine.net_map.find(var_name) != engine.net_map.end()) nid = engine.net_map.at(var_name);
+            if (nid != (size_t)-1) {
+                const auto& net = engine.netlist[nid];
+                if (net.width > 1) {
+                    meta.dimensions.push_back({(int64_t)net.width - 1, 0, false, false, false});
+                    meta.unpacked_dims = 0;
+                    meta.is_vector_or_array = true;
+                    found = true;
+                }
+            }
+        }
+
+        // Diagnostic enforcement: non-array / non-vector variables
+        if (!found || !meta.is_vector_or_array || meta.dimensions.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-array or non-vector variable '" + var_name + "' passed to array querying function per IEEE 1800-2023 section 7.11");
+        }
+
+        if (aqn->query_type == ArrayQueryType::DIMENSIONS) {
+            return LogicVal::make_known(32, meta.dimensions.size(), true);
+        }
+        if (aqn->query_type == ArrayQueryType::UNPACKED_DIMENSIONS) {
+            return LogicVal::make_known(32, meta.unpacked_dims, true);
+        }
+
+        int64_t dim = 1;
+        if (aqn->dim_expr) {
+            LogicVal dval = eval(aqn->dim_expr.get(), scope);
+            dim = (int64_t)dval.aval;
+        }
+
+        // Diagnostic enforcement: invalid dimension index
+        if (dim < 1 || (size_t)dim > meta.dimensions.size()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid dimension index " + std::to_string(dim) + " for array querying function per IEEE 1800-2023 section 7.11");
+        }
+
+        const auto& d = meta.dimensions[dim - 1];
+        switch (aqn->query_type) {
+            case ArrayQueryType::SIZE:
+                return LogicVal::make_known(32, (uint64_t)d.size(), true);
+            case ArrayQueryType::LEFT:
+                return LogicVal::make_known(32, (uint64_t)(int64_t)d.left, true);
+            case ArrayQueryType::RIGHT:
+                return LogicVal::make_known(32, (uint64_t)(int64_t)d.right, true);
+            case ArrayQueryType::LOW:
+                return LogicVal::make_known(32, (uint64_t)(int64_t)d.low(), true);
+            case ArrayQueryType::HIGH:
+                return LogicVal::make_known(32, (uint64_t)(int64_t)d.high(), true);
+            case ArrayQueryType::INCREMENT: {
+                int64_t inc = d.increment();
+                uint64_t val = (inc < 0) ? (uint64_t)(uint32_t)-1 : (uint64_t)inc;
+                LogicVal res = LogicVal::make_known(32, val, true);
+                return res;
+            }
+            default:
+                break;
+        }
+        return LogicVal::make_x(32);
+    }
+
     if (dynamic_cast<SequenceRepetitionNode*>(expr)) {
         throw std::runtime_error("[CAS-DTINPCIL] SVA sequence repetition operator used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
     }
@@ -1355,7 +1577,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             ss << "x";
                         } else if (spec == 'd' || spec == 't') {
-                            ss << (val.is_real ? (int64_t)val.real_val : val.aval);
+                            if (val.is_real) {
+                                ss << (int64_t)val.real_val;
+                            } else if (val.is_signed) {
+                                ss << val.to_signed();
+                            } else {
+                                ss << val.aval;
+                            }
                         } else if (spec == 'f') {
                             ss << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
@@ -1861,7 +2089,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (val.is_unknown()) return LogicVal::make_x(val.width);
             uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
             uint64_t neg_a = (~val.aval + 1) & mask;
-            return LogicVal(val.width, neg_a, 0);
+            return LogicVal(val.width, neg_a, 0, true);
         }
 
         // Unary Reductions (§11.4.3)
@@ -1877,7 +2105,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
 
-        bool l_signed = false;
+        bool l_signed = l.is_signed;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
             LocalVar* loc = context.lookup_local(id->name);
             if (loc) {
@@ -1889,7 +2117,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
         }
-        bool r_signed = false;
+        bool r_signed = r.is_signed;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->rhs.get())) {
             LocalVar* loc = context.lookup_local(id->name);
             if (loc) {
@@ -1933,8 +2161,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
             if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (l.str_val != r.str_val) ? 1 : 0);
         }
-        if (bin->op == "==")  return LogicOps::logical_eq(l, r);
-        if (bin->op == "!=")  return LogicOps::logical_neq(l, r);
+        if (bin->op == "==" || bin->op == "!=") {
+            uint32_t w = std::max(l.width, r.width);
+            LogicVal el = (l.width != w) ? LogicOps::cast_width(l, w, expr_signed) : l;
+            LogicVal er = (r.width != w) ? LogicOps::cast_width(r, w, expr_signed) : r;
+            if (bin->op == "==")  return LogicOps::logical_eq(el, er);
+            if (bin->op == "!=")  return LogicOps::logical_neq(el, er);
+        }
         if (bin->op == "===") return LogicOps::case_eq(l, r);
         if (bin->op == "!==") return LogicOps::case_neq(l, r);
         if (bin->op == "<") {

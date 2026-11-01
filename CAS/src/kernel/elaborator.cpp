@@ -88,6 +88,50 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "/" && r != 0) return l / r;
         if (bin->op == "%" && r != 0) return l % r;
     }
+    if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
+        std::string var_name = "";
+        if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
+            var_name = id->name;
+        } else if (auto ma = dynamic_cast<MemberAccessNode*>(aqn->array_expr.get())) {
+            var_name = ma->var_name + "." + ma->member_name;
+        }
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        VariableDimMetadata meta;
+        bool found = false;
+        if (result.var_dimensions.find(scoped_var) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(scoped_var);
+            found = true;
+        } else if (result.var_dimensions.find(var_name) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(var_name);
+            found = true;
+        }
+        if (!found || meta.dimensions.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-array or non-vector variable '" + var_name + "' passed to array querying function per IEEE 1800-2023 section 7.11");
+        }
+        if (aqn->query_type == ArrayQueryType::DIMENSIONS) {
+            return meta.dimensions.size();
+        }
+        if (aqn->query_type == ArrayQueryType::UNPACKED_DIMENSIONS) {
+            return meta.unpacked_dims;
+        }
+        int64_t dim = 1;
+        if (aqn->dim_expr) {
+            dim = (int64_t)eval_const_expr(aqn->dim_expr.get(), scope);
+        }
+        if (dim < 1 || (size_t)dim > meta.dimensions.size()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid dimension index " + std::to_string(dim) + " for array querying function per IEEE 1800-2023 section 7.11");
+        }
+        const auto& d = meta.dimensions[dim - 1];
+        switch (aqn->query_type) {
+            case ArrayQueryType::SIZE: return (uint64_t)d.size();
+            case ArrayQueryType::LEFT: return (uint64_t)d.left;
+            case ArrayQueryType::RIGHT: return (uint64_t)d.right;
+            case ArrayQueryType::LOW: return (uint64_t)d.low();
+            case ArrayQueryType::HIGH: return (uint64_t)d.high();
+            case ArrayQueryType::INCREMENT: return (uint64_t)(int64_t)d.increment();
+            default: break;
+        }
+    }
     return 0;
 }
 
@@ -342,6 +386,38 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.netlist[pid].prev_value = iv;
             result.netlist[pid].modified = false;
         }
+
+        VariableDimMetadata pvdm;
+        pvdm.name = scope + "." + p.name;
+        if (!p.packed_dimensions.empty()) {
+            for (const auto& pdim : p.packed_dimensions) {
+                int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                pvdm.dimensions.push_back({b1, b2, false, false, false});
+            }
+            pvdm.is_vector_or_array = true;
+        } else if (p.msb_expr) {
+            int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+            int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
+            pvdm.dimensions.push_back({b1, b2, false, false, false});
+            pvdm.is_vector_or_array = true;
+        } else if (p.type_name == "int" || p.type_name == "integer") {
+            pvdm.dimensions.push_back({31, 0, false, false, false});
+            pvdm.is_vector_or_array = true;
+        } else if (p.type_name == "byte") {
+            pvdm.dimensions.push_back({7, 0, false, false, false});
+            pvdm.is_vector_or_array = true;
+        } else if (p.type_name == "shortint") {
+            pvdm.dimensions.push_back({15, 0, false, false, false});
+            pvdm.is_vector_or_array = true;
+        } else if (p.type_name == "longint" || p.type_name == "time") {
+            pvdm.dimensions.push_back({63, 0, false, false, false});
+            pvdm.is_vector_or_array = true;
+        }
+        if (pvdm.is_vector_or_array) {
+            result.var_dimensions[scope + "." + p.name] = pvdm;
+            result.var_dimensions[p.name] = pvdm;
+        }
     }
 
     for (auto& s : mod->signals) {
@@ -377,26 +453,133 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                            << " [" << w << "-bit, bound=" << max_bound << "]\n";
             }
         } else if (s.is_array) {
-            uint32_t depth = 1;
-            int64_t b1_val = 0;
-            int64_t b2_val = 0;
-            if (s.bound1_expr && s.bound2_expr) {
-                b1_val = (int64_t)eval_const_expr(s.bound1_expr.get(), scope);
-                b2_val = (int64_t)eval_const_expr(s.bound2_expr.get(), scope);
-                depth = (b1_val >= b2_val) ? (uint32_t)(b1_val - b2_val + 1) : (uint32_t)(b2_val - b1_val + 1);
-            } else if (s.bound1_expr) {
-                depth = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
-                b1_val = 0;
-                b2_val = depth > 0 ? (int64_t)(depth - 1) : 0;
+            std::vector<ArrayDimInfo> all_dims;
+            uint32_t total_depth = 1;
+            if (!s.unpacked_dimensions.empty()) {
+                for (const auto& udim : s.unpacked_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), scope);
+                    int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), scope) : 0;
+                    if (udim.is_single) {
+                        b2 = b1 > 0 ? (b1 - 1) : 0;
+                        b1 = 0;
+                    }
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = true;
+                    all_dims.push_back(info);
+                    total_depth *= (uint32_t)info.size();
+                }
+            } else {
+                int64_t b1 = 0;
+                int64_t b2 = 0;
+                if (s.bound1_expr && s.bound2_expr) {
+                    b1 = (int64_t)eval_const_expr(s.bound1_expr.get(), scope);
+                    b2 = (int64_t)eval_const_expr(s.bound2_expr.get(), scope);
+                } else if (s.bound1_expr) {
+                    uint32_t d = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
+                    b1 = 0;
+                    b2 = d > 0 ? (int64_t)(d - 1) : 0;
+                }
+                ArrayDimInfo info;
+                info.left = b1;
+                info.right = b2;
+                info.is_unpacked = true;
+                all_dims.push_back(info);
+                total_depth = (uint32_t)info.size();
             }
+            uint32_t unpacked_cnt = (uint32_t)all_dims.size();
+
+            // Packed dimensions
+            if (!s.packed_dimensions.empty()) {
+                for (const auto& pdim : s.packed_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = false;
+                    all_dims.push_back(info);
+                }
+            } else if (s.msb_expr) {
+                int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
+                int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
+                ArrayDimInfo info;
+                info.left = b1;
+                info.right = b2;
+                info.is_unpacked = false;
+                all_dims.push_back(info);
+            } else if (s.type_name == "int" || s.type_name == "integer") {
+                all_dims.push_back({31, 0, false, false, false});
+            } else if (s.type_name == "byte") {
+                all_dims.push_back({7, 0, false, false, false});
+            } else if (s.type_name == "shortint") {
+                all_dims.push_back({15, 0, false, false, false});
+            } else if (s.type_name == "longint" || s.type_name == "time") {
+                all_dims.push_back({63, 0, false, false, false});
+            }
+
             std::string mem_scope = scope + "." + s.name;
-            result.memory_map[mem_scope] = MemoryArray(mem_scope, w, depth, b1_val, b2_val);
+            int64_t b1_first = all_dims.empty() ? 0 : all_dims[0].left;
+            int64_t b2_first = all_dims.empty() ? 0 : all_dims[0].right;
+            MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
+            marr.dimensions = all_dims;
+            marr.unpacked_dims_count = unpacked_cnt;
+            result.memory_map[mem_scope] = marr;
+
+            VariableDimMetadata vdm;
+            vdm.name = mem_scope;
+            vdm.dimensions = all_dims;
+            vdm.unpacked_dims = unpacked_cnt;
+            vdm.is_vector_or_array = true;
+            result.var_dimensions[mem_scope] = vdm;
+            result.var_dimensions[s.name] = vdm;
+
             if (debug_out) {
                 *debug_out << "     * Memory allocated: " << mem_scope 
-                           << " [" << w << "-bit x " << depth << " words]\n";
+                           << " [" << w << "-bit x " << total_depth << " words]\n";
             }
         } else {
             size_t sid = get_or_create_net(scope + "." + s.name, w, s.is_signed, s.net_kind);
+            VariableDimMetadata svdm;
+            svdm.name = scope + "." + s.name;
+            if (s.is_dynamic_array) {
+                svdm.is_dynamic = true;
+                svdm.is_vector_or_array = true;
+                svdm.unpacked_dims = 1;
+            } else if (s.is_queue) {
+                svdm.is_queue = true;
+                svdm.is_vector_or_array = true;
+                svdm.unpacked_dims = 1;
+            } else if (!s.packed_dimensions.empty()) {
+                for (const auto& pdim : s.packed_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                    svdm.dimensions.push_back({b1, b2, false, false, false});
+                }
+                svdm.is_vector_or_array = true;
+            } else if (s.msb_expr) {
+                int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
+                int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
+                svdm.dimensions.push_back({b1, b2, false, false, false});
+                svdm.is_vector_or_array = true;
+            } else if (s.type_name == "int" || s.type_name == "integer") {
+                svdm.dimensions.push_back({31, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            } else if (s.type_name == "byte") {
+                svdm.dimensions.push_back({7, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            } else if (s.type_name == "shortint") {
+                svdm.dimensions.push_back({15, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            } else if (s.type_name == "longint" || s.type_name == "time") {
+                svdm.dimensions.push_back({63, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            }
+            if (svdm.is_vector_or_array) {
+                result.var_dimensions[scope + "." + s.name] = svdm;
+                result.var_dimensions[s.name] = svdm;
+            }
             if (s.is_chandle || s.type_name == "chandle") {
                 result.netlist[sid].is_chandle = true;
                 result.netlist[sid].type_name = "chandle";

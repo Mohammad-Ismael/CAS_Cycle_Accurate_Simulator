@@ -14,6 +14,8 @@ struct PortNode : public ASTNode {
     std::string direction; // "input", "output", "inout", "internal"
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
+    std::vector<AstDimension> packed_dimensions;
+    std::vector<AstDimension> unpacked_dimensions;
     bool is_signed = false;
     bool is_array = false;
     std::unique_ptr<ExpressionNode> bound1_expr;

@@ -474,3 +474,31 @@ struct StaticMemberAccessNode : public ExpressionNode {
         return std::make_unique<StaticMemberAccessNode>(class_type_name, member_name);
     }
 };
+
+enum class ArrayQueryType {
+    SIZE,
+    DIMENSIONS,
+    UNPACKED_DIMENSIONS,
+    LEFT,
+    RIGHT,
+    LOW,
+    HIGH,
+    INCREMENT
+};
+
+struct ArrayQueryNode : public ExpressionNode {
+    ArrayQueryType query_type;
+    std::unique_ptr<ExpressionNode> array_expr;
+    std::unique_ptr<ExpressionNode> dim_expr;
+
+    ArrayQueryNode(ArrayQueryType qt, std::unique_ptr<ExpressionNode> arr, std::unique_ptr<ExpressionNode> dim = nullptr)
+        : query_type(qt), array_expr(std::move(arr)), dim_expr(std::move(dim)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<ArrayQueryNode>(
+            query_type,
+            array_expr ? array_expr->clone() : nullptr,
+            dim_expr ? dim_expr->clone() : nullptr
+        );
+    }
+};

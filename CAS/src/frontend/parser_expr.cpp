@@ -36,6 +36,38 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<SysCastCallNode>(std::move(dest), std::move(src));
     }
 
+    if (current.type == TokenType::TOKEN_SYS_SIZE ||
+        current.type == TokenType::TOKEN_SYS_DIMENSIONS ||
+        current.type == TokenType::TOKEN_SYS_UNPACKED_DIMENSIONS ||
+        current.type == TokenType::TOKEN_SYS_LEFT ||
+        current.type == TokenType::TOKEN_SYS_RIGHT ||
+        current.type == TokenType::TOKEN_SYS_LOW ||
+        current.type == TokenType::TOKEN_SYS_HIGH ||
+        current.type == TokenType::TOKEN_SYS_INCREMENT) {
+
+        TokenType qtok = current.type;
+        std::string fname = current.text;
+        advance();
+        ArrayQueryType qtype;
+        if (qtok == TokenType::TOKEN_SYS_SIZE) qtype = ArrayQueryType::SIZE;
+        else if (qtok == TokenType::TOKEN_SYS_DIMENSIONS) qtype = ArrayQueryType::DIMENSIONS;
+        else if (qtok == TokenType::TOKEN_SYS_UNPACKED_DIMENSIONS) qtype = ArrayQueryType::UNPACKED_DIMENSIONS;
+        else if (qtok == TokenType::TOKEN_SYS_LEFT) qtype = ArrayQueryType::LEFT;
+        else if (qtok == TokenType::TOKEN_SYS_RIGHT) qtype = ArrayQueryType::RIGHT;
+        else if (qtok == TokenType::TOKEN_SYS_LOW) qtype = ArrayQueryType::LOW;
+        else if (qtok == TokenType::TOKEN_SYS_HIGH) qtype = ArrayQueryType::HIGH;
+        else qtype = ArrayQueryType::INCREMENT;
+
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after " + fname);
+        auto arr_expr = parse_expression();
+        std::unique_ptr<ExpressionNode> dim_expr = nullptr;
+        if (match(TokenType::TOKEN_COMMA)) {
+            dim_expr = parse_expression();
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing " + fname);
+        return std::make_unique<ArrayQueryNode>(qtype, std::move(arr_expr), std::move(dim_expr));
+    }
+
     if (current.type == TokenType::TOKEN_ROSE || current.type == TokenType::TOKEN_FELL ||
         current.type == TokenType::TOKEN_STABLE || current.type == TokenType::TOKEN_PAST) {
         TokenType fn_tok = current.type;

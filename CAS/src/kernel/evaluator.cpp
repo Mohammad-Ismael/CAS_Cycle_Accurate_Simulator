@@ -1646,7 +1646,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else if (spec == 'd' || spec == 't') {
-                            std::cout << (val.is_real ? (int64_t)val.real_val : val.aval);
+                            if (val.is_real) {
+                                std::cout << (int64_t)val.real_val;
+                            } else if (val.is_signed) {
+                                std::cout << val.to_signed();
+                            } else {
+                                std::cout << val.aval;
+                            }
                         } else if (spec == 'f') {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {

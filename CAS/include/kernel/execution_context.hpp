@@ -28,6 +28,9 @@ struct LocalVar {
     std::string interface_name = "";
     std::string modport_name = "";
     uint64_t vif_handle = 0;
+    std::vector<ArrayDimInfo> dimensions;
+    uint32_t unpacked_dims = 0;
+    bool is_vector_or_array = false;
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),

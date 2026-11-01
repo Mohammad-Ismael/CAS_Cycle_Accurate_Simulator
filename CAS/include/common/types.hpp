@@ -11,3 +11,4 @@
 #include "class_types.hpp"
 #include "clocking_types.hpp"
 #include "timing_check_types.hpp"
+#include "array_query_types.hpp"

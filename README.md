@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.32.0.0`  
-**Status:** Production Milestone v3.32.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.33.0.0`  
+**Status:** Production Milestone v3.33.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**
-`[███████████████████████████████████░░░░░░░░░░░] 66.8%`
+`[████████████████████████████████████░░░░░░░░░░] 68.2%`
 
-*Current Baseline (v3.32.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Formal Defaults, Named Argument Invocations & Empty Positional Slots (§13.5 & §13.6), and Interface Classes, Multiple Interface Implementation, Polymorphic Dispatch & Cross-Casting (§8.26).
-*Upcoming Domains:* Built-in Array Query & Sizing Methods (§7.11).
+*Current Baseline (v3.33.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Formal Defaults, Named Argument Invocations & Empty Positional Slots (§13.5 & §13.6), Interface Classes, Multiple Interface Implementation, Polymorphic Dispatch & Cross-Casting (§8.26), and Array Querying Functions (§7.11).
+*Upcoming Domains:* Advanced String Methods & Dynamic Formatting (§6.16).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§7.11** | **Array Querying Functions & Sizing Methods** | Built-in array query system functions (`$dimensions`, `$unpacked_dimensions`, `$left`, `$right`, `$low`, `$high`, `$increment`, `$size`), multi-dimensional dimension indexing (left-to-right unpacked followed by packed), fixed packed/unpacked arrays, dynamic arrays (`[]`), queues (`[$]`), default dimension parameter handling, and context diagnostic `[CAS-DTINPCIL]` (enforcing dimension index bounds 1..total_dims and non-array/non-vector argument rejection). |
 | **§8.26** | **Interface Classes, Multiple Implements & Cross-Casting** | `interface class ... endclass` declarations, pure virtual methods (`pure virtual function/task`), multiple interface inheritance (`implements InterfaceA, InterfaceB`), interface class extension (`interface class Child extends Parent`), polymorphic interface handle dispatch (`chk_h.is_valid()`), dynamic interface cross-casting (`$cast(cross_h, handle)`), and context diagnostic `[CAS-DTINPCIL]` (enforcing direct instantiation prohibition, member variable prohibition, non-pure method prohibition, interface class `implements` prohibition, and unimplemented pure virtual method detection). |
 | **§13.5, §13.6** | **Subroutine Default Arguments, Named Invocation & Empty Slots** | Subroutine formal default value declarations (`input int b = 10`), named argument invocation syntax (`.name(expr)` and `.name()`), empty positional argument slots (`(arg1, , arg3)`), out-of-order formal binding with defaults preservation, copy-back binding for outputs and inouts across process and task contexts, and context diagnostic `[CAS-DTINPCIL]` (enforcing prohibition of positional arguments following named arguments per §13.5.1, rejection of unrecognized formal argument names, duplicate bindings, and missing mandatory arguments without defaults). |
 | **§31.8, §32.7** | **Specify System Timing Checks & Notifiers** | Specify block system timing checks (`$setup`, `$hold`, `$width`, `$recovery`), reference and data event edge tracking, timing window violation reporting with standard IEEE diagnostic format, notifier register toggling triggering downstream corruption processes (`always @(notifier) q <= 1'bx;`), procedural driver exclusivity rule `[CAS-ICPD]` per §9.2.2.4 prohibiting multiple processes driving `always_ff`/`always_comb` targets, and context diagnostic `[CAS-DTINPCIL]` prohibiting timing check tasks outside specify blocks. |
@@ -133,6 +134,16 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.21.0.0** | `projects/v3_21_0_0_sva_local_variables` | SVA Sequence Local Variables, Match Assignments, Multi-Thread State Isolation (§16.10) | **PASS** | 100% VCS |
 | **v3.22.0.0** | `projects/v3_22_0_0_sva_subroutines` | SVA Sequence Match Subroutine Calls & Argument Passing (§16.11) | **PASS** | 100% VCS |
 | **v3.23.0.0** | `projects/v3_23_0_0_program_blocks` | SystemVerilog Program Blocks (`program`/`endprogram`), Reactive Scheduling, Race-Free Testbench Partitioning, Implicit `$exit` (§24) | **PASS** | 100% VCS |
+| **v3.24.0.0** | `projects/v3_24_0_0_virtual_interfaces` | Virtual Interfaces in Classes (`virtual interface [modport]`), Handle Binding & Drives (§25.9) | **PASS** | 100% VCS |
+| **v3.25.0.0** | `projects/v3_25_0_0_array_methods` | Array Reduction (`sum`, `product`, `and`, `or`, `xor`) & Locator Methods (`min`, `max`, `find with`) (§7.12) | **PASS** | 100% VCS |
+| **v3.26.0.0** | `projects/v3_26_0_0_parameter_overrides` | Defparam & Hierarchical Parameter Overrides (`#(.PARAM(val))`, Elaboration Propagation) (§6.20, §23.10) | **PASS** | 100% VCS |
+| **v3.27.0.0** | `projects/v3_27_0_0_net_aliasing` | Net Aliasing (`alias`), Topological Bidirectional Net Unification & Contention (§10.6) | **PASS** | 100% VCS |
+| **v3.28.0.0** | `projects/v3_28_0_0_gate_primitives` | Built-in Gate Primitives (`and`, `bufif0`, UDPs `primitive...table`) (§28, §29) | **PASS** | 100% VCS |
+| **v3.29.0.0** | `projects/v3_29_0_0_specify_paths` | Specify Blocks (`specify...endspecify`), Module Path Delays & Inertial Scheduling (§32) | **PASS** | 100% VCS |
+| **v3.30.0.0** | `projects/v3_30_0_0_timing_checks` | Specify System Timing Checks (`$setup`, `$hold`, `$width`, `$recovery`, Notifiers) (§31.8, §32.7) | **PASS** | 100% VCS |
+| **v3.31.0.0** | `projects/v3_31_0_0_subroutine_defaults` | Subroutine Default Arguments, Named Invocation `.arg()`, Empty Slots `(,)` (§13.5, §13.6) | **PASS** | 100% VCS |
+| **v3.32.0.0** | `projects/v3_32_0_0_interface_classes` | Interface Classes (`interface class`), Pure Virtual Methods, Multiple `implements`, Cross-Casting (§8.26) | **PASS** | 100% VCS |
+| **v3.33.0.0** | `projects/v3_33_0_0_array_queries` | Array Querying Functions (`$size`, `$dimensions`, `$unpacked_dimensions`, `$left`, `$right`, `$low`, `$high`, `$increment`) (§7.11) | **PASS** | 100% VCS |
 
 ---
 

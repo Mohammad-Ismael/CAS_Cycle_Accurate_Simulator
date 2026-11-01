@@ -12,9 +12,10 @@ struct LogicVal {
     std::string str_val = "";
     bool is_real = false;
     double real_val = 0.0;
+    bool is_signed = false;
 
-    explicit LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0)
-        : aval(a), bval(b), width(w), is_string(false), str_val(""), is_real(false), real_val(0.0) {
+    explicit LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0, bool s = false)
+        : aval(a), bval(b), width(w), is_string(false), str_val(""), is_real(false), real_val(0.0), is_signed(s) {
         mask();
     }
 
@@ -28,8 +29,12 @@ struct LogicVal {
         return LogicVal(w, 0, m); // 4-state Z: a=0, b=1
     }
 
-    static LogicVal make_known(uint32_t w, uint64_t val) {
-        return LogicVal(w, val, 0);
+    static LogicVal make_known(uint32_t w, uint64_t val, bool s = false) {
+        return LogicVal(w, val, 0, s);
+    }
+
+    static LogicVal from_int(int32_t val) {
+        return LogicVal(32, static_cast<uint64_t>(static_cast<uint32_t>(val)), 0, true);
     }
 
     static LogicVal make_string(const std::string& str) {
@@ -51,6 +56,15 @@ struct LogicVal {
         uint64_t m = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
         aval &= m;
         bval &= m;
+    }
+
+    int64_t to_signed() const {
+        if (width >= 64) return static_cast<int64_t>(aval);
+        uint64_t sign_bit = 1ULL << (width - 1);
+        if (aval & sign_bit) {
+            return static_cast<int64_t>(aval | (~0ULL << width));
+        }
+        return static_cast<int64_t>(aval);
     }
 
     bool is_unknown() const {

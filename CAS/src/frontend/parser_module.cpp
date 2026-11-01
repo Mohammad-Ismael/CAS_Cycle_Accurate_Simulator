@@ -497,6 +497,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
                     }
+                }
+                bool is_int_port = false;
+                std::string int_port_type = "";
+                if (current.type == TokenType::TOKEN_IDENTIFIER &&
+                    (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
+                    is_int_port = true;
+                    int_port_type = current.text;
+                    is_signed_port = true;
+                    port_kind = NetKind::VAR;
+                    advance();
                 } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
@@ -530,12 +540,22 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 } else if (is_chandle_port || is_semaphore_port || is_mailbox_port) {
                     msb = std::make_unique<NumberNode>(63, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
+                } else if (is_int_port) {
+                    uint32_t iw = 32;
+                    if (int_port_type == "byte") iw = 8;
+                    else if (int_port_type == "shortint") iw = 16;
+                    else if (int_port_type == "longint") iw = 64;
+                    msb = std::make_unique<NumberNode>(iw - 1, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
                 }
 
                 while (true) {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
                     PortNode port(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                    if (is_int_port) {
+                        port.type_name = int_port_type;
+                    }
                     if (is_chandle_port) {
                         port.is_chandle = true;
                         port.type_name = "chandle";
@@ -1008,26 +1028,43 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
                     sig.type_name = type_name;
 
-                    if (match(TokenType::TOKEN_LBRACKET)) {
+                    while (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
                             sig.is_queue = true;
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            break;
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
+                            break;
                         } else if (is_assoc_key_token(current)) {
                             sig.is_associative_array = true;
                             parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                            break;
                         } else {
                             sig.is_array = true;
-                            sig.bound1_expr = parse_expression();
+                            auto l = parse_expression();
+                            std::unique_ptr<ExpressionNode> r = nullptr;
+                            bool is_single = true;
                             if (match(TokenType::TOKEN_COLON)) {
-                                sig.bound2_expr = parse_expression();
+                                r = parse_expression();
+                                is_single = false;
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            AstDimension ad;
+                            ad.left_expr = std::move(l);
+                            ad.right_expr = std::move(r);
+                            ad.is_single = is_single;
+                            sig.unpacked_dimensions.push_back(std::move(ad));
+                        }
+                    }
+                    if (!sig.unpacked_dimensions.empty()) {
+                        sig.bound1_expr = sig.unpacked_dimensions[0].left_expr->clone();
+                        if (sig.unpacked_dimensions[0].right_expr) {
+                            sig.bound2_expr = sig.unpacked_dimensions[0].right_expr->clone();
                         }
                     } else if (match(TokenType::TOKEN_REP_CONSEC)) {
                         sig.is_associative_array = true;
@@ -1137,31 +1174,45 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (explicit_unsigned) is_signed_sig = false;
                 else if (is_int) is_signed_sig = true;
 
+                std::vector<AstDimension> packed_dims;
                 std::unique_ptr<ExpressionNode> msb = nullptr;
                 std::unique_ptr<ExpressionNode> lsb = nullptr;
-                if (match(TokenType::TOKEN_LBRACKET)) {
-                    msb = parse_expression();
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto l = parse_expression();
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
-                    lsb = parse_expression();
+                    auto r = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
-                } else if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod) {
-                    msb = std::make_unique<NumberNode>(63, 32);
-                    lsb = std::make_unique<NumberNode>(0, 32);
-                } else if (is_int) {
-                    uint32_t iw = 32;
-                    if (int_type_name == "byte") iw = 8;
-                    else if (int_type_name == "shortint") iw = 16;
-                    else if (int_type_name == "longint") iw = 64;
-                    msb = std::make_unique<NumberNode>(iw - 1, 32);
-                    lsb = std::make_unique<NumberNode>(0, 32);
-                } else if (is_real_sig) {
-                    msb = std::make_unique<NumberNode>(63, 32);
-                    lsb = std::make_unique<NumberNode>(0, 32);
+                    AstDimension ad;
+                    ad.left_expr = l->clone();
+                    ad.right_expr = r->clone();
+                    ad.is_single = false;
+                    packed_dims.push_back(std::move(ad));
+                    if (!msb) {
+                        msb = std::move(l);
+                        lsb = std::move(r);
+                    }
+                }
+                if (packed_dims.empty()) {
+                    if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod) {
+                        msb = std::make_unique<NumberNode>(63, 32);
+                        lsb = std::make_unique<NumberNode>(0, 32);
+                    } else if (is_int) {
+                        uint32_t iw = 32;
+                        if (int_type_name == "byte") iw = 8;
+                        else if (int_type_name == "shortint") iw = 16;
+                        else if (int_type_name == "longint") iw = 64;
+                        msb = std::make_unique<NumberNode>(iw - 1, 32);
+                        lsb = std::make_unique<NumberNode>(0, 32);
+                    } else if (is_real_sig) {
+                        msb = std::make_unique<NumberNode>(63, 32);
+                        lsb = std::make_unique<NumberNode>(0, 32);
+                    }
                 }
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
+                    sig.packed_dimensions = packed_dims;
                     if (is_chandle_mod) {
                         sig.is_chandle = true;
                         sig.type_name = "chandle";
@@ -1178,26 +1229,43 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (is_real_sig) sig.type_name = "real";
                     if (!int_type_name.empty()) sig.type_name = int_type_name;
 
-                    if (match(TokenType::TOKEN_LBRACKET)) {
+                    while (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
                             sig.is_queue = true;
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            break;
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
+                            break;
                         } else if (is_assoc_key_token(current)) {
                             sig.is_associative_array = true;
                             parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                            break;
                         } else {
                             sig.is_array = true;
-                            sig.bound1_expr = parse_expression();
+                            auto l = parse_expression();
+                            std::unique_ptr<ExpressionNode> r = nullptr;
+                            bool is_single = true;
                             if (match(TokenType::TOKEN_COLON)) {
-                                sig.bound2_expr = parse_expression();
+                                r = parse_expression();
+                                is_single = false;
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            AstDimension ad;
+                            ad.left_expr = std::move(l);
+                            ad.right_expr = std::move(r);
+                            ad.is_single = is_single;
+                            sig.unpacked_dimensions.push_back(std::move(ad));
+                        }
+                    }
+                    if (!sig.unpacked_dimensions.empty()) {
+                        sig.bound1_expr = sig.unpacked_dimensions[0].left_expr->clone();
+                        if (sig.unpacked_dimensions[0].right_expr) {
+                            sig.bound2_expr = sig.unpacked_dimensions[0].right_expr->clone();
                         }
                     } else if (match(TokenType::TOKEN_REP_CONSEC)) {
                         sig.is_associative_array = true;

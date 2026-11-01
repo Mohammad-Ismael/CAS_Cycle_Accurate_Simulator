@@ -47,6 +47,7 @@ private:
     std::vector<GateInstance> gates;
     std::vector<ModulePathDelay> module_path_delays;
     std::vector<RuntimeTimingCheck> timing_checks;
+    std::unordered_map<std::string, VariableDimMetadata> var_dimensions;
     std::unordered_map<std::string, MemoryArray> memory_map;
     std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;

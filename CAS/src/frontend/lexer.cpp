@@ -585,6 +585,14 @@ Token Lexer::next_token() {
         if (ident == "$hold") return {TokenType::TOKEN_SYS_HOLD, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$width") return {TokenType::TOKEN_SYS_WIDTH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$recovery") return {TokenType::TOKEN_SYS_RECOVERY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$dimensions") return {TokenType::TOKEN_SYS_DIMENSIONS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$unpacked_dimensions") return {TokenType::TOKEN_SYS_UNPACKED_DIMENSIONS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$left") return {TokenType::TOKEN_SYS_LEFT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$right") return {TokenType::TOKEN_SYS_RIGHT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$low") return {TokenType::TOKEN_SYS_LOW, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$high") return {TokenType::TOKEN_SYS_HIGH, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$size") return {TokenType::TOKEN_SYS_SIZE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$increment") return {TokenType::TOKEN_SYS_INCREMENT, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

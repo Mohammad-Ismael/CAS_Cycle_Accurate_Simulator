@@ -272,7 +272,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         else if (int_type_name == "shortint") width = 16;
         else if (int_type_name == "longint") width = 64;
 
-        if (match(TokenType::TOKEN_LBRACKET)) {
+        std::vector<AstDimension> packed_dims;
+        while (match(TokenType::TOKEN_LBRACKET)) {
             auto msb_e = parse_expression();
             expect(TokenType::TOKEN_COLON, "Expected ':' in range");
             auto lsb_e = parse_expression();
@@ -282,6 +283,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
                 }
             }
+            AstDimension ad;
+            ad.left_expr = msb_e->clone();
+            ad.right_expr = lsb_e->clone();
+            ad.is_single = false;
+            packed_dims.push_back(std::move(ad));
         }
 
         std::string vname = current.text;
@@ -291,24 +297,40 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         bool is_assoc = false;
         std::string assoc_key_type = "";
         uint32_t assoc_key_width = 32;
-        if (match(TokenType::TOKEN_LBRACKET)) {
+        std::vector<AstDimension> unpacked_dims;
+        while (match(TokenType::TOKEN_LBRACKET)) {
             if (match(TokenType::TOKEN_DOLLAR)) {
                 is_q = true;
                 if (match(TokenType::TOKEN_COLON)) {
                     parse_expression();
                 }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                break;
             } else if (match(TokenType::TOKEN_RBRACKET)) {
                 is_dyn = true;
+                break;
             } else if (is_assoc_key_token(current)) {
                 is_assoc = true;
                 parse_assoc_key_type(assoc_key_type, assoc_key_width);
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                break;
             } else {
-                parse_expression();
+                auto l = parse_expression();
+                std::unique_ptr<ExpressionNode> r = nullptr;
+                bool is_single = true;
+                if (match(TokenType::TOKEN_COLON)) {
+                    r = parse_expression();
+                    is_single = false;
+                }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                AstDimension ad;
+                ad.left_expr = std::move(l);
+                ad.right_expr = std::move(r);
+                ad.is_single = is_single;
+                unpacked_dims.push_back(std::move(ad));
             }
-        } else if (match(TokenType::TOKEN_REP_CONSEC)) {
+        }
+        if (match(TokenType::TOKEN_REP_CONSEC)) {
             is_assoc = true;
             assoc_key_type = "*";
             assoc_key_width = 64;
@@ -321,6 +343,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
         std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_real_var ? "real" : (is_ident_string_type ? "string" : (!int_type_name.empty() ? int_type_name : "")))));
         auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        vnode->packed_dimensions = std::move(packed_dims);
+        vnode->unpacked_dimensions = std::move(unpacked_dims);
         vnode->is_chandle = is_chandle_stmt;
         vnode->is_semaphore = is_semaphore_stmt;
         vnode->is_mailbox = is_mailbox_stmt;

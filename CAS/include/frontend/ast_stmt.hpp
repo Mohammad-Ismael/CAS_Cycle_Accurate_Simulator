@@ -46,6 +46,33 @@ struct BlockStatementNode : public StatementNode {
     }
 };
 
+struct AstDimension {
+    std::unique_ptr<ExpressionNode> left_expr;
+    std::unique_ptr<ExpressionNode> right_expr;
+    bool is_single = false;
+
+    AstDimension() = default;
+    AstDimension(AstDimension&&) = default;
+    AstDimension& operator=(AstDimension&&) = default;
+    AstDimension(const AstDimension& other) {
+        if (other.left_expr) left_expr = other.left_expr->clone();
+        if (other.right_expr) right_expr = other.right_expr->clone();
+        is_single = other.is_single;
+    }
+    AstDimension& operator=(const AstDimension& other) {
+        if (this != &other) {
+            left_expr = other.left_expr ? other.left_expr->clone() : nullptr;
+            right_expr = other.right_expr ? other.right_expr->clone() : nullptr;
+            is_single = other.is_single;
+        }
+        return *this;
+    }
+
+    AstDimension clone() const {
+        return AstDimension(*this);
+    }
+};
+
 struct VarDeclStatementNode : public StatementNode {
     std::string var_name;
     uint32_t width = 32;
@@ -67,6 +94,8 @@ struct VarDeclStatementNode : public StatementNode {
     std::string interface_name = "";
     std::string modport_name = "";
     std::unique_ptr<ExpressionNode> init_expr = nullptr;
+    std::vector<AstDimension> packed_dimensions;
+    std::vector<AstDimension> unpacked_dimensions;
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)
         : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc), assoc_key_type(std::move(key_t)), assoc_key_width(key_w) {}
@@ -84,6 +113,8 @@ struct VarDeclStatementNode : public StatementNode {
         node->interface_name = interface_name;
         node->modport_name = modport_name;
         node->init_expr = init_expr ? init_expr->clone() : nullptr;
+        node->packed_dimensions = packed_dimensions;
+        node->unpacked_dimensions = unpacked_dimensions;
         return node;
     }
 };

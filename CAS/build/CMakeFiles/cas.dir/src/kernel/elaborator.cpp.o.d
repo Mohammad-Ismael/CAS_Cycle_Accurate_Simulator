@@ -163,6 +163,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/class_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/clocking_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/timing_check_types.hpp \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/../common/array_query_types.hpp \
  /usr/include/c++/13.2.1/unordered_set \
  /usr/include/c++/13.2.1/bits/unordered_set.h \
  /app/CAS/src/kernel/../../include/kernel/../common/sva_types.hpp \

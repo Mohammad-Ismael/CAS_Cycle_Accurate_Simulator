@@ -47,10 +47,14 @@ struct MemoryArray {
     int64_t end_idx = 0;
     bool is_descending = false;
     std::vector<LogicVal> words;
+    std::vector<ArrayDimInfo> dimensions;
+    uint32_t unpacked_dims_count = 0;
+    int64_t orig_left = 0;
+    int64_t orig_right = 0;
 
-    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false) {}
+    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), orig_left(0), orig_right(0) {}
     MemoryArray(std::string n, uint32_t w, uint32_t d, int64_t b1 = 0, int64_t b2 = 0)
-        : name(std::move(n)), word_width(w), depth(d) {
+        : name(std::move(n)), word_width(w), depth(d), orig_left(b1), orig_right(b2) {
         if (b1 <= b2) {
             start_idx = b1;
             end_idx = b2;
@@ -203,6 +207,7 @@ struct ElaborationResult {
     std::unordered_set<std::string> virtual_interface_names;
     std::vector<ModulePathDelay> module_path_delays;
     std::vector<RuntimeTimingCheck> timing_checks;
+    std::unordered_map<std::string, VariableDimMetadata> var_dimensions;
     std::vector<size_t> canonical_net_map;
     std::vector<std::vector<size_t>> alias_members;
     std::string top_scope;

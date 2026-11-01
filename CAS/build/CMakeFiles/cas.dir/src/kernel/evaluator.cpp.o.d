@@ -162,6 +162,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/class_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/clocking_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/../frontend/../common/timing_check_types.hpp \
+ /app/CAS/src/kernel/../../include/kernel/../frontend/../common/array_query_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
  /app/CAS/src/kernel/../../include/kernel/expr_evaluator.hpp \
  /app/CAS/src/kernel/../../include/kernel/../common/sva_types.hpp \

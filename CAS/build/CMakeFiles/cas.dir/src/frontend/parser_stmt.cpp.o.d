@@ -165,6 +165,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: \
  /app/CAS/src/frontend/../../include/frontend/../common/class_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/clocking_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/../common/timing_check_types.hpp \
+ /app/CAS/src/frontend/../../include/frontend/../common/array_query_types.hpp \
  /app/CAS/src/frontend/../../include/frontend/ast_module.hpp \
  /usr/include/c++/13.2.1/unordered_set \
  /usr/include/c++/13.2.1/bits/unordered_set.h \
