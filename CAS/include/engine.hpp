@@ -229,6 +229,9 @@ public:
         if (def && def->is_interface_class) {
             throw std::runtime_error("[CAS-DTINPCIL] Cannot instantiate interface class '" + class_type + "' per IEEE 1800-2023 section 8.26");
         }
+        if (def && def->is_abstract) {
+            throw std::runtime_error("[CAS-DTINPCIL] Cannot instantiate abstract virtual class '" + class_type + "' per IEEE 1800-2023 §8.21");
+        }
         uint64_t id = next_handle_id++;
         auto obj = std::make_shared<ClassObject>(id, class_type, def);
         if (def) {

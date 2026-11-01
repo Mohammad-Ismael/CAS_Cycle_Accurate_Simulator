@@ -362,6 +362,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     mem = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
                 }
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    auto parsed = parse_call_argument_list();
+                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
+                }
                 return std::make_unique<MemberAccessNode>(path, mem);
             }
             auto idx_node = std::make_unique<IndexSelectNode>(name, std::move(msb));

@@ -77,7 +77,7 @@ public:
         }
         return false;
     }
-    std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false);
+    std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false, bool is_abstract = false);
     std::string parse_class_type_and_specialize();
     uint64_t eval_const_expr(ExpressionNode* expr);
     uint64_t eval_const_expr_with_params(ExpressionNode* expr, const std::unordered_map<std::string, uint64_t>& params);

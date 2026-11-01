@@ -2188,6 +2188,36 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 }
             }
         }
+
+        // Check pure virtual methods inherited from ancestor abstract classes (§8.21)
+        if (!cls->is_abstract) {
+            const ClassNode* cur_base = cls->base_class;
+            while (cur_base) {
+                for (const auto& bfn : cur_base->functions) {
+                    if (bfn->is_pure) {
+                        FunctionNode* impl = cls->find_function(bfn->name);
+                        if (!impl || impl->is_pure) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' fails to implement pure virtual method '" + bfn->name + "' from abstract class '" + cur_base->name + "' per IEEE 1800-2023 section 8.21");
+                        }
+                        if (impl->inputs.size() != bfn->inputs.size()) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' method '" + bfn->name + "' argument count mismatch with abstract class '" + cur_base->name + "' per IEEE 1800-2023 section 8.21");
+                        }
+                    }
+                }
+                for (const auto& btk : cur_base->tasks) {
+                    if (btk->is_pure) {
+                        TaskNode* impl = cls->find_task(btk->name);
+                        if (!impl || impl->is_pure) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' fails to implement pure virtual method '" + btk->name + "' from abstract class '" + cur_base->name + "' per IEEE 1800-2023 section 8.21");
+                        }
+                        if (impl->ports.size() != btk->ports.size()) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' method '" + btk->name + "' argument count mismatch with abstract class '" + cur_base->name + "' per IEEE 1800-2023 section 8.21");
+                        }
+                    }
+                }
+                cur_base = cur_base->base_class;
+            }
+        }
     }
 
     std::unordered_set<ClassNode*> visited_classes;

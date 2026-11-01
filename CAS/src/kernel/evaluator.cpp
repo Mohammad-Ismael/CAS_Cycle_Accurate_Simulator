@@ -1533,6 +1533,37 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        ClassObject* active_cl_obj = (!bp.call_stack.empty() && bp.call_stack.back().this_obj) ?
+                                     bp.call_stack.back().this_obj : expr_eval.get_current_this();
+        if (active_cl_obj && active_cl_obj->class_def) {
+            FunctionNode* fn = active_cl_obj->class_def->dispatch_function(tcall->task_name);
+            if (fn) {
+                std::vector<LogicVal> arg_vals;
+                for (auto& a : tcall->args) {
+                    arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+                }
+                LogicVal dummy_res;
+                expr_eval.eval_class_method(active_cl_obj, fn, arg_vals, dummy_res);
+                return;
+            }
+        }
+
+        FunctionNode* standalone_fn = nullptr;
+        if (engine.function_map.find(scoped_tname) != engine.function_map.end()) {
+            standalone_fn = engine.function_map.at(scoped_tname);
+        } else if (engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
+            standalone_fn = engine.function_map.at(tcall->task_name);
+        }
+        if (standalone_fn) {
+            std::vector<LogicVal> arg_vals;
+            for (auto& a : tcall->args) {
+                arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+            }
+            LogicVal dummy_res;
+            expr_eval.eval_function(standalone_fn->name, arg_vals, dummy_res);
+            return;
+        }
+
         TaskNode* target_task = nullptr;
         if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
             target_task = engine.task_map.at(scoped_tname);
@@ -2300,10 +2331,25 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             LocalVar* local = nullptr;
             if (expr_eval.get_context().has_active_frame()) {
-                local = expr_eval.get_context().lookup_local(base_var);
+                if (assign->bit_idx) {
+                    LogicVal idx_v = eval_expr(assign->bit_idx.get(), bp.scope);
+                    if (!idx_v.is_unknown()) {
+                        std::string elem_name = base_var + "[" + std::to_string(idx_v.aval) + "]";
+                        local = expr_eval.get_context().lookup_local(elem_name);
+                    }
+                }
+                if (!local) local = expr_eval.get_context().lookup_local(base_var);
             }
             if (!local && !bp.call_stack.empty()) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_v = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_v.is_unknown()) {
+                            std::string elem_name = base_var + "[" + std::to_string(idx_v.aval) + "]";
+                            local = it->local_frame.get_var(elem_name);
+                            if (local) break;
+                        }
+                    }
                     local = it->local_frame.get_var(base_var);
                     if (local) break;
                 }
@@ -2647,7 +2693,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             return;
                         }
                     }
-                } else if (assign->bit_idx) {
+                } else if (assign->bit_idx && !local->is_class_handle) {
                     LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                     if (!idx_val.is_unknown()) {
                         uint32_t bit = idx_val.aval;

@@ -160,13 +160,26 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         while (true) {
             std::string vname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+            uint32_t arr_size = 0;
             if (match(TokenType::TOKEN_LBRACKET)) {
+                if (current.type == TokenType::TOKEN_NUMBER) {
+                    arr_size = (uint32_t)current.num_val;
+                    advance();
+                }
                 while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
                 match(TokenType::TOKEN_RBRACKET);
             }
             std::unique_ptr<ExpressionNode> init_expr = nullptr;
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 init_expr = parse_expression();
+            }
+            if (arr_size > 0) {
+                for (uint32_t i = 0; i < arr_size; ++i) {
+                    auto elem_stmt = std::make_unique<VarDeclStatementNode>(vname + "[" + std::to_string(i) + "]", 64, false, class_type);
+                    elem_stmt->is_class_handle = true;
+                    elem_stmt->class_type_name = class_type;
+                    vstmts.push_back(std::move(elem_stmt));
+                }
             }
             auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, class_type);
             var_stmt->is_class_handle = true;
@@ -944,7 +957,16 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             auto idx_expr = parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
 
-            if (match(TokenType::TOKEN_EQUAL)) {
+            if (match(TokenType::TOKEN_DOT)) {
+                std::string idx_str = "0";
+                if (auto num = dynamic_cast<NumberNode*>(idx_expr.get())) idx_str = std::to_string(num->aval);
+                ident += "[" + idx_str + "]." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                while (match(TokenType::TOKEN_DOT)) {
+                    ident += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+            } else if (match(TokenType::TOKEN_EQUAL)) {
                 uint64_t intra_delay = 0;
                 bool has_intra_ev = false;
                 EdgeType intra_edge = EdgeType::LEVEL;

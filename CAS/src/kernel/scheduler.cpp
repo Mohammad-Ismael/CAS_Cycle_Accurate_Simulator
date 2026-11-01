@@ -943,7 +943,11 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
         engine.dpi_import_map.find(tcall->task_name) != engine.dpi_import_map.end()) {
         engine.evaluator.execute_statement(tcall, bp);
-        bp.pc++;
+        if (!bp.call_stack.empty()) {
+            bp.call_stack.back().pc++;
+        } else {
+            bp.pc++;
+        }
         return;
     }
 
@@ -961,7 +965,11 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             method_name == "atobin" || method_name == "atoreal" || method_name == "compare" ||
             method_name == "icompare") {
             engine.evaluator.execute_statement(tcall, bp);
-            bp.pc++;
+            if (!bp.call_stack.empty()) {
+                bp.call_stack.back().pc++;
+            } else {
+                bp.pc++;
+            }
             return;
         }
 
@@ -992,12 +1000,16 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         }
 
         if (cl_obj && cl_obj->class_def) {
-            target_task = cl_obj->class_def->find_task(method_name);
+            target_task = cl_obj->class_def->dispatch_task(method_name);
             if (!target_task) {
                 FunctionNode* fn = cl_obj->class_def->dispatch_function(method_name);
                 if (fn) {
                     engine.evaluator.execute_statement(tcall, bp);
-                    bp.pc++;
+                    if (!bp.call_stack.empty()) {
+                        bp.call_stack.back().pc++;
+                    } else {
+                        bp.pc++;
+                    }
                     return;
                 }
             }
@@ -1012,8 +1024,33 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         } else if (engine.function_map.find(scoped_tname) != engine.function_map.end() ||
                    engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
             engine.evaluator.execute_statement(tcall, bp);
-            bp.pc++;
+            if (!bp.call_stack.empty()) {
+                bp.call_stack.back().pc++;
+            } else {
+                bp.pc++;
+            }
             return;
+        } else {
+            if (!bp.call_stack.empty() && bp.call_stack.back().this_obj) {
+                cl_obj = bp.call_stack.back().this_obj;
+            } else if (engine.evaluator.get_expr_eval().get_current_this()) {
+                cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+            }
+            if (cl_obj && cl_obj->class_def) {
+                target_task = cl_obj->class_def->dispatch_task(tcall->task_name);
+                if (!target_task) {
+                    FunctionNode* fn = cl_obj->class_def->dispatch_function(tcall->task_name);
+                    if (fn) {
+                        engine.evaluator.execute_statement(tcall, bp);
+                        if (!bp.call_stack.empty()) {
+                            bp.call_stack.back().pc++;
+                        } else {
+                            bp.pc++;
+                        }
+                        return;
+                    }
+                }
+            }
         }
     }
 

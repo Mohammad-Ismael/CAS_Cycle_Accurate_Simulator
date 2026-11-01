@@ -505,6 +505,7 @@ struct ClassNode : public ASTNode {
     std::string base_class_name;
     ClassNode* base_class = nullptr;
     bool is_interface_class = false;
+    bool is_abstract = false;
     std::vector<std::string> implemented_interfaces;
     std::vector<std::string> extended_interfaces;
     std::unordered_set<std::string> all_implemented_interfaces;

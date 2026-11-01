@@ -121,6 +121,22 @@ void Parser::parse_packages_only() {
             if (udp) {
                 global_udp_defs[udp->name] = udp;
             }
+        } else if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'virtual'
+            auto cls = parse_class(false, true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
+            }
         } else if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
             advance(); // consume 'interface'
             auto cls = parse_class(true);

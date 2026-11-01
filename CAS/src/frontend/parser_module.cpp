@@ -204,6 +204,25 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'virtual'
+            auto cls = parse_class(false, true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                class_map[scls->name] = scls;
+                bool found = false;
+                for (auto& existing : global_classes) {
+                    if (existing->name == scls->name) {
+                        existing = scls;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) global_classes.push_back(scls);
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
             advance(); // consume 'interface'
             auto cls = parse_class(true);
@@ -2193,13 +2212,14 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     return std::make_unique<TypedefNode>(type_name, enum_node);
 }
 
-std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class) {
+std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_abstract) {
     expect(TokenType::TOKEN_CLASS, "Expected 'class'");
     std::string class_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
 
     auto cls = std::make_unique<ClassNode>(class_name);
     cls->is_interface_class = is_interface_class;
+    cls->is_abstract = is_abstract;
 
     if (match(TokenType::TOKEN_HASH)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class parameter list");
@@ -2291,6 +2311,9 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class) {
             if (is_interface_class && (!is_pure || !is_virt)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' can only contain pure virtual method declarations per IEEE 1800-2023 section 8.26");
             }
+            if (is_pure && !is_interface_class && !cls->is_abstract) {
+                throw std::runtime_error("[CAS-DTINPCIL] Pure virtual method can only be declared inside a virtual class or interface class per IEEE 1800-2023 section 8.21");
+            }
             auto fn = parse_function(is_pure);
             if (fn) {
                 if (is_interface_class && fn->name == "new") {
@@ -2306,6 +2329,9 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class) {
             advance();
             if (is_interface_class && (!is_pure || !is_virt)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' can only contain pure virtual method declarations per IEEE 1800-2023 section 8.26");
+            }
+            if (is_pure && !is_interface_class && !cls->is_abstract) {
+                throw std::runtime_error("[CAS-DTINPCIL] Pure virtual method can only be declared inside a virtual class or interface class per IEEE 1800-2023 section 8.21");
             }
             auto t = parse_task(is_pure);
             if (t) {
@@ -3668,6 +3694,17 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             if (t) {
                 pkg->task_map[t->name] = t.get();
                 pkg->tasks.push_back(std::move(t));
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type == TokenType::TOKEN_CLASS) {
+            advance(); // consume 'virtual'
+            auto cls = parse_class(false, true);
+            if (cls) {
+                std::shared_ptr<ClassNode> scls = std::move(cls);
+                pkg->class_map[scls->name] = scls.get();
+                pkg->classes.push_back(scls);
             }
             continue;
         }
