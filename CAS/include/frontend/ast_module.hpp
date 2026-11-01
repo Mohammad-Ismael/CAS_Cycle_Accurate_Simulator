@@ -213,18 +213,39 @@ struct ContinuousAssignNode : public ASTNode {
         : target_name(std::move(target)), rhs(std::move(r)) {}
 };
 
+struct UdpTableRow {
+    std::vector<char> inputs;
+    char output = 'x';
+    UdpTableRow() = default;
+    UdpTableRow(std::vector<char> ins, char out) : inputs(std::move(ins)), output(out) {}
+};
+
+struct UdpDefinitionNode : public ASTNode {
+    std::string name;
+    std::string output_port;
+    std::vector<std::string> input_ports;
+    bool is_sequential = false;
+    char initial_val = 'x';
+    std::vector<UdpTableRow> table;
+
+    UdpDefinitionNode() = default;
+};
+
 struct GatePrimitiveNode : public ASTNode {
     GateType type = GateType::AND;
     std::string instance_name = "";
     std::unique_ptr<ExpressionNode> out_expr;
     std::vector<std::unique_ptr<ExpressionNode>> in_exprs;
+    std::string udp_name = "";
 
     GatePrimitiveNode() = default;
 
     GatePrimitiveNode(GateType t, std::unique_ptr<ExpressionNode> out,
                       std::vector<std::unique_ptr<ExpressionNode>> ins,
-                      std::string inst = "")
-        : type(t), instance_name(std::move(inst)), out_expr(std::move(out)), in_exprs(std::move(ins)) {}
+                      std::string inst = "",
+                      std::string udp = "")
+        : type(t), instance_name(std::move(inst)), out_expr(std::move(out)),
+          in_exprs(std::move(ins)), udp_name(std::move(udp)) {}
 };
 
 struct EnumTypeNode : public ASTNode {

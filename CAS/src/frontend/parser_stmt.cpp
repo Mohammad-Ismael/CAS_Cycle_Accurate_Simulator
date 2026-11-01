@@ -13,6 +13,18 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'alias' construct is not permitted in procedural context per IEEE 1800-2023 section 10.6");
     }
 
+    // Diagnostic [CAS-DTINPCIL]: gate or UDP primitive inside procedural scopes
+    if (current.type == TokenType::TOKEN_GATE_AND || current.type == TokenType::TOKEN_GATE_OR ||
+        current.type == TokenType::TOKEN_GATE_XOR || current.type == TokenType::TOKEN_GATE_NAND ||
+        current.type == TokenType::TOKEN_GATE_NOR || current.type == TokenType::TOKEN_GATE_XNOR ||
+        current.type == TokenType::TOKEN_GATE_NOT || current.type == TokenType::TOKEN_GATE_BUF ||
+        current.type == TokenType::TOKEN_GATE_BUFIF0 || current.type == TokenType::TOKEN_GATE_BUFIF1 ||
+        current.type == TokenType::TOKEN_GATE_NOTIF0 || current.type == TokenType::TOKEN_GATE_NOTIF1 ||
+        current.type == TokenType::TOKEN_PRIMITIVE ||
+        (current.type == TokenType::TOKEN_IDENTIFIER && Parser::global_udp_defs.find(current.text) != Parser::global_udp_defs.end())) {
+        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: gate or primitive instantiation is not permitted inside procedural scope per IEEE 1800-2023 section 28 & 29");
+    }
+
     // 0. Handle 'begin ... end' block statements
     if (match(TokenType::TOKEN_BEGIN)) {
         std::vector<std::unique_ptr<StatementNode>> stmts;

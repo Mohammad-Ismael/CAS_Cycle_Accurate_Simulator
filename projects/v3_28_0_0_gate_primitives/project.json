@@ -1,0 +1,8 @@
+{
+  "name": "v3_28_0_0_gate_primitives",
+  "version": "v3.28.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§28, §29",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_28_0_0_regression"
+}

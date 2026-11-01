@@ -406,6 +406,10 @@ Token Lexer::next_token() {
         if (ident == "xnor") return {TokenType::TOKEN_GATE_XNOR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "not") return {TokenType::TOKEN_GATE_NOT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "buf") return {TokenType::TOKEN_GATE_BUF, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "bufif0") return {TokenType::TOKEN_GATE_BUFIF0, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "bufif1") return {TokenType::TOKEN_GATE_BUFIF1, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "notif0") return {TokenType::TOKEN_GATE_NOTIF0, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "notif1") return {TokenType::TOKEN_GATE_NOTIF1, ident, 0, 0, cur_file, cur_line, 0};
 
         if (ident == "posedge") return {TokenType::TOKEN_POSEDGE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "negedge") return {TokenType::TOKEN_NEGEDGE, ident, 0, 0, cur_file, cur_line, 0};
@@ -485,6 +489,10 @@ Token Lexer::next_token() {
         if (ident == "program") return {TokenType::TOKEN_PROGRAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endprogram") return {TokenType::TOKEN_ENDPROGRAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "alias") return {TokenType::TOKEN_ALIAS, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "primitive") return {TokenType::TOKEN_PRIMITIVE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endprimitive") return {TokenType::TOKEN_ENDPRIMITIVE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "table") return {TokenType::TOKEN_TABLE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "endtable") return {TokenType::TOKEN_ENDTABLE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

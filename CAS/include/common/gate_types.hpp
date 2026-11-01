@@ -8,5 +8,10 @@ enum class GateType {
     NOR,
     XNOR,
     NOT,
-    BUF
+    BUF,
+    BUFIF0,
+    BUFIF1,
+    NOTIF0,
+    NOTIF1,
+    UDP
 };

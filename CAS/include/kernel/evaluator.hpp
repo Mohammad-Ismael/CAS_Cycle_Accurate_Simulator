@@ -6,6 +6,7 @@
 
 class Engine;
 struct BoundProcess;
+struct GateInstance;
 
 class Evaluator {
 private:
@@ -27,6 +28,7 @@ public:
     void write_slice(const NetSliceRef& ref, const LogicVal& val);
     void write_variable(const std::string& var_name, const LogicVal& val, BoundProcess& bp);
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_gate(const GateInstance& g);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);
     void check_monitor();
     std::vector<size_t> get_connected_nets(size_t start_id);

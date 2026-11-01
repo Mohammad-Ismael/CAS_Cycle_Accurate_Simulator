@@ -820,7 +820,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         GateInstance gi;
         gi.type = g->type;
         gi.scope = scope;
+        gi.udp_name = g->udp_name;
+        gi.instance_name = g->instance_name;
         gi.out_target = resolve_slice_ref(g->out_expr.get(), scope);
+        if (result.netlist[gi.out_target.net_id].kind == NetKind::VAR) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: gate or primitive output cannot drive variable/reg '" + result.netlist[gi.out_target.net_id].name + "' per IEEE 1800-2023 section 28 & 29");
+        }
         for (auto& ie : g->in_exprs) gi.in_exprs.push_back(ie.get());
         result.gates.push_back(gi);
     }

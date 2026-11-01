@@ -204,4 +204,6 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /app/CAS/src/kernel/../../include/common/dpic_types.hpp \
  /usr/include/dlfcn.h \
  /app/CAS/src/kernel/../../include/common/sync_types.hpp \
- /app/CAS/src/kernel/../../include/kernel/logic_ops.hpp
+ /app/CAS/src/kernel/../../include/kernel/logic_ops.hpp \
+ /app/CAS/src/kernel/../../include/frontend/parser.hpp \
+ /app/CAS/src/kernel/../../include/frontend/lexer.hpp

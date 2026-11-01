@@ -1,6 +1,7 @@
 #include "../../include/kernel/evaluator.hpp"
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
+#include "../../include/frontend/parser.hpp"
 #include <iostream>
 #include <iomanip>
 #include <unordered_set>
@@ -95,6 +96,90 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
 
 LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
     return expr_eval.eval(expr, scope);
+}
+
+LogicVal Evaluator::eval_gate(const GateInstance& g) {
+    if (g.type == GateType::UDP) {
+        auto it = Parser::global_udp_defs.find(g.udp_name);
+        if (it == Parser::global_udp_defs.end()) {
+            return LogicVal::make_x(1);
+        }
+        const auto& udp = it->second;
+        std::vector<char> actual_inputs;
+        for (auto* expr : g.in_exprs) {
+            LogicVal v = eval_expr(expr, g.scope);
+            char c = 'x';
+            if ((v.bval & 1) != 0) {
+                c = 'x';
+            } else if ((v.aval & 1) != 0) {
+                c = '1';
+            } else {
+                c = '0';
+            }
+            actual_inputs.push_back(c);
+        }
+
+        for (const auto& row : udp->table) {
+            if (row.inputs.size() != actual_inputs.size()) continue;
+            bool match = true;
+            for (size_t i = 0; i < actual_inputs.size(); ++i) {
+                char row_sym = row.inputs[i];
+                char act_sym = actual_inputs[i];
+                if (row_sym == '?') {
+                    continue;
+                }
+                if (row_sym == 'b' || row_sym == 'B') {
+                    if (act_sym == '0' || act_sym == '1') continue;
+                    match = false;
+                    break;
+                }
+                if (row_sym == act_sym) {
+                    continue;
+                }
+                match = false;
+                break;
+            }
+            if (match) {
+                if (row.output == '1') return LogicVal(1, 1, 0);
+                if (row.output == '0') return LogicVal(1, 0, 0);
+                if (row.output == '-') {
+                    return read_slice(g.out_target);
+                }
+                return LogicVal(1, 1, 1);
+            }
+        }
+        return LogicVal(1, 1, 1);
+    }
+
+    if (g.type == GateType::BUFIF0 || g.type == GateType::BUFIF1 ||
+        g.type == GateType::NOTIF0 || g.type == GateType::NOTIF1) {
+        LogicVal data_val = (g.in_exprs.size() > 0) ? eval_expr(g.in_exprs[0], g.scope) : LogicVal::make_x(1);
+        LogicVal ctrl_val = (g.in_exprs.size() > 1) ? eval_expr(g.in_exprs[1], g.scope) : LogicVal::make_x(1);
+        bool if1 = (g.type == GateType::BUFIF1 || g.type == GateType::NOTIF1);
+        bool inv = (g.type == GateType::NOTIF0 || g.type == GateType::NOTIF1);
+        return LogicOps::eval_bufif(if1, inv, data_val, ctrl_val);
+    }
+
+    if (g.type == GateType::BUF) {
+        return (g.in_exprs.size() > 0) ? eval_expr(g.in_exprs[0], g.scope) : LogicVal::make_x(1);
+    }
+    if (g.type == GateType::NOT) {
+        LogicVal in0 = (g.in_exprs.size() > 0) ? eval_expr(g.in_exprs[0], g.scope) : LogicVal::make_x(1);
+        return LogicOps::bitwise_not(in0);
+    }
+
+    if (g.in_exprs.empty()) return LogicVal::make_x(1);
+    LogicVal res = eval_expr(g.in_exprs[0], g.scope);
+    for (size_t i = 1; i < g.in_exprs.size(); ++i) {
+        LogicVal next_in = eval_expr(g.in_exprs[i], g.scope);
+        if (g.type == GateType::AND || g.type == GateType::NAND) res = LogicOps::bitwise_and(res, next_in);
+        else if (g.type == GateType::OR || g.type == GateType::NOR) res = LogicOps::bitwise_or(res, next_in);
+        else if (g.type == GateType::XOR || g.type == GateType::XNOR) res = LogicOps::bitwise_xor(res, next_in);
+    }
+    if (g.type == GateType::NAND || g.type == GateType::NOR || g.type == GateType::XNOR) {
+        res = LogicOps::bitwise_not(res);
+    }
+    return res;
 }
 
 void Evaluator::check_monitor() {

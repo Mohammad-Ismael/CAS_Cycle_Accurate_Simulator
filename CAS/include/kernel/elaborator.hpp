@@ -17,6 +17,8 @@ struct GateInstance {
     std::string scope;
     NetSliceRef out_target;
     std::vector<ExpressionNode*> in_exprs;
+    std::string udp_name = "";
+    std::string instance_name = "";
 };
 
 struct ContinuousAssignBinding {
@@ -26,8 +28,10 @@ struct ContinuousAssignBinding {
 };
 
 struct ContinuousAssignDriver {
-    std::string scope;
-    ExpressionNode* rhs;
+    bool is_gate = false;
+    size_t gate_idx = 0;
+    std::string scope = "";
+    ExpressionNode* rhs = nullptr;
 };
 
 struct ResolvedContinuousAssign {

@@ -3,6 +3,7 @@
 
 std::unordered_map<std::string, std::shared_ptr<PackageNode>> Parser::global_packages;
 std::unordered_map<std::string, std::shared_ptr<ConfigNode>> Parser::global_configs;
+std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> Parser::global_udp_defs;
 std::vector<std::string> Parser::global_wildcard_imports;
 std::unordered_map<std::string, std::pair<std::string, std::string>> Parser::global_explicit_imports;
 
@@ -112,6 +113,11 @@ void Parser::parse_packages_only() {
             auto cfg = parse_config();
             if (cfg) {
                 global_configs[cfg->name] = cfg;
+            }
+        } else if (current.type == TokenType::TOKEN_PRIMITIVE) {
+            auto udp = parse_udp();
+            if (udp) {
+                global_udp_defs[udp->name] = udp;
             }
         } else {
             advance();

@@ -36,6 +36,7 @@ public:
     std::unordered_set<std::string> known_interfaces;
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
     static std::unordered_map<std::string, std::shared_ptr<ConfigNode>> global_configs;
+    static std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> global_udp_defs;
     static std::vector<std::string> global_wildcard_imports;
     static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
     static void clear_global_packages() {
@@ -43,6 +44,7 @@ public:
         global_wildcard_imports.clear();
         global_explicit_imports.clear();
         global_configs.clear();
+        global_udp_defs.clear();
     }
 
     bool is_package(const std::string& name) const {
@@ -166,6 +168,10 @@ public:
     }
     std::shared_ptr<PackageNode> parse_package();
     std::shared_ptr<ConfigNode> parse_config();
+    std::shared_ptr<UdpDefinitionNode> parse_udp();
+    bool is_udp(const std::string& name) const {
+        return global_udp_defs.find(name) != global_udp_defs.end();
+    }
     void parse_packages_only();
     std::unique_ptr<TypedefNode> parse_typedef();
     std::string parse_skew_spec();

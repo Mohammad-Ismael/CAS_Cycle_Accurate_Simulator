@@ -15,18 +15,43 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     for (const auto& ca : continuous_assigns) {
         uint64_t key = ((uint64_t)ca.target.net_id << 32) | ((uint64_t)ca.target.offset << 16) | (uint64_t)ca.target.width;
         auto it = slice_to_rca.find(key);
+        ContinuousAssignDriver drv;
+        drv.is_gate = false;
+        drv.gate_idx = 0;
+        drv.scope = ca.scope;
+        drv.rhs = ca.rhs;
         if (it == slice_to_rca.end()) {
             size_t idx = resolved_continuous_assigns.size();
             slice_to_rca[key] = idx;
             ResolvedContinuousAssign rca;
             rca.target = ca.target;
-            rca.drivers.push_back({ca.scope, ca.rhs});
+            rca.drivers.push_back(drv);
             resolved_continuous_assigns.push_back(std::move(rca));
         } else {
-            resolved_continuous_assigns[it->second].drivers.push_back({ca.scope, ca.rhs});
+            resolved_continuous_assigns[it->second].drivers.push_back(drv);
         }
     }
     gates = std::move(elab_res.gates);
+    for (size_t g_idx = 0; g_idx < gates.size(); ++g_idx) {
+        const auto& g = gates[g_idx];
+        uint64_t key = ((uint64_t)g.out_target.net_id << 32) | ((uint64_t)g.out_target.offset << 16) | (uint64_t)g.out_target.width;
+        auto it = slice_to_rca.find(key);
+        ContinuousAssignDriver drv;
+        drv.is_gate = true;
+        drv.gate_idx = g_idx;
+        drv.scope = g.scope;
+        drv.rhs = nullptr;
+        if (it == slice_to_rca.end()) {
+            size_t idx = resolved_continuous_assigns.size();
+            slice_to_rca[key] = idx;
+            ResolvedContinuousAssign rca;
+            rca.target = g.out_target;
+            rca.drivers.push_back(drv);
+            resolved_continuous_assigns.push_back(std::move(rca));
+        } else {
+            resolved_continuous_assigns[it->second].drivers.push_back(drv);
+        }
+    }
     memory_map = std::move(elab_res.memory_map);
     queue_map = std::move(elab_res.queue_map);
     dynamic_array_map = std::move(elab_res.dynamic_array_map);

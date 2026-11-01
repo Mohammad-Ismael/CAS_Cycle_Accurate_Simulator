@@ -428,43 +428,30 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        for (auto& g : engine.gates) {
-            LogicVal res = engine.evaluator.eval_expr(g.in_exprs[0], g.scope);
-            for (size_t i = 1; i < g.in_exprs.size(); ++i) {
-                LogicVal next_in = engine.evaluator.eval_expr(g.in_exprs[i], g.scope);
-                if (g.type == GateType::AND) res = LogicOps::bitwise_and(res, next_in);
-                else if (g.type == GateType::OR) res = LogicOps::bitwise_or(res, next_in);
-                else if (g.type == GateType::XOR) res = LogicOps::bitwise_xor(res, next_in);
-                else if (g.type == GateType::NAND) res = LogicOps::bitwise_and(res, next_in);
-                else if (g.type == GateType::NOR) res = LogicOps::bitwise_or(res, next_in);
-                else if (g.type == GateType::XNOR) res = LogicOps::bitwise_xor(res, next_in);
-            }
-            if (g.type == GateType::NAND || g.type == GateType::NOR || g.type == GateType::XNOR || g.type == GateType::NOT) {
-                res = LogicOps::bitwise_not(res);
-            }
-            LogicVal cur_out = engine.evaluator.read_slice(g.out_target);
-            if (cur_out != res) {
-                engine.evaluator.write_slice(g.out_target, res);
-                changed = true;
-            }
-        }
-
-        // IEEE 1800-2023 §6.5 & §10.3 / §10.4.1: Multi-Driver Continuous Assignment Resolution
+        // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution
         for (auto& rca : engine.resolved_continuous_assigns) {
             if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
+
+            auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
+                if (drv.is_gate) {
+                    return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
+                } else {
+                    return engine.evaluator.eval_expr(drv.rhs, drv.scope);
+                }
+            };
 
             LogicVal resolved;
             if (rca.drivers.empty()) {
                 resolved = LogicVal::make_z(rca.target.width);
             } else if (rca.drivers.size() == 1) {
-                resolved = engine.evaluator.eval_expr(rca.drivers[0].rhs, rca.drivers[0].scope);
+                resolved = eval_driver(rca.drivers[0]);
                 resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
             } else {
-                resolved = engine.evaluator.eval_expr(rca.drivers[0].rhs, rca.drivers[0].scope);
+                resolved = eval_driver(rca.drivers[0]);
                 resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                 NetKind kind = engine.netlist[rca.target.net_id].kind;
                 for (size_t i = 1; i < rca.drivers.size(); ++i) {
-                    LogicVal d_val = engine.evaluator.eval_expr(rca.drivers[i].rhs, rca.drivers[i].scope);
+                    LogicVal d_val = eval_driver(rca.drivers[i]);
                     d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                     resolved = LogicOps::resolve_net(kind, resolved, d_val);
                 }

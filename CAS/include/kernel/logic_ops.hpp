@@ -347,4 +347,40 @@ public:
             default:            return resolve_wire(a, b);
         }
     }
+
+    // IEEE 1800-2023 §28.5 & Tables 28-5, 28-6: Tristate control gates (bufif1, bufif0, notif1, notif0)
+    static LogicVal eval_bufif(bool if1, bool invert_data, const LogicVal& data, const LogicVal& ctrl) {
+        uint32_t w = data.width;
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+
+        uint64_t ctrl_a = (ctrl.width == 1) ? (-(ctrl.aval & 1ULL)) : ctrl.aval;
+        uint64_t ctrl_b = (ctrl.width == 1) ? (-(ctrl.bval & 1ULL)) : ctrl.bval;
+        ctrl_a &= mask;
+        ctrl_b &= mask;
+
+        uint64_t ctrl_is_1 = ctrl_a & (~ctrl_b) & mask;
+        uint64_t ctrl_is_0 = (~ctrl_a) & (~ctrl_b) & mask;
+        uint64_t ctrl_is_xz = ctrl_b & mask;
+
+        uint64_t enable = if1 ? ctrl_is_1 : ctrl_is_0;
+        uint64_t disable = if1 ? ctrl_is_0 : ctrl_is_1;
+
+        uint64_t d_a = data.aval & mask;
+        uint64_t d_b = data.bval & mask;
+        if (invert_data) {
+            uint64_t is_known = ~d_b & mask;
+            uint64_t not_a = (~d_a) & is_known;
+            uint64_t not_b = d_b & mask;
+            d_a = not_a | (d_b & mask);
+            d_b = not_b;
+        } else {
+            uint64_t is_z = (~d_a) & d_b & mask;
+            d_a |= is_z;
+        }
+
+        uint64_t res_a = ((enable & d_a) | ctrl_is_xz) & mask;
+        uint64_t res_b = ((enable & d_b) | disable | ctrl_is_xz) & mask;
+
+        return LogicVal(w, res_a, res_b);
+    }
 };

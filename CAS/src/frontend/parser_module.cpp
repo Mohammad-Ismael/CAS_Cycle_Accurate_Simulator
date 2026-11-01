@@ -21,6 +21,143 @@ std::unique_ptr<ExpressionNode> Parser::parse_net_lvalue() {
     return std::make_unique<IdentifierNode>(name);
 }
 
+std::shared_ptr<UdpDefinitionNode> Parser::parse_udp() {
+    expect(TokenType::TOKEN_PRIMITIVE, "Expected 'primitive'");
+    auto udp = std::make_shared<UdpDefinitionNode>();
+    udp->name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected primitive name");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after primitive name");
+
+    // Check if ANSI style or non-ANSI port list
+    if (current.type == TokenType::TOKEN_OUTPUT) {
+        // ANSI style: output [reg] out, input a, b, c
+        advance();
+        if (current.type == TokenType::TOKEN_REG || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "reg")) {
+            advance();
+            udp->is_sequential = true;
+        }
+        udp->output_port = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected output port name");
+
+        while (match(TokenType::TOKEN_COMMA)) {
+            if (current.type == TokenType::TOKEN_INPUT) {
+                advance();
+            }
+            while (true) {
+                udp->input_ports.push_back(current.text);
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected input port name");
+                if (match(TokenType::TOKEN_COMMA)) {
+                    if (current.type == TokenType::TOKEN_INPUT) {
+                        advance();
+                        continue;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing primitive port list");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after primitive header");
+    } else {
+        // Non-ANSI style: out, a, b, c
+        std::vector<std::string> ports;
+        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+            ports.push_back(current.text);
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected port name in primitive");
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing primitive port list");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after primitive header");
+
+        if (!ports.empty()) {
+            udp->output_port = ports[0];
+            for (size_t i = 1; i < ports.size(); ++i) {
+                udp->input_ports.push_back(ports[i]);
+            }
+        }
+
+        // Parse declarations before 'table'
+        while (current.type != TokenType::TOKEN_TABLE && current.type != TokenType::TOKEN_EOF) {
+            if (match(TokenType::TOKEN_OUTPUT)) {
+                if (current.type == TokenType::TOKEN_REG || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "reg")) {
+                    advance();
+                    udp->is_sequential = true;
+                }
+                udp->output_port = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected output port identifier");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after output declaration");
+            } else if (match(TokenType::TOKEN_INPUT)) {
+                while (true) {
+                    std::string in_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected input port identifier");
+                    if (ports.empty()) udp->input_ports.push_back(in_name);
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after input declaration");
+            } else if (match(TokenType::TOKEN_REG)) {
+                udp->is_sequential = true;
+                advance(); // port name
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after reg declaration");
+            } else if (match(TokenType::TOKEN_INITIAL)) {
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                    advance();
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after initial statement");
+            } else {
+                break;
+            }
+        }
+    }
+
+    if (match(TokenType::TOKEN_INITIAL)) {
+        while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+            advance();
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after initial statement");
+    }
+
+    expect(TokenType::TOKEN_TABLE, "Expected 'table' in primitive");
+    while (current.type != TokenType::TOKEN_ENDTABLE && current.type != TokenType::TOKEN_EOF) {
+        UdpTableRow row;
+        while (current.type != TokenType::TOKEN_COLON && current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDTABLE && current.type != TokenType::TOKEN_EOF) {
+            for (char ch : current.text) {
+                if (!std::isspace(ch)) {
+                    row.inputs.push_back(ch);
+                }
+            }
+            advance();
+        }
+        expect(TokenType::TOKEN_COLON, "Expected ':' in UDP table row");
+        char out_char = 'x';
+        if (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_COLON && current.type != TokenType::TOKEN_ENDTABLE) {
+            if (!current.text.empty()) out_char = current.text[0];
+            advance();
+        }
+        if (match(TokenType::TOKEN_COLON)) {
+            udp->is_sequential = true;
+            char next_char = 'x';
+            if (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDTABLE) {
+                if (!current.text.empty()) next_char = current.text[0];
+                advance();
+            }
+            row.output = next_char;
+        } else {
+            row.output = out_char;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' at end of table row");
+        udp->table.push_back(std::move(row));
+    }
+    expect(TokenType::TOKEN_ENDTABLE, "Expected 'endtable'");
+    expect(TokenType::TOKEN_ENDPRIMITIVE, "Expected 'endprimitive'");
+    if (match(TokenType::TOKEN_COLON)) {
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected primitive name after ':'");
+    }
+
+    return udp;
+}
+
 std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
     std::vector<std::unique_ptr<ModuleNode>> modules;
 
@@ -159,6 +296,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_PRIMITIVE) {
+            auto udp = parse_udp();
+            if (udp) {
+                global_udp_defs[udp->name] = udp;
+            }
+            continue;
+        }
+
         bool is_iface = false;
         bool is_prog = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
@@ -171,7 +316,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 advance();
             }
         } else {
-            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'program', 'package', 'config', 'parameter', or 'localparam' keyword");
+            expect(TokenType::TOKEN_MODULE, "Expected 'module', 'interface', 'program', 'package', 'config', 'primitive', 'parameter', or 'localparam' keyword");
         }
         auto mod = is_iface ? std::make_unique<InterfaceNode>() : 
                    (is_prog ? std::make_unique<ProgramNode>() : std::make_unique<ModuleNode>());
@@ -1111,20 +1256,32 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_GATE_AND  || current.type == TokenType::TOKEN_GATE_OR   ||
-                current.type == TokenType::TOKEN_GATE_XOR  || current.type == TokenType::TOKEN_GATE_NAND ||
-                current.type == TokenType::TOKEN_GATE_NOR  || current.type == TokenType::TOKEN_GATE_XNOR ||
-                current.type == TokenType::TOKEN_GATE_NOT  || current.type == TokenType::TOKEN_GATE_BUF   ||
-                current.type == TokenType::TOKEN_OR) {
-                
+            bool is_builtin_gate = (current.type == TokenType::TOKEN_GATE_AND  || current.type == TokenType::TOKEN_GATE_OR   ||
+                                    current.type == TokenType::TOKEN_GATE_XOR  || current.type == TokenType::TOKEN_GATE_NAND ||
+                                    current.type == TokenType::TOKEN_GATE_NOR  || current.type == TokenType::TOKEN_GATE_XNOR ||
+                                    current.type == TokenType::TOKEN_GATE_NOT  || current.type == TokenType::TOKEN_GATE_BUF   ||
+                                    current.type == TokenType::TOKEN_GATE_BUFIF0 || current.type == TokenType::TOKEN_GATE_BUFIF1 ||
+                                    current.type == TokenType::TOKEN_GATE_NOTIF0 || current.type == TokenType::TOKEN_GATE_NOTIF1 ||
+                                    current.type == TokenType::TOKEN_OR);
+            bool is_udp_inst = (current.type == TokenType::TOKEN_IDENTIFIER && Parser::global_udp_defs.find(current.text) != Parser::global_udp_defs.end());
+
+            if (is_builtin_gate || is_udp_inst) {
                 GateType gt = GateType::AND;
-                if (current.type == TokenType::TOKEN_GATE_OR || current.type == TokenType::TOKEN_OR) gt = GateType::OR;
+                std::string udp_type = "";
+                if (is_udp_inst) {
+                    gt = GateType::UDP;
+                    udp_type = current.text;
+                } else if (current.type == TokenType::TOKEN_GATE_OR || current.type == TokenType::TOKEN_OR) gt = GateType::OR;
                 else if (current.type == TokenType::TOKEN_GATE_XOR) gt = GateType::XOR;
                 else if (current.type == TokenType::TOKEN_GATE_NAND) gt = GateType::NAND;
                 else if (current.type == TokenType::TOKEN_GATE_NOR) gt = GateType::NOR;
                 else if (current.type == TokenType::TOKEN_GATE_XNOR) gt = GateType::XNOR;
                 else if (current.type == TokenType::TOKEN_GATE_NOT) gt = GateType::NOT;
                 else if (current.type == TokenType::TOKEN_GATE_BUF) gt = GateType::BUF;
+                else if (current.type == TokenType::TOKEN_GATE_BUFIF0) gt = GateType::BUFIF0;
+                else if (current.type == TokenType::TOKEN_GATE_BUFIF1) gt = GateType::BUFIF1;
+                else if (current.type == TokenType::TOKEN_GATE_NOTIF0) gt = GateType::NOTIF0;
+                else if (current.type == TokenType::TOKEN_GATE_NOTIF1) gt = GateType::NOTIF1;
                 advance();
 
                 std::string inst_name = "";
@@ -1147,7 +1304,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing gate instance");
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after gate instance");
 
-                auto gate = std::make_unique<GatePrimitiveNode>(gt, std::move(out_expr), std::move(in_exprs), inst_name);
+                auto gate = std::make_unique<GatePrimitiveNode>(gt, std::move(out_expr), std::move(in_exprs), inst_name, udp_type);
                 mod->gates.push_back(std::move(gate));
                 continue;
             }
