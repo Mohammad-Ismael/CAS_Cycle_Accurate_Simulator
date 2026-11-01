@@ -537,37 +537,171 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto if_stmt = dynamic_cast<IfStatementNode*>(stmt)) {
-        LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
-        if (cond.to_bool()) {
-            for (auto& s : if_stmt->then_branch) execute_statement(s.get(), bp);
-        } else {
-            for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
+        if (if_stmt->modifier == DecisionModifier::NONE) {
+            LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
+            if (cond.to_bool()) {
+                for (auto& s : if_stmt->then_branch) execute_statement(s.get(), bp);
+            } else {
+                for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
+            }
+            return;
+        }
+
+        // Handle unique, unique0, priority if chain (§12.5)
+        struct IfArm {
+            ExpressionNode* cond;
+            const std::vector<std::unique_ptr<StatementNode>>* body;
+        };
+        std::vector<IfArm> arms;
+        arms.push_back({ if_stmt->condition.get(), &if_stmt->then_branch });
+
+        const IfStatementNode* cur = if_stmt;
+        const std::vector<std::unique_ptr<StatementNode>>* final_else = nullptr;
+
+        while (cur->else_branch.size() == 1) {
+            auto next_if = dynamic_cast<const IfStatementNode*>(cur->else_branch[0].get());
+            if (next_if && next_if->modifier == DecisionModifier::NONE) {
+                arms.push_back({ next_if->condition.get(), &next_if->then_branch });
+                cur = next_if;
+            } else {
+                break;
+            }
+        }
+        if (!cur->else_branch.empty()) {
+            final_else = &cur->else_branch;
+        }
+
+        std::string loc_file = !if_stmt->src_file.empty() ? if_stmt->src_file : "unknown";
+        size_t loc_line = if_stmt->src_line;
+
+        if (if_stmt->modifier == DecisionModifier::PRIORITY) {
+            int first_match = -1;
+            bool any_cond_unknown = false;
+            for (size_t i = 0; i < arms.size(); ++i) {
+                LogicVal cv = eval_expr(arms[i].cond, bp.scope);
+                if (cv.is_unknown()) any_cond_unknown = true;
+                if (cv.to_bool()) {
+                    first_match = (int)i;
+                    break;
+                }
+            }
+            if (first_match >= 0) {
+                for (auto& s : *arms[first_match].body) {
+                    execute_statement(s.get(), bp);
+                    if (!engine.scheduler.is_active()) return;
+                }
+            } else if (final_else) {
+                for (auto& s : *final_else) {
+                    execute_statement(s.get(), bp);
+                    if (!engine.scheduler.is_active()) return;
+                }
+            } else if (!any_cond_unknown) {
+                std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: priority if/case condition failed to match\n";
+            }
+            return;
+        }
+
+        // UNIQUE or UNIQUE0
+        int match_count = 0;
+        int first_match = -1;
+        bool any_cond_unknown = false;
+        for (size_t i = 0; i < arms.size(); ++i) {
+            LogicVal cv = eval_expr(arms[i].cond, bp.scope);
+            if (cv.is_unknown()) any_cond_unknown = true;
+            if (cv.to_bool()) {
+                match_count++;
+                if (first_match < 0) first_match = (int)i;
+            }
+        }
+
+        if (!any_cond_unknown) {
+            if (match_count > 1) {
+                std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: unique if/case multiple conditions matched simultaneously\n";
+            } else if (match_count == 0 && if_stmt->modifier == DecisionModifier::UNIQUE && !final_else) {
+                std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: unique if/case condition failed to match\n";
+            }
+        }
+
+        if (first_match >= 0) {
+            for (auto& s : *arms[first_match].body) {
+                execute_statement(s.get(), bp);
+                if (!engine.scheduler.is_active()) return;
+            }
+        } else if (final_else) {
+            for (auto& s : *final_else) {
+                execute_statement(s.get(), bp);
+                if (!engine.scheduler.is_active()) return;
+            }
         }
         return;
     }
 
     if (auto case_stmt = dynamic_cast<CaseStatementNode*>(stmt)) {
         LogicVal sel_val = eval_expr(case_stmt->selector.get(), bp.scope);
-        bool branch_taken = false;
         const CaseItem* default_item = nullptr;
+
+        auto test_match = [&](ExpressionNode* expr) -> bool {
+            if (!expr) return false;
+            LogicVal item_val = eval_expr(expr, bp.scope);
+            if (case_stmt->case_type == CaseType::CASEZ) {
+                return LogicOps::casez_eq(sel_val, item_val).to_bool();
+            } else if (case_stmt->case_type == CaseType::CASEX) {
+                return LogicOps::casex_eq(sel_val, item_val).to_bool();
+            } else {
+                return LogicOps::case_eq(sel_val, item_val).to_bool();
+            }
+        };
+
+        if (case_stmt->modifier == DecisionModifier::NONE) {
+            bool branch_taken = false;
+            for (const auto& item : case_stmt->items) {
+                if (item.is_default) {
+                    default_item = &item;
+                    continue;
+                }
+
+                bool item_matched = false;
+                if (!item.match_exprs.empty()) {
+                    for (const auto& m_expr : item.match_exprs) {
+                        if (test_match(m_expr.get())) {
+                            item_matched = true;
+                            break;
+                        }
+                    }
+                } else if (item.match_expr) {
+                    item_matched = test_match(item.match_expr.get());
+                }
+
+                if (item_matched) {
+                    for (auto& s : item.statements) {
+                        execute_statement(s.get(), bp);
+                        if (!engine.scheduler.is_active()) return;
+                    }
+                    branch_taken = true;
+                    break;
+                }
+            }
+            if (!branch_taken && default_item) {
+                for (auto& s : default_item->statements) {
+                    execute_statement(s.get(), bp);
+                    if (!engine.scheduler.is_active()) return;
+                }
+            }
+            return;
+        }
+
+        // Modified case: PRIORITY, UNIQUE, UNIQUE0
+        std::string loc_file = !case_stmt->src_file.empty() ? case_stmt->src_file : "unknown";
+        size_t loc_line = case_stmt->src_line;
+
+        const CaseItem* first_matched_item = nullptr;
+        int match_count = 0;
 
         for (const auto& item : case_stmt->items) {
             if (item.is_default) {
                 default_item = &item;
                 continue;
             }
-
-            auto test_match = [&](ExpressionNode* expr) -> bool {
-                if (!expr) return false;
-                LogicVal item_val = eval_expr(expr, bp.scope);
-                if (case_stmt->case_type == CaseType::CASEZ) {
-                    return LogicOps::casez_eq(sel_val, item_val).to_bool();
-                } else if (case_stmt->case_type == CaseType::CASEX) {
-                    return LogicOps::casex_eq(sel_val, item_val).to_bool();
-                } else {
-                    return LogicOps::case_eq(sel_val, item_val).to_bool();
-                }
-            };
 
             bool item_matched = false;
             if (!item.match_exprs.empty()) {
@@ -582,15 +716,34 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             if (item_matched) {
-                for (auto& s : item.statements) {
-                    execute_statement(s.get(), bp);
-                    if (!engine.scheduler.is_active()) return;
+                match_count++;
+                if (!first_matched_item) {
+                    first_matched_item = &item;
                 }
-                branch_taken = true;
-                break;
             }
         }
-        if (!branch_taken && default_item) {
+
+        if (!sel_val.is_unknown()) {
+            if (case_stmt->modifier == DecisionModifier::PRIORITY) {
+                if (match_count == 0 && !default_item) {
+                    std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: priority if/case condition failed to match\n";
+                }
+            } else {
+                // UNIQUE or UNIQUE0
+                if (match_count > 1) {
+                    std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: unique if/case multiple conditions matched simultaneously\n";
+                } else if (match_count == 0 && case_stmt->modifier == DecisionModifier::UNIQUE && !default_item) {
+                    std::cout << "\"" << loc_file << "\", " << loc_line << ": RT-VIOLATION: unique if/case condition failed to match\n";
+                }
+            }
+        }
+
+        if (first_matched_item) {
+            for (auto& s : first_matched_item->statements) {
+                execute_statement(s.get(), bp);
+                if (!engine.scheduler.is_active()) return;
+            }
+        } else if (default_item) {
             for (auto& s : default_item->statements) {
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active()) return;

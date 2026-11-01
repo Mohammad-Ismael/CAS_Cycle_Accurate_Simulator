@@ -307,8 +307,31 @@ static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* s
     if (auto ifs = dynamic_cast<IfStatementNode*>(stmt)) {
         auto node = std::make_unique<IfStatementNode>(
             substitute_genvar_in_expr(ifs->condition.get(), gname, val));
+        node->modifier = ifs->modifier;
+        node->src_file = ifs->src_file;
+        node->src_line = ifs->src_line;
         for (auto& s : ifs->then_branch) node->then_branch.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
         for (auto& s : ifs->else_branch) node->else_branch.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
+        return node;
+    }
+    if (auto cs = dynamic_cast<CaseStatementNode*>(stmt)) {
+        auto node = std::make_unique<CaseStatementNode>(
+            substitute_genvar_in_expr(cs->selector.get(), gname, val), cs->case_type);
+        node->modifier = cs->modifier;
+        node->src_file = cs->src_file;
+        node->src_line = cs->src_line;
+        for (const auto& item : cs->items) {
+            CaseItem ci;
+            ci.is_default = item.is_default;
+            if (item.match_expr) ci.match_expr = substitute_genvar_in_expr(item.match_expr.get(), gname, val);
+            for (const auto& me : item.match_exprs) {
+                ci.match_exprs.push_back(substitute_genvar_in_expr(me.get(), gname, val));
+            }
+            for (const auto& s : item.statements) {
+                ci.statements.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
+            }
+            node->items.push_back(std::move(ci));
+        }
         return node;
     }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {

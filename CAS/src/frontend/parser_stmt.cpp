@@ -4,6 +4,11 @@
 #include <cmath>
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
+    // Null statement (§12.3)
+    if (match(TokenType::TOKEN_SEMICOLON)) {
+        return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
+    }
+
     // Diagnostic [CAS-DTINPCIL]: defparam inside procedural scopes
     if (current.type == TokenType::TOKEN_DEFPARAM) {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'defparam' statement is illegal inside procedural scope per IEEE 1800-2023 section 23.10.1");
@@ -35,6 +40,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
         current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted outside specify block per IEEE 1800-2023 section 31.8 & 32.7");
+    }
+
+    // Decision Modifiers: unique, unique0, priority (§12.5)
+    if (current.type == TokenType::TOKEN_UNIQUE ||
+        current.type == TokenType::TOKEN_UNIQUE0 ||
+        current.type == TokenType::TOKEN_PRIORITY) {
+        DecisionModifier dec_mod = DecisionModifier::NONE;
+        std::string mod_text = current.text;
+        std::string mod_file = current.filename;
+        size_t mod_line = current.line;
+        if (match(TokenType::TOKEN_UNIQUE)) dec_mod = DecisionModifier::UNIQUE;
+        else if (match(TokenType::TOKEN_UNIQUE0)) dec_mod = DecisionModifier::UNIQUE0;
+        else if (match(TokenType::TOKEN_PRIORITY)) dec_mod = DecisionModifier::PRIORITY;
+
+        if (current.type == TokenType::TOKEN_IF) {
+            return parse_if_statement(dec_mod, mod_file, mod_line);
+        } else if (current.type == TokenType::TOKEN_CASE ||
+                   current.type == TokenType::TOKEN_CASEZ ||
+                   current.type == TokenType::TOKEN_CASEX) {
+            return parse_case_statement(dec_mod, mod_file, mod_line);
+        } else {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: '" + mod_text + "' modifier can only prefix an 'if' or 'case' statement per IEEE 1800-2023 section 12.5");
+        }
     }
 
     // 0. Handle 'begin ... end' block statements
@@ -733,60 +761,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     // 12. If Statement
-    if (match(TokenType::TOKEN_IF)) {
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
-        auto cond = parse_expression();
-        expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'if' condition");
-
-        auto if_node = std::make_unique<IfStatementNode>(std::move(cond));
-        if_node->then_branch = parse_statement_or_block();
-
-        if (match(TokenType::TOKEN_ELSE)) {
-            if_node->else_branch = parse_statement_or_block();
-        }
-        return if_node;
+    if (current.type == TokenType::TOKEN_IF) {
+        return parse_if_statement(DecisionModifier::NONE, current.filename, current.line);
     }
 
     // 13. Case / Casez / Casex Statement
     if (current.type == TokenType::TOKEN_CASE ||
         current.type == TokenType::TOKEN_CASEZ ||
         current.type == TokenType::TOKEN_CASEX) {
-
-        TokenType case_tok = current.type;
-        advance();
-        CaseType ct = CaseType::CASE;
-        if (case_tok == TokenType::TOKEN_CASEZ) ct = CaseType::CASEZ;
-        else if (case_tok == TokenType::TOKEN_CASEX) ct = CaseType::CASEX;
-
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' after case keyword");
-        auto sel = parse_expression();
-        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing case selector");
-
-        auto case_node = std::make_unique<CaseStatementNode>(std::move(sel), ct);
-
-        while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
-            CaseItem item;
-            if (match(TokenType::TOKEN_DEFAULT)) {
-                item.is_default = true;
-                match(TokenType::TOKEN_COLON);
-            } else {
-                while (true) {
-                    auto expr = parse_expression();
-                    if (!item.match_expr) {
-                        item.match_expr = expr->clone();
-                    }
-                    item.match_exprs.push_back(std::move(expr));
-                    if (match(TokenType::TOKEN_COMMA)) continue;
-                    break;
-                }
-                expect(TokenType::TOKEN_COLON, "Expected ':' after case match expression");
-            }
-            item.statements = parse_statement_or_block();
-            case_node->items.push_back(std::move(item));
-        }
-
-        expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase'");
-        return case_node;
+        return parse_case_statement(DecisionModifier::NONE, current.filename, current.line);
     }
 
     // 13.5. Procedural Continuous Assignments (IEEE Std 1800-2023 §10.4.2)
@@ -1115,6 +1098,69 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         ? ("line " + std::to_string(current.line)) 
         : (current.filename + ":" + std::to_string(current.line));
     throw std::runtime_error(loc + ": error: Unexpected statement beginning with '" + current.text + "'");
+}
+
+std::unique_ptr<StatementNode> Parser::parse_if_statement(DecisionModifier mod, std::string mod_file, size_t mod_line) {
+    std::string origin_file = current.filename;
+    size_t origin_line = current.line;
+    expect(TokenType::TOKEN_IF, "Expected 'if'");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
+    auto cond = parse_expression();
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'if' condition");
+
+    auto if_node = std::make_unique<IfStatementNode>(std::move(cond));
+    if_node->modifier = mod;
+    if_node->src_file = (mod != DecisionModifier::NONE && !mod_file.empty()) ? mod_file : origin_file;
+    if_node->src_line = (mod != DecisionModifier::NONE && mod_line != 0) ? mod_line : origin_line;
+    if_node->then_branch = parse_statement_or_block();
+
+    if (match(TokenType::TOKEN_ELSE)) {
+        if_node->else_branch = parse_statement_or_block();
+    }
+    return if_node;
+}
+
+std::unique_ptr<StatementNode> Parser::parse_case_statement(DecisionModifier mod, std::string mod_file, size_t mod_line) {
+    TokenType case_tok = current.type;
+    std::string origin_file = current.filename;
+    size_t origin_line = current.line;
+    advance();
+    CaseType ct = CaseType::CASE;
+    if (case_tok == TokenType::TOKEN_CASEZ) ct = CaseType::CASEZ;
+    else if (case_tok == TokenType::TOKEN_CASEX) ct = CaseType::CASEX;
+
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after case keyword");
+    auto sel = parse_expression();
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing case selector");
+
+    auto case_node = std::make_unique<CaseStatementNode>(std::move(sel), ct);
+    case_node->modifier = mod;
+    case_node->src_file = (mod != DecisionModifier::NONE && !mod_file.empty()) ? mod_file : origin_file;
+    case_node->src_line = (mod != DecisionModifier::NONE && mod_line != 0) ? mod_line : origin_line;
+
+    while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+        CaseItem item;
+        if (match(TokenType::TOKEN_DEFAULT)) {
+            item.is_default = true;
+            match(TokenType::TOKEN_COLON);
+        } else {
+            while (true) {
+                auto expr = parse_expression();
+                if (!item.match_expr) {
+                    item.match_expr = expr->clone();
+                }
+                item.match_exprs.push_back(std::move(expr));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_COLON, "Expected ':' after case match expression");
+        }
+        item.statements = parse_statement_or_block();
+        case_node->items.push_back(std::move(item));
+    }
+
+    expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase'");
+    return case_node;
 }
 
 std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {

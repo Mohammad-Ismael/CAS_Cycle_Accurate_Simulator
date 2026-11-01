@@ -596,6 +596,9 @@ Token Lexer::next_token() {
         if (ident == "generate") return {TokenType::TOKEN_GENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endgenerate") return {TokenType::TOKEN_ENDGENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "genvar") return {TokenType::TOKEN_GENVAR, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "unique") return {TokenType::TOKEN_UNIQUE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "unique0") return {TokenType::TOKEN_UNIQUE0, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "priority") return {TokenType::TOKEN_PRIORITY, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

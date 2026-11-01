@@ -1454,6 +1454,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_UNIQUE || current.type == TokenType::TOKEN_UNIQUE0 || current.type == TokenType::TOKEN_PRIORITY) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: '" + current.text + "' modifier is not permitted outside procedural or generate block statements per IEEE 1800-2023 section 12.5");
+            }
+
             if (match(TokenType::TOKEN_DEFPARAM)) {
                 if (is_prog) {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: defparam statement is illegal in program scope per IEEE 1800-2023 section 24.3");
@@ -4071,6 +4075,23 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after genvar declaration");
         return;
+    }
+    if (current.type == TokenType::TOKEN_UNIQUE || current.type == TokenType::TOKEN_UNIQUE0 || current.type == TokenType::TOKEN_PRIORITY) {
+        std::string mod_name = current.text;
+        advance();
+        if (current.type == TokenType::TOKEN_IF) {
+            auto node = parse_generate_if(mod);
+            if (blk) blk->nested_generates.push_back(node);
+            else mod->generate_nodes.push_back(node);
+            return;
+        } else if (current.type == TokenType::TOKEN_CASE) {
+            auto node = parse_generate_case(mod);
+            if (blk) blk->nested_generates.push_back(node);
+            else mod->generate_nodes.push_back(node);
+            return;
+        } else {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: '" + mod_name + "' modifier can only prefix an 'if' or 'case' statement per IEEE 1800-2023 section 12.5");
+        }
     }
     if (current.type == TokenType::TOKEN_FOR) {
         auto node = parse_generate_for(mod);

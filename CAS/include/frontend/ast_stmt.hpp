@@ -234,10 +234,21 @@ struct ProceduralDeassignNode : public StatementNode {
     }
 };
 
+enum class DecisionModifier {
+    NONE,
+    UNIQUE,
+    UNIQUE0,
+    PRIORITY
+};
+
 struct IfStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> condition;
     std::vector<std::unique_ptr<StatementNode>> then_branch;
     std::vector<std::unique_ptr<StatementNode>> else_branch;
+    DecisionModifier modifier = DecisionModifier::NONE;
+    std::string src_file = "";
+    size_t src_line = 0;
+
     explicit IfStatementNode(std::unique_ptr<ExpressionNode> cond)
         : condition(std::move(cond)) {}
 
@@ -245,6 +256,9 @@ struct IfStatementNode : public StatementNode {
         auto node = std::make_unique<IfStatementNode>(condition ? condition->clone() : nullptr);
         for (const auto& s : then_branch) node->then_branch.push_back(s ? s->clone() : nullptr);
         for (const auto& s : else_branch) node->else_branch.push_back(s ? s->clone() : nullptr);
+        node->modifier = modifier;
+        node->src_file = src_file;
+        node->src_line = src_line;
         return node;
     }
 };
@@ -334,6 +348,10 @@ struct CaseStatementNode : public StatementNode {
     CaseType case_type = CaseType::CASE;
     std::unique_ptr<ExpressionNode> selector;
     std::vector<CaseItem> items;
+    DecisionModifier modifier = DecisionModifier::NONE;
+    std::string src_file = "";
+    size_t src_line = 0;
+
     explicit CaseStatementNode(std::unique_ptr<ExpressionNode> sel, CaseType ct = CaseType::CASE)
         : case_type(ct), selector(std::move(sel)) {}
 
@@ -347,6 +365,9 @@ struct CaseStatementNode : public StatementNode {
             for (const auto& st : item.statements) ci.statements.push_back(st ? st->clone() : nullptr);
             node->items.push_back(std::move(ci));
         }
+        node->modifier = modifier;
+        node->src_file = src_file;
+        node->src_line = src_line;
         return node;
     }
 };

@@ -223,7 +223,10 @@ enum class TokenType {
     TOKEN_SYS_INCREMENT,
     TOKEN_GENERATE,
     TOKEN_ENDGENERATE,
-    TOKEN_GENVAR
+    TOKEN_GENVAR,
+    TOKEN_UNIQUE,
+    TOKEN_UNIQUE0,
+    TOKEN_PRIORITY
 };
 
 struct Token {

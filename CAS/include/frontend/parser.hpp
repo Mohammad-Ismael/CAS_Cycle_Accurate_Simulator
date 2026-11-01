@@ -242,6 +242,8 @@ public:
     std::unique_ptr<FunctionNode> parse_function(bool is_pure = false);
     std::unique_ptr<TaskNode> parse_task(bool is_pure = false);
     std::unique_ptr<StatementNode> parse_statement();
+    std::unique_ptr<StatementNode> parse_if_statement(DecisionModifier mod = DecisionModifier::NONE, std::string mod_file = "", size_t mod_line = 0);
+    std::unique_ptr<StatementNode> parse_case_statement(DecisionModifier mod = DecisionModifier::NONE, std::string mod_file = "", size_t mod_line = 0);
     std::vector<std::unique_ptr<StatementNode>> parse_statement_or_block();
     ParsedCallArgs parse_call_argument_list();
     std::unique_ptr<ProcessNode> parse_always_ff();
