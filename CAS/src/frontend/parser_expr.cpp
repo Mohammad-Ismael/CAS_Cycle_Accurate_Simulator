@@ -750,12 +750,16 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
            current.type == TokenType::TOKEN_INSIDE) {
         if (current.type == TokenType::TOKEN_INSIDE) {
             advance();
-            expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'inside'");
+            if (!match(TokenType::TOKEN_LBRACE)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Expected '{' opening inside open range list per IEEE 1800-2023 section 11.4.13");
+            }
             std::vector<InsideRange> ranges;
             while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
                 if (match(TokenType::TOKEN_LBRACKET)) {
                     auto lo = parse_expression();
-                    expect(TokenType::TOKEN_COLON, "Expected ':' in inside range");
+                    if (!match(TokenType::TOKEN_COLON)) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Inside operator bounded range item lacks valid colon syntax per IEEE 1800-2023 section 11.4.13");
+                    }
                     auto hi = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in inside range");
                     ranges.emplace_back(std::move(lo), std::move(hi));
@@ -767,6 +771,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
                 break;
             }
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inside range list");
+            if (ranges.empty()) {
+                throw std::runtime_error("[CAS-DTINPCIL] Inside operator open range list cannot be empty per IEEE 1800-2023 section 11.4.13");
+            }
             lhs = std::make_unique<InsideNode>(std::move(lhs), std::move(ranges));
         } else {
             std::string op = current.text;

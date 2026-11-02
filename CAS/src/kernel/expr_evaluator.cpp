@@ -878,20 +878,46 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto inside_node = dynamic_cast<InsideNode*>(expr)) {
         LogicVal target_val = eval(inside_node->target.get(), scope);
+        bool has_unknown = false;
         for (const auto& r : inside_node->ranges) {
             if (r.high) {
                 LogicVal lo = eval(r.low.get(), scope);
                 LogicVal hi = eval(r.high.get(), scope);
-                if (target_val.aval >= lo.aval && target_val.aval <= hi.aval &&
-                    target_val.bval == 0 && lo.bval == 0 && hi.bval == 0) {
-                    return LogicVal::make_known(1, 1);
+                if (lo.is_string || lo.is_real || hi.is_string || hi.is_real || target_val.is_string || target_val.is_real) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Inside operator bounded range bounds must be integral values per IEEE 1800-2023 section 11.4.13");
+                }
+                if (target_val.is_unknown() || lo.is_unknown() || hi.is_unknown()) {
+                    has_unknown = true;
+                    continue;
+                }
+                bool is_signed = target_val.is_signed && lo.is_signed && hi.is_signed;
+                if (is_signed) {
+                    int64_t t = target_val.to_signed();
+                    int64_t l = lo.to_signed();
+                    int64_t h = hi.to_signed();
+                    if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                        return LogicVal::make_known(1, 1);
+                    }
+                } else {
+                    uint64_t t = target_val.aval;
+                    uint64_t l = lo.aval;
+                    uint64_t h = hi.aval;
+                    if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                        return LogicVal::make_known(1, 1);
+                    }
                 }
             } else {
                 LogicVal v = eval(r.low.get(), scope);
-                if (target_val.aval == v.aval && target_val.bval == 0 && v.bval == 0) {
+                LogicVal cmp = LogicOps::wildcard_eq(target_val, v);
+                if (cmp.is_unknown()) {
+                    has_unknown = true;
+                } else if (cmp.aval == 1) {
                     return LogicVal::make_known(1, 1);
                 }
             }
+        }
+        if (has_unknown) {
+            return LogicVal::make_x(1);
         }
         return LogicVal::make_known(1, 0);
     }

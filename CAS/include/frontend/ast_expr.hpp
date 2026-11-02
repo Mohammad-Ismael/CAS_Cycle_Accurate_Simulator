@@ -346,17 +346,22 @@ struct SysCastCallNode : public ExpressionNode {
 };
 
 struct InsideRange {
+    bool is_range = false;
     std::unique_ptr<ExpressionNode> low;
     std::unique_ptr<ExpressionNode> high;
 
     InsideRange() = default;
     InsideRange(std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> h = nullptr)
-        : low(std::move(l)), high(std::move(h)) {}
+        : is_range(h != nullptr), low(std::move(l)), high(std::move(h)) {}
 
     InsideRange clone() const {
-        return InsideRange(low ? low->clone() : nullptr, high ? high->clone() : nullptr);
+        auto r = InsideRange(low ? low->clone() : nullptr, high ? high->clone() : nullptr);
+        r.is_range = is_range;
+        return r;
     }
 };
+
+using RangeItem = InsideRange;
 
 struct InsideNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> target;
@@ -373,6 +378,8 @@ struct InsideNode : public ExpressionNode {
         return std::make_unique<InsideNode>(target ? target->clone() : nullptr, std::move(cloned_ranges));
     }
 };
+
+using InsideExprNode = InsideNode;
 
 struct RandomizeCallNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> target_handle;

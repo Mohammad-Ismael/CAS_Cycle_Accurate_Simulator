@@ -227,6 +227,39 @@ public:
         return LogicVal::make_known(1, match ? 1 : 0);
     }
 
+    static LogicVal wildcard_eq(const LogicVal& l, const LogicVal& r) {
+        if (l.is_string || r.is_string) {
+            if (l.is_string && r.is_string) {
+                return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
+            }
+            return LogicVal::make_known(1, 0);
+        }
+        if (l.is_real || r.is_real) {
+            double lv = l.is_real ? l.real_val : static_cast<double>(l.aval);
+            double rv = r.is_real ? r.real_val : static_cast<double>(r.aval);
+            return LogicVal::make_known(1, (lv == rv) ? 1 : 0);
+        }
+        uint32_t w = std::max(l.width, r.width);
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        LogicVal el = cast_width(l, w, l.is_signed && r.is_signed);
+        LogicVal er = cast_width(r, w, l.is_signed && r.is_signed);
+        uint64_t care_mask = (~er.bval) & mask;
+        uint64_t known_l = (~el.bval) & care_mask;
+        if (((el.aval ^ er.aval) & known_l) != 0) {
+            return LogicVal::make_known(1, 0);
+        }
+        if ((el.bval & care_mask) != 0) {
+            return LogicVal::make_x(1);
+        }
+        return LogicVal::make_known(1, 1);
+    }
+
+    static LogicVal wildcard_neq(const LogicVal& l, const LogicVal& r) {
+        LogicVal eq = wildcard_eq(l, r);
+        if (eq.is_unknown()) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, (eq.aval == 0) ? 1 : 0);
+    }
+
     static LogicVal casex_eq(const LogicVal& l, const LogicVal& r) {
         uint32_t w = std::max(l.width, r.width);
         uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
