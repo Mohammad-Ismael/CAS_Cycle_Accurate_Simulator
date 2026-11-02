@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.38.0.0`  
-**Status:** Production Milestone v3.38.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.39.0.0`  
+**Status:** Production Milestone v3.39.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**  
-`[█████████████████████████████████████████░░░░░] 75.2%`
+`[██████████████████████████████████████████░░░░] 76.6%`
 
-*Current Baseline (v3.38.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Formal Defaults, Named Argument Invocations & Empty Positional Slots (§13.5 & §13.6), Interface Classes, Multiple Interface Implementation, Polymorphic Dispatch & Cross-Casting (§8.26), Array Querying Functions (§7.11), String Data Type & Built-in Methods (§6.16), Streaming Concatenation Operators & Dynamic Slices (§11.4.14), Generate Constructs (§27), Unique, Unique0, and Priority Case/If Decision Statements (§12.5), and Abstract Classes, Pure Virtual Tasks/Functions & Polymorphic Base Dispatch (§8.21).  
-*Upcoming Domains:* Bit-stream casting, chandle memory leak tracking, and functional coverage cross options.
+*Current Baseline (v3.39.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Defaults & Named Args (§13.5 & §13.6), Interface Classes (§8.26), Array Querying Functions (§7.11), String Built-in Methods (§6.16), Streaming Concatenation Operators (§11.4.14), Generate Constructs (§27), Decision Modifiers (§12.5), Abstract Classes & Pure Virtual Methods (§8.21), and Clocking Block Skew Timing (§14.11, §14.13, §14.16 #1step Preponed sampling, output skew drives, ## cycle delays, default clocking).  
+*Upcoming Domains:* Let Declarations (§11.12), Extern Subroutine Bodies (§8.24), Typedef Forward Declarations (§6.18).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§14.11, §14.13, §14.16** | **Clocking Block Skews, #1step Preponed Sampling & Cycle Delays** | `clocking ... endclocking` declarations with input/output skews (`default input #1step output #2;`), `#1step` Preponed region sampling isolation from Active/NBA updates, delayed output drives (`cb.sig <= expr`) scheduled at `T_clk + output_skew`, naked cycle delay operator (`##N`) synchronized to in-scope default clocking (`default clocking cb;`), and context diagnostic `[CAS-DTINPCIL]` (enforcing in-scope default clocking specification for `##N` and prohibiting drives on input clocking signals). |
 | **§8.21** | **Abstract Classes, Pure Virtual Methods & Polymorphic Dispatch** | `virtual class ... endclass` declarations, pure virtual methods (`pure virtual function/task ...;`), concrete derived class inheritance (`extends`), concrete method implementation enforcement at elaboration time with signature validation, polymorphic dispatch through abstract base handles (`base_driver drivers[2]; drivers[0] = axi_inst; drivers[0].send_packet(...);`), direct instantiation prohibition with diagnostic `[CAS-DTINPCIL]` on `new` of virtual class, pure virtual declaration validation with `[CAS-DTINPCIL]` (enforcing presence only inside virtual or interface classes), and task/function call-frame stack coordination during unqualified method calls. |
 | **§12.5** | **Unique, Unique0 & Priority Decision Statements (If/Case)** | Decision modifiers (`unique`, `unique0`, `priority`) on `if-else-if` chains and `case`/`casex`/`casez` statements; exclusivity and completeness violation checking at runtime with standard IEEE diagnostic messages; evaluation short-circuiting on priority if; zero-match tolerance on unique0; suppression of violation logging when selector/condition evaluates to unknown (X/Z); and context diagnostic `[CAS-DTINPCIL]` (enforcing modifier presence only on `if`/`case` and prohibiting usage outside procedural or generate block statements). |
 | **§27** | **Generate Constructs: Loop, Conditional If/Else, Case & Scopes** | Structural `generate ... endgenerate` blocks, loop generate (`for (genvar_init; const_cond; step) begin [: label] ... end`) with `genvar` declarations, conditional `if-else` generate, `case` generate, elaboration-time constant condition evaluation, iterative unrolling of internal signals, processes, continuous assigns, memories, hierarchical indexed scope allocation (`genblk[i]`), cross-hierarchy scope resolution, and context diagnostic `[CAS-DTINPCIL]` (enforcing procedural modification rejection of genvars per §27.4 and non-constant generate conditions per §27.5). |
@@ -89,7 +90,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (44 / 44 PASS)
+## Milestone Regression Pass Matrix (60 / 60 PASS)
 
 All milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
@@ -149,6 +150,12 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.31.0.0** | `projects/v3_31_0_0_subroutine_defaults` | Subroutine Default Arguments, Named Invocation `.arg()`, Empty Slots `(,)` (§13.5, §13.6) | **PASS** | 100% VCS |
 | **v3.32.0.0** | `projects/v3_32_0_0_interface_classes` | Interface Classes (`interface class`), Pure Virtual Methods, Multiple `implements`, Cross-Casting (§8.26) | **PASS** | 100% VCS |
 | **v3.33.0.0** | `projects/v3_33_0_0_array_queries` | Array Querying Functions (`$size`, `$dimensions`, `$unpacked_dimensions`, `$left`, `$right`, `$low`, `$high`, `$increment`) (§7.11) | **PASS** | 100% VCS |
+| **v3.34.0.0** | `projects/v3_34_0_0_string_methods` | String Data Type & Built-in Methods (`len`, `putc`, `getc`, `substr`, `atoi`, etc.) (§6.16) | **PASS** | 100% VCS |
+| **v3.35.0.0** | `projects/v3_35_0_0_streaming_operators` | Streaming Concatenation Operators (`{>> {}}`, `{<< {}}`) & Dynamic Slices (§11.4.14) | **PASS** | 100% VCS |
+| **v3.36.0.0** | `projects/v3_36_0_0_generate_constructs` | Generate Constructs (`for`, `if-else`, `case`, `genvar`, `genblk[i]`) (§27) | **PASS** | 100% VCS |
+| **v3.37.0.0** | `projects/v3_37_0_0_unique_priority` | Unique, Unique0, and Priority Case/If Decision Statements (§12.5) | **PASS** | 100% VCS |
+| **v3.38.0.0** | `projects/v3_38_0_0_abstract_classes` | Abstract Classes, Pure Virtual Tasks/Functions & Polymorphic Base Dispatch (§8.21) | **PASS** | 100% VCS |
+| **v3.39.0.0** | `projects/v3_39_0_0_clocking_skew` | Clocking Block Skew Timing, #1step Preponed Sampling, Output Drives & Cycle Delays (§14.11, §14.13, §14.16) | **PASS** | 100% VCS |
 
 ---
 

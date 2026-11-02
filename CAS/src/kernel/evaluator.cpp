@@ -2011,14 +2011,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 auto& cb = engine.clocking_blocks[cb_id];
                 auto sig_it = cb.signals.find(member_name);
                 if (sig_it != cb.signals.end()) {
+                    if (sig_it->second.direction == "input") {
+                        throw std::runtime_error("[CAS-DTINPCIL] Attempted to drive input clocking block signal '" + member_name + "' per IEEE 1800-2023 section 14.16");
+                    }
                     size_t target_net_id = sig_it->second.net_id;
                     if (target_net_id != (size_t)-1) {
                         LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
                         LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                        uint64_t skew_ticks = sig_it->second.skew_ticks;
                         if (cb.fired_in_time_slot) {
-                            engine.scheduler.queue_nba(target_net_id, casted);
+                            if (skew_ticks == 0) {
+                                engine.scheduler.queue_nba(target_net_id, casted);
+                            } else {
+                                uint64_t wake_time = engine.scheduler.get_sim_time() + skew_ticks;
+                                engine.scheduler.queue_delayed_nba(wake_time, target_net_id, casted);
+                            }
                         } else {
-                            cb.pending_drives.push_back({target_net_id, casted});
+                            cb.pending_drives.push_back({target_net_id, casted, skew_ticks});
                         }
                         return;
                     }
@@ -2261,13 +2270,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     auto& cb = engine.clocking_blocks[cb_id];
                     auto sig_it = cb.signals.find(member_name);
                     if (sig_it != cb.signals.end()) {
+                        if (sig_it->second.direction == "input") {
+                            throw std::runtime_error("[CAS-DTINPCIL] Attempted to drive input clocking block signal '" + member_name + "' per IEEE 1800-2023 section 14.16");
+                        }
                         size_t target_net_id = sig_it->second.net_id;
                         if (target_net_id != (size_t)-1) {
                             LogicVal casted = LogicOps::cast_width(rhs_val, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                            uint64_t skew_ticks = sig_it->second.skew_ticks;
                             if (cb.fired_in_time_slot) {
-                                engine.scheduler.queue_nba(target_net_id, casted);
+                                if (skew_ticks == 0) {
+                                    engine.scheduler.queue_nba(target_net_id, casted);
+                                } else {
+                                    uint64_t wake_time = engine.scheduler.get_sim_time() + skew_ticks;
+                                    engine.scheduler.queue_delayed_nba(wake_time, target_net_id, casted);
+                                }
                             } else {
-                                cb.pending_drives.push_back({target_net_id, casted});
+                                cb.pending_drives.push_back({target_net_id, casted, skew_ticks});
                             }
                             return;
                         }

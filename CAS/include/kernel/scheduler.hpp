@@ -91,6 +91,8 @@ private:
     void capture_preponed_samples();
     bool evaluate_sva_assertions();
     std::vector<LogicVal> preponed_net_values;
+    std::map<uint64_t, std::vector<LogicVal>> net_time_history;
+    LogicVal get_historical_net_value(size_t net_id, uint64_t sample_time) const;
     std::unordered_map<size_t, SvaClockEdgeHistory> sva_clock_history;
 
     uint64_t current_sim_time = 0;

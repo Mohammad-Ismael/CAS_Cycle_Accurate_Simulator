@@ -411,6 +411,13 @@ struct ClockingItem {
     std::string direction; // "input", "output", "inout"
     std::string signal_name;
     std::string skew = "";
+    SkewType skew_type = SkewType::NONE;
+    uint64_t skew_val = 0;
+};
+
+struct DefaultClockingNode : public ASTNode {
+    std::string clocking_name;
+    explicit DefaultClockingNode(std::string name) : clocking_name(std::move(name)) {}
 };
 
 struct ClockingBlockNode : public ASTNode {
@@ -419,7 +426,10 @@ struct ClockingBlockNode : public ASTNode {
     EdgeType clock_edge = EdgeType::POSEDGE;
     std::string clock_signal;
     std::string default_input_skew = "1step";
+    SkewType default_input_skew_type = SkewType::STEP;
     std::string default_output_skew = "0";
+    SkewType default_output_skew_type = SkewType::TIME;
+    uint64_t default_output_skew_val = 0;
     std::vector<ClockingItem> items;
     std::unordered_map<std::string, ClockingItem> item_map;
 
@@ -428,7 +438,15 @@ struct ClockingBlockNode : public ASTNode {
         : name(std::move(n)), is_default(def) {}
 
     void add_item(const std::string& dir, const std::string& sig_name, const std::string& sk = "") {
-        ClockingItem item{dir, sig_name, sk};
+        ClockingItem item;
+        item.direction = dir;
+        item.signal_name = sig_name;
+        item.skew = sk;
+        if (sk == "1step" || (sk.empty() && default_input_skew == "1step" && dir == "input")) {
+            item.skew_type = SkewType::STEP;
+        } else if (!sk.empty()) {
+            item.skew_type = SkewType::TIME;
+        }
         items.push_back(item);
         item_map[sig_name] = item;
     }
@@ -862,6 +880,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<ClockingBlockNode>> clocking_blocks;
     std::unordered_map<std::string, ClockingBlockNode*> clocking_block_map;
     std::string default_clocking_name = "";
+    std::vector<std::unique_ptr<DefaultClockingNode>> default_clocking_nodes;
     std::vector<std::shared_ptr<ClassNode>> classes;
     std::unordered_map<std::string, ClassNode*> class_map;
     std::vector<std::shared_ptr<CovergroupNode>> covergroups;

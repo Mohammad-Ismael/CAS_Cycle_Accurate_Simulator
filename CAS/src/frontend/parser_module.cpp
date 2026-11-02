@@ -690,11 +690,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             bool is_def_cb = false;
             if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_CLOCKING) {
+                advance(); // consume 'default'
+                advance(); // consume 'clocking'
+                if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_SEMICOLON) {
+                    std::string cb_name = current.text;
+                    advance(); // consume cb_name
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after default clocking");
+                    mod->default_clocking_name = cb_name;
+                    mod->default_clocking_nodes.push_back(std::make_unique<DefaultClockingNode>(cb_name));
+                    continue;
+                }
                 is_def_cb = true;
-                advance();
             }
-            if (current.type == TokenType::TOKEN_CLOCKING) {
-                advance();
+            if (current.type == TokenType::TOKEN_CLOCKING || is_def_cb) {
+                if (!is_def_cb) advance();
                 std::string cb_name = "";
                 if (current.type == TokenType::TOKEN_IDENTIFIER) {
                     cb_name = current.text;
@@ -728,8 +737,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
                             if (match(TokenType::TOKEN_INPUT)) {
                                 cb_node->default_input_skew = parse_skew_spec();
+                                if (cb_node->default_input_skew == "1step") {
+                                    cb_node->default_input_skew_type = SkewType::STEP;
+                                } else {
+                                    cb_node->default_input_skew_type = SkewType::TIME;
+                                }
                             } else if (match(TokenType::TOKEN_OUTPUT)) {
                                 cb_node->default_output_skew = parse_skew_spec();
+                                cb_node->default_output_skew_type = SkewType::TIME;
+                                try {
+                                    cb_node->default_output_skew_val = std::stoull(cb_node->default_output_skew);
+                                } catch (...) {}
                             } else {
                                 advance();
                             }
@@ -2023,6 +2041,7 @@ std::string Parser::parse_skew_spec() {
         if (current.type == TokenType::TOKEN_IDENTIFIER) {
             std::string id = current.text;
             advance();
+            if (id == "1step") return "1step";
             return id;
         }
     }

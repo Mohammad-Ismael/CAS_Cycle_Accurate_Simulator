@@ -110,6 +110,24 @@ void StratifiedScheduler::capture_preponed_samples() {
     for (size_t i = 0; i < engine.netlist.size(); ++i) {
         preponed_net_values[i] = engine.netlist[i].value;
     }
+    net_time_history[current_sim_time] = preponed_net_values;
+    while (net_time_history.size() > 1024) {
+        net_time_history.erase(net_time_history.begin());
+    }
+}
+
+LogicVal StratifiedScheduler::get_historical_net_value(size_t net_id, uint64_t sample_time) const {
+    if (net_time_history.empty()) {
+        return net_id < engine.netlist.size() ? engine.netlist[net_id].value : LogicVal::make_x(1);
+    }
+    auto it = net_time_history.upper_bound(sample_time);
+    if (it != net_time_history.begin()) {
+        --it;
+        if (net_id < it->second.size()) {
+            return it->second[net_id];
+        }
+    }
+    return net_id < engine.netlist.size() ? engine.netlist[net_id].value : LogicVal::make_x(1);
 }
 
 bool StratifiedScheduler::evaluate_sva_assertions() {
@@ -759,18 +777,34 @@ void StratifiedScheduler::evaluate_clocking_blocks() {
 
         if (clk_triggered) {
             cb.fired_in_time_slot = true;
-            // Preponed sampling of input signals
+            // Preponed / historical sampling of input signals
             for (auto& kv : cb.signals) {
                 if (kv.second.direction == "input" || kv.second.direction == "inout") {
                     if (kv.second.net_id < engine.netlist.size()) {
-                        kv.second.sampled_value = engine.netlist[kv.second.net_id].value;
+                        if (kv.second.is_1step) {
+                            if (kv.second.net_id < preponed_net_values.size()) {
+                                kv.second.sampled_value = preponed_net_values[kv.second.net_id];
+                            } else {
+                                kv.second.sampled_value = engine.netlist[kv.second.net_id].value;
+                            }
+                        } else if (kv.second.skew_ticks > 0) {
+                            uint64_t sample_time = current_sim_time >= kv.second.skew_ticks ? current_sim_time - kv.second.skew_ticks : 0;
+                            kv.second.sampled_value = get_historical_net_value(kv.second.net_id, sample_time);
+                        } else {
+                            kv.second.sampled_value = engine.netlist[kv.second.net_id].value;
+                        }
                     }
                 }
             }
 
             // Commit pending drives synchronized to this clock edge
             for (const auto& drv : cb.pending_drives) {
-                queue_nba(drv.net_id, drv.val);
+                uint64_t wake_time = current_sim_time + drv.skew_ticks;
+                if (drv.skew_ticks == 0) {
+                    queue_nba(drv.net_id, drv.val);
+                } else {
+                    queue_delayed_nba(wake_time, drv.net_id, drv.val);
+                }
             }
             cb.pending_drives.clear();
 
@@ -1497,6 +1531,9 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
                 if (cycles > 0) {
                     size_t cb_id = engine.get_clocking_block_id(cdelay->clocking_name, bp.scope);
+                    if (cb_id == (size_t)-1) {
+                        throw std::runtime_error("[CAS-DTINPCIL] [CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                    }
                     bp.is_waiting_cycle = true;
                     bp.cycle_delay_count = (size_t)cycles;
                     bp.clocking_block_id = cb_id;
@@ -2050,6 +2087,9 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
             if (cycles > 0) {
                 size_t cb_id = engine.get_clocking_block_id(cdelay->clocking_name, bp.scope);
+                if (cb_id == (size_t)-1) {
+                    throw std::runtime_error("[CAS-DTINPCIL] [CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                }
                 bp.is_waiting_cycle = true;
                 bp.cycle_delay_count = (size_t)cycles;
                 bp.clocking_block_id = cb_id;

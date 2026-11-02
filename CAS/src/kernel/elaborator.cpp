@@ -1596,6 +1596,21 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         cb_inst.default_input_skew = cb_node->default_input_skew;
         cb_inst.default_output_skew = cb_node->default_output_skew;
 
+        uint64_t timescale_ratio = Lexer::get_timescale_ratio();
+        if (timescale_ratio == 0) timescale_ratio = 1;
+
+        if (cb_node->default_input_skew == "1step") {
+            cb_inst.default_input_skew_type = SkewType::STEP;
+        }
+
+        uint64_t def_out_ticks = 0;
+        if (!cb_node->default_output_skew.empty() && cb_node->default_output_skew != "0" && cb_node->default_output_skew != "1step") {
+            try {
+                def_out_ticks = std::stoull(cb_node->default_output_skew) * timescale_ratio;
+            } catch (...) {}
+        }
+        cb_inst.default_output_skew_ticks = def_out_ticks;
+
         std::string clk_scoped = scope.empty() ? cb_node->clock_signal : (scope + "." + cb_node->clock_signal);
         if (result.net_map.find(clk_scoped) != result.net_map.end()) {
             cb_inst.clock_net_id = result.net_map.at(clk_scoped);
@@ -1607,7 +1622,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             ClockingSignalInfo sinfo;
             sinfo.direction = item.direction;
             sinfo.signal_name = item.signal_name;
-            sinfo.skew = item.skew.empty() ? (item.direction == "input" ? cb_node->default_input_skew : cb_node->default_output_skew) : item.skew;
+            std::string eff_skew = item.skew.empty() 
+                ? (item.direction == "input" ? cb_node->default_input_skew : cb_node->default_output_skew) 
+                : item.skew;
+            sinfo.skew = eff_skew;
+
+            if (eff_skew == "1step" || eff_skew == "#1step") {
+                sinfo.is_1step = true;
+                sinfo.skew_type = SkewType::STEP;
+                sinfo.skew_ticks = 0;
+            } else if (!eff_skew.empty() && eff_skew != "0") {
+                sinfo.skew_type = SkewType::TIME;
+                try {
+                    sinfo.skew_ticks = std::stoull(eff_skew) * timescale_ratio;
+                } catch (...) {
+                    sinfo.skew_ticks = 0;
+                }
+            } else {
+                sinfo.skew_type = SkewType::NONE;
+                sinfo.skew_ticks = 0;
+            }
 
             std::string sig_scoped = scope.empty() ? item.signal_name : (scope + "." + item.signal_name);
             if (result.net_map.find(sig_scoped) != result.net_map.end()) {
@@ -1625,7 +1659,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.clocking_block_map[full_cb_name] = cb_idx;
         result.clocking_block_map[cb_node->name] = cb_idx;
 
-        if (cb_node->is_default) {
+        if (cb_node->is_default || mod->default_clocking_name == cb_node->name) {
             result.default_clocking_map[scope] = cb_idx;
         }
     }
@@ -1635,11 +1669,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (auto cd = dynamic_cast<CycleDelayStatementNode*>(s)) {
             if (cd->clocking_name.empty()) {
                 if (mod->default_clocking_name.empty()) {
-                    throw std::runtime_error("[CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                    throw std::runtime_error("[CAS-DTINPCIL] [CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
                 }
             } else {
                 if (mod->clocking_block_map.find(cd->clocking_name) == mod->clocking_block_map.end()) {
-                    throw std::runtime_error("[CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
+                    throw std::runtime_error("[CAS-DTINPCIL] [CAS-DCNS] Default clocking not specified: Cycle delay operator requires a default clocking to be specified.");
                 }
             }
         } else if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
