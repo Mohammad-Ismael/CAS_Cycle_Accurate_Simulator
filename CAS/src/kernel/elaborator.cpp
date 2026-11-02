@@ -2251,6 +2251,17 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 }
                 cur_base = cur_base->base_class;
             }
+
+            for (const auto& fn : cls->functions) {
+                if (fn->is_extern && !fn->has_body) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' has unimplemented extern method '" + fn->name + "' per IEEE 1800-2023 section 8.24");
+                }
+            }
+            for (const auto& tk : cls->tasks) {
+                if (tk->is_extern && !tk->has_body) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Concrete class '" + cls->name + "' has unimplemented extern task '" + tk->name + "' per IEEE 1800-2023 section 8.24");
+                }
+            }
         }
     }
 

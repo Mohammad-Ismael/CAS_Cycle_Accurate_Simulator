@@ -1,9 +1,11 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
-std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure) {
+std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_extern) {
     auto func = std::make_unique<FunctionNode>();
     func->is_pure = is_pure;
+    func->is_extern = is_extern;
+    func->has_body = !is_pure && !is_extern;
     if (match(TokenType::TOKEN_AUTOMATIC)) {
         func->is_automatic = true;
     } else if (match(TokenType::TOKEN_STATIC)) {
@@ -11,65 +13,108 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure) {
         func->is_static = true;
     }
 
-    if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
-    if (current.type == TokenType::TOKEN_VOID) {
-        func->return_width = 0;
-        advance();
-    } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
-        func->return_width = 1;
-        advance();
-    } else if (current.type == TokenType::TOKEN_INTEGER) {
-        func->return_width = 32;
-        func->return_signed = true;
-        advance();
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
-        if (current.text == "string") { func->return_width = 64; func->return_type_name = "string"; }
-        else if (current.text == "void") func->return_width = 0;
-        else if (current.text == "byte") func->return_width = 8;
-        else if (current.text == "shortint") func->return_width = 16;
-        else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
-        else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
-        advance();
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
-        std::string p_name = current.text;
-        advance(); advance();
-        std::string t_name = current.text;
-        std::string full_t = p_name + "::" + t_name;
-        auto einfo = get_enum_typedef(full_t);
-        auto sinfo = get_struct_typedef(full_t);
-        func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
-        func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
-        advance();
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
-        auto einfo = get_enum_typedef(current.text);
-        auto sinfo = get_struct_typedef(current.text);
-        func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
-        func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
-        advance();
-    }
-    if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
-
-    if (match(TokenType::TOKEN_LBRACKET)) {
-        auto msb = parse_expression();
-        expect(TokenType::TOKEN_COLON, "Expected ':' in function return range");
-        auto lsb = parse_expression();
-        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in function return range");
-        if (auto nm = dynamic_cast<NumberNode*>(msb.get())) {
-            if (auto nl = dynamic_cast<NumberNode*>(lsb.get())) {
-                func->return_width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+    bool name_already_parsed = false;
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON && is_known_class(current.text)) {
+        std::string class_name = current.text;
+        advance(); // consume class_name
+        advance(); // consume '::'
+        std::string method_name = "";
+        if (current.type == TokenType::TOKEN_NEW) {
+            method_name = "new";
+            advance();
+            func->return_width = 0;
+        } else {
+            method_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected method name after '::'");
+            ClassNode* cnode = find_class(class_name);
+            if (cnode && cnode->function_map.count(method_name)) {
+                func->return_width = cnode->function_map[method_name]->return_width;
+                func->return_signed = cnode->function_map[method_name]->return_signed;
             }
         }
-        func->return_msb_expr = std::move(msb);
-        func->return_lsb_expr = std::move(lsb);
+        func->name = class_name + "::" + method_name;
+        name_already_parsed = true;
     }
 
-    if (current.type == TokenType::TOKEN_NEW) {
-        func->name = "new";
-        advance();
-    } else {
-        func->name = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected function name");
+    if (!name_already_parsed) {
+        if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
+        if (current.type == TokenType::TOKEN_VOID) {
+            func->return_width = 0;
+            advance();
+        } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
+            current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
+            func->return_width = 1;
+            advance();
+        } else if (current.type == TokenType::TOKEN_INTEGER) {
+            func->return_width = 32;
+            func->return_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
+            if (current.text == "string") { func->return_width = 64; func->return_type_name = "string"; }
+            else if (current.text == "void") func->return_width = 0;
+            else if (current.text == "byte") func->return_width = 8;
+            else if (current.text == "shortint") func->return_width = 16;
+            else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
+            else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            std::string p_name = current.text;
+            advance(); advance();
+            std::string t_name = current.text;
+            std::string full_t = p_name + "::" + t_name;
+            auto einfo = get_enum_typedef(full_t);
+            auto sinfo = get_struct_typedef(full_t);
+            func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+            func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+            auto einfo = get_enum_typedef(current.text);
+            auto sinfo = get_struct_typedef(current.text);
+            func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+            func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+            advance();
+        }
+        if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in function return range");
+            auto lsb = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in function return range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb.get())) {
+                    func->return_width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+            func->return_msb_expr = std::move(msb);
+            func->return_lsb_expr = std::move(lsb);
+        }
+
+        if (current.type == TokenType::TOKEN_NEW) {
+            func->name = "new";
+            advance();
+        } else {
+            func->name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected function name");
+            if (match(TokenType::TOKEN_COLON_COLON)) {
+                std::string class_name = func->name;
+                std::string method_name = "";
+                if (current.type == TokenType::TOKEN_NEW) {
+                    method_name = "new";
+                    advance();
+                } else {
+                    method_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected method name after '::'");
+                }
+                func->name = class_name + "::" + method_name;
+            }
+        }
+    }
+
+    if (func->name.find("::") != std::string::npos) {
+        if (func->is_static) {
+            throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + func->name + "'");
+        }
     }
 
     if (match(TokenType::TOKEN_LPAREN)) {
@@ -175,7 +220,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure) {
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after function header");
 
-    if (is_pure) {
+    if (is_pure || is_extern) {
         return func;
     }
 
@@ -184,7 +229,12 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure) {
     }
     expect(TokenType::TOKEN_ENDFUNCTION, "Expected 'endfunction'");
     if (match(TokenType::TOKEN_COLON)) {
-        if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) advance();
+        if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) {
+            advance();
+            if (match(TokenType::TOKEN_COLON_COLON)) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) advance();
+            }
+        }
     }
     return func;
 }

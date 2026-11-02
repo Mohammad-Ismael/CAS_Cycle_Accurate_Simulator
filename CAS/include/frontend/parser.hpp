@@ -89,6 +89,8 @@ public:
     bool is_interface_type(const std::string& name) const {
         return known_interfaces.find(name) != known_interfaces.end();
     }
+    ClassNode* find_class(const std::string& name) const;
+    bool is_known_class(const std::string& name) const;
 
     std::shared_ptr<EnumTypeNode> get_enum_typedef(const std::string& name) const {
         auto it = typedef_map.find(name);
@@ -250,8 +252,10 @@ public:
     explicit Parser(Lexer& lex);
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();
-    std::unique_ptr<FunctionNode> parse_function(bool is_pure = false);
-    std::unique_ptr<TaskNode> parse_task(bool is_pure = false);
+    std::unique_ptr<FunctionNode> parse_function(bool is_pure = false, bool is_extern = false);
+    std::unique_ptr<TaskNode> parse_task(bool is_pure = false, bool is_extern = false);
+    void bind_out_of_body_function(std::unique_ptr<FunctionNode> fn);
+    void bind_out_of_body_task(std::unique_ptr<TaskNode> t);
     std::unique_ptr<StatementNode> parse_statement();
     std::unique_ptr<StatementNode> parse_if_statement(DecisionModifier mod = DecisionModifier::NONE, std::string mod_file = "", size_t mod_line = 0);
     std::unique_ptr<StatementNode> parse_case_statement(DecisionModifier mod = DecisionModifier::NONE, std::string mod_file = "", size_t mod_line = 0);

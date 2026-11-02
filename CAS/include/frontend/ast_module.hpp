@@ -197,6 +197,8 @@ struct TaskNode : public ASTNode {
     bool is_virtual = false;
     bool is_static = false;
     bool is_pure = false;
+    bool is_extern = false;
+    bool has_body = true;
     std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
     const std::vector<std::unique_ptr<StatementNode>>* shared_body = nullptr;
@@ -217,6 +219,8 @@ struct FunctionNode : public ASTNode {
     bool is_virtual = false;
     bool is_static = false;
     bool is_pure = false;
+    bool is_extern = false;
+    bool has_body = true;
     uint32_t return_width = 32;
     bool return_signed = false;
     std::string return_type_name = "";

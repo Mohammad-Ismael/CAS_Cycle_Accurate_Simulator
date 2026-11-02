@@ -359,6 +359,48 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        bool has_file_virt_qual = false;
+        bool has_file_stat_qual = false;
+        bool has_file_ext_qual = false;
+        if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type != TokenType::TOKEN_CLASS && peek_token().type != TokenType::TOKEN_INTERFACE) {
+            has_file_virt_qual = true;
+            advance();
+        }
+        if (current.type == TokenType::TOKEN_STATIC) {
+            has_file_stat_qual = true;
+            advance();
+        }
+        if (current.type == TokenType::TOKEN_EXTERN) {
+            has_file_ext_qual = true;
+            advance();
+        }
+
+        if (match(TokenType::TOKEN_FUNCTION)) {
+            auto fn = parse_function();
+            if (fn) {
+                if (fn->name.find("::") != std::string::npos) {
+                    if (has_file_virt_qual || has_file_stat_qual || has_file_ext_qual || fn->is_static) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + fn->name + "'");
+                    }
+                    bind_out_of_body_function(std::move(fn));
+                }
+            }
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_TASK)) {
+            auto t = parse_task();
+            if (t) {
+                if (t->name.find("::") != std::string::npos) {
+                    if (has_file_virt_qual || has_file_stat_qual || has_file_ext_qual || t->is_static) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + t->name + "'");
+                    }
+                    bind_out_of_body_task(std::move(t));
+                }
+            }
+            continue;
+        }
+
         bool is_iface = false;
         bool is_prog = false;
         if (current.type == TokenType::TOKEN_INTERFACE) {
@@ -1780,13 +1822,25 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             bool is_virt = false;
+            bool is_stat = false;
+            bool is_ext = false;
             if (match(TokenType::TOKEN_VIRTUAL)) is_virt = true;
+            if (match(TokenType::TOKEN_STATIC)) is_stat = true;
+            if (match(TokenType::TOKEN_EXTERN)) is_ext = true;
             // Function declaration parsed by parser_function.cpp
             if (match(TokenType::TOKEN_FUNCTION)) {
                 auto fn = parse_function();
                 if (fn) {
-                    fn->is_virtual = is_virt;
-                    mod->functions.push_back(std::move(fn));
+                    if (fn->name.find("::") != std::string::npos) {
+                        if (is_virt || is_stat || is_ext || fn->is_static) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + fn->name + "'");
+                        }
+                        bind_out_of_body_function(std::move(fn));
+                    } else {
+                        fn->is_virtual = is_virt;
+                        if (is_stat) fn->is_static = true;
+                        mod->functions.push_back(std::move(fn));
+                    }
                 }
                 continue;
             }
@@ -1794,8 +1848,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (match(TokenType::TOKEN_TASK)) {
                 auto t = parse_task();
                 if (t) {
-                    t->is_virtual = is_virt;
-                    mod->tasks.push_back(std::move(t));
+                    if (t->name.find("::") != std::string::npos) {
+                        if (is_virt || is_stat || is_ext || t->is_static) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + t->name + "'");
+                        }
+                        bind_out_of_body_task(std::move(t));
+                    } else {
+                        t->is_virtual = is_virt;
+                        if (is_stat) t->is_static = true;
+                        mod->tasks.push_back(std::move(t));
+                    }
                 }
                 continue;
             }
@@ -2326,20 +2388,27 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         bool is_pure = false;
         bool is_virt = false;
         bool is_stat = false;
-        if (match(TokenType::TOKEN_PURE)) {
-            is_pure = true;
-            if (match(TokenType::TOKEN_VIRTUAL)) {
-                is_virt = true;
-            } else {
-                throw std::runtime_error("[CAS-DTINPCIL] Expected 'virtual' after 'pure' per IEEE 1800-2023 section 8.26");
-            }
-        } else if (match(TokenType::TOKEN_VIRTUAL)) {
-            is_virt = true;
-            if (match(TokenType::TOKEN_PURE)) {
+        bool is_ext = false;
+
+        while (true) {
+            if (match(TokenType::TOKEN_EXTERN)) {
+                is_ext = true;
+            } else if (match(TokenType::TOKEN_PURE)) {
                 is_pure = true;
+            } else if (match(TokenType::TOKEN_VIRTUAL)) {
+                is_virt = true;
+            } else if (match(TokenType::TOKEN_STATIC)) {
+                is_stat = true;
+            } else {
+                break;
             }
-        } else if (match(TokenType::TOKEN_STATIC)) {
-            is_stat = true;
+        }
+
+        if (is_pure && !is_virt) {
+            throw std::runtime_error("[CAS-DTINPCIL] Expected 'virtual' after 'pure' per IEEE 1800-2023 section 8.26");
+        }
+        if (is_ext && is_pure) {
+            throw std::runtime_error("[CAS-DTINPCIL] Method cannot be declared both 'pure' and 'extern' per IEEE 1800-2023 section 8.24");
         }
 
         if (current.type == TokenType::TOKEN_FUNCTION) {
@@ -2350,12 +2419,14 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             if (is_pure && !is_interface_class && !cls->is_abstract) {
                 throw std::runtime_error("[CAS-DTINPCIL] Pure virtual method can only be declared inside a virtual class or interface class per IEEE 1800-2023 section 8.21");
             }
-            auto fn = parse_function(is_pure);
+            auto fn = parse_function(is_pure, is_ext);
             if (fn) {
                 if (is_interface_class && fn->name == "new") {
                     throw std::runtime_error("[CAS-DTINPCIL] Interface class '" + class_name + "' cannot define constructor 'new' per IEEE 1800-2023 section 8.26");
                 }
                 fn->is_pure = is_pure;
+                fn->is_extern = is_ext;
+                fn->has_body = !is_pure && !is_ext;
                 fn->is_virtual = is_virt;
                 fn->is_static = is_stat || fn->is_static;
                 cls->add_function(std::move(fn));
@@ -2369,9 +2440,11 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             if (is_pure && !is_interface_class && !cls->is_abstract) {
                 throw std::runtime_error("[CAS-DTINPCIL] Pure virtual method can only be declared inside a virtual class or interface class per IEEE 1800-2023 section 8.21");
             }
-            auto t = parse_task(is_pure);
+            auto t = parse_task(is_pure, is_ext);
             if (t) {
                 t->is_pure = is_pure;
+                t->is_extern = is_ext;
+                t->has_body = !is_pure && !is_ext;
                 t->is_virtual = is_virt;
                 t->is_static = is_stat || t->is_static;
                 cls->add_task(std::move(t));
@@ -3718,11 +3791,34 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        bool has_pkg_virt_qual = false;
+        bool has_pkg_stat_qual = false;
+        bool has_pkg_ext_qual = false;
+        if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type != TokenType::TOKEN_CLASS && peek_token().type != TokenType::TOKEN_INTERFACE) {
+            has_pkg_virt_qual = true;
+            advance();
+        }
+        if (current.type == TokenType::TOKEN_STATIC) {
+            has_pkg_stat_qual = true;
+            advance();
+        }
+        if (current.type == TokenType::TOKEN_EXTERN) {
+            has_pkg_ext_qual = true;
+            advance();
+        }
+
         if (match(TokenType::TOKEN_FUNCTION)) {
             auto fn = parse_function();
             if (fn) {
-                pkg->function_map[fn->name] = fn.get();
-                pkg->functions.push_back(std::move(fn));
+                if (fn->name.find("::") != std::string::npos) {
+                    if (has_pkg_virt_qual || has_pkg_stat_qual || has_pkg_ext_qual || fn->is_static) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + fn->name + "'");
+                    }
+                    bind_out_of_body_function(std::move(fn));
+                } else {
+                    pkg->function_map[fn->name] = fn.get();
+                    pkg->functions.push_back(std::move(fn));
+                }
             }
             continue;
         }
@@ -3730,8 +3826,15 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
         if (match(TokenType::TOKEN_TASK)) {
             auto t = parse_task();
             if (t) {
-                pkg->task_map[t->name] = t.get();
-                pkg->tasks.push_back(std::move(t));
+                if (t->name.find("::") != std::string::npos) {
+                    if (has_pkg_virt_qual || has_pkg_stat_qual || has_pkg_ext_qual || t->is_static) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + t->name + "'");
+                    }
+                    bind_out_of_body_task(std::move(t));
+                } else {
+                    pkg->task_map[t->name] = t.get();
+                    pkg->tasks.push_back(std::move(t));
+                }
             }
             continue;
         }
@@ -4515,5 +4618,87 @@ LetPortItem Parser::parse_let_port_item() {
     }
 
     return LetPortItem(port_name, is_typed, data_type, width, is_signed, std::move(default_value));
+}
+
+void Parser::bind_out_of_body_function(std::unique_ptr<FunctionNode> fn) {
+    if (!fn) return;
+    size_t colon_pos = fn->name.find("::");
+    if (colon_pos == std::string::npos) return;
+
+    std::string class_name = fn->name.substr(0, colon_pos);
+    std::string method_name = fn->name.substr(colon_pos + 2);
+
+    ClassNode* cls = find_class(class_name);
+    if (!cls) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation for undeclared class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    auto fit = cls->function_map.find(method_name);
+    if (fit == cls->function_map.end()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method '" + method_name + "' was not declared in class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    FunctionNode* proto = fit->second;
+    if (!proto->is_extern) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method '" + method_name + "' in class '" + class_name + "' was not declared with 'extern' qualifier per IEEE 1800-2023 section 8.24");
+    }
+
+    if (proto->has_body) {
+        throw std::runtime_error("[CAS-DTINPCIL] Duplicate implementation of extern method '" + method_name + "' in class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    if (fn->inputs.size() != proto->inputs.size()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Argument count mismatch in out-of-body implementation of method '" + method_name + "' in class '" + class_name + "' (expected " + std::to_string(proto->inputs.size()) + ", got " + std::to_string(fn->inputs.size()) + ") per IEEE 1800-2023 section 8.24");
+    }
+
+    if (method_name != "new" && fn->return_width != 0 && proto->return_width != 0) {
+        if (fn->return_width != proto->return_width || fn->return_signed != proto->return_signed) {
+            throw std::runtime_error("[CAS-DTINPCIL] Return type mismatch in out-of-body implementation of method '" + method_name + "' in class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+        }
+    }
+
+    proto->body = std::move(fn->body);
+    proto->has_body = true;
+    if (!fn->inputs.empty()) {
+        proto->inputs = std::move(fn->inputs);
+    }
+}
+
+void Parser::bind_out_of_body_task(std::unique_ptr<TaskNode> t) {
+    if (!t) return;
+    size_t colon_pos = t->name.find("::");
+    if (colon_pos == std::string::npos) return;
+
+    std::string class_name = t->name.substr(0, colon_pos);
+    std::string method_name = t->name.substr(colon_pos + 2);
+
+    ClassNode* cls = find_class(class_name);
+    if (!cls) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation for undeclared class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    auto tit = cls->task_map.find(method_name);
+    if (tit == cls->task_map.end()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task '" + method_name + "' was not declared in class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    TaskNode* proto = tit->second;
+    if (!proto->is_extern) {
+        throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task '" + method_name + "' in class '" + class_name + "' was not declared with 'extern' qualifier per IEEE 1800-2023 section 8.24");
+    }
+
+    if (proto->has_body) {
+        throw std::runtime_error("[CAS-DTINPCIL] Duplicate implementation of extern task '" + method_name + "' in class '" + class_name + "' per IEEE 1800-2023 section 8.24");
+    }
+
+    if (t->ports.size() != proto->ports.size()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Argument count mismatch in out-of-body implementation of task '" + method_name + "' in class '" + class_name + "' (expected " + std::to_string(proto->ports.size()) + ", got " + std::to_string(t->ports.size()) + ") per IEEE 1800-2023 section 8.24");
+    }
+
+    proto->body = std::move(t->body);
+    proto->has_body = true;
+    if (!t->ports.empty()) {
+        proto->ports = std::move(t->ports);
+    }
 }
 

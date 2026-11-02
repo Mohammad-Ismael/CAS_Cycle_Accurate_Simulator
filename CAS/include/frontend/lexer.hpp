@@ -143,6 +143,7 @@ enum class TokenType {
     TOKEN_IMPLEMENTS,
     TOKEN_SUPER,
     TOKEN_VIRTUAL,
+    TOKEN_EXTERN,
     TOKEN_CAST,
     TOKEN_RAND,
     TOKEN_RANDC,

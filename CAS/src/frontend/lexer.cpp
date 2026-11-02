@@ -532,6 +532,7 @@ Token Lexer::next_token() {
         if (ident == "implements") return {TokenType::TOKEN_IMPLEMENTS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "virtual") return {TokenType::TOKEN_VIRTUAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "extern") return {TokenType::TOKEN_EXTERN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$cast") return {TokenType::TOKEN_CAST, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "rand") return {TokenType::TOKEN_RAND, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "randc") return {TokenType::TOKEN_RANDC, ident, 0, 0, cur_file, cur_line, 0};

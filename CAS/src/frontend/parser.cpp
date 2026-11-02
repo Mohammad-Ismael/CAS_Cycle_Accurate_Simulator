@@ -105,6 +105,31 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
     }
 }
 
+ClassNode* Parser::find_class(const std::string& name) const {
+    if (current_parsing_package) {
+        auto it = current_parsing_package->class_map.find(name);
+        if (it != current_parsing_package->class_map.end()) return it->second;
+    }
+    if (current_parsing_module) {
+        auto it = current_parsing_module->class_map.find(name);
+        if (it != current_parsing_module->class_map.end()) return it->second;
+    }
+    auto it = class_map.find(name);
+    if (it != class_map.end()) return it->second.get();
+    for (const auto& c : global_classes) {
+        if (c->name == name) return c.get();
+    }
+    for (const auto& p : global_packages) {
+        auto pit = p.second->class_map.find(name);
+        if (pit != p.second->class_map.end()) return pit->second;
+    }
+    return nullptr;
+}
+
+bool Parser::is_known_class(const std::string& name) const {
+    return find_class(name) != nullptr;
+}
+
 void Parser::parse_packages_only() {
     while (current.type != TokenType::TOKEN_EOF) {
         if (match(TokenType::TOKEN_SEMICOLON)) continue;

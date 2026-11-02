@@ -1,9 +1,11 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
-std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
+std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
     auto task_node = std::make_unique<TaskNode>();
     task_node->is_pure = is_pure;
+    task_node->is_extern = is_extern;
+    task_node->has_body = !is_pure && !is_extern;
 
     if (match(TokenType::TOKEN_AUTOMATIC)) {
         task_node->is_automatic = true;
@@ -14,6 +16,18 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
 
     task_node->name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected task name");
+    if (match(TokenType::TOKEN_COLON_COLON)) {
+        std::string class_name = task_node->name;
+        std::string method_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected method name after '::'");
+        task_node->name = class_name + "::" + method_name;
+    }
+
+    if (task_node->name.find("::") != std::string::npos) {
+        if (task_node->is_static) {
+            throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + task_node->name + "'");
+        }
+    }
 
     if (match(TokenType::TOKEN_LPAREN)) {
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -103,7 +117,7 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
     }
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after task header");
 
-    if (is_pure) {
+    if (is_pure || is_extern) {
         return task_node;
     }
 
@@ -112,7 +126,12 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure) {
     }
     expect(TokenType::TOKEN_ENDTASK, "Expected 'endtask'");
     if (match(TokenType::TOKEN_COLON)) {
-        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            advance();
+            if (match(TokenType::TOKEN_COLON_COLON)) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+            }
+        }
     }
     return task_node;
 }
