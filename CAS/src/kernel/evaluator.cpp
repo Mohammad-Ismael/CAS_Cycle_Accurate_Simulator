@@ -358,6 +358,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->is_associative_array = true;
                     lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
                 }
+                if (vdecl->is_unpacked_array) {
+                    lv->is_unpacked_array = true;
+                    lv->elem_width = vdecl->elem_width;
+                    lv->array_size = vdecl->array_size;
+                    lv->arr_start_idx = vdecl->arr_start_idx;
+                    lv->arr_end_idx = vdecl->arr_end_idx;
+                    lv->unpacked_elements.assign(vdecl->array_size, LogicVal::make_x(vdecl->elem_width));
+                }
                 if (vdecl->is_class_handle) {
                     lv->is_class_handle = true;
                     lv->class_type_name = vdecl->class_type_name;
@@ -385,7 +393,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (vdecl->init_expr) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    if (vdecl->type_name == "string" || init_val.is_string) {
+                    if (vdecl->is_unpacked_array) {
+                        if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
+                            lv->unpacked_elements = init_val.unpacked_elements;
+                        } else {
+                            for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                                uint32_t ew = lv->elem_width;
+                                uint32_t shift = (uint32_t)((lv->unpacked_elements.size() - 1 - i) * ew);
+                                uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+                                uint64_t a = (init_val.aval >> shift) & mask;
+                                uint64_t b = (init_val.bval >> shift) & mask;
+                                lv->unpacked_elements[i] = LogicVal(ew, a, b, lv->is_signed);
+                            }
+                        }
+                        lv->value = init_val;
+                    } else if (vdecl->type_name == "string" || init_val.is_string) {
                         lv->value = init_val;
                     } else {
                         lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -417,10 +439,32 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->value.is_string = true;
                 lv->value.str_val = "";
             }
+            if (lv && vdecl->is_unpacked_array) {
+                lv->is_unpacked_array = true;
+                lv->elem_width = vdecl->elem_width;
+                lv->array_size = vdecl->array_size;
+                lv->arr_start_idx = vdecl->arr_start_idx;
+                lv->arr_end_idx = vdecl->arr_end_idx;
+                lv->unpacked_elements.assign(vdecl->array_size, LogicVal::make_x(vdecl->elem_width));
+            }
             if (vdecl->init_expr) {
                 if (lv) {
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    if (vdecl->type_name == "string" || init_val.is_string) {
+                    if (vdecl->is_unpacked_array) {
+                        if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
+                            lv->unpacked_elements = init_val.unpacked_elements;
+                        } else {
+                            for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                                uint32_t ew = lv->elem_width;
+                                uint32_t shift = (uint32_t)((lv->unpacked_elements.size() - 1 - i) * ew);
+                                uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+                                uint64_t a = (init_val.aval >> shift) & mask;
+                                uint64_t b = (init_val.bval >> shift) & mask;
+                                lv->unpacked_elements[i] = LogicVal(ew, a, b, lv->is_signed);
+                            }
+                        }
+                        lv->value = init_val;
+                    } else if (vdecl->type_name == "string" || init_val.is_string) {
                         lv->value = init_val;
                     } else {
                         lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -444,6 +488,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (vdecl->is_associative_array) {
                 lv->is_associative_array = true;
                 lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+            }
+            if (vdecl->is_unpacked_array) {
+                lv->is_unpacked_array = true;
+                lv->elem_width = vdecl->elem_width;
+                lv->array_size = vdecl->array_size;
+                lv->arr_start_idx = vdecl->arr_start_idx;
+                lv->arr_end_idx = vdecl->arr_end_idx;
+                lv->unpacked_elements.assign(vdecl->array_size, LogicVal::make_x(vdecl->elem_width));
             }
             if (vdecl->is_class_handle) {
                 lv->is_class_handle = true;
@@ -472,7 +524,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (vdecl->init_expr) {
                 LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                if (vdecl->type_name == "string" || init_val.is_string) {
+                if (vdecl->is_unpacked_array) {
+                    if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
+                        lv->unpacked_elements = init_val.unpacked_elements;
+                    } else {
+                        for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                            uint32_t ew = lv->elem_width;
+                            uint32_t shift = (uint32_t)((lv->unpacked_elements.size() - 1 - i) * ew);
+                            uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+                            uint64_t a = (init_val.aval >> shift) & mask;
+                            uint64_t b = (init_val.bval >> shift) & mask;
+                            lv->unpacked_elements[i] = LogicVal(ew, a, b, lv->is_signed);
+                        }
+                    }
+                    lv->value = init_val;
+                } else if (vdecl->type_name == "string" || init_val.is_string) {
                     lv->value = init_val;
                 } else {
                     lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
@@ -2864,6 +2930,32 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             return;
                         }
                     }
+                } else if (local->is_unpacked_array) {
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t idx = (int64_t)idx_val.aval;
+                            int64_t rel_idx = idx - local->arr_start_idx;
+                            if (rel_idx >= 0 && (size_t)rel_idx < local->unpacked_elements.size()) {
+                                local->unpacked_elements[rel_idx] = LogicOps::cast_width(rhs_val, local->elem_width, local->is_signed);
+                            }
+                        }
+                    } else {
+                        if (rhs_val.is_unpacked && rhs_val.unpacked_elements.size() == local->unpacked_elements.size()) {
+                            local->unpacked_elements = rhs_val.unpacked_elements;
+                        } else {
+                            for (size_t i = 0; i < local->unpacked_elements.size(); ++i) {
+                                uint32_t ew = local->elem_width;
+                                uint32_t shift = (uint32_t)((local->unpacked_elements.size() - 1 - i) * ew);
+                                uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+                                uint64_t a = (rhs_val.aval >> shift) & mask;
+                                uint64_t b = (rhs_val.bval >> shift) & mask;
+                                local->unpacked_elements[i] = LogicVal(ew, a, b, local->is_signed);
+                            }
+                        }
+                        local->value = rhs_val;
+                    }
+                    return;
                 } else if (assign->bit_idx && !local->is_class_handle) {
                     LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                     if (!idx_val.is_unknown()) {
@@ -3073,12 +3165,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         scoped_mem = target_name;
                     }
                 }
-                if (engine.memory_map.find(scoped_mem) != engine.memory_map.end() && assign->bit_idx) {
-                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                    if (!idx_val.is_unknown()) {
-                        int64_t addr = (int64_t)idx_val.aval;
-                        auto& mem = engine.memory_map.at(scoped_mem);
-                        mem.set_word(addr, rhs_val);
+                if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
+                    auto& mem = engine.memory_map.at(scoped_mem);
+                    if (assign->bit_idx) {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            int64_t addr = (int64_t)idx_val.aval;
+                            mem.set_word(addr, rhs_val);
+                        }
+                    } else {
+                        if (rhs_val.is_unpacked && rhs_val.unpacked_elements.size() == mem.depth) {
+                            for (size_t i = 0; i < mem.depth; ++i) {
+                                mem.set_word(i, rhs_val.unpacked_elements[i]);
+                            }
+                        } else {
+                            uint32_t ew = mem.word_width;
+                            for (size_t i = 0; i < mem.depth; ++i) {
+                                uint32_t shift = (uint32_t)((mem.depth - 1 - i) * ew);
+                                uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+                                uint64_t a = (rhs_val.aval >> shift) & mask;
+                                uint64_t b = (rhs_val.bval >> shift) & mask;
+                                mem.set_word(i, LogicVal(ew, a, b));
+                            }
+                        }
                     }
                     return;
                 }

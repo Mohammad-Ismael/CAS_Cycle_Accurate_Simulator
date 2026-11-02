@@ -893,24 +893,185 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (et) {
                 return LogicOps::cast_width(val, et->width, et->is_signed);
             }
+
+            // Look up Unpacked Array Type Info
+            const UnpackedArrayTypeInfo* uarr = nullptr;
+            if (engine.unpacked_array_types.find(scoped_type) != engine.unpacked_array_types.end()) {
+                uarr = &engine.unpacked_array_types.at(scoped_type);
+            } else if (engine.unpacked_array_types.find(target_type) != engine.unpacked_array_types.end()) {
+                uarr = &engine.unpacked_array_types.at(target_type);
+            }
+            if (!uarr) {
+                auto colon = target_type.find("::");
+                if (colon != std::string::npos) {
+                    std::string pkg = target_type.substr(0, colon);
+                    std::string typ = target_type.substr(colon + 2);
+                    auto pit = engine.package_defs.find(pkg);
+                    if (pit != engine.package_defs.end() && pit->second->unpacked_array_typedefs.count(typ)) {
+                        const auto& ut = pit->second->unpacked_array_typedefs.at(typ);
+                        static thread_local UnpackedArrayTypeInfo tmp_uarr;
+                        tmp_uarr = {ut.name, ut.elem_type, ut.elem_width, ut.elem_signed, ut.array_size, ut.start_idx, ut.end_idx};
+                        uarr = &tmp_uarr;
+                    }
+                } else {
+                    for (const auto& pkg_pair : engine.package_defs) {
+                        if (pkg_pair.second->unpacked_array_typedefs.count(target_type)) {
+                            const auto& ut = pkg_pair.second->unpacked_array_typedefs.at(target_type);
+                            static thread_local UnpackedArrayTypeInfo tmp_uarr;
+                            tmp_uarr = {ut.name, ut.elem_type, ut.elem_width, ut.elem_signed, ut.array_size, ut.start_idx, ut.end_idx};
+                            uarr = &tmp_uarr;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Look up Packed Struct Type Info
             const PackedStructType* st = nullptr;
             if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
                 st = &engine.struct_types.at(scoped_type);
             } else if (engine.struct_types.find(target_type) != engine.struct_types.end()) {
                 st = &engine.struct_types.at(target_type);
             }
-            if (st) {
-                return LogicOps::cast_width(val, st->total_width, st->is_signed);
+            if (!st) {
+                auto colon = target_type.find("::");
+                if (colon != std::string::npos) {
+                    std::string pkg = target_type.substr(0, colon);
+                    std::string typ = target_type.substr(colon + 2);
+                    auto pit = engine.package_defs.find(pkg);
+                    if (pit != engine.package_defs.end() && pit->second->struct_typedefs.count(typ)) {
+                        const auto& sdef = pit->second->struct_typedefs.at(typ);
+                        static thread_local PackedStructType tmp_st;
+                        tmp_st.name = typ;
+                        tmp_st.total_width = sdef->total_width;
+                        tmp_st.is_signed = sdef->is_signed;
+                        st = &tmp_st;
+                    }
+                } else {
+                    for (const auto& pkg_pair : engine.package_defs) {
+                        if (pkg_pair.second->struct_typedefs.count(target_type)) {
+                            const auto& sdef = pkg_pair.second->struct_typedefs.at(target_type);
+                            static thread_local PackedStructType tmp_st;
+                            tmp_st.name = target_type;
+                            tmp_st.total_width = sdef->total_width;
+                            tmp_st.is_signed = sdef->is_signed;
+                            st = &tmp_st;
+                            break;
+                        }
+                    }
+                }
             }
+
+            // Look up Simple Type Info
             const SimpleTypeInfo* si = nullptr;
             if (engine.simple_types.find(scoped_type) != engine.simple_types.end()) {
                 si = &engine.simple_types.at(scoped_type);
             } else if (engine.simple_types.find(target_type) != engine.simple_types.end()) {
                 si = &engine.simple_types.at(target_type);
             }
-            if (si) {
-                return LogicOps::cast_width(val, si->width, si->is_signed);
+            if (!si) {
+                auto colon = target_type.find("::");
+                if (colon != std::string::npos) {
+                    std::string pkg = target_type.substr(0, colon);
+                    std::string typ = target_type.substr(colon + 2);
+                    auto pit = engine.package_defs.find(pkg);
+                    if (pit != engine.package_defs.end() && pit->second->simple_typedefs.count(typ)) {
+                        const auto& styp = pit->second->simple_typedefs.at(typ);
+                        static thread_local SimpleTypeInfo tmp_si;
+                        tmp_si = {styp.name, styp.base_type, styp.width, styp.is_signed};
+                        si = &tmp_si;
+                    }
+                } else {
+                    for (const auto& pkg_pair : engine.package_defs) {
+                        if (pkg_pair.second->simple_typedefs.count(target_type)) {
+                            const auto& styp = pkg_pair.second->simple_typedefs.at(target_type);
+                            static thread_local SimpleTypeInfo tmp_si;
+                            tmp_si = {styp.name, styp.base_type, styp.width, styp.is_signed};
+                            si = &tmp_si;
+                            break;
+                        }
+                    }
+                }
             }
+
+            if (!uarr && !st && !si) {
+                throw std::runtime_error("[CAS-DTINPCIL] Undefined or unresolved type identifier in static cast per IEEE 1800-2023 section 6.24.1: '" + target_type + "'");
+            }
+
+            // Flatten source to bitstream
+            std::vector<std::pair<bool, bool>> stream_bits;
+            bool got_stream = get_stream_bits(scast->expr.get(), scope, stream_bits);
+            if (!got_stream) {
+                if (val.is_unpacked) {
+                    for (const auto& elem : val.unpacked_elements) {
+                        for (int b = (int)elem.width - 1; b >= 0; --b) {
+                            stream_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                        }
+                    }
+                } else {
+                    for (int b = (int)val.width - 1; b >= 0; --b) {
+                        stream_bits.push_back({ (bool)((val.aval >> b) & 1), (bool)((val.bval >> b) & 1) });
+                    }
+                }
+            }
+            uint32_t src_width = (uint32_t)stream_bits.size();
+
+            // Destination 1: Unpacked Array
+            if (uarr) {
+                uint32_t target_width = uarr->total_bit_width();
+                if (src_width != target_width) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Bit-stream cast source size (" + std::to_string(src_width) + " bits) does not match destination type '" + target_type + "' size (" + std::to_string(target_width) + " bits) per IEEE 1800-2023 section 6.24.3");
+                }
+                uint64_t a_all = 0, b_all = 0;
+                for (size_t b = 0; b < stream_bits.size() && b < 64; ++b) {
+                    if (stream_bits[b].first) a_all |= (1ULL << (target_width - 1 - b));
+                    if (stream_bits[b].second) b_all |= (1ULL << (target_width - 1 - b));
+                }
+                LogicVal res(target_width, a_all, b_all, uarr->elem_signed);
+                res.is_unpacked = true;
+                res.unpacked_elements.resize(uarr->array_size);
+                for (size_t i = 0; i < uarr->array_size; ++i) {
+                    uint64_t ea = 0, eb = 0;
+                    for (size_t b = 0; b < uarr->elem_width; ++b) {
+                        size_t bit_idx = i * uarr->elem_width + b;
+                        if (bit_idx < stream_bits.size()) {
+                            if (stream_bits[bit_idx].first) ea |= (1ULL << (uarr->elem_width - 1 - b));
+                            if (stream_bits[bit_idx].second) eb |= (1ULL << (uarr->elem_width - 1 - b));
+                        }
+                    }
+                    res.unpacked_elements[i] = LogicVal(uarr->elem_width, ea, eb, uarr->elem_signed);
+                }
+                return res;
+            }
+
+            // Destination 2: Packed Struct
+            if (st) {
+                uint32_t target_width = st->total_width;
+                if (src_width != target_width) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Bit-stream cast source size (" + std::to_string(src_width) + " bits) does not match destination struct '" + target_type + "' width (" + std::to_string(target_width) + " bits) per IEEE 1800-2023 section 6.24.3");
+                }
+                uint64_t a_all = 0, b_all = 0;
+                for (size_t b = 0; b < stream_bits.size() && b < 64; ++b) {
+                    if (stream_bits[b].first) a_all |= (1ULL << (target_width - 1 - b));
+                    if (stream_bits[b].second) b_all |= (1ULL << (target_width - 1 - b));
+                }
+                return LogicVal(target_width, a_all, b_all, st->is_signed);
+            }
+
+            // Destination 3: Simple Type / Vector Type
+            if (si) {
+                uint32_t target_width = si->width;
+                if (src_width != target_width) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Bit-stream cast source size (" + std::to_string(src_width) + " bits) does not match destination type '" + target_type + "' width (" + std::to_string(target_width) + " bits) per IEEE 1800-2023 section 6.24.3");
+                }
+                uint64_t a_all = 0, b_all = 0;
+                for (size_t b = 0; b < stream_bits.size() && b < 64; ++b) {
+                    if (stream_bits[b].first) a_all |= (1ULL << (target_width - 1 - b));
+                    if (stream_bits[b].second) b_all |= (1ULL << (target_width - 1 - b));
+                }
+                return LogicVal(target_width, a_all, b_all, si->is_signed);
+            }
+
             return val;
         }
     }
@@ -2402,6 +2563,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (found_sva_local) {
             // target_val already set from SVA local variable
         } else if (local) {
+            if (local->is_unpacked_array) {
+                LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
+                if (addr_val.is_unknown()) {
+                    return LogicVal::make_x(local->elem_width);
+                }
+                int64_t idx = (int64_t)addr_val.aval;
+                int64_t rel_idx = idx - local->arr_start_idx;
+                if (rel_idx >= 0 && (size_t)rel_idx < local->unpacked_elements.size()) {
+                    LogicVal elem = local->unpacked_elements[rel_idx];
+                    if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                        uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                        uint64_t b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
+                        uint32_t w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                        uint64_t val = (elem.aval >> b_lsb) & mask;
+                        return LogicVal::make_known(w, val);
+                    }
+                    return elem;
+                }
+                return LogicVal::make_x(local->elem_width);
+            }
             target_val = local->value;
         } else {
             std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
@@ -3276,6 +3458,17 @@ bool ExprEvaluator::get_stream_bits(ExpressionNode* expr, const std::string& sco
             }
         }
         if (lv) {
+            if (lv->is_class_handle || lv->is_chandle || lv->is_virtual_interface) {
+                throw std::runtime_error("[CAS-DTINPCIL] Non-bit-stream type in bit-stream cast per IEEE 1800-2023 section 6.24.3: '" + id->name + "'");
+            }
+            if (lv->is_unpacked_array) {
+                for (const auto& elem : lv->unpacked_elements) {
+                    for (int b = (int)elem.width - 1; b >= 0; --b) {
+                        out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+                    }
+                }
+                return true;
+            }
             if (lv->is_queue) {
                 for (const auto& elem : lv->queue_data.elements) {
                     for (int b = (int)elem.width - 1; b >= 0; --b) {
@@ -3317,8 +3510,15 @@ bool ExprEvaluator::get_stream_bits(ExpressionNode* expr, const std::string& sco
         }
 
         // 4. Check unpacked memory
-        std::string scoped_id = scope.empty() ? id->name : (scope + "." + id->name);
-        auto it_mem = engine.memory_map.find(scoped_id);
+        std::string cur_s = scope;
+        auto it_mem = engine.memory_map.find(scope.empty() ? id->name : (scope + "." + id->name));
+        while (it_mem == engine.memory_map.end() && !cur_s.empty()) {
+            it_mem = engine.memory_map.find(cur_s + "." + id->name);
+            if (it_mem != engine.memory_map.end()) break;
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
         if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(id->name);
         if (it_mem != engine.memory_map.end()) {
             const auto& mem = it_mem->second;
@@ -3330,9 +3530,21 @@ bool ExprEvaluator::get_stream_bits(ExpressionNode* expr, const std::string& sco
             }
             return true;
         }
+
+        if (engine.is_class_handle(id->name, scope) || engine.is_chandle(id->name, scope) || engine.is_virtual_interface(id->name, scope)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-bit-stream type in bit-stream cast per IEEE 1800-2023 section 6.24.3: '" + id->name + "'");
+        }
     }
 
     LogicVal val = eval(expr, scope);
+    if (val.is_unpacked) {
+        for (const auto& elem : val.unpacked_elements) {
+            for (int b = (int)elem.width - 1; b >= 0; --b) {
+                out_bits.push_back({ (bool)((elem.aval >> b) & 1), (bool)((elem.bval >> b) & 1) });
+            }
+        }
+        return true;
+    }
     if (val.is_string) {
         for (char c : val.str_val) {
             for (int b = 7; b >= 0; --b) {

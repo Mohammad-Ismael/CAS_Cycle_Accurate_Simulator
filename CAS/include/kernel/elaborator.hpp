@@ -165,6 +165,17 @@ struct SimpleTypeInfo {
     bool is_signed = false;
 };
 
+struct UnpackedArrayTypeInfo {
+    std::string name;
+    std::string elem_type = "logic";
+    uint32_t elem_width = 8;
+    bool elem_signed = false;
+    uint32_t array_size = 1;
+    int64_t start_idx = 0;
+    int64_t end_idx = 0;
+    uint32_t total_bit_width() const { return elem_width * array_size; }
+};
+
 struct ElaborationResult {
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
@@ -191,6 +202,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
     std::unordered_map<std::string, SimpleTypeInfo> simple_types;
+    std::unordered_map<std::string, UnpackedArrayTypeInfo> unpacked_array_types;
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
     std::unordered_set<std::string> interface_instances;

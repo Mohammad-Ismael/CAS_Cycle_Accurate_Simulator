@@ -151,8 +151,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     // Or lookahead for user-defined types (e.g. unknown class / interface type declared in another file)
     bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text));
     bool is_udt_decl = false;
-    if (current.type == TokenType::TOKEN_IDENTIFIER && !is_class_type && !is_typedef(current.text) &&
-        !is_covergroup(current.text) && !is_interface_type(current.text) && !is_builtin_type_name(current.text)) {
+    if (current.type == TokenType::TOKEN_IDENTIFIER && !is_type_identifier(current.text) &&
+        !is_covergroup(current.text) && !is_interface_type(current.text)) {
         TokenType next_tok = peek_token().type;
         if (next_tok == TokenType::TOKEN_IDENTIFIER) {
             is_udt_decl = true;
@@ -224,7 +224,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string t_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
         proc_type_name = p_name + "::" + t_name;
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text))) {
         proc_type_name = current.text;
         advance();
     }
@@ -235,8 +235,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         auto struct_info = get_struct_typedef(type_name);
         SimpleTypedef simple_info;
         bool has_simple = get_simple_typedef(type_name, simple_info);
-        uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : (has_simple ? simple_info.width : 32));
-        bool is_signed_var = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_simple ? simple_info.is_signed : false));
+        const UnpackedArrayTypedef* uarr_info = get_unpacked_array_typedef(type_name);
+        uint32_t width = uarr_info ? uarr_info->total_bit_width() : (struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : (has_simple ? simple_info.width : 32)));
+        bool is_signed_var = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_simple ? simple_info.is_signed : false)));
 
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
@@ -274,6 +275,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
         auto vstmt = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        if (uarr_info) {
+            vstmt->is_unpacked_array = true;
+            vstmt->elem_width = uarr_info->elem_width;
+            vstmt->array_size = uarr_info->array_size;
+            vstmt->arr_start_idx = uarr_info->start_idx;
+            vstmt->arr_end_idx = uarr_info->end_idx;
+        }
         vstmt->init_expr = std::move(init_expr);
         return vstmt;
     }

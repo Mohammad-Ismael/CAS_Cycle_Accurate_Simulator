@@ -1183,7 +1183,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string t_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
                 mod_sig_type = p_name + "::" + t_name;
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_unpacked_array_typedef(current.text))) {
                 mod_sig_type = current.text;
                 advance();
             }
@@ -1192,9 +1192,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string type_name = mod_sig_type;
                 auto enum_info = get_enum_typedef(type_name);
                 auto struct_info = get_struct_typedef(type_name);
+                const UnpackedArrayTypedef* uarr_info = get_unpacked_array_typedef(type_name);
 
-                uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
-                bool is_signed_sig = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
+                uint32_t width = uarr_info ? uarr_info->elem_width : (struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32));
+                bool is_signed_sig = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false));
 
                 auto msb = std::make_unique<NumberNode>(width > 0 ? width - 1 : 0, 32);
                 auto lsb = std::make_unique<NumberNode>(0, 32);
@@ -1204,6 +1205,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
                     sig.type_name = type_name;
+                    if (uarr_info) {
+                        sig.is_array = true;
+                        AstDimension ad;
+                        ad.left_expr = std::make_unique<NumberNode>(uarr_info->array_size, 32);
+                        ad.right_expr = nullptr;
+                        ad.is_single = true;
+                        sig.unpacked_dimensions.push_back(std::move(ad));
+                        sig.bound1_expr = std::make_unique<NumberNode>(uarr_info->start_idx, 32);
+                        sig.bound2_expr = std::make_unique<NumberNode>(uarr_info->end_idx, 32);
+                    }
 
                     while (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
@@ -2236,6 +2247,42 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             if (current.type == TokenType::TOKEN_IDENTIFIER) {
                 std::string tname = current.text;
                 advance();
+                std::vector<AstDimension> unpacked_dims;
+                bool is_unpacked_arr = false;
+                uint32_t total_elements = 1;
+                int64_t arr_start = 0;
+                int64_t arr_end = 0;
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    is_unpacked_arr = true;
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in typedef dimension");
+                    int64_t b1 = 0, b2 = 0;
+                    if (auto nl = dynamic_cast<NumberNode*>(l.get())) b1 = (int64_t)nl->aval;
+                    if (r) {
+                        if (auto nr = dynamic_cast<NumberNode*>(r.get())) b2 = (int64_t)nr->aval;
+                    }
+                    if (is_single) {
+                        arr_start = 0;
+                        arr_end = b1 > 0 ? (b1 - 1) : 0;
+                        total_elements *= (b1 > 0 ? (uint32_t)b1 : 1);
+                    } else {
+                        arr_start = b1;
+                        arr_end = b2;
+                        int64_t cnt = (b2 >= b1) ? (b2 - b1 + 1) : (b1 - b2 + 1);
+                        total_elements *= (cnt > 0 ? (uint32_t)cnt : 1);
+                    }
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    unpacked_dims.push_back(std::move(ad));
+                }
                 match(TokenType::TOKEN_SEMICOLON);
                 if (is_forward_class(tname)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + tname + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
@@ -2244,11 +2291,31 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 td->base_type = base_t;
                 td->width = width;
                 td->is_signed = is_sgn;
-                simple_typedef_map[tname] = {tname, base_t, width, is_sgn};
-                if (current_parsing_package) {
-                    current_parsing_package->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
-                } else if (current_parsing_module) {
-                    current_parsing_module->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
+                if (is_unpacked_arr) {
+                    td->is_unpacked_array = true;
+                    td->elem_type = base_t;
+                    td->elem_width = width;
+                    td->elem_signed = is_sgn;
+                    td->array_size = total_elements;
+                    td->arr_start_idx = arr_start;
+                    td->arr_end_idx = arr_end;
+                    td->unpacked_dims = std::move(unpacked_dims);
+
+                    UnpackedArrayTypedef uinfo{tname, base_t, width, is_sgn, total_elements, arr_start, arr_end};
+                    unpacked_array_typedef_map[tname] = uinfo;
+                    global_unpacked_array_typedefs[tname] = uinfo;
+                    if (current_parsing_package) {
+                        current_parsing_package->unpacked_array_typedefs[tname] = uinfo;
+                    } else if (current_parsing_module) {
+                        current_parsing_module->unpacked_array_typedefs[tname] = uinfo;
+                    }
+                } else {
+                    simple_typedef_map[tname] = {tname, base_t, width, is_sgn};
+                    if (current_parsing_package) {
+                        current_parsing_package->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
+                    } else if (current_parsing_module) {
+                        current_parsing_module->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
+                    }
                 }
                 return td;
             }

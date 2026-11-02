@@ -623,13 +623,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.struct_types[scope + "." + td->type_name] = st;
         }
         if (!td->base_type.empty()) {
-            SimpleTypeInfo sinfo;
-            sinfo.name = td->type_name;
-            sinfo.base_type = td->base_type;
-            sinfo.width = td->width;
-            sinfo.is_signed = td->is_signed;
-            result.simple_types[td->type_name] = sinfo;
-            result.simple_types[scope + "." + td->type_name] = sinfo;
+            if (td->is_unpacked_array) {
+                UnpackedArrayTypeInfo uinfo;
+                uinfo.name = td->type_name;
+                uinfo.elem_type = td->elem_type;
+                uinfo.elem_width = td->elem_width;
+                uinfo.elem_signed = td->elem_signed;
+                uinfo.array_size = td->array_size;
+                uinfo.start_idx = td->arr_start_idx;
+                uinfo.end_idx = td->arr_end_idx;
+                result.unpacked_array_types[td->type_name] = uinfo;
+                result.unpacked_array_types[scope + "." + td->type_name] = uinfo;
+            } else {
+                SimpleTypeInfo sinfo;
+                sinfo.name = td->type_name;
+                sinfo.base_type = td->base_type;
+                sinfo.width = td->width;
+                sinfo.is_signed = td->is_signed;
+                result.simple_types[td->type_name] = sinfo;
+                result.simple_types[scope + "." + td->type_name] = sinfo;
+            }
         }
     }
 
@@ -2051,6 +2064,19 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             sinfo.is_signed = st.second.is_signed;
             result.simple_types[pkg_name + "::" + st.first] = sinfo;
             result.simple_types[st.first] = sinfo;
+        }
+
+        for (const auto& ut : pkg->unpacked_array_typedefs) {
+            UnpackedArrayTypeInfo uinfo;
+            uinfo.name = ut.second.name;
+            uinfo.elem_type = ut.second.elem_type;
+            uinfo.elem_width = ut.second.elem_width;
+            uinfo.elem_signed = ut.second.elem_signed;
+            uinfo.array_size = ut.second.array_size;
+            uinfo.start_idx = ut.second.start_idx;
+            uinfo.end_idx = ut.second.end_idx;
+            result.unpacked_array_types[pkg_name + "::" + ut.first] = uinfo;
+            result.unpacked_array_types[ut.first] = uinfo;
         }
 
         for (const auto& fn : pkg->functions) {

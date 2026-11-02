@@ -31,6 +31,12 @@ struct LocalVar {
     std::vector<ArrayDimInfo> dimensions;
     uint32_t unpacked_dims = 0;
     bool is_vector_or_array = false;
+    bool is_unpacked_array = false;
+    uint32_t elem_width = 8;
+    uint32_t array_size = 1;
+    int64_t arr_start_idx = 0;
+    int64_t arr_end_idx = 0;
+    std::vector<LogicVal> unpacked_elements;
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),

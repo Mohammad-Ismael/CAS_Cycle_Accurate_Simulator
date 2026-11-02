@@ -93,6 +93,11 @@ struct VarDeclStatementNode : public StatementNode {
     bool is_virtual_interface = false;
     std::string interface_name = "";
     std::string modport_name = "";
+    bool is_unpacked_array = false;
+    uint32_t elem_width = 8;
+    uint32_t array_size = 1;
+    int64_t arr_start_idx = 0;
+    int64_t arr_end_idx = 0;
     std::unique_ptr<ExpressionNode> init_expr = nullptr;
     std::vector<AstDimension> packed_dimensions;
     std::vector<AstDimension> unpacked_dimensions;
@@ -112,6 +117,11 @@ struct VarDeclStatementNode : public StatementNode {
         node->is_virtual_interface = is_virtual_interface;
         node->interface_name = interface_name;
         node->modport_name = modport_name;
+        node->is_unpacked_array = is_unpacked_array;
+        node->elem_width = elem_width;
+        node->array_size = array_size;
+        node->arr_start_idx = arr_start_idx;
+        node->arr_end_idx = arr_end_idx;
         node->init_expr = init_expr ? init_expr->clone() : nullptr;
         node->packed_dimensions = packed_dimensions;
         node->unpacked_dimensions = unpacked_dimensions;

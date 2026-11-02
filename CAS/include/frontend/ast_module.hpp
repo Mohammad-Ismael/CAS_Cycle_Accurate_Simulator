@@ -387,6 +387,17 @@ struct SimpleTypedef {
     bool is_signed = false;
 };
 
+struct UnpackedArrayTypedef {
+    std::string name;
+    std::string elem_type = "logic";
+    uint32_t elem_width = 8;
+    bool elem_signed = false;
+    uint32_t array_size = 1;
+    int64_t start_idx = 0;
+    int64_t end_idx = 0;
+    uint32_t total_bit_width() const { return elem_width * array_size; }
+};
+
 struct TypedefNode : public ASTNode {
     std::string type_name;
     std::shared_ptr<EnumTypeNode> enum_type;
@@ -396,6 +407,14 @@ struct TypedefNode : public ASTNode {
     std::string base_type = "";
     uint32_t width = 0;
     bool is_signed = false;
+    bool is_unpacked_array = false;
+    std::string elem_type = "logic";
+    uint32_t elem_width = 8;
+    bool elem_signed = false;
+    uint32_t array_size = 1;
+    int64_t arr_start_idx = 0;
+    int64_t arr_end_idx = 0;
+    std::vector<AstDimension> unpacked_dims;
 
     TypedefNode() = default;
     TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
@@ -835,6 +854,7 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
+    std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::unordered_map<std::string, FunctionNode*> function_map;
@@ -937,6 +957,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::string> events;
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
+    std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::shared_ptr<PathDelayNode>> path_delays;

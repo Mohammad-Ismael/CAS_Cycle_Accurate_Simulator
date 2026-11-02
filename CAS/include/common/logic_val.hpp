@@ -3,6 +3,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <vector>
 
 struct LogicVal {
     uint64_t aval; // Data bitplane
@@ -13,6 +14,8 @@ struct LogicVal {
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
+    bool is_unpacked = false;
+    std::vector<LogicVal> unpacked_elements;
 
     explicit LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0, bool s = false)
         : aval(a), bval(b), width(w), is_string(false), str_val(""), is_real(false), real_val(0.0), is_signed(s) {
