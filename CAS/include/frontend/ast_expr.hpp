@@ -614,3 +614,25 @@ struct TypeOpNode : public ExpressionNode {
         );
     }
 };
+
+enum class VectorIntrinsicKind {
+    COUNTONES,
+    ONEHOT,
+    ONEHOT0,
+    ISUNKNOWN
+};
+
+struct VectorIntrinsicNode : public ExpressionNode {
+    VectorIntrinsicKind kind;
+    std::unique_ptr<ExpressionNode> operand;
+
+    VectorIntrinsicNode(VectorIntrinsicKind k, std::unique_ptr<ExpressionNode> op)
+        : kind(k), operand(std::move(op)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<VectorIntrinsicNode>(
+            kind,
+            operand ? operand->clone() : nullptr
+        );
+    }
+};

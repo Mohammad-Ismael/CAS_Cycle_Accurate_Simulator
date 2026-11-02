@@ -72,7 +72,8 @@ suites = [
     ("v3.46.0.0", "v3_46_0_0_dynamic_cast", ["design.sv", "testbench.sv"]),
     ("v3.47.0.0", "v3_47_0_0_inside_operator", ["design.sv", "testbench.sv"]),
     ("v3.48.0.0", "v3_48_0_0_type_queries", ["design.sv", "testbench.sv"]),
-    ("v3.49.0.0", "v3_49_0_0_type_operator", ["design.sv", "testbench.sv"])
+    ("v3.49.0.0", "v3_49_0_0_type_operator", ["design.sv", "testbench.sv"]),
+    ("v3.50.0.0", "v3_50_0_0_vector_intrinsics", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

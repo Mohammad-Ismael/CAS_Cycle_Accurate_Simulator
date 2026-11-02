@@ -173,6 +173,19 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             default: break;
         }
     }
+    if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
+        uint64_t val = eval_const_expr(vin->operand.get(), scope);
+        uint32_t ones = 0;
+        for (int i = 0; i < 64; ++i) {
+            if ((val >> i) & 1ULL) ones++;
+        }
+        switch (vin->kind) {
+            case VectorIntrinsicKind::COUNTONES: return (uint64_t)ones;
+            case VectorIntrinsicKind::ONEHOT: return (ones == 1) ? 1ULL : 0ULL;
+            case VectorIntrinsicKind::ONEHOT0: return (ones <= 1) ? 1ULL : 0ULL;
+            case VectorIntrinsicKind::ISUNKNOWN: return 0ULL;
+        }
+    }
     return 0;
 }
 
@@ -388,6 +401,9 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     }
     if (auto scst = dynamic_cast<StaticCastExprNode*>(expr)) {
         return std::make_unique<StaticCastExprNode>(scst->kind, scst->target_width, scst->target_type_name, substitute_genvar_in_expr(scst->expr.get(), gname, val));
+    }
+    if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
+        return std::make_unique<VectorIntrinsicNode>(vin->kind, substitute_genvar_in_expr(vin->operand.get(), gname, val));
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);

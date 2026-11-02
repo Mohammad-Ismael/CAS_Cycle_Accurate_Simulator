@@ -276,6 +276,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return eval_typeop(ton, scope);
     }
 
+    if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
+        return eval_vector_intrinsic(vin, scope);
+    }
+
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
         if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
@@ -4169,4 +4173,77 @@ LogicVal ExprEvaluator::eval_typeop(TypeOpNode* ton, const std::string& scope) {
         throw std::runtime_error("[CAS-DTINPCIL] type() requires an argument per IEEE 1800-2023 section 6.23");
     }
     return LogicVal::make_string(resolve_canonical_type(ton->target_expr.get(), ton->type_name_arg, scope, "type()"));
+}
+
+LogicVal ExprEvaluator::eval_vector_intrinsic(VectorIntrinsicNode* vin, const std::string& scope) {
+    if (!vin || !vin->operand) {
+        throw std::runtime_error("[CAS-DTINPCIL] Vector intrinsic function requires exactly one argument per IEEE 1800-2023 section 20.9");
+    }
+    std::string func_name;
+    switch (vin->kind) {
+        case VectorIntrinsicKind::COUNTONES: func_name = "$countones"; break;
+        case VectorIntrinsicKind::ONEHOT:    func_name = "$onehot"; break;
+        case VectorIntrinsicKind::ONEHOT0:   func_name = "$onehot0"; break;
+        case VectorIntrinsicKind::ISUNKNOWN: func_name = "$isunknown"; break;
+    }
+
+    std::string var_ident = "";
+    if (auto id = dynamic_cast<IdentifierNode*>(vin->operand.get())) {
+        var_ident = id->name;
+    } else if (auto scid = dynamic_cast<StaticMemberAccessNode*>(vin->operand.get())) {
+        var_ident = scid->class_type_name + "::" + scid->member_name;
+    }
+
+    if (!var_ident.empty()) {
+        LocalVar* sloc = nullptr;
+        if (context.has_active_frame()) sloc = context.lookup_local(var_ident);
+        if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                sloc = it->local_frame.get_var(var_ident);
+                if (sloc) break;
+            }
+        }
+        if (sloc && (sloc->is_class_handle || engine.is_class(sloc->type_name) || sloc->type_name == "chandle")) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to " + func_name + " per IEEE 1800-2023 section 20.9");
+        }
+        size_t snid = engine.get_net_id(scope, var_ident);
+        if (snid != (size_t)-1 && (engine.netlist[snid].is_class_handle || engine.is_class(engine.netlist[snid].type_name) || engine.netlist[snid].type_name == "chandle")) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to " + func_name + " per IEEE 1800-2023 section 20.9");
+        }
+    }
+
+    LogicVal val = eval(vin->operand.get(), scope);
+    if (val.is_string || val.is_real || val.is_unpacked) {
+        throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument passed to " + func_name + " per IEEE 1800-2023 section 20.9");
+    }
+
+    uint32_t ones = 0;
+    uint32_t unknowns = 0;
+    uint32_t w = std::min(val.width, 64U);
+    for (uint32_t i = 0; i < w; ++i) {
+        bool b = (val.bval >> i) & 1ULL;
+        bool a = (val.aval >> i) & 1ULL;
+        if (b) {
+            unknowns++;
+        } else if (a) {
+            ones++;
+        }
+    }
+
+    switch (vin->kind) {
+        case VectorIntrinsicKind::COUNTONES: {
+            return LogicVal(32, (uint64_t)ones, 0);
+        }
+        case VectorIntrinsicKind::ONEHOT: {
+            if (unknowns > 0) return LogicVal(1, 0, 0);
+            return LogicVal(1, (ones == 1) ? 1ULL : 0ULL, 0);
+        }
+        case VectorIntrinsicKind::ONEHOT0: {
+            return LogicVal(1, (ones + unknowns <= 1) ? 1ULL : 0ULL, 0);
+        }
+        case VectorIntrinsicKind::ISUNKNOWN: {
+            return LogicVal(1, (unknowns > 0) ? 1ULL : 0ULL, 0);
+        }
+    }
+    return LogicVal(1, 0, 0);
 }
