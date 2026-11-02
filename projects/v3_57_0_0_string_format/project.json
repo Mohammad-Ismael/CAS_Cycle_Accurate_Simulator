@@ -1,0 +1,8 @@
+{
+  "name": "v3_57_0_0_string_format",
+  "version": "v3.57.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§20.14",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_57_0_regression"
+}

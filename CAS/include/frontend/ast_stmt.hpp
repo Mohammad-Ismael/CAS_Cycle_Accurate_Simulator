@@ -534,6 +534,33 @@ struct FinishStatementNode : public StatementNode {
     }
 };
 
+struct SFormatStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> target_expr;
+    std::unique_ptr<ExpressionNode> format_expr;
+    std::vector<std::unique_ptr<ExpressionNode>> arg_exprs;
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit SFormatStatementNode(std::unique_ptr<ExpressionNode> target,
+                                  std::unique_ptr<ExpressionNode> fmt,
+                                  std::vector<std::unique_ptr<ExpressionNode>> a,
+                                  std::string file = "", size_t line = 0)
+        : target_expr(std::move(target)), format_expr(std::move(fmt)),
+          arg_exprs(std::move(a)), src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> a;
+        for (const auto& arg : arg_exprs) a.push_back(arg ? arg->clone() : nullptr);
+        return std::make_unique<SFormatStatementNode>(
+            target_expr ? target_expr->clone() : nullptr,
+            format_expr ? format_expr->clone() : nullptr,
+            std::move(a),
+            src_file,
+            src_line
+        );
+    }
+};
+
 struct ExitStatementNode : public StatementNode {
     std::string src_file = "";
     size_t src_line = 0;

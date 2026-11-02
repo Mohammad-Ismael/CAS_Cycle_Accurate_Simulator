@@ -869,6 +869,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line);
     }
 
+    // System Task ($sformat)
+    if (current.type == TokenType::TOKEN_SYS_SFORMAT) {
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
+        advance();
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $sformat");
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] $sformat requires at least 2 arguments per IEEE 1800-2023 section 20.14");
+        }
+        auto target_expr = parse_expression();
+        if (!match(TokenType::TOKEN_COMMA) || current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] $sformat requires at least 2 arguments per IEEE 1800-2023 section 20.14");
+        }
+        auto fmt_expr = parse_expression();
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        while (match(TokenType::TOKEN_COMMA)) {
+            args.push_back(parse_expression());
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $sformat argument list");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $sformat");
+        return std::make_unique<SFormatStatementNode>(std::move(target_expr), std::move(fmt_expr), std::move(args), origin_file, origin_line);
+    }
+
     // 9. $dumpfile
     if (match(TokenType::TOKEN_DUMPFILE)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $dumpfile");

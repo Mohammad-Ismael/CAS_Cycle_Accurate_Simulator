@@ -2069,6 +2069,33 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto sfmt = dynamic_cast<SFormatStatementNode*>(stmt)) {
+        if (!sfmt->target_expr || !sfmt->format_expr) {
+            throw std::runtime_error("[CAS-DTINPCIL] $sformat requires at least 2 arguments per IEEE 1800-2023 section 20.14");
+        }
+        LogicVal fmt_val = eval_expr(sfmt->format_expr.get(), bp.scope);
+        if (!fmt_val.is_string) {
+            throw std::runtime_error("[CAS-DTINPCIL] Format argument in $sformat must evaluate to a string type per IEEE 1800-2023 section 20.14");
+        }
+        std::vector<LogicVal> arg_vals;
+        for (const auto& a : sfmt->arg_exprs) {
+            arg_vals.push_back(eval_expr(a.get(), bp.scope));
+        }
+        std::string formatted = ExprEvaluator::format_systemverilog_string(fmt_val.str_val, arg_vals, engine.get_sim_time());
+        LogicVal res = LogicVal::make_string(formatted);
+
+        if (auto id = dynamic_cast<IdentifierNode*>(sfmt->target_expr.get())) {
+            write_variable(id->name, res, bp);
+        } else if (auto ma = dynamic_cast<MemberAccessNode*>(sfmt->target_expr.get())) {
+            if (expr_eval.get_current_this() && expr_eval.get_current_this()->has_property(ma->member_name)) {
+                expr_eval.get_current_this()->set_property(ma->member_name, res);
+            } else {
+                write_variable(ma->var_name + "." + ma->member_name, res, bp);
+            }
+        }
+        return;
+    }
+
     if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
         if (disp->is_monitor) {
             std::function<void(ExpressionNode*)> check_mon_expr = [&](ExpressionNode* expr) {

@@ -66,6 +66,8 @@ public:
     LogicVal eval_countbits(CountBitsNode* node, const std::string& scope);
     LogicVal eval_array_dimension_query(ArrayDimensionQueryNode* node, const std::string& scope);
     LogicVal eval_array_bound_query(ArrayBoundQueryNode* node, const std::string& scope);
+    LogicVal eval_sformatf(SFormatfNode* node, const std::string& scope);
+    static std::string format_systemverilog_string(const std::string& fmt, const std::vector<LogicVal>& args, uint64_t sim_time);
     bool get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits);
 
     bool get_array_elements(const std::string& var_name, const std::string& scope, std::vector<LogicVal>& out_elements, uint32_t& out_elem_width, bool& out_is_signed);

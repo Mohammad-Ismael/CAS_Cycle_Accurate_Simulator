@@ -330,6 +330,21 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<CountBitsNode>(std::move(target), std::move(control_bits));
     }
 
+    if (current.type == TokenType::TOKEN_SYS_SFORMATF) {
+        advance();
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $sformatf");
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] $sformatf requires at least 1 argument per IEEE 1800-2023 section 20.14");
+        }
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        args.push_back(parse_expression());
+        while (match(TokenType::TOKEN_COMMA)) {
+            args.push_back(parse_expression());
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $sformatf");
+        return std::make_unique<SFormatfNode>(std::move(args));
+    }
+
     if (current.type == TokenType::TOKEN_ROSE || current.type == TokenType::TOKEN_FELL ||
         current.type == TokenType::TOKEN_STABLE || current.type == TokenType::TOKEN_PAST) {
         TokenType fn_tok = current.type;

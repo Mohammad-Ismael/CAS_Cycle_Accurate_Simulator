@@ -292,6 +292,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto abqn = dynamic_cast<ArrayBoundQueryNode*>(expr)) {
         return eval_array_bound_query(abqn, scope);
     }
+    if (auto sfn = dynamic_cast<SFormatfNode*>(expr)) {
+        return eval_sformatf(sfn, scope);
+    }
 
 
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
@@ -5045,4 +5048,170 @@ LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const 
         }
     }
     return LogicVal::make_x(32);
+}
+
+std::string ExprEvaluator::format_systemverilog_string(
+    const std::string& fmt,
+    const std::vector<LogicVal>& args,
+    uint64_t sim_time
+) {
+    std::string result;
+    size_t arg_idx = 0;
+    size_t fmt_len = fmt.size();
+
+    for (size_t i = 0; i < fmt_len; ++i) {
+        if (fmt[i] == '%' && i + 1 < fmt_len) {
+            ++i;
+            if (fmt[i] == '%') {
+                result += '%';
+                continue;
+            }
+
+            bool pad_zero = false;
+            int width = 0;
+            if (fmt[i] == '0') {
+                pad_zero = true;
+                ++i;
+            }
+            while (i < fmt_len && std::isdigit((unsigned char)fmt[i])) {
+                width = width * 10 + (fmt[i] - '0');
+                ++i;
+            }
+            char spec = (i < fmt_len) ? fmt[i] : ' ';
+
+            if (spec == 't') {
+                if (arg_idx < args.size()) {
+                    const LogicVal& val = args[arg_idx++];
+                    if (val.is_unknown()) {
+                        result += "x";
+                    } else if (val.is_signed) {
+                        result += std::to_string(val.to_signed());
+                    } else {
+                        result += std::to_string(val.aval);
+                    }
+                } else {
+                    result += std::to_string(sim_time);
+                }
+                continue;
+            }
+
+            if (arg_idx >= args.size()) {
+                continue;
+            }
+
+            const LogicVal& val = args[arg_idx++];
+
+            if (spec == 's') {
+                if (val.is_string) {
+                    result += val.str_val;
+                } else {
+                    std::string s;
+                    for (int b = (int)val.width - 8; b >= 0; b -= 8) {
+                        char ch = (char)((val.aval >> b) & 0xFF);
+                        if (ch != 0 || !s.empty()) s += ch;
+                    }
+                    if (s.empty() && val.width <= 32) {
+                        s = std::to_string(val.aval);
+                    }
+                    result += s;
+                }
+            } else if (spec == 'd') {
+                std::string s;
+                if (val.is_unknown()) {
+                    s = "x";
+                } else if (val.is_real) {
+                    s = std::to_string((int64_t)val.real_val);
+                } else if (val.is_signed) {
+                    s = std::to_string(val.to_signed());
+                } else {
+                    s = std::to_string(val.aval);
+                }
+                if (pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = "0" + s;
+                } else if (!pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = " " + s;
+                }
+                result += s;
+            } else if (spec == 'f') {
+                double d = val.is_real ? val.real_val : (double)val.aval;
+                std::stringstream ss;
+                ss << d;
+                result += ss.str();
+            } else if (spec == 'h' || spec == 'x') {
+                std::string s;
+                if (!val.is_unknown()) {
+                    std::stringstream ss;
+                    ss << std::hex << val.aval << std::dec;
+                    s = ss.str();
+                } else {
+                    s = val.to_hex_string(true);
+                }
+                for (char& c : s) c = (char)std::tolower((unsigned char)c);
+                if (pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = "0" + s;
+                } else if (!pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = " " + s;
+                }
+                result += s;
+            } else if (spec == 'b') {
+                std::string s = val.to_bin_string();
+                if (pad_zero && width == 0) {
+                    size_t first_non_zero = s.find_first_not_of('0');
+                    if (first_non_zero != std::string::npos) {
+                        s = s.substr(first_non_zero);
+                    } else {
+                        s = "0";
+                    }
+                } else if (pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = "0" + s;
+                } else if (!pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = " " + s;
+                }
+                result += s;
+            } else if (spec == 'o') {
+                std::string s;
+                if (!val.is_unknown()) {
+                    std::stringstream ss;
+                    ss << std::oct << val.aval << std::dec;
+                    s = ss.str();
+                } else {
+                    s = "x";
+                }
+                if (pad_zero && width == 0) {
+                    size_t first_non_zero = s.find_first_not_of('0');
+                    if (first_non_zero != std::string::npos) {
+                        s = s.substr(first_non_zero);
+                    } else {
+                        s = "0";
+                    }
+                } else if (pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = "0" + s;
+                } else if (!pad_zero && width > 0) {
+                    while (s.size() < (size_t)width) s = " " + s;
+                }
+                result += s;
+            } else {
+                result += val.is_string ? val.str_val : std::to_string(val.aval);
+            }
+        } else {
+            result += fmt[i];
+        }
+    }
+    return result;
+}
+
+LogicVal ExprEvaluator::eval_sformatf(SFormatfNode* node, const std::string& scope) {
+    if (!node || node->args.empty()) {
+        throw std::runtime_error("[CAS-DTINPCIL] $sformatf requires at least 1 argument per IEEE 1800-2023 section 20.14");
+    }
+    LogicVal fmt_val = eval(node->args[0].get(), scope);
+    if (!fmt_val.is_string) {
+        throw std::runtime_error("[CAS-DTINPCIL] Format argument in $sformatf must evaluate to a string type per IEEE 1800-2023 section 20.14");
+    }
+    std::vector<LogicVal> arg_vals;
+    for (size_t i = 1; i < node->args.size(); ++i) {
+        arg_vals.push_back(eval(node->args[i].get(), scope));
+    }
+    std::string formatted = format_systemverilog_string(fmt_val.str_val, arg_vals, engine.get_sim_time());
+    return LogicVal::make_string(formatted);
 }

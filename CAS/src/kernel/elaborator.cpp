@@ -537,6 +537,11 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
         }
         return std::make_unique<CountBitsNode>(std::move(t), std::move(c_ctrl));
     }
+    if (auto sfn = dynamic_cast<SFormatfNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        for (auto& a : sfn->args) args.push_back(substitute_genvar_in_expr(a.get(), gname, val));
+        return std::make_unique<SFormatfNode>(std::move(args));
+    }
     if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
         return std::make_unique<ArrayDimensionQueryNode>(
             adqn->kind,

@@ -737,3 +737,18 @@ struct CountBitsNode : public ExpressionNode {
         );
     }
 };
+
+struct SFormatfNode : public ExpressionNode {
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+
+    explicit SFormatfNode(std::vector<std::unique_ptr<ExpressionNode>> a)
+        : args(std::move(a)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& arg : args) {
+            c_args.push_back(arg ? arg->clone() : nullptr);
+        }
+        return std::make_unique<SFormatfNode>(std::move(c_args));
+    }
+};
