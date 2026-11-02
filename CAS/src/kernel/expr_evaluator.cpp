@@ -1029,27 +1029,35 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (cast_node->target_type == "int" || cast_node->target_type == "integer") {
             if (val.is_real) {
-                return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)));
+                return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
             }
-            return LogicOps::cast_width(val, 32, true);
+            LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
+            res.is_signed = true;
+            return res;
         }
         if (cast_node->target_type == "shortint") {
             if (val.is_real) {
-                return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)));
+                return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
             }
-            return LogicOps::cast_width(val, 16, true);
+            LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
+            res.is_signed = true;
+            return res;
         }
         if (cast_node->target_type == "byte") {
             if (val.is_real) {
-                return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)));
+                return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
             }
-            return LogicOps::cast_width(val, 8, true);
+            LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
+            res.is_signed = true;
+            return res;
         }
         if (cast_node->target_type == "longint") {
             if (val.is_real) {
-                return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)));
+                return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
             }
-            return LogicOps::cast_width(val, 64, true);
+            LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
+            res.is_signed = true;
+            return res;
         }
         if (cast_node->target_type == "real" || cast_node->target_type == "shortreal") {
             if (val.is_real) return val;
@@ -1114,25 +1122,33 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (val.is_real) {
                     return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
                 }
-                return LogicOps::cast_width(val, 32, true);
+                LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
+                res.is_signed = true;
+                return res;
             }
             if (target_type == "shortint") {
                 if (val.is_real) {
                     return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
                 }
-                return LogicOps::cast_width(val, 16, true);
+                LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
+                res.is_signed = true;
+                return res;
             }
             if (target_type == "byte") {
                 if (val.is_real) {
                     return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
                 }
-                return LogicOps::cast_width(val, 8, true);
+                LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
+                res.is_signed = true;
+                return res;
             }
             if (target_type == "longint") {
                 if (val.is_real) {
                     return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
                 }
-                return LogicOps::cast_width(val, 64, true);
+                LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
+                res.is_signed = true;
+                return res;
             }
             if (target_type == "real" || target_type == "shortreal") {
                 if (val.is_real) return val;
@@ -1591,16 +1607,31 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         std::vector<LogicVal> array_elems;
         uint32_t a_elem_width = 32;
         bool a_is_signed = false;
-        if (get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed)) {
-            std::string method = method_node->method_name;
+        bool is_array = get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed);
+        std::string method = method_node->method_name;
+
+        if (method == "sum" || method == "product" || method == "and" || method == "or" || method == "xor") {
+            if (method_node->args.size() > 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] Array reduction method '" + method + "' accepts at most one iterator argument per IEEE 1800-2023 section 7.12");
+            }
+            if (!is_array) {
+                throw std::runtime_error("[CAS-DTINPCIL] Array reduction method '" + method + "' called on non-array target '" + var_name + "' per IEEE 1800-2023 section 7.12");
+            }
             std::string iter_name = "item";
             if (!method_node->args.empty()) {
                 if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
                     iter_name = id->name;
                 }
             }
-            if (method == "sum" || method == "product" || method == "and" || method == "or" || method == "xor") {
-                return eval_array_reduction(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
+            return eval_array_reduction(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
+        }
+
+        if (is_array) {
+            std::string iter_name = "item";
+            if (!method_node->args.empty()) {
+                if (auto id = dynamic_cast<IdentifierNode*>(method_node->args[0].get())) {
+                    iter_name = id->name;
+                }
             }
             if (method == "min" || method == "max") {
                 auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
@@ -3570,8 +3601,32 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
         }
     }
 
+    // 2.5 Check current_this dynamic arrays
+    if (current_this) {
+        auto it = current_this->dynamic_arrays.find(var_name);
+        if (it != current_this->dynamic_arrays.end()) {
+            out_elements = it->second.elements;
+            out_elem_width = it->second.elem_width;
+            out_is_signed = it->second.is_signed;
+            return true;
+        }
+    }
+
     // 3. Check engine dynamic array
     DynamicArrayObject* da = engine.get_dynamic_array(var_name, scope);
+    if (!da) {
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            auto pos = cur_s.rfind('.');
+            if (pos != std::string::npos) {
+                cur_s = cur_s.substr(0, pos);
+                da = engine.get_dynamic_array(var_name, cur_s);
+                if (da) break;
+            } else {
+                break;
+            }
+        }
+    }
     if (da) {
         out_elements = da->elements;
         out_elem_width = da->elem_width;
@@ -3581,6 +3636,19 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
 
     // 4. Check engine queue
     QueueObject* q = engine.get_queue(var_name, scope);
+    if (!q) {
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            auto pos = cur_s.rfind('.');
+            if (pos != std::string::npos) {
+                cur_s = cur_s.substr(0, pos);
+                q = engine.get_queue(var_name, cur_s);
+                if (q) break;
+            } else {
+                break;
+            }
+        }
+    }
     if (q) {
         out_elements.assign(q->elements.begin(), q->elements.end());
         out_elem_width = q->elem_width;
@@ -3593,6 +3661,21 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
     std::string mem_key = "";
     if (engine.memory_map.find(s_id) != engine.memory_map.end()) mem_key = s_id;
     else if (engine.memory_map.find(var_name) != engine.memory_map.end()) mem_key = var_name;
+    else {
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            auto pos = cur_s.rfind('.');
+            if (pos != std::string::npos) {
+                cur_s = cur_s.substr(0, pos);
+                if (engine.memory_map.find(cur_s + "." + var_name) != engine.memory_map.end()) {
+                    mem_key = cur_s + "." + var_name;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
     if (!mem_key.empty()) {
         auto& mem = engine.memory_map.at(mem_key);
         out_elements.reserve(mem.depth);
@@ -3606,6 +3689,19 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
 
     // 6. Check engine associative array
     AssociativeArrayObject* assoc = engine.get_assoc_array(var_name, scope);
+    if (!assoc) {
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            auto pos = cur_s.rfind('.');
+            if (pos != std::string::npos) {
+                cur_s = cur_s.substr(0, pos);
+                assoc = engine.get_assoc_array(var_name, cur_s);
+                if (assoc) break;
+            } else {
+                break;
+            }
+        }
+    }
     if (assoc) {
         for (const auto& pair : assoc->elements) {
             out_elements.push_back(pair.second);
@@ -3631,14 +3727,14 @@ LogicVal ExprEvaluator::eval_array_reduction(
     const std::string& scope) {
 
     if (elements.empty()) {
-        return LogicVal::make_known(elem_width, 0);
+        if (method == "product") {
+            return LogicVal::make_known(elem_width, 1, is_signed);
+        }
+        return LogicVal::make_known(elem_width, 0, is_signed);
     }
 
-    uint64_t total = 0;
-    uint64_t prod = 1;
-    uint64_t bit_and = (elem_width >= 64) ? ~0ULL : ((1ULL << elem_width) - 1);
-    uint64_t bit_or = 0;
-    uint64_t bit_xor = 0;
+    LogicVal acc;
+    bool has_acc = false;
 
     for (const auto& elem : elements) {
         LogicVal val = elem;
@@ -3650,29 +3746,46 @@ LogicVal ExprEvaluator::eval_array_reduction(
             context.pop_frame();
         }
 
-        uint64_t cur = val.aval;
-        total += cur;
-        prod *= cur;
-        bit_and &= cur;
-        bit_or |= cur;
-        bit_xor ^= cur;
+        if (!has_acc) {
+            acc = val;
+            has_acc = true;
+            continue;
+        }
+
+        uint32_t res_width = val.width;
+        bool res_signed = val.is_signed;
+        uint64_t mask = (res_width >= 64) ? ~0ULL : ((1ULL << res_width) - 1);
+
+        if (method == "sum") {
+            if (acc.is_unknown() || val.is_unknown()) {
+                acc = LogicVal::make_x(res_width);
+            } else {
+                uint64_t total = (acc.aval + val.aval) & mask;
+                acc = LogicVal::make_known(res_width, total, res_signed);
+            }
+        } else if (method == "product") {
+            if (acc.is_unknown() || val.is_unknown()) {
+                acc = LogicVal::make_x(res_width);
+            } else {
+                uint64_t prod = (acc.aval * val.aval) & mask;
+                acc = LogicVal::make_known(res_width, prod, res_signed);
+            }
+        } else if (method == "and") {
+            acc = LogicOps::bitwise_and(acc, val);
+            acc.width = res_width;
+            acc.mask();
+        } else if (method == "or") {
+            acc = LogicOps::bitwise_or(acc, val);
+            acc.width = res_width;
+            acc.mask();
+        } else if (method == "xor") {
+            acc = LogicOps::bitwise_xor(acc, val);
+            acc.width = res_width;
+            acc.mask();
+        }
     }
 
-    uint64_t mask = (elem_width >= 64) ? ~0ULL : ((1ULL << elem_width) - 1);
-
-    if (method == "sum") {
-        return LogicVal::make_known(elem_width, total & mask);
-    } else if (method == "product") {
-        return LogicVal::make_known(elem_width, prod & mask);
-    } else if (method == "and") {
-        return LogicVal::make_known(elem_width, bit_and & mask);
-    } else if (method == "or") {
-        return LogicVal::make_known(elem_width, bit_or & mask);
-    } else if (method == "xor") {
-        return LogicVal::make_known(elem_width, bit_xor & mask);
-    }
-
-    return LogicVal::make_known(elem_width, 0);
+    return acc;
 }
 
 std::vector<LogicVal> ExprEvaluator::eval_array_locator(

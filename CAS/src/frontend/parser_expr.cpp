@@ -712,7 +712,18 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 if (match(TokenType::TOKEN_LPAREN)) {
                     auto parsed = parse_call_argument_list();
-                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
+                    std::unique_ptr<ExpressionNode> with_expr = nullptr;
+                    if (match(TokenType::TOKEN_WITH)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                        with_expr = parse_expression();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    }
+                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                } else if (match(TokenType::TOKEN_WITH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                    auto with_expr = parse_expression();
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    return std::make_unique<MethodCallNode>(path, mem, std::vector<std::unique_ptr<ExpressionNode>>(), std::move(with_expr));
                 }
                 return std::make_unique<MemberAccessNode>(path, mem);
             }
@@ -754,7 +765,18 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 if (match(TokenType::TOKEN_LPAREN)) {
                     auto parsed = parse_call_argument_list();
-                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
+                    std::unique_ptr<ExpressionNode> with_expr = nullptr;
+                    if (match(TokenType::TOKEN_WITH)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                        with_expr = parse_expression();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    }
+                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                } else if (match(TokenType::TOKEN_WITH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                    auto with_expr = parse_expression();
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    return std::make_unique<MethodCallNode>(path, mem, std::vector<std::unique_ptr<ExpressionNode>>(), std::move(with_expr));
                 }
                 return std::make_unique<MemberAccessNode>(path, mem);
             }

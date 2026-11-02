@@ -78,7 +78,8 @@ suites = [
     ("v3.52.0.0", "v3_52_0_0_countbits", ["design.sv", "testbench.sv"]),
     ("v3.53.0.0", "v3_53_0_0_array_dimensions", ["design.sv", "testbench.sv"]),
     ("v3.54.0.0", "v3_54_0_0_array_bounds", ["design.sv", "testbench.sv"]),
-    ("v3.55.0.0", "v3_55_0_0_unpacked_concat", ["design.sv", "testbench.sv"])
+    ("v3.55.0.0", "v3_55_0_0_unpacked_concat", ["design.sv", "testbench.sv"]),
+    ("v3.56.0.0", "v3_56_0_0_array_reduction_with", ["design.sv", "testbench.sv"])
 ]
 
 cas_bin = os.path.abspath("CAS/build/cas")

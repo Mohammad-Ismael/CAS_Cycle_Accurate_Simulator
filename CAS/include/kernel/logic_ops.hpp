@@ -84,10 +84,14 @@ public:
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
         if (v.is_real || v.is_string) return v;
-        if (v.width == target_width) return v;
+        if (v.width == target_width) {
+            LogicVal res = v;
+            res.is_signed = is_signed;
+            return res;
+        }
         if (v.width > target_width) {
             uint64_t mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
-            return LogicVal(target_width, v.aval & mask, v.bval & mask);
+            return LogicVal(target_width, v.aval & mask, v.bval & mask, is_signed);
         }
 
         uint64_t new_a = v.aval;
@@ -108,7 +112,7 @@ public:
         }
 
         uint64_t target_mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
-        return LogicVal(target_width, new_a & target_mask, new_b & target_mask);
+        return LogicVal(target_width, new_a & target_mask, new_b & target_mask, is_signed);
     }
 
     static LogicVal bitwise_not(const LogicVal& v) {
