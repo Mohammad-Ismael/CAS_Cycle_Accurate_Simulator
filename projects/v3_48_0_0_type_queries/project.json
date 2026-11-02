@@ -1,0 +1,8 @@
+{
+  "name": "v3_48_0_0_type_queries",
+  "version": "v3.48.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§20.6",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_48_0_regression"
+}

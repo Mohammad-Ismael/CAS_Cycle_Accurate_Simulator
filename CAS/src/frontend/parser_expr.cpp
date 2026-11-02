@@ -68,6 +68,54 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<ArrayQueryNode>(qtype, std::move(arr_expr), std::move(dim_expr));
     }
 
+    if (current.type == TokenType::TOKEN_SYS_TYPENAME) {
+        advance();
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $typename");
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
+        }
+
+        std::string type_keyword = "";
+        std::unique_ptr<ExpressionNode> arg_expr = nullptr;
+
+        bool is_prim_keyword = (current.type == TokenType::TOKEN_LOGIC ||
+                                current.type == TokenType::TOKEN_REG ||
+                                current.type == TokenType::TOKEN_BIT ||
+                                current.type == TokenType::TOKEN_INTEGER ||
+                                current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_CHANDLE ||
+                                current.type == TokenType::TOKEN_VOID ||
+                                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                                 (current.text == "int" || current.text == "byte" ||
+                                  current.text == "shortint" || current.text == "longint" ||
+                                  current.text == "time" || current.text == "string" ||
+                                  current.text == "shortreal" || current.text == "realtime")));
+
+        if (is_prim_keyword) {
+            type_keyword = current.text;
+            advance();
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in dimension");
+                auto lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after dimension");
+                int64_t m = 0, l = 0;
+                if (auto nm = dynamic_cast<NumberNode*>(msb.get())) m = nm->aval;
+                if (auto nl = dynamic_cast<NumberNode*>(lsb.get())) l = nl->aval;
+                type_keyword += "[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+            }
+        } else {
+            arg_expr = parse_expression();
+        }
+
+        if (current.type == TokenType::TOKEN_COMMA) {
+            throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $typename");
+
+        return std::make_unique<TypeNameNode>(std::move(arg_expr), type_keyword);
+    }
+
     if (current.type == TokenType::TOKEN_ROSE || current.type == TokenType::TOKEN_FELL ||
         current.type == TokenType::TOKEN_STABLE || current.type == TokenType::TOKEN_PAST) {
         TokenType fn_tok = current.type;

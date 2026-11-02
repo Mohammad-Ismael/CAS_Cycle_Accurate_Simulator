@@ -628,6 +628,7 @@ Token Lexer::next_token() {
         if (ident == "$high") return {TokenType::TOKEN_SYS_HIGH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$size") return {TokenType::TOKEN_SYS_SIZE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$increment") return {TokenType::TOKEN_SYS_INCREMENT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$typename") return {TokenType::TOKEN_SYS_TYPENAME, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "generate") return {TokenType::TOKEN_GENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endgenerate") return {TokenType::TOKEN_ENDGENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "genvar") return {TokenType::TOKEN_GENVAR, ident, 0, 0, cur_file, cur_line, 0};

@@ -371,6 +371,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->class_type_name = vdecl->class_type_name;
                     lv->value = LogicVal(64, 0, 0);
                 }
+                if (!vdecl->packed_dimensions.empty()) {
+                    for (const auto& pdim : vdecl->packed_dimensions) {
+                        int64_t b1 = 0, b2 = 0;
+                        if (pdim.left_expr) b1 = eval_expr(pdim.left_expr.get(), bp.scope).to_signed();
+                        if (pdim.right_expr) b2 = eval_expr(pdim.right_expr.get(), bp.scope).to_signed();
+                        lv->dimensions.push_back({b1, b2, false, false, false});
+                    }
+                    lv->is_vector_or_array = true;
+                } else if (vdecl->width > 1 && vdecl->type_name.empty()) {
+                    lv->dimensions.push_back({(int64_t)(vdecl->width - 1), 0, false, false, false});
+                    lv->is_vector_or_array = true;
+                }
                 if (vdecl->is_chandle || vdecl->type_name == "chandle") {
                     lv->is_chandle = true;
                     lv->type_name = "chandle";
@@ -419,6 +431,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (!bp.call_stack.empty()) {
             bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
             LocalVar* lv = bp.call_stack.back().local_frame.get_var(vdecl->var_name);
+            if (lv && vdecl->is_class_handle) {
+                lv->is_class_handle = true;
+                lv->class_type_name = vdecl->class_type_name;
+                lv->value = LogicVal(64, 0, 0);
+            }
+            if (lv && !vdecl->packed_dimensions.empty()) {
+                for (const auto& pdim : vdecl->packed_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (pdim.left_expr) b1 = eval_expr(pdim.left_expr.get(), bp.scope).to_signed();
+                    if (pdim.right_expr) b2 = eval_expr(pdim.right_expr.get(), bp.scope).to_signed();
+                    lv->dimensions.push_back({b1, b2, false, false, false});
+                }
+                lv->is_vector_or_array = true;
+            } else if (lv && vdecl->width > 1 && vdecl->type_name.empty()) {
+                lv->dimensions.push_back({(int64_t)(vdecl->width - 1), 0, false, false, false});
+                lv->is_vector_or_array = true;
+            }
             if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle")) {
                 lv->is_chandle = true;
                 lv->type_name = "chandle";

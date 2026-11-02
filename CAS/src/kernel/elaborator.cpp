@@ -859,6 +859,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         } else if (p.type_name == "longint" || p.type_name == "time") {
             pvdm.dimensions.push_back({63, 0, false, false, false});
             pvdm.is_vector_or_array = true;
+        } else if (w > 1) {
+            pvdm.dimensions.push_back({(int64_t)(w - 1), 0, false, false, false});
+            pvdm.is_vector_or_array = true;
         }
         if (pvdm.is_vector_or_array) {
             result.var_dimensions[scope + "." + p.name] = pvdm;
@@ -1020,6 +1023,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.is_vector_or_array = true;
             } else if (s.type_name == "longint" || s.type_name == "time") {
                 svdm.dimensions.push_back({63, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            } else if (w > 1) {
+                svdm.dimensions.push_back({(int64_t)(w - 1), 0, false, false, false});
                 svdm.is_vector_or_array = true;
             }
             if (svdm.is_vector_or_array) {

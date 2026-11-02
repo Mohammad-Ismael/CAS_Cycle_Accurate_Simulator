@@ -584,3 +584,18 @@ struct LetCallNode : public ExpressionNode {
         return node;
     }
 };
+
+struct TypeNameNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> target_expr;
+    std::string type_name_arg;
+
+    TypeNameNode(std::unique_ptr<ExpressionNode> expr, std::string tname = "")
+        : target_expr(std::move(expr)), type_name_arg(std::move(tname)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<TypeNameNode>(
+            target_expr ? target_expr->clone() : nullptr,
+            type_name_arg
+        );
+    }
+};
