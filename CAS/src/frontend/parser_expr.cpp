@@ -180,6 +180,42 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<StringNode>(s);
     }
 
+    if (current.type == TokenType::TOKEN_SIGNED) {
+        if (peek_token().type == TokenType::TOKEN_APOSTROPHE) {
+            advance(); // consume 'signed'
+            advance(); // consume '''
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in signed cast expression");
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing signed cast expression");
+            return std::make_unique<StaticCastExprNode>(CastKind::SIGNED, std::move(cast_expr));
+        }
+    }
+
+    if (current.type == TokenType::TOKEN_UNSIGNED) {
+        if (peek_token().type == TokenType::TOKEN_APOSTROPHE) {
+            advance(); // consume 'unsigned'
+            advance(); // consume '''
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in unsigned cast expression");
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing unsigned cast expression");
+            return std::make_unique<StaticCastExprNode>(CastKind::UNSIGNED, std::move(cast_expr));
+        }
+    }
+
+    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER ||
+        current.type == TokenType::TOKEN_REAL) {
+        if (peek_token().type == TokenType::TOKEN_APOSTROPHE) {
+            std::string tname = current.text;
+            advance(); // consume type token
+            advance(); // consume '''
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+            return std::make_unique<StaticCastExprNode>(CastKind::TYPE, 0, tname, std::move(cast_expr));
+        }
+    }
+
     if (current.type == TokenType::TOKEN_NUMBER) {
         if (current.is_real) {
             double r = current.real_val;
@@ -190,6 +226,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         uint64_t b = current.bval;
         uint32_t w = current.width;
         advance();
+        if (match(TokenType::TOKEN_APOSTROPHE)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
+            if (a == 0) {
+                throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got 0) per IEEE 1800-2023 section 6.24.1");
+            }
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing size cast expression");
+            return std::make_unique<StaticCastExprNode>(static_cast<uint32_t>(a), std::move(cast_expr));
+        }
         return std::make_unique<NumberNode>(a, b, w);
     }
 
@@ -229,7 +274,21 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
                 auto cast_expr = parse_expression();
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
-                return std::make_unique<CastNode>(name + "::" + member, std::move(cast_expr));
+                std::string full_tname = name + "::" + member;
+                auto pit = global_packages.find(name);
+                bool valid = false;
+                if (pit != global_packages.end()) {
+                    if (pit->second->enum_typedefs.count(member) ||
+                        pit->second->struct_typedefs.count(member) ||
+                        pit->second->simple_typedefs.count(member) ||
+                        pit->second->class_map.count(member)) {
+                        valid = true;
+                    }
+                }
+                if (!valid) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Undefined or unresolved type identifier in static cast per IEEE 1800-2023 section 6.24.1: '" + full_tname + "'");
+                }
+                return std::make_unique<StaticCastExprNode>(CastKind::TYPE, 0, full_tname, std::move(cast_expr));
             }
             return std::make_unique<StaticMemberAccessNode>(name, member);
         }
@@ -265,7 +324,23 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
             auto cast_expr = parse_expression();
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
-            return std::make_unique<CastNode>(name, std::move(cast_expr));
+            if (name == "signed") {
+                return std::make_unique<StaticCastExprNode>(CastKind::SIGNED, std::move(cast_expr));
+            }
+            if (name == "unsigned") {
+                return std::make_unique<StaticCastExprNode>(CastKind::UNSIGNED, std::move(cast_expr));
+            }
+            uint32_t csize = 0;
+            if (is_constant_size_param(name, csize)) {
+                if (csize == 0) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got 0) per IEEE 1800-2023 section 6.24.1");
+                }
+                return std::make_unique<StaticCastExprNode>(csize, std::move(cast_expr));
+            }
+            if (!is_type_identifier(name)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Undefined or unresolved type identifier in static cast per IEEE 1800-2023 section 6.24.1: '" + name + "'");
+            }
+            return std::make_unique<StaticCastExprNode>(CastKind::TYPE, 0, name, std::move(cast_expr));
         }
 
         // Method call or Member access: identifier followed by '.'
@@ -467,6 +542,37 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return std::make_unique<SequenceMatchItemNode>(std::move(expr), std::move(assigns));
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized expression");
+        if (match(TokenType::TOKEN_APOSTROPHE)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
+            int64_t sz = 0;
+            if (auto num = dynamic_cast<NumberNode*>(expr.get())) {
+                if (num->width <= 32) {
+                    sz = static_cast<int64_t>(static_cast<int32_t>(num->aval));
+                } else {
+                    sz = static_cast<int64_t>(num->aval);
+                }
+            } else if (auto un = dynamic_cast<UnaryOpNode*>(expr.get())) {
+                if (un->op == "-") {
+                    if (auto un_num = dynamic_cast<NumberNode*>(un->operand.get())) {
+                        sz = -static_cast<int64_t>(un_num->aval);
+                    } else {
+                        sz = -1;
+                    }
+                }
+            } else {
+                try {
+                    sz = static_cast<int64_t>(eval_const_expr(expr.get()));
+                } catch (...) {
+                    sz = 0;
+                }
+            }
+            if (sz <= 0) {
+                throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got " + std::to_string(sz) + ") per IEEE 1800-2023 section 6.24.1");
+            }
+            auto cast_expr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing size cast expression");
+            return std::make_unique<StaticCastExprNode>(static_cast<uint32_t>(sz), std::move(cast_expr));
+        }
         return expr;
     }
 
@@ -585,6 +691,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
             uint64_t b = current.bval;
             uint32_t w = current.width;
             advance();
+            if (match(TokenType::TOKEN_APOSTROPHE)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
+                throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got -" + std::to_string(a) + ") per IEEE 1800-2023 section 6.24.1");
+            }
             uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
             uint64_t neg_a = (~a + 1) & mask;
             return std::make_unique<NumberNode>(neg_a, b, w);
@@ -1069,6 +1179,10 @@ std::unique_ptr<ExpressionNode> Parser::substitute_let_in_expr(
                 if (auto cid = dynamic_cast<const IdentifierNode*>(acid->expr.get())) {
                     base_name = cid->name;
                 }
+            } else if (auto ascid = dynamic_cast<const StaticCastExprNode*>(it->second)) {
+                if (auto cid = dynamic_cast<const IdentifierNode*>(ascid->expr.get())) {
+                    base_name = cid->name;
+                }
             }
         }
         std::unique_ptr<IndexSelectNode> res;
@@ -1096,6 +1210,15 @@ std::unique_ptr<ExpressionNode> Parser::substitute_let_in_expr(
             substitute_let_in_expr(co->expr.get(), subst),
             co->width,
             co->is_signed
+        );
+    }
+
+    if (auto sco = dynamic_cast<const StaticCastExprNode*>(expr)) {
+        return std::make_unique<StaticCastExprNode>(
+            sco->kind,
+            sco->target_width,
+            sco->target_type_name,
+            substitute_let_in_expr(sco->expr.get(), subst)
         );
     }
 

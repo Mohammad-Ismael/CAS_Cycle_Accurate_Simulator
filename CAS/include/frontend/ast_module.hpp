@@ -380,12 +380,22 @@ struct StructTypeNode : public ASTNode {
     uint32_t total_width = 0;
 };
 
+struct SimpleTypedef {
+    std::string name;
+    std::string base_type;
+    uint32_t width = 1;
+    bool is_signed = false;
+};
+
 struct TypedefNode : public ASTNode {
     std::string type_name;
     std::shared_ptr<EnumTypeNode> enum_type;
     std::shared_ptr<StructTypeNode> struct_type;
     bool is_forward_class = false;
     bool is_interface_class = false;
+    std::string base_type = "";
+    uint32_t width = 0;
+    bool is_signed = false;
 
     TypedefNode() = default;
     TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
@@ -824,6 +834,7 @@ struct PackageNode : public ASTNode {
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
+    std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::unordered_map<std::string, FunctionNode*> function_map;
@@ -925,6 +936,7 @@ struct ModuleNode : public ASTNode {
     std::vector<PortNode> signals;
     std::vector<std::string> events;
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
+    std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::shared_ptr<PathDelayNode>> path_delays;

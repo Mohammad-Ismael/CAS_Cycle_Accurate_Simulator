@@ -269,6 +269,9 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     if (auto cst = dynamic_cast<CastNode*>(expr)) {
         return std::make_unique<CastNode>(cst->target_type, substitute_genvar_in_expr(cst->expr.get(), gname, val));
     }
+    if (auto scst = dynamic_cast<StaticCastExprNode*>(expr)) {
+        return std::make_unique<StaticCastExprNode>(scst->kind, scst->target_width, scst->target_type_name, substitute_genvar_in_expr(scst->expr.get(), gname, val));
+    }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);
     }
@@ -618,6 +621,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             result.struct_types[td->type_name] = st;
             result.struct_types[scope + "." + td->type_name] = st;
+        }
+        if (!td->base_type.empty()) {
+            SimpleTypeInfo sinfo;
+            sinfo.name = td->type_name;
+            sinfo.base_type = td->base_type;
+            sinfo.width = td->width;
+            sinfo.is_signed = td->is_signed;
+            result.simple_types[td->type_name] = sinfo;
+            result.simple_types[scope + "." + td->type_name] = sinfo;
         }
     }
 
@@ -2029,6 +2041,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
             result.struct_types[pkg_name + "::" + st.first] = s;
             result.struct_types[st.first] = s;
+        }
+
+        for (const auto& st : pkg->simple_typedefs) {
+            SimpleTypeInfo sinfo;
+            sinfo.name = st.second.name;
+            sinfo.base_type = st.second.base_type;
+            sinfo.width = st.second.width;
+            sinfo.is_signed = st.second.is_signed;
+            result.simple_types[pkg_name + "::" + st.first] = sinfo;
+            result.simple_types[st.first] = sinfo;
         }
 
         for (const auto& fn : pkg->functions) {

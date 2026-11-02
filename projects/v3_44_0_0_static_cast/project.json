@@ -1,0 +1,8 @@
+{
+  "name": "v3_44_0_0_static_cast",
+  "version": "v3.44.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§6.24.1",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_44_0_regression"
+}

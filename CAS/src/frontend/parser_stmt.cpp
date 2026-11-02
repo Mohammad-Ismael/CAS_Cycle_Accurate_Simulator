@@ -224,7 +224,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string t_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
         proc_type_name = p_name + "::" + t_name;
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
         proc_type_name = current.text;
         advance();
     }
@@ -233,8 +233,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string type_name = proc_type_name;
         auto enum_info = get_enum_typedef(type_name);
         auto struct_info = get_struct_typedef(type_name);
-        uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32);
-        bool is_signed_var = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false);
+        SimpleTypedef simple_info;
+        bool has_simple = get_simple_typedef(type_name, simple_info);
+        uint32_t width = struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : (has_simple ? simple_info.width : 32));
+        bool is_signed_var = struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_simple ? simple_info.is_signed : false));
 
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
@@ -279,7 +281,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
     bool is_ident_string_type = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
-    bool is_ident_unsigned_type = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned");
+    bool is_ident_unsigned_type = (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned"));
     bool is_chandle_stmt = (current.type == TokenType::TOKEN_CHANDLE ||
                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
     bool is_semaphore_stmt = (current.type == TokenType::TOKEN_SEMAPHORE ||
@@ -290,6 +292,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL ||
+        current.type == TokenType::TOKEN_UNSIGNED ||
         is_ident_int_type || is_ident_string_type || is_ident_unsigned_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) {
 
         bool explicit_signed = false;
@@ -297,7 +300,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (current.type == TokenType::TOKEN_SIGNED) {
             explicit_signed = true;
             advance();
-        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
             explicit_unsigned = true;
             advance();
         }
@@ -319,7 +322,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (current.type == TokenType::TOKEN_SIGNED) {
             explicit_signed = true;
             advance();
-        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
             explicit_unsigned = true;
             advance();
         }

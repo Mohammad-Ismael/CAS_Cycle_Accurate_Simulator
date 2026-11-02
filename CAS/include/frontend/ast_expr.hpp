@@ -230,6 +230,33 @@ struct MemberAccessNode : public ExpressionNode {
     }
 };
 
+using ExprNode = ExpressionNode;
+
+enum class CastKind { SIZE, TYPE, SIGNED, UNSIGNED };
+
+struct StaticCastExprNode : public ExpressionNode {
+    CastKind kind = CastKind::TYPE;
+    uint32_t target_width = 0;
+    std::string target_type_name;
+    std::unique_ptr<ExpressionNode> expr;
+
+    StaticCastExprNode(CastKind k, uint32_t w, std::string t, std::unique_ptr<ExpressionNode> e)
+        : kind(k), target_width(w), target_type_name(std::move(t)), expr(std::move(e)) {}
+
+    StaticCastExprNode(uint32_t w, std::unique_ptr<ExpressionNode> e)
+        : kind(CastKind::SIZE), target_width(w), expr(std::move(e)) {}
+
+    StaticCastExprNode(CastKind k, std::unique_ptr<ExpressionNode> e)
+        : kind(k), expr(std::move(e)) {}
+
+    StaticCastExprNode(std::string t, std::unique_ptr<ExpressionNode> e)
+        : kind(CastKind::TYPE), target_type_name(std::move(t)), expr(std::move(e)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<StaticCastExprNode>(kind, target_width, target_type_name, expr ? expr->clone() : nullptr);
+    }
+};
+
 struct CastNode : public ExpressionNode {
     std::string target_type;
     std::unique_ptr<ExpressionNode> expr;

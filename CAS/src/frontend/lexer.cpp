@@ -398,22 +398,40 @@ Token Lexer::next_token() {
         }
 
         if (peek() == '\'') {
-            uint32_t width = std::stoul(num_str);
-            advance();
-            bool is_signed = false;
-            if (peek() == 's' || peek() == 'S') {
-                is_signed = true;
-                advance();
-            }
-            char base = advance();
-            std::string digits;
-            while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z' || peek() == '?') {
-                if (peek() != '_') digits += peek();
-                advance();
+            char next_c = peek_next();
+            bool is_sized_base = false;
+            if (next_c == 'b' || next_c == 'B' || next_c == 'o' || next_c == 'O' ||
+                next_c == 'd' || next_c == 'D' || next_c == 'h' || next_c == 'H') {
+                is_sized_base = true;
+            } else if (next_c == 's' || next_c == 'S') {
+                char after_s = '\0';
+                if (!file_stack.empty() && file_stack.back().cursor + 2 < file_stack.back().src.size()) {
+                    after_s = file_stack.back().src[file_stack.back().cursor + 2];
+                }
+                if (after_s == 'b' || after_s == 'B' || after_s == 'o' || after_s == 'O' ||
+                    after_s == 'd' || after_s == 'D' || after_s == 'h' || after_s == 'H') {
+                    is_sized_base = true;
+                }
             }
 
-            auto pnum = NumberParser::parse_sized_literal(width, is_signed, base, digits);
-            return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
+            if (is_sized_base) {
+                uint32_t width = std::stoul(num_str);
+                advance();
+                bool is_signed = false;
+                if (peek() == 's' || peek() == 'S') {
+                    is_signed = true;
+                    advance();
+                }
+                char base = advance();
+                std::string digits;
+                while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z' || peek() == '?') {
+                    if (peek() != '_') digits += peek();
+                    advance();
+                }
+
+                auto pnum = NumberParser::parse_sized_literal(width, is_signed, base, digits);
+                return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
+            }
         }
 
         auto pnum = NumberParser::parse_simple_decimal(num_str);
@@ -460,6 +478,7 @@ Token Lexer::next_token() {
         if (ident == "reg") return {TokenType::TOKEN_REG, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "integer") return {TokenType::TOKEN_INTEGER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "signed") return {TokenType::TOKEN_SIGNED, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "unsigned") return {TokenType::TOKEN_UNSIGNED, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "parameter") return {TokenType::TOKEN_PARAMETER, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "localparam") return {TokenType::TOKEN_LOCALPARAM, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "defparam") return {TokenType::TOKEN_DEFPARAM, ident, 0, 0, cur_file, cur_line, 0};

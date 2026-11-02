@@ -169,10 +169,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                 current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
+                current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || current.type == TokenType::TOKEN_BIT ||
                 (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                 advance();
-                if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned"))) {
                     advance();
                 }
             }
@@ -476,10 +476,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
+                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || current.type == TokenType::TOKEN_BIT ||
                     (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                     advance();
-                    if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                    if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned"))) {
                         advance();
                     }
                 }
@@ -854,10 +854,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 advance();
                 if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
-                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_BIT ||
+                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || current.type == TokenType::TOKEN_BIT ||
                     (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "bit" || current.text == "unsigned"))) {
                     advance();
-                    if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned")) {
+                    if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "unsigned"))) {
                         advance();
                     }
                 }
@@ -1016,6 +1016,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         pdef.default_expr = std::make_unique<NumberNode>(m.second.aval, m.second.bval, td->enum_type->base_width);
                         mod->parameters.push_back(std::move(pdef));
                     }
+                }
+                if (td && !td->base_type.empty()) {
+                    mod->simple_typedefs[td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
                 }
                 mod->typedefs.push_back(std::move(td));
                 continue;
@@ -1279,7 +1282,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
             bool is_ident_int = (current.type == TokenType::TOKEN_IDENTIFIER && 
                                  (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
-            bool is_ident_unsigned = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned");
+            bool is_ident_unsigned = (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned"));
             bool is_chandle_mod = (current.type == TokenType::TOKEN_CHANDLE || 
                                    (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
             bool is_semaphore_mod = (current.type == TokenType::TOKEN_SEMAPHORE || 
@@ -1301,7 +1304,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     explicit_signed = true;
                     advance();
-                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
                     explicit_unsigned = true;
                     advance();
                 }
@@ -1339,7 +1342,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     explicit_signed = true;
                     advance();
-                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
                     explicit_unsigned = true;
                     advance();
                 }
@@ -2202,17 +2205,52 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
 
     if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_INTEGER ||
         current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
-        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE) {
+        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+        current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED) {
         if (current.type != TokenType::TOKEN_STRUCT && current.type != TokenType::TOKEN_ENUM) {
+            std::string base_t = current.text;
             advance();
-            std::string tname = current.text;
+            bool is_sgn = (base_t == "integer" || base_t == "int" || base_t == "byte" || base_t == "shortint" || base_t == "longint" || base_t == "signed");
+            if (match(TokenType::TOKEN_SIGNED)) {
+                is_sgn = true;
+            } else if (match(TokenType::TOKEN_UNSIGNED)) {
+                is_sgn = false;
+            }
+            uint32_t width = 1;
+            if (base_t == "integer" || base_t == "int") width = 32;
+            else if (base_t == "byte") width = 8;
+            else if (base_t == "shortint") width = 16;
+            else if (base_t == "longint") width = 64;
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in typedef range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in typedef range");
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
+                }
+            }
             if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                std::string tname = current.text;
                 advance();
                 match(TokenType::TOKEN_SEMICOLON);
                 if (is_forward_class(tname)) {
                     throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + tname + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
                 }
-                return std::make_unique<TypedefNode>(tname, false, false);
+                auto td = std::make_unique<TypedefNode>(tname, false, false);
+                td->base_type = base_t;
+                td->width = width;
+                td->is_signed = is_sgn;
+                simple_typedef_map[tname] = {tname, base_t, width, is_sgn};
+                if (current_parsing_package) {
+                    current_parsing_package->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
+                } else if (current_parsing_module) {
+                    current_parsing_module->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
+                }
+                return td;
             }
         }
     }
@@ -3893,6 +3931,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 if (td->struct_type) {
                     pkg->struct_typedefs[td->type_name] = td->struct_type;
                 }
+                if (!td->base_type.empty()) {
+                    pkg->simple_typedefs[td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
+                }
                 pkg->typedefs.push_back(std::move(td));
             }
             continue;
@@ -4584,6 +4625,9 @@ static bool expr_has_side_effects(const ExpressionNode* expr) {
     }
     if (auto cast_n = dynamic_cast<const CastNode*>(expr)) {
         return expr_has_side_effects(cast_n->expr.get());
+    }
+    if (auto scast_n = dynamic_cast<const StaticCastExprNode*>(expr)) {
+        return expr_has_side_effects(scast_n->expr.get());
     }
     if (auto fco = dynamic_cast<const FunctionCallNode*>(expr)) {
         for (const auto& a : fco->args) {

@@ -811,7 +811,108 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (st) {
             return LogicOps::cast_width(val, st->total_width, st->is_signed);
         }
+        const SimpleTypeInfo* si = nullptr;
+        if (engine.simple_types.find(scoped_type) != engine.simple_types.end()) {
+            si = &engine.simple_types.at(scoped_type);
+        } else if (engine.simple_types.find(cast_node->target_type) != engine.simple_types.end()) {
+            si = &engine.simple_types.at(cast_node->target_type);
+        }
+        if (si) {
+            return LogicOps::cast_width(val, si->width, si->is_signed);
+        }
         return val;
+    }
+
+    if (auto scast = dynamic_cast<StaticCastExprNode*>(expr)) {
+        if (scast->kind == CastKind::SIZE) {
+            LogicVal val = eval(scast->expr.get(), scope);
+            if (scast->target_width == 0) {
+                throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer per IEEE 1800-2023 section 6.24.1");
+            }
+            return LogicOps::cast_width(val, scast->target_width, val.is_signed);
+        }
+        if (scast->kind == CastKind::SIGNED) {
+            LogicVal val = eval(scast->expr.get(), scope);
+            val.is_signed = true;
+            return val;
+        }
+        if (scast->kind == CastKind::UNSIGNED) {
+            LogicVal val = eval(scast->expr.get(), scope);
+            val.is_signed = false;
+            return val;
+        }
+        if (scast->kind == CastKind::TYPE) {
+            LogicVal val = eval(scast->expr.get(), scope);
+            std::string target_type = scast->target_type_name;
+            if (target_type == "bit" || target_type == "logic" || target_type == "reg") {
+                return LogicOps::cast_width(val, 1, false);
+            }
+            if (target_type == "int" || target_type == "integer") {
+                if (val.is_real) {
+                    return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                return LogicOps::cast_width(val, 32, true);
+            }
+            if (target_type == "shortint") {
+                if (val.is_real) {
+                    return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                return LogicOps::cast_width(val, 16, true);
+            }
+            if (target_type == "byte") {
+                if (val.is_real) {
+                    return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                return LogicOps::cast_width(val, 8, true);
+            }
+            if (target_type == "longint") {
+                if (val.is_real) {
+                    return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                return LogicOps::cast_width(val, 64, true);
+            }
+            if (target_type == "real" || target_type == "shortreal") {
+                if (val.is_real) return val;
+                return LogicVal::make_real(static_cast<double>(val.aval));
+            }
+            if (target_type == "signed") {
+                val.is_signed = true;
+                return val;
+            }
+            if (target_type == "unsigned") {
+                val.is_signed = false;
+                return val;
+            }
+            std::string scoped_type = scope.empty() ? target_type : (scope + "." + target_type);
+            const EnumType* et = nullptr;
+            if (engine.enum_types.find(scoped_type) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(scoped_type);
+            } else if (engine.enum_types.find(target_type) != engine.enum_types.end()) {
+                et = &engine.enum_types.at(target_type);
+            }
+            if (et) {
+                return LogicOps::cast_width(val, et->width, et->is_signed);
+            }
+            const PackedStructType* st = nullptr;
+            if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(scoped_type);
+            } else if (engine.struct_types.find(target_type) != engine.struct_types.end()) {
+                st = &engine.struct_types.at(target_type);
+            }
+            if (st) {
+                return LogicOps::cast_width(val, st->total_width, st->is_signed);
+            }
+            const SimpleTypeInfo* si = nullptr;
+            if (engine.simple_types.find(scoped_type) != engine.simple_types.end()) {
+                si = &engine.simple_types.at(scoped_type);
+            } else if (engine.simple_types.find(target_type) != engine.simple_types.end()) {
+                si = &engine.simple_types.at(target_type);
+            }
+            if (si) {
+                return LogicOps::cast_width(val, si->width, si->is_signed);
+            }
+            return val;
+        }
     }
 
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
@@ -2028,14 +2129,22 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         // Check local activation frame of function call first
         if (context.has_active_frame()) {
             LocalVar* local = context.lookup_local(ident->name);
-            if (local) return local->value;
+            if (local) {
+                LogicVal res = local->value;
+                res.is_signed = local->is_signed;
+                return res;
+            }
         }
 
         // Check task activation frame on current process
         if (current_bp && !current_bp->call_stack.empty()) {
             for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                 LocalVar* local = it->local_frame.get_var(ident->name);
-                if (local) return local->value;
+                if (local) {
+                    LogicVal res = local->value;
+                    res.is_signed = local->is_signed;
+                    return res;
+                }
             }
         }
 
@@ -2083,9 +2192,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         size_t nid = engine.get_net_id(scope, ident->name);
         if (nid != (size_t)-1) {
             if (preponed_override && nid < preponed_override->size()) {
-                return (*preponed_override)[nid];
+                LogicVal res = (*preponed_override)[nid];
+                res.is_signed = engine.netlist[nid].is_signed;
+                return res;
             }
-            return engine.netlist[nid].value;
+            LogicVal res = engine.netlist[nid].value;
+            res.is_signed = engine.netlist[nid].is_signed;
+            return res;
         }
         if (engine.param_map.find(ident->name) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(ident->name));

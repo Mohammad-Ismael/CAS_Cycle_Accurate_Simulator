@@ -87,7 +87,7 @@ public:
         return false;
     }
     bool is_type_identifier(const std::string& name) const {
-        return is_builtin_type_name(name) || is_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name);
+        return is_builtin_type_name(name) || is_typedef(name) || is_simple_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name);
     }
     std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false, bool is_abstract = false);
     std::string parse_class_type_and_specialize();
@@ -185,6 +185,102 @@ public:
             }
         }
         return nullptr;
+    }
+
+    std::unordered_map<std::string, SimpleTypedef> simple_typedef_map;
+
+    bool is_simple_typedef(const std::string& name) const {
+        if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
+        auto colon_pos = name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string pkg = name.substr(0, colon_pos);
+            std::string type = name.substr(colon_pos + 2);
+            auto pit = global_packages.find(pkg);
+            if (pit != global_packages.end()) {
+                if (pit->second->simple_typedefs.find(type) != pit->second->simple_typedefs.end()) return true;
+            }
+        }
+        if (current_parsing_module) {
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end()) return true;
+                }
+            }
+        }
+        for (const auto& pkg_name : global_wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end()) return true;
+            }
+        }
+        return false;
+    }
+
+    bool get_simple_typedef(const std::string& name, SimpleTypedef& out) const {
+        auto it = simple_typedef_map.find(name);
+        if (it != simple_typedef_map.end()) {
+            out = it->second;
+            return true;
+        }
+        auto colon_pos = name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string pkg = name.substr(0, colon_pos);
+            std::string type = name.substr(colon_pos + 2);
+            auto pit = global_packages.find(pkg);
+            if (pit != global_packages.end()) {
+                auto sit = pit->second->simple_typedefs.find(type);
+                if (sit != pit->second->simple_typedefs.end()) {
+                    out = sit->second;
+                    return true;
+                }
+            }
+        }
+        if (current_parsing_module) {
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto sit = pit->second->simple_typedefs.find(name);
+                    if (sit != pit->second->simple_typedefs.end()) {
+                        out = sit->second;
+                        return true;
+                    }
+                }
+            }
+        }
+        for (const auto& pkg_name : global_wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                auto sit = pit->second->simple_typedefs.find(name);
+                if (sit != pit->second->simple_typedefs.end()) {
+                    out = sit->second;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool is_constant_size_param(const std::string& name, uint32_t& out_size) const {
+        if (current_parsing_module) {
+            for (const auto& p : current_parsing_module->parameters) {
+                if (p.name == name && p.default_expr) {
+                    try {
+                        uint64_t v = const_cast<Parser*>(this)->eval_const_expr(p.default_expr.get());
+                        out_size = static_cast<uint32_t>(v);
+                        return true;
+                    } catch (...) {}
+                }
+            }
+        }
+        if (current_parsing_package) {
+            auto it = current_parsing_package->param_constants.find(name);
+            if (it != current_parsing_package->param_constants.end()) {
+                out_size = static_cast<uint32_t>(it->second);
+                return true;
+            }
+        }
+        return false;
     }
 
     bool is_typedef(const std::string& name) const {

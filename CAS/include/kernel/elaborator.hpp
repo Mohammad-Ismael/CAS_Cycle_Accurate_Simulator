@@ -158,6 +158,13 @@ struct BoundProcess {
         : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}
 };
 
+struct SimpleTypeInfo {
+    std::string name;
+    std::string base_type;
+    uint32_t width = 1;
+    bool is_signed = false;
+};
+
 struct ElaborationResult {
     std::vector<Net> netlist;
     std::unordered_map<std::string, size_t> net_map;
@@ -183,6 +190,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
+    std::unordered_map<std::string, SimpleTypeInfo> simple_types;
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
     std::unordered_set<std::string> interface_instances;

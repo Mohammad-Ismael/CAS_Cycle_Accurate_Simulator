@@ -66,6 +66,7 @@ private:
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
+    std::unordered_map<std::string, SimpleTypeInfo> simple_types;
     std::unordered_map<std::string, std::string> interface_port_map;
     std::unordered_map<std::string, std::string> modport_binding_map;
     std::unordered_set<std::string> interface_instances;
@@ -505,6 +506,9 @@ public:
                     }
                     if (auto cast = dynamic_cast<const CastNode*>(expr)) {
                         return std::make_unique<CastNode>(cast->target_type, subst(cast->expr.get()));
+                    }
+                    if (auto scast = dynamic_cast<const StaticCastExprNode*>(expr)) {
+                        return std::make_unique<StaticCastExprNode>(scast->kind, scast->target_width, scast->target_type_name, subst(scast->expr.get()));
                     }
                     return expr->clone();
                 };
