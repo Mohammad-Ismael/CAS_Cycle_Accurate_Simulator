@@ -186,6 +186,10 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             case VectorIntrinsicKind::ISUNKNOWN: return 0ULL;
         }
     }
+    if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
+        uint64_t val = eval_const_expr(clog->operand.get(), scope);
+        return compute_clog2(val);
+    }
     return 0;
 }
 
@@ -404,6 +408,9 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     }
     if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
         return std::make_unique<VectorIntrinsicNode>(vin->kind, substitute_genvar_in_expr(vin->operand.get(), gname, val));
+    }
+    if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
+        return std::make_unique<Clog2Node>(substitute_genvar_in_expr(clog->operand.get(), gname, val));
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);

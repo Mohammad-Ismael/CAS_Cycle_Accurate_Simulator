@@ -636,3 +636,16 @@ struct VectorIntrinsicNode : public ExpressionNode {
         );
     }
 };
+
+struct Clog2Node : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> operand;
+
+    Clog2Node(std::unique_ptr<ExpressionNode> op)
+        : operand(std::move(op)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<Clog2Node>(
+            operand ? operand->clone() : nullptr
+        );
+    }
+};

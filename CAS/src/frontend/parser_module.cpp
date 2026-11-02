@@ -2879,6 +2879,10 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
         if (bin->op == ">=") return l >= r;
         return l;
     }
+    if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
+        uint64_t v = eval_const_expr_with_params(clog->operand.get(), params);
+        return compute_clog2(v);
+    }
     return 0;
 }
 

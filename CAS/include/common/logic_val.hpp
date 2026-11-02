@@ -154,3 +154,14 @@ struct LogicVal {
         return s;
     }
 };
+
+inline uint64_t compute_clog2(uint64_t val) {
+    if (val <= 1) return 0;
+    uint64_t v = val - 1;
+    uint64_t r = 0;
+    while (v > 0) {
+        v >>= 1;
+        r++;
+    }
+    return r;
+}

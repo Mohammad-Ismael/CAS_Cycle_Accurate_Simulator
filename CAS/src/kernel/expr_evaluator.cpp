@@ -279,6 +279,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
         return eval_vector_intrinsic(vin, scope);
     }
+    if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
+        return eval_clog2(clog, scope);
+    }
+
 
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
@@ -1848,7 +1852,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
-        // IEEE 1800-2023 §6.16: String Built-in Methods
+        // IEEE 1800-2023 Â§6.16: String Built-in Methods
         std::string sm = method_node->method_name;
         if (sm == "len" || sm == "putc" || sm == "getc" || sm == "toupper" || sm == "tolower" ||
             sm == "compare" || sm == "icompare" || sm == "substr" || sm == "atoi" ||
@@ -2387,6 +2391,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             return LogicVal::make_known(32, 0);
         }
+        if (fn_call->func_name == "$bits") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $bits requires exactly one argument per IEEE 1800-2023 section 20.6.1");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            return LogicVal::make_known(32, static_cast<uint64_t>(arg_val.width));
+        }
         std::string scoped_fn = scope.empty() ? fn_call->func_name : (scope + "." + fn_call->func_name);
         DpiImportNode* dpi_node = nullptr;
         if (engine.dpi_import_map.find(scoped_fn) != engine.dpi_import_map.end()) {
@@ -2920,7 +2931,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal(val.width, neg_a, 0, true);
         }
 
-        // Unary Reductions (§11.4.3)
+        // Unary Reductions (Â§11.4.3)
         if (un->op == "&")  return LogicOps::reduce_and(val);
         if (un->op == "~&") return LogicOps::reduce_nand(val);
         if (un->op == "|")  return LogicOps::reduce_or(val);
@@ -4246,4 +4257,46 @@ LogicVal ExprEvaluator::eval_vector_intrinsic(VectorIntrinsicNode* vin, const st
         }
     }
     return LogicVal(1, 0, 0);
+}
+
+LogicVal ExprEvaluator::eval_clog2(Clog2Node* clog, const std::string& scope) {
+    if (!clog || !clog->operand) {
+        throw std::runtime_error("[CAS-DTINPCIL] $clog2 requires exactly one argument per IEEE 1800-2023 section 20.8.1");
+    }
+
+    std::string var_ident = "";
+    if (auto id = dynamic_cast<IdentifierNode*>(clog->operand.get())) {
+        var_ident = id->name;
+    } else if (auto scid = dynamic_cast<StaticMemberAccessNode*>(clog->operand.get())) {
+        var_ident = scid->class_type_name + "::" + scid->member_name;
+    }
+
+    if (!var_ident.empty()) {
+        LocalVar* sloc = nullptr;
+        if (context.has_active_frame()) sloc = context.lookup_local(var_ident);
+        if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                sloc = it->local_frame.get_var(var_ident);
+                if (sloc) break;
+            }
+        }
+        if (sloc && (sloc->is_class_handle || engine.is_class(sloc->type_name) || sloc->type_name == "chandle")) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to $clog2 per IEEE 1800-2023 section 20.8.1");
+        }
+        size_t snid = engine.get_net_id(scope, var_ident);
+        if (snid != (size_t)-1 && (engine.netlist[snid].is_class_handle || engine.is_class(engine.netlist[snid].type_name) || engine.netlist[snid].type_name == "chandle")) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to $clog2 per IEEE 1800-2023 section 20.8.1");
+        }
+    }
+
+    LogicVal val = eval(clog->operand.get(), scope);
+    if (val.is_string || val.is_real || val.is_unpacked) {
+        throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument passed to $clog2 per IEEE 1800-2023 section 20.8.1");
+    }
+
+    if (val.is_unknown()) {
+        return LogicVal::make_x(32);
+    }
+
+    return LogicVal::make_known(32, compute_clog2(val.aval));
 }
