@@ -634,6 +634,7 @@ Token Lexer::next_token() {
         if (ident == "$onehot0") return {TokenType::TOKEN_SYS_ONEHOT0, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$isunknown") return {TokenType::TOKEN_SYS_ISUNKNOWN, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$clog2") return {TokenType::TOKEN_SYS_CLOG2, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$countbits") return {TokenType::TOKEN_SYS_COUNTBITS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "generate") return {TokenType::TOKEN_GENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endgenerate") return {TokenType::TOKEN_ENDGENERATE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "genvar") return {TokenType::TOKEN_GENVAR, ident, 0, 0, cur_file, cur_line, 0};

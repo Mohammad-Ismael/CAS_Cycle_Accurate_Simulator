@@ -282,6 +282,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
         return eval_clog2(clog, scope);
     }
+    if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
+        return eval_countbits(cbn, scope);
+    }
 
 
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
@@ -4299,4 +4302,79 @@ LogicVal ExprEvaluator::eval_clog2(Clog2Node* clog, const std::string& scope) {
     }
 
     return LogicVal::make_known(32, compute_clog2(val.aval));
+}
+
+LogicVal ExprEvaluator::eval_countbits(CountBitsNode* node, const std::string& scope) {
+    if (!node || !node->target_expr || node->control_bits.empty() || node->control_bits.size() > 4) {
+        throw std::runtime_error("[CAS-DTINPCIL] $countbits requires between 2 and 5 arguments per IEEE 1800-2023 section 20.9");
+    }
+
+    auto check_integral_arg = [&](ExpressionNode* expr) {
+        if (!expr) return;
+        std::string var_ident = "";
+        if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+            var_ident = id->name;
+        } else if (auto scid = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+            var_ident = scid->class_type_name + "::" + scid->member_name;
+        }
+
+        if (!var_ident.empty()) {
+            LocalVar* sloc = nullptr;
+            if (context.has_active_frame()) sloc = context.lookup_local(var_ident);
+            if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    sloc = it->local_frame.get_var(var_ident);
+                    if (sloc) break;
+                }
+            }
+            if (sloc && (sloc->is_class_handle || engine.is_class(sloc->type_name) || sloc->type_name == "chandle" || sloc->type_name == "real" || sloc->type_name == "string" || sloc->value.is_real || sloc->value.is_string || sloc->value.is_unpacked)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to $countbits per IEEE 1800-2023 section 20.9");
+            }
+            size_t snid = engine.get_net_id(scope, var_ident);
+            if (snid != (size_t)-1 && (engine.netlist[snid].is_class_handle || engine.is_class(engine.netlist[snid].type_name) || engine.netlist[snid].type_name == "chandle" || engine.netlist[snid].type_name == "real" || engine.netlist[snid].type_name == "string" || engine.netlist[snid].value.is_real || engine.netlist[snid].value.is_string || engine.netlist[snid].value.is_unpacked)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument '" + var_ident + "' passed to $countbits per IEEE 1800-2023 section 20.9");
+            }
+        }
+    };
+
+    check_integral_arg(node->target_expr.get());
+    for (auto& c : node->control_bits) {
+        check_integral_arg(c.get());
+    }
+
+    LogicVal target_val = eval(node->target_expr.get(), scope);
+    if (target_val.is_string || target_val.is_real || target_val.is_unpacked) {
+        throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument passed to $countbits per IEEE 1800-2023 section 20.9");
+    }
+
+    bool match_0 = false;
+    bool match_1 = false;
+    bool match_x = false;
+    bool match_z = false;
+
+    for (auto& ctrl_expr : node->control_bits) {
+        LogicVal cval = eval(ctrl_expr.get(), scope);
+        if (cval.is_string || cval.is_real || cval.is_unpacked) {
+            throw std::runtime_error("[CAS-DTINPCIL] Non-integral argument passed to $countbits per IEEE 1800-2023 section 20.9");
+        }
+        bool a0 = (cval.aval & 1ULL) != 0;
+        bool b0 = (cval.bval & 1ULL) != 0;
+        if (!a0 && !b0) match_0 = true;
+        else if (a0 && !b0) match_1 = true;
+        else if (a0 && b0) match_x = true;
+        else if (!a0 && b0) match_z = true;
+    }
+
+    uint32_t count = 0;
+    uint32_t w = std::min(target_val.width, 64U);
+    for (uint32_t i = 0; i < w; ++i) {
+        bool a = (target_val.aval >> i) & 1ULL;
+        bool b = (target_val.bval >> i) & 1ULL;
+        if (!a && !b && match_0) count++;
+        else if (a && !b && match_1) count++;
+        else if (a && b && match_x) count++;
+        else if (!a && b && match_z) count++;
+    }
+
+    return LogicVal::make_known(32, (uint64_t)count);
 }

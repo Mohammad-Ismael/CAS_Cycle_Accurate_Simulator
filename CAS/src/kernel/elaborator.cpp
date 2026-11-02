@@ -190,6 +190,28 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         uint64_t val = eval_const_expr(clog->operand.get(), scope);
         return compute_clog2(val);
     }
+    if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
+        uint64_t tval = eval_const_expr(cbn->target_expr.get(), scope);
+        uint32_t w = 32;
+        if (auto num = dynamic_cast<NumberNode*>(cbn->target_expr.get())) {
+            w = num->width;
+        }
+        bool match_0 = false;
+        bool match_1 = false;
+        for (auto& c : cbn->control_bits) {
+            uint64_t cv = eval_const_expr(c.get(), scope);
+            if ((cv & 1ULL) == 0) match_0 = true;
+            else match_1 = true;
+        }
+        uint32_t count = 0;
+        uint32_t limit = std::min(w, 64U);
+        for (uint32_t i = 0; i < limit; ++i) {
+            bool bit = (tval >> i) & 1ULL;
+            if (!bit && match_0) count++;
+            else if (bit && match_1) count++;
+        }
+        return (uint64_t)count;
+    }
     return 0;
 }
 
@@ -411,6 +433,14 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     }
     if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
         return std::make_unique<Clog2Node>(substitute_genvar_in_expr(clog->operand.get(), gname, val));
+    }
+    if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
+        auto t = substitute_genvar_in_expr(cbn->target_expr.get(), gname, val);
+        std::vector<std::unique_ptr<ExpressionNode>> c_ctrl;
+        for (auto& c : cbn->control_bits) {
+            c_ctrl.push_back(substitute_genvar_in_expr(c.get(), gname, val));
+        }
+        return std::make_unique<CountBitsNode>(std::move(t), std::move(c_ctrl));
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);

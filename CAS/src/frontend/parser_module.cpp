@@ -2883,6 +2883,28 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
         uint64_t v = eval_const_expr_with_params(clog->operand.get(), params);
         return compute_clog2(v);
     }
+    if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
+        uint64_t tval = eval_const_expr_with_params(cbn->target_expr.get(), params);
+        uint32_t w = 32;
+        if (auto num = dynamic_cast<NumberNode*>(cbn->target_expr.get())) {
+            w = num->width;
+        }
+        bool match_0 = false;
+        bool match_1 = false;
+        for (auto& c : cbn->control_bits) {
+            uint64_t cv = eval_const_expr_with_params(c.get(), params);
+            if ((cv & 1ULL) == 0) match_0 = true;
+            else match_1 = true;
+        }
+        uint32_t count = 0;
+        uint32_t limit = std::min(w, 64U);
+        for (uint32_t i = 0; i < limit; ++i) {
+            bool bit = (tval >> i) & 1ULL;
+            if (!bit && match_0) count++;
+            else if (bit && match_1) count++;
+        }
+        return (uint64_t)count;
+    }
     return 0;
 }
 

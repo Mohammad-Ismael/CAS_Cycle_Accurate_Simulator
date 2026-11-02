@@ -649,3 +649,22 @@ struct Clog2Node : public ExpressionNode {
         );
     }
 };
+
+struct CountBitsNode : public ExpressionNode {
+    std::unique_ptr<ExpressionNode> target_expr;
+    std::vector<std::unique_ptr<ExpressionNode>> control_bits;
+
+    CountBitsNode(std::unique_ptr<ExpressionNode> target, std::vector<std::unique_ptr<ExpressionNode>> ctrl)
+        : target_expr(std::move(target)), control_bits(std::move(ctrl)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_ctrl;
+        for (const auto& c : control_bits) {
+            c_ctrl.push_back(c ? c->clone() : nullptr);
+        }
+        return std::make_unique<CountBitsNode>(
+            target_expr ? target_expr->clone() : nullptr,
+            std::move(c_ctrl)
+        );
+    }
+};
