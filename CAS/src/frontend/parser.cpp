@@ -9,6 +9,8 @@ std::unordered_map<std::string, std::pair<std::string, std::string>> Parser::glo
 std::unordered_map<std::string, std::shared_ptr<ClassNode>> Parser::class_map;
 std::vector<std::shared_ptr<ClassNode>> Parser::global_classes;
 std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> Parser::global_let_decls;
+std::unordered_set<std::string> Parser::global_forward_classes;
+std::unordered_set<std::string> Parser::global_forward_interface_classes;
 
 Parser::Parser(Lexer& lex) : lexer(lex) {
     advance();
@@ -126,8 +128,47 @@ ClassNode* Parser::find_class(const std::string& name) const {
     return nullptr;
 }
 
+bool Parser::is_forward_class(const std::string& name) const {
+    auto colon_pos = name.find("::");
+    if (colon_pos != std::string::npos) {
+        std::string pkg = name.substr(0, colon_pos);
+        std::string cls = name.substr(colon_pos + 2);
+        auto pit = global_packages.find(pkg);
+        if (pit != global_packages.end()) {
+            if (pit->second->forward_classes.count(cls) || pit->second->forward_interface_classes.count(cls)) return true;
+        }
+        return false;
+    }
+
+    if (current_parsing_package) {
+        if (current_parsing_package->forward_classes.count(name) || current_parsing_package->forward_interface_classes.count(name)) return true;
+    }
+    if (current_parsing_module) {
+        if (current_parsing_module->forward_classes.count(name) || current_parsing_module->forward_interface_classes.count(name)) return true;
+        for (const auto& w : current_parsing_module->wildcard_imports) {
+            auto pit = global_packages.find(w);
+            if (pit != global_packages.end()) {
+                if (pit->second->forward_classes.count(name) || pit->second->forward_interface_classes.count(name)) return true;
+            }
+        }
+    }
+    if (global_forward_classes.count(name) || global_forward_interface_classes.count(name)) return true;
+    for (const auto& w : global_wildcard_imports) {
+        auto pit = global_packages.find(w);
+        if (pit != global_packages.end()) {
+            if (pit->second->forward_classes.count(name) || pit->second->forward_interface_classes.count(name)) return true;
+        }
+    }
+    for (const auto& p : global_packages) {
+        if (p.second->forward_classes.count(name) || p.second->forward_interface_classes.count(name)) return true;
+    }
+    return false;
+}
+
 bool Parser::is_known_class(const std::string& name) const {
-    return find_class(name) != nullptr;
+    if (find_class(name) != nullptr) return true;
+    if (is_forward_class(name)) return true;
+    return false;
 }
 
 void Parser::parse_packages_only() {
@@ -147,6 +188,41 @@ void Parser::parse_packages_only() {
             auto udp = parse_udp();
             if (udp) {
                 global_udp_defs[udp->name] = udp;
+            }
+        } else if (current.type == TokenType::TOKEN_TYPEDEF) {
+            auto td = parse_typedef();
+            if (td) {
+                global_typedefs.push_back(std::move(td));
+            }
+        } else if (current.type == TokenType::TOKEN_MODULE) {
+            while (current.type != TokenType::TOKEN_ENDMODULE && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_ENDMODULE) {
+                advance();
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+            }
+        } else if (current.type == TokenType::TOKEN_PROGRAM) {
+            while (current.type != TokenType::TOKEN_ENDPROGRAM && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_ENDPROGRAM) {
+                advance();
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+            }
+        } else if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type != TokenType::TOKEN_CLASS) {
+            while (current.type != TokenType::TOKEN_ENDINTERFACE && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_ENDINTERFACE) {
+                advance();
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
             }
         } else if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type == TokenType::TOKEN_CLASS) {
             advance(); // consume 'virtual'

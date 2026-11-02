@@ -2075,6 +2075,113 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
+    // Check forward class declarations (§6.18)
+    // 1. Packages
+    for (const auto& pkg_pair : Parser::global_packages) {
+        const auto& pkg = pkg_pair.second;
+        for (const auto& fc : pkg->forward_classes) {
+            auto it = pkg->class_map.find(fc);
+            const ClassNode* target_node = (it != pkg->class_map.end()) ? it->second : nullptr;
+            if (!target_node) {
+                auto it2 = result.class_defs.find(pkg->name + "::" + fc);
+                if (it2 != result.class_defs.end()) target_node = it2->second;
+                else {
+                    auto it3 = result.class_defs.find(fc);
+                    if (it3 != result.class_defs.end()) target_node = it3->second;
+                }
+            }
+            if (!target_node) {
+                throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + fc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+            }
+            if (target_node->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + fc + "' was declared as 'typedef class' but defined as an interface class per IEEE 1800-2023 §6.18");
+            }
+        }
+        for (const auto& ifc : pkg->forward_interface_classes) {
+            auto it = pkg->class_map.find(ifc);
+            const ClassNode* target_node = (it != pkg->class_map.end()) ? it->second : nullptr;
+            if (!target_node) {
+                auto it2 = result.class_defs.find(pkg->name + "::" + ifc);
+                if (it2 != result.class_defs.end()) target_node = it2->second;
+                else {
+                    auto it3 = result.class_defs.find(ifc);
+                    if (it3 != result.class_defs.end()) target_node = it3->second;
+                }
+            }
+            if (!target_node) {
+                throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + ifc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+            }
+            if (!target_node->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + ifc + "' was declared as 'typedef interface class' but defined as a regular class per IEEE 1800-2023 §6.18");
+            }
+        }
+    }
+
+    // 2. Modules
+    for (const auto& mod : modules) {
+        for (const auto& fc : mod->forward_classes) {
+            auto it = mod->class_map.find(fc);
+            const ClassNode* target_node = (it != mod->class_map.end()) ? it->second : nullptr;
+            if (!target_node) {
+                auto it2 = result.class_defs.find(fc);
+                if (it2 != result.class_defs.end()) target_node = it2->second;
+            }
+            if (!target_node) {
+                throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + fc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+            }
+            if (target_node->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + fc + "' was declared as 'typedef class' but defined as an interface class per IEEE 1800-2023 §6.18");
+            }
+        }
+        for (const auto& ifc : mod->forward_interface_classes) {
+            auto it = mod->class_map.find(ifc);
+            const ClassNode* target_node = (it != mod->class_map.end()) ? it->second : nullptr;
+            if (!target_node) {
+                auto it2 = result.class_defs.find(ifc);
+                if (it2 != result.class_defs.end()) target_node = it2->second;
+            }
+            if (!target_node) {
+                throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + ifc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+            }
+            if (!target_node->is_interface_class) {
+                throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + ifc + "' was declared as 'typedef interface class' but defined as a regular class per IEEE 1800-2023 §6.18");
+            }
+        }
+    }
+
+    // 3. Global $unit
+    for (const auto& fc : Parser::global_forward_classes) {
+        auto it = result.class_defs.find(fc);
+        if (it == result.class_defs.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + fc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+        }
+        if (it->second->is_interface_class) {
+            throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + fc + "' was declared as 'typedef class' but defined as an interface class per IEEE 1800-2023 §6.18");
+        }
+    }
+    for (const auto& ifc : Parser::global_forward_interface_classes) {
+        auto it = result.class_defs.find(ifc);
+        if (it == result.class_defs.end()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Unresolved forward class declaration: '" + ifc + "' was declared but never defined per IEEE 1800-2023 §6.18");
+        }
+        if (!it->second->is_interface_class) {
+            throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + ifc + "' was declared as 'typedef interface class' but defined as a regular class per IEEE 1800-2023 §6.18");
+        }
+    }
+
+    // 4. Module name collision check
+    for (const auto& mod : modules) {
+        if (Parser::global_forward_classes.count(mod->name) ||
+            Parser::global_forward_interface_classes.count(mod->name)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + mod->name + "' was declared as 'typedef class' but subsequently defined as a module per IEEE 1800-2023 §6.18");
+        }
+        for (const auto& m2 : modules) {
+            if (m2->forward_classes.count(mod->name) || m2->forward_interface_classes.count(mod->name)) {
+                throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + mod->name + "' was declared as 'typedef class' but subsequently defined as a module per IEEE 1800-2023 §6.18");
+            }
+        }
+    }
+
     // 1. Resolve base classes and interface inheritance / implementations
     for (auto& kv : result.class_defs) {
         ClassNode* cls = const_cast<ClassNode*>(kv.second);

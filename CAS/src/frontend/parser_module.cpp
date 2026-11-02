@@ -1052,6 +1052,41 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_VIRTUAL && peek_token().type == TokenType::TOKEN_CLASS) {
+                advance(); // consume 'virtual'
+                auto cls = parse_class(false, true);
+                if (cls) {
+                    std::shared_ptr<ClassNode> scls = std::move(cls);
+                    class_map[scls->name] = scls;
+                    mod->class_map[scls->name] = scls.get();
+                    mod->classes.push_back(scls);
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
+                advance(); // consume 'interface'
+                auto cls = parse_class(true);
+                if (cls) {
+                    std::shared_ptr<ClassNode> scls = std::move(cls);
+                    class_map[scls->name] = scls;
+                    mod->class_map[scls->name] = scls.get();
+                    mod->classes.push_back(scls);
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_CLASS) {
+                auto cls = parse_class();
+                if (cls) {
+                    std::shared_ptr<ClassNode> scls = std::move(cls);
+                    class_map[scls->name] = scls;
+                    mod->class_map[scls->name] = scls.get();
+                    mod->classes.push_back(scls);
+                }
+                continue;
+            }
+
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
                 std::string cg_type = current.text;
                 advance();
@@ -2129,6 +2164,49 @@ std::string Parser::parse_skew_spec() {
 std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
 
+    if (current.type == TokenType::TOKEN_CLASS ||
+        (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS)) {
+        bool is_iface = false;
+        if (current.type == TokenType::TOKEN_INTERFACE) {
+            is_iface = true;
+            advance(); // consume 'interface'
+        }
+        advance(); // consume 'class'
+        std::string cls_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected class name after 'typedef class'");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after forward class declaration");
+
+        if (current_parsing_package) {
+            if (is_iface) current_parsing_package->forward_interface_classes.insert(cls_name);
+            else current_parsing_package->forward_classes.insert(cls_name);
+        } else if (current_parsing_module) {
+            if (is_iface) current_parsing_module->forward_interface_classes.insert(cls_name);
+            else current_parsing_module->forward_classes.insert(cls_name);
+        } else {
+            if (is_iface) global_forward_interface_classes.insert(cls_name);
+            else global_forward_classes.insert(cls_name);
+        }
+
+        return std::make_unique<TypedefNode>(cls_name, true, is_iface);
+    }
+
+    if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_INTEGER ||
+        current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE) {
+        if (current.type != TokenType::TOKEN_STRUCT && current.type != TokenType::TOKEN_ENUM) {
+            advance();
+            std::string tname = current.text;
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                advance();
+                match(TokenType::TOKEN_SEMICOLON);
+                if (is_forward_class(tname)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + tname + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
+                }
+                return std::make_unique<TypedefNode>(tname, false, false);
+            }
+        }
+    }
+
     if (match(TokenType::TOKEN_STRUCT)) {
         bool is_packed = false;
         if (match(TokenType::TOKEN_PACKED)) {
@@ -2205,6 +2283,10 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         std::string type_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+
+        if (is_forward_class(type_name)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + type_name + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
+        }
 
         struct_typedef_map[type_name] = struct_node;
         return std::make_unique<TypedefNode>(type_name, struct_node);
@@ -2305,6 +2387,10 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     std::string type_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+
+    if (is_forward_class(type_name)) {
+        throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + type_name + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
+    }
 
     typedef_map[type_name] = enum_node;
     return std::make_unique<TypedefNode>(type_name, enum_node);
@@ -2570,6 +2656,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                std::string class_type = current.text;
                 advance();
                 while (true) {
                     std::string var_name = current.text;
@@ -2581,6 +2668,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     mvar.is_rand = is_rand;
                     mvar.is_randc = is_randc;
                     mvar.is_static = is_stat;
+                    mvar.is_class_handle = true;
+                    mvar.class_type_name = class_type;
                     cls->add_member_var(std::move(mvar));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;

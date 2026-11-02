@@ -84,6 +84,10 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
                 is_int = true;
                 advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                arg_type_name = current.text;
+                is_int = false;
+                advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
 

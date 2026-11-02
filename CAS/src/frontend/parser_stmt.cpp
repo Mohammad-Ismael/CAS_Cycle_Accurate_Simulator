@@ -32,6 +32,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
     }
 
+    if (current.type == TokenType::TOKEN_TYPEDEF) {
+        auto td = parse_typedef();
+        if (td && current_parsing_module) {
+            current_parsing_module->typedefs.push_back(std::move(td));
+        }
+        return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
+    }
+
     // Diagnostic [CAS-DTINPCIL]: gate or UDP primitive inside procedural scopes
     if (current.type == TokenType::TOKEN_GATE_AND || current.type == TokenType::TOKEN_GATE_OR ||
         current.type == TokenType::TOKEN_GATE_XOR || current.type == TokenType::TOKEN_GATE_NAND ||

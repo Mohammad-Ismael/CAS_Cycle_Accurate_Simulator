@@ -384,12 +384,16 @@ struct TypedefNode : public ASTNode {
     std::string type_name;
     std::shared_ptr<EnumTypeNode> enum_type;
     std::shared_ptr<StructTypeNode> struct_type;
+    bool is_forward_class = false;
+    bool is_interface_class = false;
 
     TypedefNode() = default;
     TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
         : type_name(std::move(name)), enum_type(std::move(et)) {}
     TypedefNode(std::string name, std::shared_ptr<StructTypeNode> st)
         : type_name(std::move(name)), struct_type(std::move(st)) {}
+    TypedefNode(std::string name, bool is_fwd_cls, bool is_iface_cls = false)
+        : type_name(std::move(name)), is_forward_class(is_fwd_cls), is_interface_class(is_iface_cls) {}
 };
 
 struct ModportPort {
@@ -509,6 +513,8 @@ struct ClassMemberVar {
     bool is_virtual_interface = false;
     std::string interface_name = "";
     std::string modport_name = "";
+    bool is_class_handle = false;
+    std::string class_type_name = "";
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
 
@@ -527,6 +533,8 @@ struct ClassMemberVar {
         is_virtual_interface = other.is_virtual_interface;
         interface_name = other.interface_name;
         modport_name = other.modport_name;
+        is_class_handle = other.is_class_handle;
+        class_type_name = other.class_type_name;
         if (other.msb_expr) msb_expr = other.msb_expr->clone();
         if (other.lsb_expr) lsb_expr = other.lsb_expr->clone();
     }
@@ -543,6 +551,8 @@ struct ClassMemberVar {
             is_virtual_interface = other.is_virtual_interface;
             interface_name = other.interface_name;
             modport_name = other.modport_name;
+            is_class_handle = other.is_class_handle;
+            class_type_name = other.class_type_name;
             msb_expr = other.msb_expr ? other.msb_expr->clone() : nullptr;
             lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
         }
@@ -829,6 +839,8 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
     std::vector<std::shared_ptr<LetDeclNode>> let_decls;
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
+    std::unordered_set<std::string> forward_classes;
+    std::unordered_set<std::string> forward_interface_classes;
 
     PackageNode() = default;
 };
@@ -944,6 +956,8 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
     std::vector<std::shared_ptr<LetDeclNode>> let_decls;
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
+    std::unordered_set<std::string> forward_classes;
+    std::unordered_set<std::string> forward_interface_classes;
 
     ModuleNode() = default;
 };

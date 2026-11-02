@@ -53,6 +53,8 @@ public:
         global_let_decls.clear();
         class_map.clear();
         global_classes.clear();
+        global_forward_classes.clear();
+        global_forward_interface_classes.clear();
     }
 
     bool is_package(const std::string& name) const {
@@ -68,15 +70,24 @@ public:
                name == "signed" || name == "unsigned" || name == "void";
     }
 
+    static std::unordered_set<std::string> global_forward_classes;
+    static std::unordered_set<std::string> global_forward_interface_classes;
+    bool is_forward_class(const std::string& name) const;
+
     bool is_class(const std::string& name) const {
+        if (is_known_class(name)) return true;
+        if (is_forward_class(name)) return true;
         if (class_map.find(name) != class_map.end()) return true;
         auto hash_pos = name.find('#');
         if (hash_pos != std::string::npos) {
             std::string base = name.substr(0, hash_pos);
             while (!base.empty() && std::isspace(base.back())) base.pop_back();
-            if (class_map.find(base) != class_map.end()) return true;
+            if (is_known_class(base) || is_forward_class(base) || class_map.find(base) != class_map.end()) return true;
         }
         return false;
+    }
+    bool is_type_identifier(const std::string& name) const {
+        return is_builtin_type_name(name) || is_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name);
     }
     std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false, bool is_abstract = false);
     std::string parse_class_type_and_specialize();

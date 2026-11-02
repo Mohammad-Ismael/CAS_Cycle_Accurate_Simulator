@@ -128,8 +128,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
     if (match(TokenType::TOKEN_THIS)) {
         if (match(TokenType::TOKEN_DOT)) {
+            std::string path = "this";
             std::string sub_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after 'this.'");
+            while (match(TokenType::TOKEN_DOT)) {
+                path += "." + sub_name;
+                sub_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+            }
             if (sub_name == "randomize") {
                 if (match(TokenType::TOKEN_LPAREN)) {
                     if (current.type != TokenType::TOKEN_RPAREN) {
@@ -153,13 +159,16 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     }
                     expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
                 }
-                return std::make_unique<RandomizeCallNode>(std::make_unique<ThisNode>(), std::move(inline_constraints));
+                std::unique_ptr<ExpressionNode> rand_target = (path == "this") ?
+                    std::unique_ptr<ExpressionNode>(std::make_unique<ThisNode>()) :
+                    std::unique_ptr<ExpressionNode>(std::make_unique<MemberAccessNode>(path, sub_name));
+                return std::make_unique<RandomizeCallNode>(std::move(rand_target), std::move(inline_constraints));
             }
             if (match(TokenType::TOKEN_LPAREN)) {
                 auto parsed = parse_call_argument_list();
-                return std::make_unique<MethodCallNode>("this", sub_name, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
+                return std::make_unique<MethodCallNode>(path, sub_name, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
             } else {
-                return std::make_unique<MemberAccessNode>("this", sub_name);
+                return std::make_unique<MemberAccessNode>(path, sub_name);
             }
         }
         return std::make_unique<ThisNode>();
@@ -340,6 +349,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     path += "." + mem;
                     mem = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    auto parsed = parse_call_argument_list();
+                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), nullptr, std::move(parsed.arg_names));
                 }
                 return std::make_unique<MemberAccessNode>(path, mem);
             }

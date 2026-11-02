@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.41.0.0`  
-**Status:** Production Milestone v3.41.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.42.0.0`  
+**Status:** Production Milestone v3.42.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -14,10 +14,10 @@ The system includes a containerized execution environment paired with a Monaco-b
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**  
-`[████████████████████████████████████████████░░] 79.4%`
+`[████████████████████████████████████████░░░░] 80.8%`
 
-*Current Baseline (v3.41.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Defaults & Named Args (§13.5 & §13.6), Interface Classes (§8.26), Array Querying Functions (§7.11), String Built-in Methods (§6.16), Streaming Concatenation Operators (§11.4.14), Generate Constructs (§27), Decision Modifiers (§12.5), Abstract Classes & Pure Virtual Methods (§8.21), Clocking Block Skew Timing (§14.11, §14.13, §14.16 #1step Preponed sampling, output skew drives, ## cycle delays, default clocking), 'let' Declarations & Templates (§11.12), and Out-of-Body Class Method Declarations (§8.24).  
-*Upcoming Domains:* Typedef Forward Declarations (§6.18), Type Operator & Comparison (§6.23).
+*Current Baseline (v3.42.0.0):* Stratified Event Scheduler, 4-state logic, arithmetic/reduction, loops, tasks/functions, multi-driver resolution, call stacks, fork/join/join_any/join_none, process controls, named events, enum types, packed structures, fixed unpacked arrays, queues, dynamic arrays, associative arrays, SystemVerilog interfaces, interface modports, clocking blocks, OOP classes, inheritance, virtual methods, constrained randomization, functional coverage, cross coverage, SVA concurrent assertions, SVA sampled value functions, SVA repetition operators, DPI-C imports/exports/context, DPI-C chandles, DPI-C open arrays, Parameterized Classes, Interprocess Synchronization, SystemVerilog Packages, SystemVerilog Configurations, Advanced Functional Coverage, SVA Local Variables, SVA Match Subroutine Calls, Program Blocks (§24), Virtual Interfaces in OOP (§25.9), Array Reduction & Locator Methods (§7.12), Defparam & Hierarchical Parameter Overrides (§6.20 & §23.10), Net Aliasing & Interconnects (§10.6), Gate-Level Primitives & UDPs (§28 & §29), Specify Blocks & Module Path Delays (§32), System Timing Checks (§31.8 & §32.7), Subroutine Defaults & Named Args (§13.5 & §13.6), Interface Classes (§8.26), Array Querying Functions (§7.11), String Built-in Methods (§6.16), Streaming Concatenation Operators (§11.4.14), Generate Constructs (§27), Decision Modifiers (§12.5), Abstract Classes & Pure Virtual Methods (§8.21), Clocking Block Skew Timing (§14.11, §14.13, §14.16 #1step Preponed sampling, output skew drives, ## cycle delays, default clocking), 'let' Declarations & Templates (§11.12), Out-of-Body Class Method Declarations (§8.24), and Forward Class Declarations (§6.18).  
+*Upcoming Domains:* Type Operator & Comparison (§6.23), Soft Constraints (§18.5.12).
 
 ---
 
@@ -25,6 +25,7 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 | Standard Section | Feature Capability | Simulator Implementation |
 |---|---|---|
+| **§6.18** | **Forward Class & Interface Class Declarations ('typedef class')** | Scope-level forward class and forward interface class declarations (`typedef class class_name;`, `typedef interface class if_name;`), incomplete type symbol registration across compilation units ($unit), packages, modules, and interfaces, mutual class cross-references and circular handle handshakes, method formal and return type annotation resolution, member handle dereferencing, multi-file and out-of-order forward declaration resolution, and elaboration-time verification enforcing class vs interface class conformance and complete definition resolution with context diagnostic `[CAS-DTINPCIL]`. |
 | **§8.24** | **Out-of-Body Class Method Declarations & Scope Resolution** | In-class `extern` method prototypes (`extern [virtual|static] function/task ...;`, `extern function new(...);`), out-of-body implementation definitions (`function/task [type] class_name::method_name(...); ... endfunction/endtask`), out-of-body constructors (`function class_name::new(...);`), qualifier inheritance from in-class prototypes, prohibition of repeated qualifiers (`virtual`, `static`, `extern`) on out-of-body headers with diagnostic `[CAS-DTINPCIL]`, signature return type and argument verification, polymorphic virtual dispatch through base handles, and elaboration-time verification of unimplemented extern methods on concrete classes with context diagnostic `[CAS-DTINPCIL]`. |
 | **§11.12** | **'let' Declarations & Expression Customization Templates** | Package-, module-, interface-, and block-scoped `let` declarations (`let name(formals) = expr;`), untyped (`untyped x` or plain `x`) and typed (`logic [7:0] d`, `bit v`) formal ports with auto-casting (`CastNode`), default actual values, positional and named argument binding (`.arg(val)`), argumentless invocation with/without empty parentheses (`()`), inline AST tree substitution, and context diagnostic `[CAS-DTINPCIL]` (enforcing direct/indirect recursion rejection, side-effect/state modification prohibition, and missing mandatory argument validation). |
 | **§14.11, §14.13, §14.16** | **Clocking Block Skews, #1step Preponed Sampling & Cycle Delays** | `clocking ... endclocking` declarations with input/output skews (`default input #1step output #2;`), `#1step` Preponed region sampling isolation from Active/NBA updates, delayed output drives (`cb.sig <= expr`) scheduled at `T_clk + output_skew`, naked cycle delay operator (`##N`) synchronized to in-scope default clocking (`default clocking cb;`), and context diagnostic `[CAS-DTINPCIL]` (enforcing in-scope default clocking specification for `##N` and prohibiting drives on input clocking signals). |
@@ -158,6 +159,9 @@ All milestone regression testbenches are self-checking and verified against Syno
 | **v3.37.0.0** | `projects/v3_37_0_0_unique_priority` | Unique, Unique0, and Priority Case/If Decision Statements (§12.5) | **PASS** | 100% VCS |
 | **v3.38.0.0** | `projects/v3_38_0_0_abstract_classes` | Abstract Classes, Pure Virtual Tasks/Functions & Polymorphic Base Dispatch (§8.21) | **PASS** | 100% VCS |
 | **v3.39.0.0** | `projects/v3_39_0_0_clocking_skew` | Clocking Block Skew Timing, #1step Preponed Sampling, Output Drives & Cycle Delays (§14.11, §14.13, §14.16) | **PASS** | 100% VCS |
+| **v3.40.0.0** | `projects/v3_40_0_0_let_declarations` | 'let' Declarations, Untyped/Typed Formals, Default Arguments, Inline AST Substitution (§11.12) | **PASS** | 100% VCS |
+| **v3.41.0.0** | `projects/v3_41_0_0_extern_methods` | Out-of-Body Class Method Declarations, Scope Resolution, Qualifier Inheritance (§8.24) | **PASS** | 100% VCS |
+| **v3.42.0.0** | `projects/v3_42_0_0_typedef_class` | Forward Class & Interface Class Declarations, Mutual Handshakes & Conformance (§6.18) | **PASS** | 100% VCS |
 
 ---
 

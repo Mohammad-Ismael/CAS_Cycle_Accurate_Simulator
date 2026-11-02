@@ -73,6 +73,11 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
             func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
             advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+            func->return_width = 64;
+            func->return_type_name = current.text;
+            func->return_signed = false;
+            advance();
         }
         if (match(TokenType::TOKEN_SIGNED)) func->return_signed = true;
 
@@ -186,6 +191,12 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
                 is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
                 is_int = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                arg_type_name = current.text;
+                def_w = 64;
+                is_s = false;
+                is_int = false;
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;

@@ -947,6 +947,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
                 }
             }
+            if (!cl_obj && var_name.find('.') != std::string::npos) {
+                size_t last_dot = var_name.rfind('.');
+                std::string base_path = var_name.substr(0, last_dot);
+                std::string prop = var_name.substr(last_dot + 1);
+                MemberAccessNode sub_man(base_path, prop);
+                LogicVal handle_val = eval(&sub_man, scope);
+                if (!handle_val.is_unknown() && handle_val.aval != 0) {
+                    cl_obj = engine.get_class_object(handle_val.aval).get();
+                }
+            }
         }
         if (cl_obj) {
             if (method_node->method_name == "randomize") {
@@ -1699,6 +1709,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             size_t cl_nid = engine.get_net_id(scope, var_name);
             if (cl_nid != (size_t)-1 && engine.netlist[cl_nid].is_class_handle) {
                 cl_obj = engine.get_class_object(engine.netlist[cl_nid].value.aval).get();
+            }
+        }
+        if (!cl_obj && var_name.find('.') != std::string::npos) {
+            size_t last_dot = var_name.rfind('.');
+            std::string base_path = var_name.substr(0, last_dot);
+            std::string prop = var_name.substr(last_dot + 1);
+            MemberAccessNode sub_man(base_path, prop);
+            LogicVal handle_val = eval(&sub_man, scope);
+            if (!handle_val.is_unknown() && handle_val.aval != 0) {
+                cl_obj = engine.get_class_object(handle_val.aval).get();
             }
         }
         if (cl_obj) {

@@ -315,20 +315,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto ret_node = dynamic_cast<ReturnStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
-            ScopeFrame* frame = expr_eval.get_context().current_frame();
-            if (frame) {
-                if (ret_node->expr) {
-                    LogicVal ret_val = eval_expr(ret_node->expr.get(), bp.scope);
+            if (ret_node->expr) {
+                LogicVal ret_val = eval_expr(ret_node->expr.get(), bp.scope);
+                ScopeFrame* frame = expr_eval.get_context().current_frame();
+                if (frame) {
                     expr_eval.get_context().set_local_value(frame->func_return_name, ret_val);
+                    frame->returned = true;
                 }
-                frame->returned = true;
+            } else {
+                ScopeFrame* frame = expr_eval.get_context().current_frame();
+                if (frame) {
+                    frame->returned = true;
+                }
             }
         }
         return;
     }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
+            if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
             execute_statement(s.get(), bp);
+            if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
             if (!engine.scheduler.is_active()) return;
         }
         return;
@@ -544,9 +551,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (if_stmt->modifier == DecisionModifier::NONE) {
             LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
             if (cond.to_bool()) {
-                for (auto& s : if_stmt->then_branch) execute_statement(s.get(), bp);
+                for (auto& s : if_stmt->then_branch) {
+                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    execute_statement(s.get(), bp);
+                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                }
             } else {
-                for (auto& s : if_stmt->else_branch) execute_statement(s.get(), bp);
+                for (auto& s : if_stmt->else_branch) {
+                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    execute_statement(s.get(), bp);
+                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                }
             }
             return;
         }
@@ -1063,6 +1078,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     size_t nid = engine.get_net_id(bp.scope, var_name);
                     if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
                         cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                    }
+                }
+                if (!cl_obj && var_name.find('.') != std::string::npos) {
+                    size_t last_dot = var_name.rfind('.');
+                    std::string base_path = var_name.substr(0, last_dot);
+                    std::string prop = var_name.substr(last_dot + 1);
+                    MemberAccessNode sub_man(base_path, prop);
+                    LogicVal handle_val = expr_eval.eval(&sub_man, bp.scope);
+                    if (!handle_val.is_unknown() && handle_val.aval != 0) {
+                        cl_obj = engine.get_class_object(handle_val.aval).get();
                     }
                 }
             }
