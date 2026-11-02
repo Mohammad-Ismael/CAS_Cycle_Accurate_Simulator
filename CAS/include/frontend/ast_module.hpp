@@ -640,11 +640,30 @@ struct ClassNode : public ASTNode {
     explicit ClassNode(std::string n, std::string base_n = "")
         : name(std::move(n)), base_class_name(std::move(base_n)) {}
 
+    static bool compare_type_names(const std::string& a, const std::string& b) {
+        if (a == b) return true;
+        auto ca = a.rfind("::");
+        std::string sa = (ca != std::string::npos) ? a.substr(ca + 2) : a;
+        auto cb = b.rfind("::");
+        std::string sb = (cb != std::string::npos) ? b.substr(cb + 2) : b;
+        return sa == sb;
+    }
+
     bool is_subclass_of(const std::string& target_type) const {
-        if (name == target_type) return true;
-        if (all_implemented_interfaces.find(target_type) != all_implemented_interfaces.end()) return true;
+        if (compare_type_names(name, target_type)) return true;
+        for (const auto& iface : all_implemented_interfaces) {
+            if (compare_type_names(iface, target_type)) return true;
+        }
         if (base_class) return base_class->is_subclass_of(target_type);
         return false;
+    }
+
+    const ClassMemberVar* find_member_var(const std::string& mname) const {
+        for (const auto& m : member_vars) {
+            if (m.name == mname) return &m;
+        }
+        if (base_class) return base_class->find_member_var(mname);
+        return nullptr;
     }
 
     void add_member_var(ClassMemberVar var) {
@@ -718,7 +737,7 @@ struct ClassNode : public ASTNode {
 };
 
 inline bool ClassObject::is_instance_of(const std::string& target_type) const {
-    if (class_type_name == target_type) return true;
+    if (ClassNode::compare_type_names(class_type_name, target_type)) return true;
     if (class_def) return class_def->is_subclass_of(target_type);
     return false;
 }

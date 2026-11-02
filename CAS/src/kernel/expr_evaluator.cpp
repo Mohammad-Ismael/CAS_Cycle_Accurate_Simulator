@@ -532,65 +532,267 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto cast_call = dynamic_cast<SysCastCallNode*>(expr)) {
+        if (!cast_call->dest_expr) {
+            throw std::runtime_error("[CAS-DTINPCIL] Destination argument of $cast must be a singular variable lvalue per IEEE 1800-2023 section 6.24.2");
+        }
+
         std::string dest_name;
+        std::string obj_name;
+        bool is_member = false;
+        bool is_index = false;
+
         if (auto id = dynamic_cast<IdentifierNode*>(cast_call->dest_expr.get())) {
             dest_name = id->name;
+        } else if (auto mem = dynamic_cast<MemberAccessNode*>(cast_call->dest_expr.get())) {
+            dest_name = mem->member_name;
+            obj_name = mem->var_name;
+            is_member = true;
+        } else if (auto idx = dynamic_cast<IndexSelectNode*>(cast_call->dest_expr.get())) {
+            dest_name = idx->name;
+            is_index = true;
         } else {
-            return LogicVal::make_known(32, 0);
+            throw std::runtime_error("[CAS-DTINPCIL] Destination argument of $cast must be a singular variable lvalue per IEEE 1800-2023 section 6.24.2");
+        }
+
+        // Check if destination is a parameter or constant
+        std::string param_key = scope.empty() ? dest_name : (scope + "." + dest_name);
+        if (engine.param_map.count(param_key) || engine.param_map.count(dest_name)) {
+            throw std::runtime_error("[CAS-DTINPCIL] Destination argument of $cast must be a variable, not a constant/parameter per IEEE 1800-2023 section 6.24.2: '" + dest_name + "'");
+        }
+
+        // Check if destination is a Net (wire, wand, wor, tri) rather than a variable
+        size_t dest_nid = engine.get_net_id(scope, dest_name);
+        if (dest_nid != (size_t)-1 && !is_member && !is_index) {
+            if (engine.netlist[dest_nid].kind != NetKind::VAR) {
+                throw std::runtime_error("[CAS-DTINPCIL] Destination argument of $cast must be a variable, not a net per IEEE 1800-2023 section 6.24.2: '" + dest_name + "'");
+            }
         }
 
         LocalVar* dest_local = nullptr;
-        if (context.has_active_frame()) {
-            dest_local = context.lookup_local(dest_name);
-        }
-        if (!dest_local && current_bp && !current_bp->call_stack.empty()) {
-            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
-                dest_local = it->local_frame.get_var(dest_name);
-                if (dest_local) break;
+        if (!is_member) {
+            if (context.has_active_frame()) {
+                dest_local = context.lookup_local(dest_name);
+            }
+            if (!dest_local && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    dest_local = it->local_frame.get_var(dest_name);
+                    if (dest_local) break;
+                }
             }
         }
+
+        // 1. Check if destination is a Class Handle
+        bool is_class_dest = false;
         std::string dest_class_type;
-        size_t dest_nid = (size_t)-1;
-        if (dest_local && dest_local->is_class_handle) {
-            dest_class_type = dest_local->class_type_name;
-        } else {
-            dest_nid = engine.get_net_id(scope, dest_name);
-            if (dest_nid != (size_t)-1 && engine.netlist[dest_nid].is_class_handle) {
-                dest_class_type = engine.get_class_type(dest_name, scope);
+        if (dest_local) {
+            if (dest_local->is_class_handle || engine.is_class(dest_local->class_type_name) || engine.is_class(dest_local->type_name)) {
+                is_class_dest = true;
+                dest_class_type = !dest_local->class_type_name.empty() ? dest_local->class_type_name : dest_local->type_name;
+            }
+        } else if (dest_nid != (size_t)-1) {
+            if (engine.netlist[dest_nid].is_class_handle || engine.is_class(engine.netlist[dest_nid].type_name)) {
+                is_class_dest = true;
+                dest_class_type = !engine.netlist[dest_nid].type_name.empty() ? engine.netlist[dest_nid].type_name : engine.get_class_type(dest_name, scope);
+            }
+        } else if (current_this && current_this->has_property(dest_name)) {
+            if (current_this->class_def) {
+                auto mv = current_this->class_def->find_member_var(dest_name);
+                if (mv && (mv->is_class_handle || engine.is_class(mv->class_type_name))) {
+                    is_class_dest = true;
+                    dest_class_type = mv->class_type_name;
+                }
             }
         }
 
-        if (dest_class_type.empty()) {
-            return LogicVal::make_known(32, 0);
+        if (is_class_dest) {
+            if (dynamic_cast<NullNode*>(cast_call->src_expr.get())) {
+                if (dest_local) dest_local->value = LogicVal(64, 0, 0);
+                else if (dest_nid != (size_t)-1) engine.netlist[dest_nid].set(LogicVal(64, 0, 0));
+                else if (current_this && current_this->has_property(dest_name)) current_this->set_property(dest_name, LogicVal(64, 0, 0));
+                return LogicVal::make_known(32, 1);
+            }
+
+            // Incompatible type validation
+            if (auto src_id = dynamic_cast<IdentifierNode*>(cast_call->src_expr.get())) {
+                LocalVar* sloc = nullptr;
+                if (context.has_active_frame()) sloc = context.lookup_local(src_id->name);
+                if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        sloc = it->local_frame.get_var(src_id->name);
+                        if (sloc) break;
+                    }
+                }
+                size_t snid = engine.get_net_id(scope, src_id->name);
+                if (sloc && !sloc->is_class_handle && !engine.is_class(sloc->type_name) && sloc->type_name != "chandle") {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to class handle per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+                if (!sloc && snid != (size_t)-1 && !engine.netlist[snid].is_class_handle && !engine.is_class(engine.netlist[snid].type_name)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to class handle per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+            }
+
+            LogicVal src_val = eval(cast_call->src_expr.get(), scope);
+            if (src_val.is_string || src_val.is_real) {
+                throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to class handle per IEEE 1800-2023 section 6.24.2");
+            }
+
+            uint64_t src_handle = src_val.aval;
+            if (src_handle == 0) {
+                if (dest_local) dest_local->value = LogicVal(64, 0, 0);
+                else if (dest_nid != (size_t)-1) engine.netlist[dest_nid].set(LogicVal(64, 0, 0));
+                else if (current_this && current_this->has_property(dest_name)) current_this->set_property(dest_name, LogicVal(64, 0, 0));
+                return LogicVal::make_known(32, 1);
+            }
+
+            auto src_obj = engine.get_class_object(src_handle);
+            if (!src_obj) {
+                return LogicVal::make_known(32, 0);
+            }
+
+            if (src_obj->is_instance_of(dest_class_type)) {
+                if (dest_local) dest_local->value = LogicVal(64, src_handle, 0);
+                else if (dest_nid != (size_t)-1) engine.netlist[dest_nid].set(LogicVal(64, src_handle, 0));
+                else if (current_this && current_this->has_property(dest_name)) current_this->set_property(dest_name, LogicVal(64, src_handle, 0));
+                return LogicVal::make_known(32, 1);
+            } else {
+                return LogicVal::make_known(32, 0);
+            }
         }
 
-        LogicVal src_val = eval(cast_call->src_expr.get(), scope);
-        uint64_t src_handle = src_val.aval;
-
-        if (src_handle == 0) {
-            if (dest_local) {
-                dest_local->value = LogicVal(64, 0, 0);
-            } else if (dest_nid != (size_t)-1) {
-                engine.netlist[dest_nid].set(LogicVal(64, 0, 0));
+        // 2. Check if destination is an Enum variable
+        const EnumType* dest_enum_type = nullptr;
+        std::string dest_tname = dest_local ? dest_local->type_name : (dest_nid != (size_t)-1 ? engine.netlist[dest_nid].type_name : "");
+        if (!dest_tname.empty()) {
+            std::string scoped_et = scope.empty() ? dest_tname : (scope + "." + dest_tname);
+            if (engine.enum_types.find(scoped_et) != engine.enum_types.end()) {
+                dest_enum_type = &engine.enum_types.at(scoped_et);
+            } else if (engine.enum_types.find(dest_tname) != engine.enum_types.end()) {
+                dest_enum_type = &engine.enum_types.at(dest_tname);
+            } else {
+                for (const auto& pkg_pair : engine.package_defs) {
+                    std::string qname = pkg_pair.first + "::" + dest_tname;
+                    if (engine.enum_types.find(qname) != engine.enum_types.end()) {
+                        dest_enum_type = &engine.enum_types.at(qname);
+                        break;
+                    }
+                }
             }
+        }
+        if (!dest_enum_type) {
+            std::string scoped_var = scope.empty() ? dest_name : (scope + "." + dest_name);
+            if (engine.var_to_enum_type.find(scoped_var) != engine.var_to_enum_type.end()) {
+                std::string et_name = engine.var_to_enum_type.at(scoped_var);
+                if (engine.enum_types.find(et_name) != engine.enum_types.end()) {
+                    dest_enum_type = &engine.enum_types.at(et_name);
+                }
+            } else if (engine.var_to_enum_type.find(dest_name) != engine.var_to_enum_type.end()) {
+                std::string et_name = engine.var_to_enum_type.at(dest_name);
+                if (engine.enum_types.find(et_name) != engine.enum_types.end()) {
+                    dest_enum_type = &engine.enum_types.at(et_name);
+                }
+            }
+        }
+
+        if (dest_enum_type) {
+            if (dynamic_cast<NullNode*>(cast_call->src_expr.get())) {
+                throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to enum per IEEE 1800-2023 section 6.24.2");
+            }
+            if (auto src_id = dynamic_cast<IdentifierNode*>(cast_call->src_expr.get())) {
+                LocalVar* sloc = nullptr;
+                if (context.has_active_frame()) sloc = context.lookup_local(src_id->name);
+                if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        sloc = it->local_frame.get_var(src_id->name);
+                        if (sloc) break;
+                    }
+                }
+                size_t snid = engine.get_net_id(scope, src_id->name);
+                if (sloc && (sloc->is_class_handle || sloc->is_chandle || sloc->is_virtual_interface)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to enum per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+                if (!sloc && snid != (size_t)-1 && (engine.netlist[snid].is_class_handle || engine.netlist[snid].is_chandle || engine.netlist[snid].is_virtual_interface)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to enum per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+            }
+
+            LogicVal src_val = eval(cast_call->src_expr.get(), scope);
+            if (src_val.is_string || src_val.is_real) {
+                throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast to enum per IEEE 1800-2023 section 6.24.2");
+            }
+
+            bool match_found = false;
+            LogicVal matched_val;
+            uint32_t ew = dest_enum_type->width;
+            uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
+
+            bool out_of_width = false;
+            if (!dest_enum_type->is_signed && src_val.width > ew) {
+                if ((src_val.aval & ~mask) != 0 || (src_val.bval & ~mask) != 0) {
+                    out_of_width = true;
+                }
+            }
+
+            if (!out_of_width) {
+                uint64_t masked_a = src_val.aval & mask;
+                uint64_t masked_b = src_val.bval & mask;
+                for (const auto& m : dest_enum_type->members) {
+                    uint64_t m_mask = (m.val.width >= 64) ? ~0ULL : ((1ULL << m.val.width) - 1);
+                    if ((m.val.aval & m_mask) == masked_a && (m.val.bval & m_mask) == masked_b) {
+                        match_found = true;
+                        matched_val = LogicVal(ew, masked_a, masked_b, dest_enum_type->is_signed);
+                        break;
+                    }
+                }
+            }
+
+            if (match_found) {
+                if (dest_local) dest_local->value = matched_val;
+                else if (dest_nid != (size_t)-1) engine.netlist[dest_nid].set(matched_val);
+                else if (current_this && current_this->has_property(dest_name)) current_this->set_property(dest_name, matched_val);
+                return LogicVal::make_known(32, 1);
+            } else {
+                return LogicVal::make_known(32, 0);
+            }
+        }
+
+        // 3. Singular Integral Destination
+        if (dest_local || dest_nid != (size_t)-1 || (current_this && current_this->has_property(dest_name))) {
+            if (dynamic_cast<NullNode*>(cast_call->src_expr.get())) {
+                throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast per IEEE 1800-2023 section 6.24.2");
+            }
+            if (auto src_id = dynamic_cast<IdentifierNode*>(cast_call->src_expr.get())) {
+                LocalVar* sloc = nullptr;
+                if (context.has_active_frame()) sloc = context.lookup_local(src_id->name);
+                if (!sloc && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        sloc = it->local_frame.get_var(src_id->name);
+                        if (sloc) break;
+                    }
+                }
+                size_t snid = engine.get_net_id(scope, src_id->name);
+                if (sloc && (sloc->is_class_handle || sloc->is_chandle || sloc->is_virtual_interface)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+                if (!sloc && snid != (size_t)-1 && (engine.netlist[snid].is_class_handle || engine.netlist[snid].is_chandle || engine.netlist[snid].is_virtual_interface)) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast per IEEE 1800-2023 section 6.24.2: '" + src_id->name + "'");
+                }
+            }
+
+            LogicVal src_val = eval(cast_call->src_expr.get(), scope);
+            if (src_val.is_string || src_val.is_real) {
+                throw std::runtime_error("[CAS-DTINPCIL] Incompatible source type in $cast per IEEE 1800-2023 section 6.24.2");
+            }
+
+            uint32_t dest_w = dest_local ? dest_local->width : (dest_nid != (size_t)-1 ? engine.netlist[dest_nid].width : 32);
+            bool dest_s = dest_local ? dest_local->is_signed : (dest_nid != (size_t)-1 ? engine.netlist[dest_nid].is_signed : false);
+            LogicVal casted = LogicOps::cast_width(src_val, dest_w, dest_s);
+            if (dest_local) dest_local->value = casted;
+            else if (dest_nid != (size_t)-1) engine.netlist[dest_nid].set(casted);
+            else if (current_this && current_this->has_property(dest_name)) current_this->set_property(dest_name, casted);
             return LogicVal::make_known(32, 1);
         }
 
-        auto src_obj = engine.get_class_object(src_handle);
-        if (!src_obj) {
-            return LogicVal::make_known(32, 0);
-        }
-
-        if (src_obj->is_instance_of(dest_class_type)) {
-            if (dest_local) {
-                dest_local->value = LogicVal(64, src_handle, 0);
-            } else if (dest_nid != (size_t)-1) {
-                engine.netlist[dest_nid].set(LogicVal(64, src_handle, 0));
-            }
-            return LogicVal::make_known(32, 1);
-        } else {
-            return LogicVal::make_known(32, 0);
-        }
+        throw std::runtime_error("[CAS-DTINPCIL] Undefined destination variable in $cast per IEEE 1800-2023 section 6.24.2: '" + dest_name + "'");
     }
 
     if (auto cnew = dynamic_cast<ClassNewNode*>(expr)) {

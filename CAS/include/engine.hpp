@@ -228,7 +228,14 @@ public:
     const ClassNode* get_class_def(const std::string& class_name) const {
         auto it = class_defs.find(class_name);
         if (it != class_defs.end()) return it->second;
+        for (const auto& pair : class_defs) {
+            if (ClassNode::compare_type_names(pair.first, class_name)) return pair.second;
+        }
         return nullptr;
+    }
+
+    bool is_class(const std::string& class_name) const {
+        return get_class_def(class_name) != nullptr;
     }
 
     std::shared_ptr<ClassObject> allocate_class_object(const std::string& class_type) {
