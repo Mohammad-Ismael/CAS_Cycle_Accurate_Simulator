@@ -1685,6 +1685,11 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
+            if (dynamic_cast<LetStatementNode*>(stmt)) {
+                cur_frame.pc++;
+                continue;
+            }
+
             // Fork inside task: IEEE 1800-2023 §9.3.2
             if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
                 cur_frame.pc++;
@@ -1946,6 +1951,11 @@ void StratifiedScheduler::step_process(size_t pid) {
         }
 
         auto stmt = bp.proc->body[bp.pc].get();
+
+        if (dynamic_cast<LetStatementNode*>(stmt)) {
+            bp.pc++;
+            continue;
+        }
 
         // 0. Unwrap any embedded BlockStatementNode in place
         if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {

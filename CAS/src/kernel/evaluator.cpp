@@ -309,6 +309,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (dynamic_cast<LetStatementNode*>(stmt)) {
+        return;
+    }
+
     if (auto ret_node = dynamic_cast<ReturnStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
             ScopeFrame* frame = expr_eval.get_context().current_frame();

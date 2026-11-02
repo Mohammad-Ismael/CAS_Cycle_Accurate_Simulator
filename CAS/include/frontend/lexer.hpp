@@ -226,7 +226,9 @@ enum class TokenType {
     TOKEN_GENVAR,
     TOKEN_UNIQUE,
     TOKEN_UNIQUE0,
-    TOKEN_PRIORITY
+    TOKEN_PRIORITY,
+    TOKEN_LET,
+    TOKEN_UNTYPED
 };
 
 struct Token {

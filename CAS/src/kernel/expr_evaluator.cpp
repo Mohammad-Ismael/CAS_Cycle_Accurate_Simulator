@@ -758,6 +758,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
         LogicVal val = eval(cast_node->expr.get(), scope);
+        if (cast_node->width > 0) {
+            return LogicOps::cast_width(val, cast_node->width, cast_node->is_signed);
+        }
+        if (cast_node->target_type == "bit" || cast_node->target_type == "logic") {
+            return LogicOps::cast_width(val, 1, false);
+        }
         if (cast_node->target_type == "int" || cast_node->target_type == "integer") {
             if (val.is_real) {
                 return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)));

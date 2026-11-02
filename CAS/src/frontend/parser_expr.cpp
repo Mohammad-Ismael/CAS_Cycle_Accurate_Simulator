@@ -206,7 +206,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
             if (match(TokenType::TOKEN_LPAREN)) {
                 auto parsed = parse_call_argument_list();
+                const LetDeclNode* let_decl = find_visible_let(name + "::" + member);
+                if (let_decl) {
+                    return expand_let(let_decl, std::move(parsed.args), parsed.arg_names);
+                }
                 return std::make_unique<StaticMethodCallNode>(name, member, std::move(parsed.args), std::move(parsed.arg_names));
+            }
+            const LetDeclNode* let_decl = find_visible_let(name + "::" + member);
+            if (let_decl && let_decl->ports.empty()) {
+                return expand_let(let_decl, {}, {});
             }
             if (match(TokenType::TOKEN_APOSTROPHE)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
@@ -340,7 +348,16 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         // Function call: identifier followed immediately by '('
         if (match(TokenType::TOKEN_LPAREN)) {
             auto parsed = parse_call_argument_list();
+            const LetDeclNode* let_decl = find_visible_let(name);
+            if (let_decl) {
+                return expand_let(let_decl, std::move(parsed.args), parsed.arg_names);
+            }
             return std::make_unique<FunctionCallNode>(name, std::move(parsed.args), std::move(parsed.arg_names));
+        }
+
+        const LetDeclNode* let_decl_noargs = find_visible_let(name);
+        if (let_decl_noargs && let_decl_noargs->ports.empty()) {
+            return expand_let(let_decl_noargs, {}, {});
         }
 
         if (match(TokenType::TOKEN_LBRACKET)) {
@@ -823,4 +840,295 @@ std::unique_ptr<ExpressionNode> Parser::parse_sequence_expression() {
         items.push_back({delay, std::move(next_elem)});
     }
     return std::make_unique<SequenceConcatNode>(std::move(items));
+}
+
+const LetDeclNode* Parser::find_visible_let(const std::string& name) const {
+    auto colon = name.find("::");
+    if (colon != std::string::npos) {
+        std::string pkg_name = name.substr(0, colon);
+        std::string item_name = name.substr(colon + 2);
+        auto pit = global_packages.find(pkg_name);
+        if (pit != global_packages.end()) {
+            auto lit = pit->second->let_decl_map.find(item_name);
+            if (lit != pit->second->let_decl_map.end()) return lit->second.get();
+        }
+        auto git = global_let_decls.find(name);
+        if (git != global_let_decls.end()) return git->second.get();
+        return nullptr;
+    }
+
+    if (current_parsing_module) {
+        auto it = current_parsing_module->let_decl_map.find(name);
+        if (it != current_parsing_module->let_decl_map.end()) return it->second.get();
+
+        auto eit = current_parsing_module->explicit_imports.find(name);
+        if (eit != current_parsing_module->explicit_imports.end()) {
+            auto pit = global_packages.find(eit->second.first);
+            if (pit != global_packages.end()) {
+                auto lit = pit->second->let_decl_map.find(eit->second.second);
+                if (lit != pit->second->let_decl_map.end()) return lit->second.get();
+            }
+        }
+
+        for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                auto lit = pit->second->let_decl_map.find(name);
+                if (lit != pit->second->let_decl_map.end()) return lit->second.get();
+            }
+        }
+    }
+
+    if (current_parsing_package) {
+        auto it = current_parsing_package->let_decl_map.find(name);
+        if (it != current_parsing_package->let_decl_map.end()) return it->second.get();
+
+        for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+            auto pit = global_packages.find(pkg_name);
+            if (pit != global_packages.end()) {
+                auto lit = pit->second->let_decl_map.find(name);
+                if (lit != pit->second->let_decl_map.end()) return lit->second.get();
+            }
+        }
+    }
+
+    for (const auto& pkg_name : global_wildcard_imports) {
+        auto pit = global_packages.find(pkg_name);
+        if (pit != global_packages.end()) {
+            auto lit = pit->second->let_decl_map.find(name);
+            if (lit != pit->second->let_decl_map.end()) return lit->second.get();
+        }
+    }
+
+    auto git = global_let_decls.find(name);
+    if (git != global_let_decls.end()) return git->second.get();
+
+    return nullptr;
+}
+
+std::unique_ptr<ExpressionNode> Parser::expand_let(
+    const LetDeclNode* let_decl,
+    std::vector<std::unique_ptr<ExpressionNode>> actual_args,
+    const std::vector<std::string>& arg_names)
+{
+    if (!let_decl) return nullptr;
+
+    if (active_let_expansions.count(let_decl->name)) {
+        throw std::runtime_error("[CAS-DTINPCIL] Recursive let declaration or invocation is illegal per IEEE 1800-2023 section 11.12: '" + let_decl->name + "'");
+    }
+    active_let_expansions.insert(let_decl->name);
+    struct ExpansionGuard {
+        std::unordered_set<std::string>& s;
+        std::string k;
+        ~ExpansionGuard() { s.erase(k); }
+    } guard{active_let_expansions, let_decl->name};
+
+    std::unordered_map<std::string, std::unique_ptr<ExpressionNode>> bound_args;
+    bool has_named = false;
+    for (const auto& nm : arg_names) {
+        if (!nm.empty()) { has_named = true; break; }
+    }
+
+    if (!has_named) {
+        if (actual_args.size() > let_decl->ports.size()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Too many arguments passed to let '" + let_decl->name + "' per IEEE 1800-2023 section 11.12");
+        }
+        for (size_t i = 0; i < let_decl->ports.size(); ++i) {
+            const auto& port = let_decl->ports[i];
+            if (i < actual_args.size() && actual_args[i] != nullptr) {
+                bound_args[port.name] = std::move(actual_args[i]);
+            } else if (port.default_value != nullptr) {
+                bound_args[port.name] = port.default_value->clone();
+            } else {
+                throw std::runtime_error("[CAS-DTINPCIL] Missing required argument '" + port.name + "' in call to let '" + let_decl->name + "' per IEEE 1800-2023 section 11.12");
+            }
+        }
+    } else {
+        std::unordered_map<std::string, std::unique_ptr<ExpressionNode>> passed_named;
+        for (size_t i = 0; i < actual_args.size(); ++i) {
+            std::string nm = (i < arg_names.size()) ? arg_names[i] : "";
+            if (!nm.empty() && nm[0] == '.') nm = nm.substr(1);
+            if (nm.empty() && i < let_decl->ports.size()) {
+                nm = let_decl->ports[i].name;
+            }
+            passed_named[nm] = std::move(actual_args[i]);
+        }
+        for (const auto& port : let_decl->ports) {
+            auto pit = passed_named.find(port.name);
+            if (pit != passed_named.end() && pit->second != nullptr) {
+                bound_args[port.name] = std::move(pit->second);
+            } else if (port.default_value != nullptr) {
+                bound_args[port.name] = port.default_value->clone();
+            } else {
+                throw std::runtime_error("[CAS-DTINPCIL] Missing required argument '" + port.name + "' in call to let '" + let_decl->name + "' per IEEE 1800-2023 section 11.12");
+            }
+        }
+    }
+
+    // Apply type casting for typed formals
+    for (const auto& port : let_decl->ports) {
+        if (port.is_typed) {
+            auto& arg_expr = bound_args[port.name];
+            arg_expr = std::make_unique<CastNode>(port.data_type, std::move(arg_expr), port.width, port.is_signed);
+        }
+    }
+
+    // Build raw pointer map for substitute
+    std::unordered_map<std::string, const ExpressionNode*> subst_map;
+    for (const auto& kv : bound_args) {
+        subst_map[kv.first] = kv.second.get();
+    }
+
+    return substitute_let_in_expr(let_decl->body_expr.get(), subst_map);
+}
+
+std::unique_ptr<ExpressionNode> Parser::substitute_let_in_expr(
+    const ExpressionNode* expr,
+    const std::unordered_map<std::string, const ExpressionNode*>& subst)
+{
+    if (!expr) return nullptr;
+
+    if (auto id = dynamic_cast<const IdentifierNode*>(expr)) {
+        auto it = subst.find(id->name);
+        if (it != subst.end() && it->second != nullptr) {
+            return it->second->clone();
+        }
+        return id->clone();
+    }
+
+    if (auto bo = dynamic_cast<const BinaryOpNode*>(expr)) {
+        return std::make_unique<BinaryOpNode>(
+            bo->op,
+            substitute_let_in_expr(bo->lhs.get(), subst),
+            substitute_let_in_expr(bo->rhs.get(), subst)
+        );
+    }
+
+    if (auto uo = dynamic_cast<const UnaryOpNode*>(expr)) {
+        return std::make_unique<UnaryOpNode>(
+            uo->op,
+            substitute_let_in_expr(uo->operand.get(), subst)
+        );
+    }
+
+    if (auto to = dynamic_cast<const TernaryOpNode*>(expr)) {
+        return std::make_unique<TernaryOpNode>(
+            substitute_let_in_expr(to->condition.get(), subst),
+            substitute_let_in_expr(to->true_expr.get(), subst),
+            substitute_let_in_expr(to->false_expr.get(), subst)
+        );
+    }
+
+    if (auto co = dynamic_cast<const ConcatNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> elems;
+        for (const auto& el : co->elements) {
+            elems.push_back(substitute_let_in_expr(el.get(), subst));
+        }
+        return std::make_unique<ConcatNode>(std::move(elems));
+    }
+
+    if (auto sco = dynamic_cast<const StreamingConcatNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> items;
+        for (const auto& item : sco->stream_items) {
+            items.push_back(substitute_let_in_expr(item.get(), subst));
+        }
+        return std::make_unique<StreamingConcatNode>(
+            sco->direction,
+            substitute_let_in_expr(sco->slice_size.get(), subst),
+            std::move(items)
+        );
+    }
+
+    if (auto ro = dynamic_cast<const ReplicateNode*>(expr)) {
+        return std::make_unique<ReplicateNode>(
+            substitute_let_in_expr(ro->count_expr.get(), subst),
+            substitute_let_in_expr(ro->target_expr.get(), subst)
+        );
+    }
+
+    if (auto iso = dynamic_cast<const IndexSelectNode*>(expr)) {
+        std::string base_name = iso->name;
+        auto it = subst.find(base_name);
+        if (it != subst.end() && it->second != nullptr) {
+            if (auto aid = dynamic_cast<const IdentifierNode*>(it->second)) {
+                base_name = aid->name;
+            } else if (auto acid = dynamic_cast<const CastNode*>(it->second)) {
+                if (auto cid = dynamic_cast<const IdentifierNode*>(acid->expr.get())) {
+                    base_name = cid->name;
+                }
+            }
+        }
+        std::unique_ptr<IndexSelectNode> res;
+        if (!iso->is_part_select) {
+            res = std::make_unique<IndexSelectNode>(
+                base_name,
+                substitute_let_in_expr(iso->msb_expr.get(), subst)
+            );
+        } else {
+            res = std::make_unique<IndexSelectNode>(
+                base_name,
+                substitute_let_in_expr(iso->msb_expr.get(), subst),
+                substitute_let_in_expr(iso->lsb_expr.get(), subst)
+            );
+        }
+        res->has_bit_select = iso->has_bit_select;
+        res->bit_msb_expr = substitute_let_in_expr(iso->bit_msb_expr.get(), subst);
+        res->bit_lsb_expr = substitute_let_in_expr(iso->bit_lsb_expr.get(), subst);
+        return res;
+    }
+
+    if (auto co = dynamic_cast<const CastNode*>(expr)) {
+        return std::make_unique<CastNode>(
+            co->target_type,
+            substitute_let_in_expr(co->expr.get(), subst),
+            co->width,
+            co->is_signed
+        );
+    }
+
+    if (auto fco = dynamic_cast<const FunctionCallNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : fco->args) {
+            c_args.push_back(substitute_let_in_expr(a.get(), subst));
+        }
+        const LetDeclNode* inner_let = find_visible_let(fco->func_name);
+        if (inner_let) {
+            return expand_let(inner_let, std::move(c_args), fco->arg_names);
+        }
+        return std::make_unique<FunctionCallNode>(fco->func_name, std::move(c_args), fco->arg_names);
+    }
+
+    if (auto mco = dynamic_cast<const MethodCallNode*>(expr)) {
+        std::string vname = mco->var_name;
+        auto it = subst.find(vname);
+        if (it != subst.end() && it->second != nullptr) {
+            if (auto aid = dynamic_cast<const IdentifierNode*>(it->second)) {
+                vname = aid->name;
+            }
+        }
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : mco->args) {
+            c_args.push_back(substitute_let_in_expr(a.get(), subst));
+        }
+        return std::make_unique<MethodCallNode>(
+            vname,
+            mco->method_name,
+            std::move(c_args),
+            substitute_let_in_expr(mco->with_expr.get(), subst),
+            mco->arg_names
+        );
+    }
+
+    if (auto mao = dynamic_cast<const MemberAccessNode*>(expr)) {
+        std::string vname = mao->var_name;
+        auto it = subst.find(vname);
+        if (it != subst.end() && it->second != nullptr) {
+            if (auto aid = dynamic_cast<const IdentifierNode*>(it->second)) {
+                vname = aid->name;
+            }
+        }
+        return std::make_unique<MemberAccessNode>(vname, mao->member_name);
+    }
+
+    return expr->clone();
 }

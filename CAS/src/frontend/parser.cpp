@@ -8,6 +8,7 @@ std::vector<std::string> Parser::global_wildcard_imports;
 std::unordered_map<std::string, std::pair<std::string, std::string>> Parser::global_explicit_imports;
 std::unordered_map<std::string, std::shared_ptr<ClassNode>> Parser::class_map;
 std::vector<std::shared_ptr<ClassNode>> Parser::global_classes;
+std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> Parser::global_let_decls;
 
 Parser::Parser(Lexer& lex) : lexer(lex) {
     advance();

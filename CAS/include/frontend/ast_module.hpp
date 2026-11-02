@@ -420,6 +420,46 @@ struct DefaultClockingNode : public ASTNode {
     explicit DefaultClockingNode(std::string name) : clocking_name(std::move(name)) {}
 };
 
+struct LetPortItem {
+    std::string name;
+    bool is_typed = false;
+    std::string data_type = "";
+    uint32_t width = 32;
+    bool is_signed = false;
+    std::unique_ptr<ExpressionNode> default_value = nullptr;
+
+    LetPortItem() = default;
+    LetPortItem(std::string n, bool typed, std::string dt, uint32_t w, bool sgn, std::unique_ptr<ExpressionNode> def = nullptr)
+        : name(std::move(n)), is_typed(typed), data_type(std::move(dt)), width(w), is_signed(sgn), default_value(std::move(def)) {}
+
+    LetPortItem clone() const {
+        return LetPortItem(name, is_typed, data_type, width, is_signed, default_value ? default_value->clone() : nullptr);
+    }
+};
+
+struct LetDeclNode : public ASTNode {
+    std::string name;
+    std::vector<LetPortItem> ports;
+    std::unique_ptr<ExpressionNode> body_expr;
+    std::string scope_path = "";
+    std::string file = "";
+    size_t line = 0;
+
+    LetDeclNode() = default;
+    LetDeclNode(std::string n, std::vector<LetPortItem> p, std::unique_ptr<ExpressionNode> body)
+        : name(std::move(n)), ports(std::move(p)), body_expr(std::move(body)) {}
+
+    std::shared_ptr<LetDeclNode> clone() const {
+        std::vector<LetPortItem> c_ports;
+        for (const auto& p : ports) c_ports.push_back(p.clone());
+        auto node = std::make_shared<LetDeclNode>(name, std::move(c_ports), body_expr ? body_expr->clone() : nullptr);
+        node->scope_path = scope_path;
+        node->file = file;
+        node->line = line;
+        return node;
+    }
+};
+
 struct ClockingBlockNode : public ASTNode {
     std::string name;
     bool is_default = false;
@@ -783,6 +823,8 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::vector<std::string> wildcard_imports;
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
+    std::vector<std::shared_ptr<LetDeclNode>> let_decls;
+    std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
 
     PackageNode() = default;
 };
@@ -896,6 +938,8 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::vector<std::string> wildcard_imports;
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
+    std::vector<std::shared_ptr<LetDeclNode>> let_decls;
+    std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
 
     ModuleNode() = default;
 };

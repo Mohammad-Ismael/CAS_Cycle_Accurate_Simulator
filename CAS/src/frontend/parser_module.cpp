@@ -303,6 +303,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_LET) {
+            auto let_decl = parse_let_declaration();
+            if (let_decl) {
+                global_let_decls[let_decl->name] = let_decl;
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_IMPORT) {
             if (peek_token().type == TokenType::TOKEN_STRING) {
                 auto dpi = parse_dpi_import();
@@ -643,6 +651,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : (is_prog ? TokenType::TOKEN_ENDPROGRAM : TokenType::TOKEN_ENDMODULE);
         while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
+            if (current.type == TokenType::TOKEN_LET) {
+                auto let_decl = parse_let_declaration();
+                if (let_decl) {
+                    mod->let_decls.push_back(let_decl);
+                    mod->let_decl_map[let_decl->name] = let_decl;
+                }
+                continue;
+            }
             if (is_prog && (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE || current.type == TokenType::TOKEN_PROGRAM)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program declaration is illegal in program scope per IEEE 1800-2023 section 24.3");
             }
@@ -3632,6 +3648,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after package name");
 
     global_packages[pkg->name] = pkg;
+    current_parsing_package = pkg;
 
     while (current.type != TokenType::TOKEN_ENDPACKAGE && current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_SPECIFY) {
@@ -3751,6 +3768,16 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_LET) {
+            auto let_decl = parse_let_declaration();
+            if (let_decl) {
+                pkg->let_decls.push_back(let_decl);
+                pkg->let_decl_map[let_decl->name] = let_decl;
+                global_let_decls[pkg->name + "::" + let_decl->name] = let_decl;
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_COVERGROUP) {
             auto cg = parse_covergroup();
             if (cg) {
@@ -3824,6 +3851,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             advance();
         }
     }
+    current_parsing_package = nullptr;
     return pkg;
 }
 
@@ -4312,3 +4340,180 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
     }
     advance();
 }
+
+static bool expr_has_side_effects(const ExpressionNode* expr) {
+    if (!expr) return false;
+    if (auto bo = dynamic_cast<const BinaryOpNode*>(expr)) {
+        if (bo->op == "=" || bo->op == "+=" || bo->op == "-=" || bo->op == "*=" ||
+            bo->op == "/=" || bo->op == "%=" || bo->op == "&=" || bo->op == "|=" ||
+            bo->op == "^=" || bo->op == "<<=" || bo->op == ">>=" || bo->op == "<<<=" ||
+            bo->op == ">>>=") {
+            return true;
+        }
+        return expr_has_side_effects(bo->lhs.get()) || expr_has_side_effects(bo->rhs.get());
+    }
+    if (auto uo = dynamic_cast<const UnaryOpNode*>(expr)) {
+        if (uo->op == "++" || uo->op == "--") return true;
+        return expr_has_side_effects(uo->operand.get());
+    }
+    if (auto to = dynamic_cast<const TernaryOpNode*>(expr)) {
+        return expr_has_side_effects(to->condition.get()) ||
+               expr_has_side_effects(to->true_expr.get()) ||
+               expr_has_side_effects(to->false_expr.get());
+    }
+    if (auto co = dynamic_cast<const ConcatNode*>(expr)) {
+        for (const auto& el : co->elements) {
+            if (expr_has_side_effects(el.get())) return true;
+        }
+    }
+    if (auto ro = dynamic_cast<const ReplicateNode*>(expr)) {
+        return expr_has_side_effects(ro->count_expr.get()) || expr_has_side_effects(ro->target_expr.get());
+    }
+    if (auto iso = dynamic_cast<const IndexSelectNode*>(expr)) {
+        return expr_has_side_effects(iso->msb_expr.get()) || expr_has_side_effects(iso->lsb_expr.get());
+    }
+    if (auto cast_n = dynamic_cast<const CastNode*>(expr)) {
+        return expr_has_side_effects(cast_n->expr.get());
+    }
+    if (auto fco = dynamic_cast<const FunctionCallNode*>(expr)) {
+        for (const auto& a : fco->args) {
+            if (expr_has_side_effects(a.get())) return true;
+        }
+    }
+    return false;
+}
+
+static bool expr_references_identifier(const ExpressionNode* expr, const std::string& target_id) {
+    if (!expr) return false;
+    if (auto id = dynamic_cast<const IdentifierNode*>(expr)) {
+        return id->name == target_id;
+    }
+    if (auto fco = dynamic_cast<const FunctionCallNode*>(expr)) {
+        if (fco->func_name == target_id) return true;
+        for (const auto& a : fco->args) {
+            if (expr_references_identifier(a.get(), target_id)) return true;
+        }
+    }
+    if (auto bo = dynamic_cast<const BinaryOpNode*>(expr)) {
+        return expr_references_identifier(bo->lhs.get(), target_id) || expr_references_identifier(bo->rhs.get(), target_id);
+    }
+    if (auto uo = dynamic_cast<const UnaryOpNode*>(expr)) {
+        return expr_references_identifier(uo->operand.get(), target_id);
+    }
+    if (auto to = dynamic_cast<const TernaryOpNode*>(expr)) {
+        return expr_references_identifier(to->condition.get(), target_id) ||
+               expr_references_identifier(to->true_expr.get(), target_id) ||
+               expr_references_identifier(to->false_expr.get(), target_id);
+    }
+    if (auto co = dynamic_cast<const ConcatNode*>(expr)) {
+        for (const auto& el : co->elements) {
+            if (expr_references_identifier(el.get(), target_id)) return true;
+        }
+    }
+    return false;
+}
+
+std::shared_ptr<LetDeclNode> Parser::parse_let_declaration() {
+    expect(TokenType::TOKEN_LET, "Expected 'let'");
+    std::string name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after 'let'");
+
+    if (current_parsing_module && current_parsing_module->let_decl_map.count(name)) {
+        throw std::runtime_error("[CAS-DTINPCIL] Duplicate 'let' identifier '" + name + "' in same scope per IEEE 1800-2023 section 11.12");
+    }
+    if (current_parsing_package && current_parsing_package->let_decl_map.count(name)) {
+        throw std::runtime_error("[CAS-DTINPCIL] Duplicate 'let' identifier '" + name + "' in same package per IEEE 1800-2023 section 11.12");
+    }
+
+    std::vector<LetPortItem> ports;
+    if (match(TokenType::TOKEN_LPAREN)) {
+        if (current.type != TokenType::TOKEN_RPAREN) {
+            while (true) {
+                ports.push_back(parse_let_port_item());
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing let formal argument list");
+    }
+
+    expect(TokenType::TOKEN_EQUAL, "Expected '=' in let declaration");
+    auto body_expr = parse_expression();
+    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after let declaration");
+
+    if (expr_has_side_effects(body_expr.get())) {
+        throw std::runtime_error("[CAS-DTINPCIL] Side effects or state modifications are illegal inside 'let' expressions per IEEE 1800-2023 section 11.12");
+    }
+
+    if (expr_references_identifier(body_expr.get(), name)) {
+        throw std::runtime_error("[CAS-DTINPCIL] Recursive let declaration or invocation is illegal per IEEE 1800-2023 section 11.12: '" + name + "'");
+    }
+
+    auto let_node = std::make_shared<LetDeclNode>(name, std::move(ports), std::move(body_expr));
+    let_node->file = current.filename;
+    let_node->line = current.line;
+    return let_node;
+}
+
+LetPortItem Parser::parse_let_port_item() {
+    bool is_typed = false;
+    std::string data_type = "";
+    uint32_t width = 32;
+    bool is_signed = false;
+
+    if (current.type == TokenType::TOKEN_UNTYPED) {
+        advance();
+        is_typed = false;
+    } else if (current.type == TokenType::TOKEN_LOGIC ||
+               current.type == TokenType::TOKEN_BIT ||
+               current.type == TokenType::TOKEN_REG ||
+               current.type == TokenType::TOKEN_INTEGER) {
+        is_typed = true;
+        data_type = current.text;
+        if (current.type == TokenType::TOKEN_INTEGER) {
+            width = 32;
+            is_signed = true;
+        } else {
+            width = 1;
+            is_signed = false;
+        }
+        advance();
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                    width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                }
+            }
+        }
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        if (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
+            is_typed = true;
+            data_type = current.text;
+            is_signed = true;
+            if (current.text == "byte") width = 8;
+            else if (current.text == "shortint") width = 16;
+            else if (current.text == "int") width = 32;
+            else if (current.text == "longint") width = 64;
+            advance();
+        } else if (is_typedef(current.text)) {
+            is_typed = true;
+            data_type = current.text;
+            advance();
+        }
+    }
+
+    std::string port_name = current.text;
+    expect(TokenType::TOKEN_IDENTIFIER, "Expected formal argument name in let declaration");
+
+    std::unique_ptr<ExpressionNode> default_value = nullptr;
+    if (match(TokenType::TOKEN_EQUAL)) {
+        default_value = parse_expression();
+    }
+
+    return LetPortItem(port_name, is_typed, data_type, width, is_signed, std::move(default_value));
+}
+

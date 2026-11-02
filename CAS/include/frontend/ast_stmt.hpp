@@ -564,3 +564,16 @@ struct RandomizeStatementNode : public StatementNode {
         return std::make_unique<RandomizeStatementNode>(call ? call->clone() : nullptr);
     }
 };
+
+struct LetDeclNode;
+
+struct LetStatementNode : public StatementNode {
+    std::shared_ptr<LetDeclNode> let_decl;
+
+    explicit LetStatementNode(std::shared_ptr<LetDeclNode> decl = nullptr)
+        : let_decl(std::move(decl)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<LetStatementNode>(let_decl);
+    }
+};

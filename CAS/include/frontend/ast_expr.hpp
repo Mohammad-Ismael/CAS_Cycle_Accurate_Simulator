@@ -233,12 +233,14 @@ struct MemberAccessNode : public ExpressionNode {
 struct CastNode : public ExpressionNode {
     std::string target_type;
     std::unique_ptr<ExpressionNode> expr;
+    uint32_t width = 0;
+    bool is_signed = false;
 
-    CastNode(std::string t, std::unique_ptr<ExpressionNode> e)
-        : target_type(std::move(t)), expr(std::move(e)) {}
+    CastNode(std::string t, std::unique_ptr<ExpressionNode> e, uint32_t w = 0, bool s = false)
+        : target_type(std::move(t)), expr(std::move(e)), width(w), is_signed(s) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<CastNode>(target_type, expr ? expr->clone() : nullptr);
+        return std::make_unique<CastNode>(target_type, expr ? expr->clone() : nullptr, width, is_signed);
     }
 };
 
@@ -527,5 +529,24 @@ struct ArrayQueryNode : public ExpressionNode {
             array_expr ? array_expr->clone() : nullptr,
             dim_expr ? dim_expr->clone() : nullptr
         );
+    }
+};
+
+struct LetCallNode : public ExpressionNode {
+    std::string let_name;
+    std::string pkg_name;
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::string> arg_names;
+    std::unique_ptr<ExpressionNode> expanded_expr;
+
+    LetCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {}, std::string pkg = "")
+        : let_name(std::move(name)), pkg_name(std::move(pkg)), args(std::move(a)), arg_names(std::move(anames)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> c_args;
+        for (const auto& a : args) c_args.push_back(a ? a->clone() : nullptr);
+        auto node = std::make_unique<LetCallNode>(let_name, std::move(c_args), arg_names, pkg_name);
+        if (expanded_expr) node->expanded_expr = expanded_expr->clone();
+        return node;
     }
 };

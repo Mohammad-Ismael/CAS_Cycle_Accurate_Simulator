@@ -19,6 +19,19 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'alias' construct is not permitted in procedural context per IEEE 1800-2023 section 10.6");
     }
 
+    if (current.type == TokenType::TOKEN_LET) {
+        auto let_decl = parse_let_declaration();
+        if (let_decl) {
+            if (current_parsing_module) {
+                current_parsing_module->let_decl_map[let_decl->name] = let_decl;
+                current_parsing_module->let_decls.push_back(let_decl);
+            } else {
+                global_let_decls[let_decl->name] = let_decl;
+            }
+            return std::make_unique<LetStatementNode>(let_decl);
+        }
+    }
+
     // Diagnostic [CAS-DTINPCIL]: gate or UDP primitive inside procedural scopes
     if (current.type == TokenType::TOKEN_GATE_AND || current.type == TokenType::TOKEN_GATE_OR ||
         current.type == TokenType::TOKEN_GATE_XOR || current.type == TokenType::TOKEN_GATE_NAND ||

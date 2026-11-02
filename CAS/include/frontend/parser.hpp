@@ -50,6 +50,7 @@ public:
         global_explicit_imports.clear();
         global_configs.clear();
         global_udp_defs.clear();
+        global_let_decls.clear();
         class_map.clear();
         global_classes.clear();
     }
@@ -235,6 +236,16 @@ public:
     std::unique_ptr<AssertPropertyStatementNode> parse_assert_property(const std::string& label = "");
     std::unique_ptr<DpiImportNode> parse_dpi_import();
     std::unique_ptr<DpiExportNode> parse_dpi_export();
+
+    std::shared_ptr<LetDeclNode> parse_let_declaration();
+    LetPortItem parse_let_port_item();
+    const LetDeclNode* find_visible_let(const std::string& name) const;
+    std::unique_ptr<ExpressionNode> expand_let(const LetDeclNode* let_decl, std::vector<std::unique_ptr<ExpressionNode>> actual_args, const std::vector<std::string>& arg_names);
+    std::unique_ptr<ExpressionNode> substitute_let_in_expr(const ExpressionNode* expr, const std::unordered_map<std::string, const ExpressionNode*>& subst);
+
+    static std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> global_let_decls;
+    std::shared_ptr<PackageNode> current_parsing_package = nullptr;
+    std::unordered_set<std::string> active_let_expansions;
 
     explicit Parser(Lexer& lex);
 
