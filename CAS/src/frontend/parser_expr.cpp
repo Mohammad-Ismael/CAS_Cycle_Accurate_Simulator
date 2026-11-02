@@ -116,6 +116,50 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<TypeNameNode>(std::move(arg_expr), type_keyword);
     }
 
+    if (current.type == TokenType::TOKEN_TYPE) {
+        advance();
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'type'");
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] type() requires an argument per IEEE 1800-2023 section 6.23");
+        }
+
+        std::string type_keyword = "";
+        std::unique_ptr<ExpressionNode> arg_expr = nullptr;
+
+        bool is_prim_keyword = (current.type == TokenType::TOKEN_LOGIC ||
+                                current.type == TokenType::TOKEN_REG ||
+                                current.type == TokenType::TOKEN_BIT ||
+                                current.type == TokenType::TOKEN_INTEGER ||
+                                current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_CHANDLE ||
+                                current.type == TokenType::TOKEN_VOID ||
+                                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                                 (current.text == "int" || current.text == "byte" ||
+                                  current.text == "shortint" || current.text == "longint" ||
+                                  current.text == "time" || current.text == "string" ||
+                                  current.text == "shortreal" || current.text == "realtime")));
+
+        if (is_prim_keyword) {
+            type_keyword = current.text;
+            advance();
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in dimension");
+                auto lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after dimension");
+                int64_t m = 0, l = 0;
+                if (auto nm = dynamic_cast<NumberNode*>(msb.get())) m = nm->aval;
+                if (auto nl = dynamic_cast<NumberNode*>(lsb.get())) l = nl->aval;
+                type_keyword += "[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+            }
+        } else {
+            arg_expr = parse_expression();
+        }
+
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing type()");
+        return std::make_unique<TypeOpNode>(std::move(arg_expr), type_keyword);
+    }
+
     if (current.type == TokenType::TOKEN_ROSE || current.type == TokenType::TOKEN_FELL ||
         current.type == TokenType::TOKEN_STABLE || current.type == TokenType::TOKEN_PAST) {
         TokenType fn_tok = current.type;
@@ -827,6 +871,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
             std::string op = current.text;
             advance();
             auto rhs = parse_shift();
+            if (dynamic_cast<TypeOpNode*>(lhs.get()) || dynamic_cast<TypeOpNode*>(rhs.get())) {
+                throw std::runtime_error("[CAS-DTINPCIL] Relational operator '" + op + "' is invalid between type() references per IEEE 1800-2023 section 6.23");
+            }
             lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
         }
     }
@@ -841,6 +888,24 @@ std::unique_ptr<ExpressionNode> Parser::parse_equality() {
         std::string op = current.text;
         advance();
         auto rhs = parse_relational();
+
+        bool l_is_type = (dynamic_cast<TypeOpNode*>(lhs.get()) != nullptr);
+        bool r_is_type = (dynamic_cast<TypeOpNode*>(rhs.get()) != nullptr);
+        if (l_is_type || r_is_type) {
+            if (!l_is_type || !r_is_type) {
+                throw std::runtime_error("[CAS-DTINPCIL] Both operands of type comparison must be type() references per IEEE 1800-2023 section 6.23");
+            }
+            auto l_top = dynamic_cast<TypeOpNode*>(lhs.get());
+            auto r_top = dynamic_cast<TypeOpNode*>(rhs.get());
+            std::string l_t = resolve_type_from_type_op(l_top);
+            std::string r_t = resolve_type_from_type_op(r_top);
+            if (!l_t.empty() && !r_t.empty()) {
+                bool match = (l_t == r_t);
+                bool res = (op == "==" || op == "===") ? match : !match;
+                lhs = std::make_unique<NumberNode>(res ? 1 : 0, 1);
+                continue;
+            }
+        }
         lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
     }
     return lhs;

@@ -282,6 +282,7 @@ private:
     std::unordered_map<std::string, std::string> active_cell_rebind_map;
     std::unordered_set<std::string> valid_instance_paths;
     std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> defparam_overrides;
+    std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
 
 public:
     Elaborator() = default;

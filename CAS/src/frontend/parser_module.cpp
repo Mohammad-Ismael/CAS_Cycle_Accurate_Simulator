@@ -1175,6 +1175,40 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_TYPE) {
+                TypeInferenceResult inf = parse_type_spec_from_type_op();
+                auto msb = inf.msb ? inf.msb->clone() : std::make_unique<NumberNode>(inf.width > 0 ? inf.width - 1 : 0, 32);
+                auto lsb = inf.lsb ? inf.lsb->clone() : std::make_unique<NumberNode>(0, 32);
+
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, inf.is_signed, NetKind::VAR);
+                    sig.type_name = inf.type_name;
+                    sig.is_class_handle = inf.is_class_handle;
+                    sig.class_type_name = inf.class_type_name;
+                    sig.is_covergroup_handle = inf.is_covergroup_handle;
+                    sig.covergroup_type_name = inf.covergroup_type_name;
+                    sig.is_virtual_interface = inf.is_virtual_interface;
+                    sig.interface_name = inf.interface_name;
+                    sig.modport_name = inf.modport_name;
+
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        auto init_expr = parse_expression();
+                        sig.default_value = init_expr->clone();
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
+                    }
+
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                continue;
+            }
+
             std::string mod_sig_type = "";
             if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 std::string p_name = current.text;
@@ -4918,5 +4952,272 @@ void Parser::bind_out_of_body_task(std::unique_ptr<TaskNode> t) {
     if (!t->ports.empty()) {
         proto->ports = std::move(t->ports);
     }
+}
+
+TypeInferenceResult Parser::parse_type_spec_from_type_op() {
+    expect(TokenType::TOKEN_TYPE, "Expected 'type'");
+    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'type'");
+    if (current.type == TokenType::TOKEN_RPAREN) {
+        throw std::runtime_error("[CAS-DTINPCIL] type() requires an argument per IEEE 1800-2023 section 6.23");
+    }
+
+    TypeInferenceResult res;
+
+    // 1. Primitive keyword directly inside type(...)
+    bool is_prim_keyword = (current.type == TokenType::TOKEN_LOGIC ||
+                            current.type == TokenType::TOKEN_REG ||
+                            current.type == TokenType::TOKEN_BIT ||
+                            current.type == TokenType::TOKEN_INTEGER ||
+                            current.type == TokenType::TOKEN_REAL ||
+                            current.type == TokenType::TOKEN_CHANDLE ||
+                            current.type == TokenType::TOKEN_VOID ||
+                            (current.type == TokenType::TOKEN_IDENTIFIER &&
+                             (current.text == "int" || current.text == "byte" ||
+                              current.text == "shortint" || current.text == "longint" ||
+                              current.text == "time" || current.text == "string" ||
+                              current.text == "shortreal" || current.text == "realtime")));
+
+    if (is_prim_keyword) {
+        std::string kw = current.text;
+        advance();
+        if (kw == "int" || kw == "integer") {
+            res.width = 32; res.is_signed = true; res.type_name = "int";
+        } else if (kw == "byte") {
+            res.width = 8; res.is_signed = true; res.type_name = "byte";
+        } else if (kw == "shortint") {
+            res.width = 16; res.is_signed = true; res.type_name = "shortint";
+        } else if (kw == "longint") {
+            res.width = 64; res.is_signed = true; res.type_name = "longint";
+        } else if (kw == "time") {
+            res.width = 64; res.is_signed = false; res.type_name = "time";
+        } else if (kw == "string" || kw == "real" || kw == "chandle") {
+            res.width = 64; res.type_name = kw;
+        } else {
+            // logic, bit, reg
+            res.width = 1;
+            res.type_name = kw;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in dimension");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                int64_t m = 0, l = 0;
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) m = nm->aval;
+                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) l = nl->aval;
+                res.width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                res.msb = std::move(msb_e);
+                res.lsb = std::move(lsb_e);
+            }
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing type()");
+        return res;
+    }
+
+    // 2. An expression or identifier
+    std::string ident = current.text;
+    std::string full_name = ident;
+    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        advance();
+        if (match(TokenType::TOKEN_COLON_COLON)) {
+            std::string sub = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+            full_name = ident + "::" + sub;
+        }
+    } else {
+        auto expr = parse_expression();
+        if (auto id = dynamic_cast<IdentifierNode*>(expr.get())) {
+            full_name = id->name;
+        }
+    }
+
+    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing type()");
+
+    // Now resolve full_name:
+    if (auto en = get_enum_typedef(full_name)) {
+        res.width = en->base_width;
+        res.is_signed = en->is_signed;
+        res.type_name = full_name;
+        return res;
+    }
+    if (auto st = get_struct_typedef(full_name)) {
+        res.width = st->total_width;
+        res.is_signed = st->is_signed;
+        res.type_name = full_name;
+        return res;
+    }
+    if (is_class(full_name)) {
+        res.width = 64;
+        res.is_class_handle = true;
+        res.class_type_name = full_name;
+        res.type_name = full_name;
+        return res;
+    }
+
+    // Check local variables
+    if (auto loc = lookup_local_decl_var(full_name)) {
+        res.width = loc->width;
+        res.is_signed = loc->is_signed;
+        res.type_name = loc->type_name;
+        if (loc->msb) res.msb = loc->msb->clone();
+        if (loc->lsb) res.lsb = loc->lsb->clone();
+        return res;
+    }
+
+    // Check current module ports & signals
+    if (current_parsing_module) {
+        for (const auto& p : current_parsing_module->ports) {
+            if (p.name == full_name) {
+                res.is_signed = p.is_signed;
+                res.type_name = p.type_name;
+                res.is_class_handle = p.is_class_handle;
+                res.class_type_name = p.class_type_name;
+                res.is_covergroup_handle = p.is_covergroup_handle;
+                res.covergroup_type_name = p.covergroup_type_name;
+                res.is_virtual_interface = p.is_virtual_interface;
+                res.interface_name = p.interface_name;
+                res.modport_name = p.modport_name;
+                if (p.msb_expr) {
+                    res.msb = p.msb_expr->clone();
+                    if (p.lsb_expr) res.lsb = p.lsb_expr->clone();
+                    int64_t m = 0, l = 0;
+                    if (auto nm = dynamic_cast<NumberNode*>(p.msb_expr.get())) m = nm->aval;
+                    if (auto nl = dynamic_cast<NumberNode*>(p.lsb_expr.get())) l = nl->aval;
+                    res.width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                } else {
+                    res.width = 1;
+                }
+                return res;
+            }
+        }
+        for (const auto& s : current_parsing_module->signals) {
+            if (s.name == full_name) {
+                res.is_signed = s.is_signed;
+                res.type_name = s.type_name;
+                res.is_class_handle = s.is_class_handle;
+                res.class_type_name = s.class_type_name;
+                res.is_covergroup_handle = s.is_covergroup_handle;
+                res.covergroup_type_name = s.covergroup_type_name;
+                res.is_virtual_interface = s.is_virtual_interface;
+                res.interface_name = s.interface_name;
+                res.modport_name = s.modport_name;
+                if (s.msb_expr) {
+                    res.msb = s.msb_expr->clone();
+                    if (s.lsb_expr) res.lsb = s.lsb_expr->clone();
+                    int64_t m = 0, l = 0;
+                    if (auto nm = dynamic_cast<NumberNode*>(s.msb_expr.get())) m = nm->aval;
+                    if (auto nl = dynamic_cast<NumberNode*>(s.lsb_expr.get())) l = nl->aval;
+                    res.width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                } else {
+                    res.width = 1;
+                }
+                return res;
+            }
+        }
+    }
+
+    throw std::runtime_error("[CAS-DTINPCIL] Argument of type() cannot be statically resolved per IEEE 1800-2023 section 6.23: '" + full_name + "'");
+}
+
+std::string Parser::resolve_type_from_type_op(const TypeOpNode* ton) const {
+    if (!ton) return "";
+    if (!ton->type_name_arg.empty()) {
+        auto en = get_enum_typedef(ton->type_name_arg);
+        if (en) return "enum " + ton->type_name_arg;
+        auto st = get_struct_typedef(ton->type_name_arg);
+        if (st) return "struct " + ton->type_name_arg;
+        return ton->type_name_arg;
+    }
+    if (!ton->target_expr) return "";
+
+    if (auto id = dynamic_cast<IdentifierNode*>(ton->target_expr.get())) {
+        std::string name = id->name;
+        if (name == "int" || name == "byte" || name == "shortint" || name == "longint" ||
+            name == "integer" || name == "time" || name == "string" || name == "real" ||
+            name == "shortreal" || name == "realtime" || name == "chandle" || name == "void") return name;
+        if (name == "logic" || name == "bit" || name == "reg") return name;
+
+        if (auto loc = lookup_local_decl_var(name)) {
+            if (!loc->type_name.empty() && loc->type_name != "logic" && loc->type_name != "bit" && loc->type_name != "reg") {
+                auto en = get_enum_typedef(loc->type_name);
+                if (en) return "enum " + loc->type_name;
+                auto st = get_struct_typedef(loc->type_name);
+                if (st) return "struct " + loc->type_name;
+                return loc->type_name;
+            }
+            if (loc->msb) {
+                int64_t m = 0, l = 0;
+                if (auto nm = dynamic_cast<NumberNode*>(loc->msb.get())) m = nm->aval;
+                if (loc->lsb) {
+                    if (auto nl = dynamic_cast<NumberNode*>(loc->lsb.get())) l = nl->aval;
+                }
+                std::string base = (loc->type_name == "bit") ? "bit" : "logic";
+                return base + "[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+            }
+            if (loc->width > 1) {
+                std::string base = (loc->type_name == "bit") ? "bit" : "logic";
+                return base + "[" + std::to_string(loc->width - 1) + ":0]";
+            }
+            return (loc->type_name == "bit") ? "bit" : "logic";
+        }
+
+        if (current_parsing_module) {
+            for (const auto& p : current_parsing_module->ports) {
+                if (p.name == name) {
+                    if (!p.type_name.empty()) {
+                        auto en = get_enum_typedef(p.type_name);
+                        if (en) return "enum " + p.type_name;
+                        auto st = get_struct_typedef(p.type_name);
+                        if (st) return "struct " + p.type_name;
+                        return p.type_name;
+                    }
+                    if (p.msb_expr) {
+                        int64_t m = 0, l = 0;
+                        if (auto nm = dynamic_cast<NumberNode*>(p.msb_expr.get())) m = nm->aval;
+                        if (p.lsb_expr) {
+                            if (auto nl = dynamic_cast<NumberNode*>(p.lsb_expr.get())) l = nl->aval;
+                        }
+                        return "logic[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+                    }
+                    return "logic";
+                }
+            }
+            for (const auto& s : current_parsing_module->signals) {
+                if (s.name == name) {
+                    if (!s.type_name.empty()) {
+                        auto en = get_enum_typedef(s.type_name);
+                        if (en) return "enum " + s.type_name;
+                        auto st = get_struct_typedef(s.type_name);
+                        if (st) return "struct " + s.type_name;
+                        return s.type_name;
+                    }
+                    if (s.msb_expr) {
+                        int64_t m = 0, l = 0;
+                        if (auto nm = dynamic_cast<NumberNode*>(s.msb_expr.get())) m = nm->aval;
+                        if (s.lsb_expr) {
+                            if (auto nl = dynamic_cast<NumberNode*>(s.lsb_expr.get())) l = nl->aval;
+                        }
+                        return "logic[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+                    }
+                    return "logic";
+                }
+            }
+        }
+
+        auto en = get_enum_typedef(name);
+        if (en) return "enum " + name;
+        auto st = get_struct_typedef(name);
+        if (st) return "struct " + name;
+    }
+
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(ton->target_expr.get())) {
+        std::string full = sma->class_type_name + "::" + sma->member_name;
+        auto en = get_enum_typedef(full);
+        if (en) return "enum " + full;
+        auto st = get_struct_typedef(full);
+        if (st) return "struct " + full;
+        return full;
+    }
+
+    return "";
 }
 

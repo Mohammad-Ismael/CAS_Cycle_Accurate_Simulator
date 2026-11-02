@@ -88,12 +88,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // 0. Handle 'begin ... end' block statements
     if (match(TokenType::TOKEN_BEGIN)) {
+        enter_scope();
         std::vector<std::unique_ptr<StatementNode>> stmts;
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
             stmts.push_back(parse_statement());
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
         match(TokenType::TOKEN_SEMICOLON);
+        exit_scope();
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
@@ -283,7 +285,83 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             vstmt->arr_end_idx = uarr_info->end_idx;
         }
         vstmt->init_expr = std::move(init_expr);
+        register_local_decl_var(vname, width, is_signed_var, type_name);
         return vstmt;
+    }
+
+    if (current.type == TokenType::TOKEN_TYPE) {
+        TypeInferenceResult inf = parse_type_spec_from_type_op();
+        std::vector<std::unique_ptr<StatementNode>> vstmts;
+        while (true) {
+            std::string vname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+            bool is_q = false;
+            bool is_dyn = false;
+            bool is_assoc = false;
+            std::string assoc_key_type = "";
+            uint32_t assoc_key_width = 32;
+            std::vector<AstDimension> unpacked_dims;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    is_q = true;
+                    if (match(TokenType::TOKEN_COLON)) parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    break;
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    is_dyn = true;
+                    break;
+                } else if (is_assoc_key_token(current)) {
+                    is_assoc = true;
+                    parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                    break;
+                } else {
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    unpacked_dims.push_back(std::move(ad));
+                }
+            }
+            std::unique_ptr<ExpressionNode> init_expr = nullptr;
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                init_expr = parse_expression();
+            }
+            auto vnode = std::make_unique<VarDeclStatementNode>(vname, inf.width, inf.is_signed, inf.type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            vnode->is_class_handle = inf.is_class_handle;
+            vnode->class_type_name = inf.class_type_name;
+            vnode->is_covergroup_handle = inf.is_covergroup_handle;
+            vnode->covergroup_type_name = inf.covergroup_type_name;
+            vnode->is_virtual_interface = inf.is_virtual_interface;
+            vnode->interface_name = inf.interface_name;
+            vnode->modport_name = inf.modport_name;
+            if (inf.msb && inf.lsb) {
+                AstDimension ad;
+                ad.left_expr = inf.msb->clone();
+                ad.right_expr = inf.lsb->clone();
+                ad.is_single = false;
+                vnode->packed_dimensions.push_back(std::move(ad));
+            }
+            vnode->unpacked_dimensions = std::move(unpacked_dims);
+            vnode->init_expr = std::move(init_expr);
+
+            register_local_decl_var(vname, inf.width, inf.is_signed, inf.type_name, inf.msb ? inf.msb->clone() : nullptr, inf.lsb ? inf.lsb->clone() : nullptr);
+
+            vstmts.push_back(std::move(vnode));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        if (vstmts.size() == 1) return std::move(vstmts[0]);
+        return std::make_unique<BlockStatementNode>(std::move(vstmts));
     }
 
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -431,6 +509,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             vnode->is_semaphore = is_semaphore_stmt;
             vnode->is_mailbox = is_mailbox_stmt;
             vnode->init_expr = std::move(init_expr);
+            std::unique_ptr<ExpressionNode> d_msb = packed_dims.empty() ? nullptr : packed_dims[0].left_expr->clone();
+            std::unique_ptr<ExpressionNode> d_lsb = packed_dims.empty() ? nullptr : packed_dims[0].right_expr->clone();
+            register_local_decl_var(vname, width, is_signed_var, tname, std::move(d_msb), std::move(d_lsb));
             vstmts.push_back(std::move(vnode));
             if (match(TokenType::TOKEN_COMMA)) continue;
             break;
@@ -1274,6 +1355,7 @@ std::unique_ptr<StatementNode> Parser::parse_case_statement(DecisionModifier mod
 std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
     std::vector<std::unique_ptr<StatementNode>> stmts;
     if (match(TokenType::TOKEN_BEGIN)) {
+        enter_scope();
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
             auto s = parse_statement();
             if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
@@ -1286,6 +1368,7 @@ std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
         match(TokenType::TOKEN_SEMICOLON);
+        exit_scope();
     } else {
         auto s = parse_statement();
         if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {

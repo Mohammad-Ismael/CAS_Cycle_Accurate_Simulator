@@ -15,6 +15,30 @@ struct ParsedCallArgs {
     std::vector<std::string> arg_names;
 };
 
+struct DeclaredVarInfo {
+    std::string name;
+    uint32_t width = 1;
+    bool is_signed = false;
+    std::string type_name = "";
+    std::unique_ptr<ExpressionNode> msb = nullptr;
+    std::unique_ptr<ExpressionNode> lsb = nullptr;
+};
+
+struct TypeInferenceResult {
+    uint32_t width = 1;
+    bool is_signed = false;
+    std::string type_name = "";
+    std::unique_ptr<ExpressionNode> msb = nullptr;
+    std::unique_ptr<ExpressionNode> lsb = nullptr;
+    bool is_class_handle = false;
+    std::string class_type_name = "";
+    bool is_covergroup_handle = false;
+    std::string covergroup_type_name = "";
+    bool is_virtual_interface = false;
+    std::string interface_name = "";
+    std::string modport_name = "";
+};
+
 class Parser {
 private:
     Lexer& lexer;
@@ -422,6 +446,36 @@ public:
     static std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> global_let_decls;
     std::shared_ptr<PackageNode> current_parsing_package = nullptr;
     std::unordered_set<std::string> active_let_expansions;
+
+    std::vector<std::unordered_map<std::string, DeclaredVarInfo>> local_var_scopes;
+
+    void enter_scope() {
+        local_var_scopes.emplace_back();
+    }
+    void exit_scope() {
+        if (!local_var_scopes.empty()) local_var_scopes.pop_back();
+    }
+    void register_local_decl_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type_name, std::unique_ptr<ExpressionNode> msb = nullptr, std::unique_ptr<ExpressionNode> lsb = nullptr) {
+        if (local_var_scopes.empty()) local_var_scopes.emplace_back();
+        DeclaredVarInfo info;
+        info.name = name;
+        info.width = width;
+        info.is_signed = is_signed;
+        info.type_name = type_name;
+        info.msb = std::move(msb);
+        info.lsb = std::move(lsb);
+        local_var_scopes.back()[name] = std::move(info);
+    }
+    const DeclaredVarInfo* lookup_local_decl_var(const std::string& name) const {
+        for (auto it = local_var_scopes.rbegin(); it != local_var_scopes.rend(); ++it) {
+            auto fit = it->find(name);
+            if (fit != it->end()) return &(fit->second);
+        }
+        return nullptr;
+    }
+
+    TypeInferenceResult parse_type_spec_from_type_op();
+    std::string resolve_type_from_type_op(const TypeOpNode* ton) const;
 
     explicit Parser(Lexer& lex);
 

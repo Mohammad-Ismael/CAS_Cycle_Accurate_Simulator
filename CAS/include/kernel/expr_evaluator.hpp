@@ -58,7 +58,9 @@ public:
     bool eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out);
 
     LogicVal eval_streaming_concat(StreamingConcatNode* sc, const std::string& scope);
+    std::string resolve_canonical_type(ExpressionNode* target_expr, const std::string& explicit_type_str, const std::string& scope, const std::string& context_name);
     LogicVal eval_typename(TypeNameNode* tn, const std::string& scope);
+    LogicVal eval_typeop(TypeOpNode* ton, const std::string& scope);
     bool get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits);
 
     bool get_array_elements(const std::string& var_name, const std::string& scope, std::vector<LogicVal>& out_elements, uint32_t& out_elem_width, bool& out_is_signed);

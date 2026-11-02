@@ -1,6 +1,7 @@
 #include "../../include/kernel/elaborator.hpp"
 #include "../../include/tracer/vcd_dumper.hpp"
 #include "../../include/frontend/parser.hpp"
+#include "../../include/kernel/expr_evaluator.hpp"
 #include <stdexcept>
 #include <unordered_set>
 #include <queue>
@@ -81,6 +82,22 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         return res;
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        TypeOpNode* l_top = dynamic_cast<TypeOpNode*>(bin->lhs.get());
+        TypeOpNode* r_top = dynamic_cast<TypeOpNode*>(bin->rhs.get());
+        if (l_top || r_top) {
+            if (!l_top || !r_top) {
+                throw std::runtime_error("[CAS-DTINPCIL] Both operands of type comparison must be type() references per IEEE 1800-2023 section 6.23");
+            }
+            if (bin->op != "==" && bin->op != "!=" && bin->op != "===" && bin->op != "!==") {
+                throw std::runtime_error("[CAS-DTINPCIL] Relational operator '" + bin->op + "' is invalid between type() references per IEEE 1800-2023 section 6.23");
+            }
+            std::string l_type = resolve_type_in_elaboration(l_top, scope);
+            std::string r_type = resolve_type_in_elaboration(r_top, scope);
+            bool eq = (l_type == r_type);
+            if (bin->op == "==" || bin->op == "===") return eq ? 1 : 0;
+            return eq ? 0 : 1;
+        }
+
         uint64_t l = eval_const_expr(bin->lhs.get(), scope);
         uint64_t r = eval_const_expr(bin->rhs.get(), scope);
         if (bin->op == "+") return l + r;
@@ -159,6 +176,103 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
     return 0;
 }
 
+std::string Elaborator::resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope) {
+    if (!ton) return "";
+    if (!ton->type_name_arg.empty()) return ton->type_name_arg;
+    if (!ton->target_expr) return "";
+
+    auto format_udt = [&](const std::string& type_name) -> std::string {
+        if (type_name.empty()) return "";
+        std::string unqualified = type_name;
+        std::string explicit_pkg = "";
+        auto cpos = type_name.rfind("::");
+        if (cpos != std::string::npos) {
+            explicit_pkg = type_name.substr(0, cpos);
+            unqualified = type_name.substr(cpos + 2);
+        }
+        for (const auto& kv : Parser::global_packages) {
+            const auto& pkg = kv.second;
+            if (!explicit_pkg.empty() && pkg->name != explicit_pkg) continue;
+            if (pkg->enum_typedefs.count(unqualified)) return "enum " + pkg->name + "::" + unqualified;
+            if (pkg->struct_typedefs.count(unqualified)) return "struct " + pkg->name + "::" + unqualified;
+            if (pkg->class_map.count(unqualified)) return "class " + pkg->name + "::" + unqualified;
+        }
+        if (result.enum_types.count(type_name) || result.enum_types.count(unqualified)) {
+            return "enum " + (explicit_pkg.empty() ? unqualified : type_name);
+        }
+        if (result.struct_types.count(type_name) || result.struct_types.count(unqualified)) {
+            return "struct " + (explicit_pkg.empty() ? unqualified : type_name);
+        }
+        return "";
+    };
+
+    if (auto id = dynamic_cast<IdentifierNode*>(ton->target_expr.get())) {
+        const std::string& name = id->name;
+        std::string udt_res = format_udt(name);
+        if (!udt_res.empty()) return udt_res;
+
+        if (name == "int" || name == "byte" || name == "shortint" || name == "longint" ||
+            name == "integer" || name == "time" || name == "string" || name == "real" ||
+            name == "shortreal" || name == "realtime" || name == "chandle" || name == "void") return name;
+        if (name == "logic" || name == "bit" || name == "reg") return name;
+
+        std::string scoped_net = scope.empty() ? name : (scope + "." + name);
+        size_t nid = (size_t)-1;
+        if (result.net_map.count(scoped_net)) nid = result.net_map.at(scoped_net);
+        else if (result.net_map.count(name)) nid = result.net_map.at(name);
+
+        if (nid != (size_t)-1) {
+            const Net& net = result.netlist[nid];
+            if (result.var_to_enum_type.count(scoped_net)) {
+                std::string fres = format_udt(result.var_to_enum_type.at(scoped_net));
+                if (!fres.empty()) return fres;
+            } else if (result.var_to_enum_type.count(name)) {
+                std::string fres = format_udt(result.var_to_enum_type.at(name));
+                if (!fres.empty()) return fres;
+            }
+            if (result.var_to_struct_type.count(scoped_net)) {
+                std::string fres = format_udt(result.var_to_struct_type.at(scoped_net));
+                if (!fres.empty()) return fres;
+            } else if (result.var_to_struct_type.count(name)) {
+                std::string fres = format_udt(result.var_to_struct_type.at(name));
+                if (!fres.empty()) return fres;
+            }
+            if (!net.type_name.empty()) {
+                std::string fres = format_udt(net.type_name);
+                if (!fres.empty()) return fres;
+                if (net.type_name == "int" || net.type_name == "byte" || net.type_name == "string" || net.type_name == "real") return net.type_name;
+            }
+            if (result.var_dimensions.count(scoped_net)) {
+                auto& vdm = result.var_dimensions.at(scoped_net);
+                if (!vdm.dimensions.empty()) {
+                    auto& d = vdm.dimensions[0];
+                    std::string base = (net.type_name == "bit") ? "bit" : "logic";
+                    return base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]";
+                }
+            } else if (result.var_dimensions.count(name)) {
+                auto& vdm = result.var_dimensions.at(name);
+                if (!vdm.dimensions.empty()) {
+                    auto& d = vdm.dimensions[0];
+                    std::string base = (net.type_name == "bit") ? "bit" : "logic";
+                    return base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]";
+                }
+            }
+            if (net.type_name == "bit") return (net.width > 1) ? ("bit[" + std::to_string(net.width - 1) + ":0]") : "bit";
+            if (net.width > 1) return "logic[" + std::to_string(net.width - 1) + ":0]";
+            return "logic";
+        }
+    }
+
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(ton->target_expr.get())) {
+        std::string full = sma->class_type_name + "::" + sma->member_name;
+        std::string res = format_udt(full);
+        if (!res.empty()) return res;
+        return full;
+    }
+
+    return "";
+}
+
 NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
@@ -225,6 +339,9 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         return num->clone();
+    }
+    if (auto ton = dynamic_cast<TypeOpNode*>(expr)) {
+        return ton->clone();
     }
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
         return std::make_unique<BinaryOpNode>(bin->op,

@@ -637,6 +637,7 @@ Token Lexer::next_token() {
         if (ident == "priority") return {TokenType::TOKEN_PRIORITY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "let") return {TokenType::TOKEN_LET, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "untyped") return {TokenType::TOKEN_UNTYPED, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "type") return {TokenType::TOKEN_TYPE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

@@ -272,6 +272,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return eval_typename(tnn, scope);
     }
 
+    if (auto ton = dynamic_cast<TypeOpNode*>(expr)) {
+        return eval_typeop(ton, scope);
+    }
+
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
         if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
@@ -2922,6 +2926,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        TypeOpNode* l_top = dynamic_cast<TypeOpNode*>(bin->lhs.get());
+        TypeOpNode* r_top = dynamic_cast<TypeOpNode*>(bin->rhs.get());
+        if (l_top || r_top) {
+            if (!l_top || !r_top) {
+                throw std::runtime_error("[CAS-DTINPCIL] Both operands of type comparison must be type() references per IEEE 1800-2023 section 6.23");
+            }
+            if (bin->op != "==" && bin->op != "!=" && bin->op != "===" && bin->op != "!==") {
+                throw std::runtime_error("[CAS-DTINPCIL] Relational operator '" + bin->op + "' is invalid between type() references per IEEE 1800-2023 section 6.23");
+            }
+            std::string l_type = resolve_canonical_type(l_top->target_expr.get(), l_top->type_name_arg, scope, "type()");
+            std::string r_type = resolve_canonical_type(r_top->target_expr.get(), r_top->type_name_arg, scope, "type()");
+            bool eq = (l_type == r_type);
+            if (bin->op == "==" || bin->op == "===") {
+                return LogicVal::make_known(1, eq ? 1 : 0);
+            } else {
+                return LogicVal::make_known(1, eq ? 0 : 1);
+            }
+        }
+
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
 
@@ -3852,18 +3875,20 @@ LogicVal ExprEvaluator::eval_streaming_concat(StreamingConcatNode* sc, const std
     }
 }
 
-LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope) {
-    if (!tn) {
-        throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
-    }
+std::string ExprEvaluator::resolve_canonical_type(ExpressionNode* target_expr, const std::string& explicit_type_str, const std::string& scope, const std::string& context_name) {
+    std::string sec_ref = (context_name == "type()") ? "6.23" : "20.6";
 
     // 1. If explicit type keyword / dimension was parsed
-    if (!tn->type_name_arg.empty()) {
-        return LogicVal::make_string(tn->type_name_arg);
+    if (!explicit_type_str.empty()) {
+        return explicit_type_str;
     }
 
-    if (!tn->target_expr) {
-        throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
+    if (!target_expr) {
+        if (context_name == "type()") {
+            throw std::runtime_error("[CAS-DTINPCIL] type() requires an argument per IEEE 1800-2023 section 6.23");
+        } else {
+            throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
+        }
     }
 
     auto format_udt = [&](const std::string& type_name) -> std::string {
@@ -3924,15 +3949,15 @@ LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope
     };
 
     // If target is StaticMemberAccessNode (e.g. v3_48_0_0_pkg::state_e)
-    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(tn->target_expr.get())) {
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(target_expr)) {
         std::string full = sma->class_type_name + "::" + sma->member_name;
         std::string res = format_udt(full);
-        if (!res.empty()) return LogicVal::make_string(res);
-        throw std::runtime_error("[CAS-DTINPCIL] Argument of $typename cannot be statically resolved to a known data type or netlist signal per IEEE 1800-2023 section 20.6: '" + full + "'");
+        if (!res.empty()) return res;
+        throw std::runtime_error("[CAS-DTINPCIL] Argument of " + context_name + " cannot be statically resolved to a known data type or netlist signal per IEEE 1800-2023 section " + sec_ref + ": '" + full + "'");
     }
 
     // If target is IndexSelectNode (e.g. arr[0])
-    if (auto idx = dynamic_cast<IndexSelectNode*>(tn->target_expr.get())) {
+    if (auto idx = dynamic_cast<IndexSelectNode*>(target_expr)) {
         std::string arr_name = idx->name;
         LocalVar* loc = nullptr;
         if (context.has_active_frame()) loc = context.lookup_local(arr_name);
@@ -3940,58 +3965,58 @@ LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope
             if (loc->is_unpacked_array) {
                 if (!loc->type_name.empty()) {
                     std::string fres = format_udt(loc->type_name);
-                    if (!fres.empty()) return LogicVal::make_string(fres);
+                    if (!fres.empty()) return fres;
                     if (loc->type_name == "int" || loc->type_name == "byte" || loc->type_name == "string" || loc->type_name == "real") {
-                        return LogicVal::make_string(loc->type_name);
+                        return loc->type_name;
                     }
                 }
-                if (loc->elem_width == 32) return LogicVal::make_string("int");
-                if (loc->elem_width == 8) return LogicVal::make_string("byte");
-                if (loc->elem_width > 1) return LogicVal::make_string("logic[" + std::to_string(loc->elem_width - 1) + ":0]");
-                return LogicVal::make_string("logic");
+                if (loc->elem_width == 32) return "int";
+                if (loc->elem_width == 8) return "byte";
+                if (loc->elem_width > 1) return "logic[" + std::to_string(loc->elem_width - 1) + ":0]";
+                return "logic";
             }
-            return LogicVal::make_string("logic");
+            return "logic";
         }
         std::string scoped_mem = scope.empty() ? arr_name : (scope + "." + arr_name);
         if (engine.memory_map.count(scoped_mem)) {
             const auto& mem = engine.memory_map.at(scoped_mem);
-            if (mem.word_width == 32) return LogicVal::make_string("int");
-            if (mem.word_width == 8) return LogicVal::make_string("byte");
-            if (mem.word_width > 1) return LogicVal::make_string("logic[" + std::to_string(mem.word_width - 1) + ":0]");
-            return LogicVal::make_string("logic");
+            if (mem.word_width == 32) return "int";
+            if (mem.word_width == 8) return "byte";
+            if (mem.word_width > 1) return "logic[" + std::to_string(mem.word_width - 1) + ":0]";
+            return "logic";
         }
-        return LogicVal::make_string("logic");
+        return "logic";
     }
 
     // If target is MemberAccessNode (e.g. pkt.id)
-    if (auto ma = dynamic_cast<MemberAccessNode*>(tn->target_expr.get())) {
+    if (auto ma = dynamic_cast<MemberAccessNode*>(target_expr)) {
         LogicVal val = eval(ma, scope);
-        if (val.is_string) return LogicVal::make_string("string");
-        if (val.is_real) return LogicVal::make_string("real");
-        if (val.width == 32) return LogicVal::make_string("int");
-        if (val.width == 8) return LogicVal::make_string("byte");
-        if (val.width > 1) return LogicVal::make_string("logic[" + std::to_string(val.width - 1) + ":0]");
-        return LogicVal::make_string("logic");
+        if (val.is_string) return "string";
+        if (val.is_real) return "real";
+        if (val.width == 32) return "int";
+        if (val.width == 8) return "byte";
+        if (val.width > 1) return "logic[" + std::to_string(val.width - 1) + ":0]";
+        return "logic";
     }
 
     // If target is IdentifierNode
-    if (auto id = dynamic_cast<IdentifierNode*>(tn->target_expr.get())) {
+    if (auto id = dynamic_cast<IdentifierNode*>(target_expr)) {
         const std::string& name = id->name;
 
         // 1. Check if name is directly a UDT (enum, struct, class)
         std::string udt_res = format_udt(name);
         if (!udt_res.empty()) {
-            return LogicVal::make_string(udt_res);
+            return udt_res;
         }
 
         // 2. Check primitive keyword names
         if (name == "int" || name == "byte" || name == "shortint" || name == "longint" ||
             name == "integer" || name == "time" || name == "string" || name == "real" ||
             name == "shortreal" || name == "realtime" || name == "chandle" || name == "void") {
-            return LogicVal::make_string(name);
+            return name;
         }
         if (name == "logic" || name == "bit" || name == "reg") {
-            return LogicVal::make_string(name);
+            return name;
         }
 
         // 3. Check local variable
@@ -4014,43 +4039,43 @@ LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope
                     if (obj && !obj->class_type_name.empty()) cname = obj->class_type_name;
                 }
                 std::string fres = format_udt(cname);
-                if (!fres.empty()) return LogicVal::make_string(fres);
-                return LogicVal::make_string("class " + cname);
+                if (!fres.empty()) return fres;
+                return "class " + cname;
             }
             if (!local->type_name.empty()) {
                 std::string fres = format_udt(local->type_name);
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
                 if (local->type_name == "int" || local->type_name == "byte" || local->type_name == "string" || local->type_name == "real") {
-                    return LogicVal::make_string(local->type_name);
+                    return local->type_name;
                 }
             }
             if (!local->dimensions.empty()) {
                 auto& d = local->dimensions[0];
-                return LogicVal::make_string("logic[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]");
+                return "logic[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]";
             }
             if (local->width > 1) {
-                return LogicVal::make_string("logic[" + std::to_string(local->width - 1) + ":0]");
+                return "logic[" + std::to_string(local->width - 1) + ":0]";
             }
-            return LogicVal::make_string("logic");
+            return "logic";
         }
 
         // 4. Check class member if in class method context
         if (current_this) {
             if (current_this->has_property(name)) {
                 LogicVal mem = current_this->get_property(name);
-                if (mem.is_string) return LogicVal::make_string("string");
-                if (mem.is_real) return LogicVal::make_string("real");
+                if (mem.is_string) return "string";
+                if (mem.is_real) return "real";
                 if (current_this->class_def) {
                     auto mdef = current_this->class_def->find_member_var(name);
                     if (mdef && !mdef->class_type_name.empty()) {
                         std::string fres = format_udt(mdef->class_type_name);
-                        if (!fres.empty()) return LogicVal::make_string(fres);
-                        return LogicVal::make_string("class " + mdef->class_type_name);
+                        if (!fres.empty()) return fres;
+                        return "class " + mdef->class_type_name;
                     }
                 }
-                if (mem.width == 32) return LogicVal::make_string("int");
-                if (mem.width > 1) return LogicVal::make_string("logic[" + std::to_string(mem.width - 1) + ":0]");
-                return LogicVal::make_string("logic");
+                if (mem.width == 32) return "int";
+                if (mem.width > 1) return "logic[" + std::to_string(mem.width - 1) + ":0]";
+                return "logic";
             }
         }
 
@@ -4065,33 +4090,33 @@ LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope
 
             if (engine.var_to_enum_type.count(scoped_net)) {
                 std::string fres = format_udt(engine.var_to_enum_type.at(scoped_net));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             } else if (engine.var_to_enum_type.count(name)) {
                 std::string fres = format_udt(engine.var_to_enum_type.at(name));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             }
 
             if (engine.var_to_struct_type.count(scoped_net)) {
                 std::string fres = format_udt(engine.var_to_struct_type.at(scoped_net));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             } else if (engine.var_to_struct_type.count(name)) {
                 std::string fres = format_udt(engine.var_to_struct_type.at(name));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             }
 
             if (engine.var_to_class_type.count(scoped_net)) {
                 std::string fres = format_udt(engine.var_to_class_type.at(scoped_net));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             } else if (engine.var_to_class_type.count(name)) {
                 std::string fres = format_udt(engine.var_to_class_type.at(name));
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
             }
 
             if (!net.type_name.empty()) {
                 std::string fres = format_udt(net.type_name);
-                if (!fres.empty()) return LogicVal::make_string(fres);
+                if (!fres.empty()) return fres;
                 if (net.type_name == "int" || net.type_name == "byte" || net.type_name == "string" || net.type_name == "real") {
-                    return LogicVal::make_string(net.type_name);
+                    return net.type_name;
                 }
             }
 
@@ -4100,34 +4125,48 @@ LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope
                 if (!vdm.dimensions.empty()) {
                     auto& d = vdm.dimensions[0];
                     std::string base = (net.type_name == "bit") ? "bit" : "logic";
-                    return LogicVal::make_string(base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]");
+                    return base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]";
                 }
             } else if (engine.var_dimensions.count(name)) {
                 auto& vdm = engine.var_dimensions.at(name);
                 if (!vdm.dimensions.empty()) {
                     auto& d = vdm.dimensions[0];
                     std::string base = (net.type_name == "bit") ? "bit" : "logic";
-                    return LogicVal::make_string(base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]");
+                    return base + "[" + std::to_string(d.left) + ":" + std::to_string(d.right) + "]";
                 }
             }
 
             if (net.type_name == "bit") {
-                return LogicVal::make_string((net.width > 1) ? ("bit[" + std::to_string(net.width - 1) + ":0]") : "bit");
+                return (net.width > 1) ? ("bit[" + std::to_string(net.width - 1) + ":0]") : "bit";
             }
             if (net.width > 1) {
-                return LogicVal::make_string("logic[" + std::to_string(net.width - 1) + ":0]");
+                return "logic[" + std::to_string(net.width - 1) + ":0]";
             }
-            return LogicVal::make_string("logic");
+            return "logic";
         }
 
-        throw std::runtime_error("[CAS-DTINPCIL] Argument of $typename cannot be statically resolved to a known data type or netlist signal per IEEE 1800-2023 section 20.6: '" + name + "'");
+        throw std::runtime_error("[CAS-DTINPCIL] Argument of " + context_name + " cannot be statically resolved to a known data type or netlist signal per IEEE 1800-2023 section " + sec_ref + ": '" + name + "'");
     }
 
     // 6. Evaluate general expression if possible
-    LogicVal val = eval(tn->target_expr.get(), scope);
-    if (val.is_string) return LogicVal::make_string("string");
-    if (val.is_real) return LogicVal::make_string("real");
-    if (val.width == 32) return LogicVal::make_string("int");
-    if (val.width > 1) return LogicVal::make_string("logic[" + std::to_string(val.width - 1) + ":0]");
-    return LogicVal::make_string("logic");
+    LogicVal val = eval(target_expr, scope);
+    if (val.is_string) return "string";
+    if (val.is_real) return "real";
+    if (val.width == 32) return "int";
+    if (val.width > 1) return "logic[" + std::to_string(val.width - 1) + ":0]";
+    return "logic";
+}
+
+LogicVal ExprEvaluator::eval_typename(TypeNameNode* tn, const std::string& scope) {
+    if (!tn) {
+        throw std::runtime_error("[CAS-DTINPCIL] $typename requires exactly one argument per IEEE 1800-2023 section 20.6");
+    }
+    return LogicVal::make_string(resolve_canonical_type(tn->target_expr.get(), tn->type_name_arg, scope, "$typename"));
+}
+
+LogicVal ExprEvaluator::eval_typeop(TypeOpNode* ton, const std::string& scope) {
+    if (!ton) {
+        throw std::runtime_error("[CAS-DTINPCIL] type() requires an argument per IEEE 1800-2023 section 6.23");
+    }
+    return LogicVal::make_string(resolve_canonical_type(ton->target_expr.get(), ton->type_name_arg, scope, "type()"));
 }
