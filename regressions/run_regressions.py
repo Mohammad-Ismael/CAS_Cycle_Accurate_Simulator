@@ -83,7 +83,12 @@ suites = [
     ("v3.57.0.0", "v3_57_0_0_string_format", ["design.sv", "testbench.sv"])
 ]
 
-cas_bin = os.path.abspath("CAS/build/cas")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(script_dir, ".."))
+
+cas_bin = os.path.join(repo_root, "CAS", "build", "cas")
+if not os.path.exists(cas_bin) and os.path.exists(cas_bin + ".exe"):
+    cas_bin = cas_bin + ".exe"
 
 results = []
 all_passed = True
@@ -92,7 +97,7 @@ print(f"{'Milestone':<12} | {'Suite Directory':<35} | {'Status':<8} | {'Details'
 print("-" * 80)
 
 for ver, s_dir, files in suites:
-    dir_path = os.path.join("projects", s_dir)
+    dir_path = os.path.join(repo_root, "projects", s_dir)
     c_source = os.path.join(dir_path, "c_model.c")
     if os.path.exists(c_source):
         subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
