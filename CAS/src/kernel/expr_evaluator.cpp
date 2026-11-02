@@ -2563,6 +2563,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (local) {
                 LogicVal res = local->value;
                 res.is_signed = local->is_signed;
+                if (local->is_unpacked_array) {
+                    res.is_unpacked = true;
+                    res.unpacked_elements = local->unpacked_elements;
+                } else if (local->is_dynamic_array) {
+                    res.is_unpacked = true;
+                    res.unpacked_elements = local->dyn_array_data.elements;
+                } else if (local->is_queue) {
+                    res.is_unpacked = true;
+                    res.unpacked_elements.assign(local->queue_data.elements.begin(), local->queue_data.elements.end());
+                }
                 return res;
             }
         }
@@ -2574,6 +2584,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (local) {
                     LogicVal res = local->value;
                     res.is_signed = local->is_signed;
+                    if (local->is_unpacked_array) {
+                        res.is_unpacked = true;
+                        res.unpacked_elements = local->unpacked_elements;
+                    } else if (local->is_dynamic_array) {
+                        res.is_unpacked = true;
+                        res.unpacked_elements = local->dyn_array_data.elements;
+                    } else if (local->is_queue) {
+                        res.is_unpacked = true;
+                        res.unpacked_elements.assign(local->queue_data.elements.begin(), local->queue_data.elements.end());
+                    }
                     return res;
                 }
             }
@@ -2641,6 +2661,33 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             MemberAccessNode man(base_var, mem_name);
             return eval(&man, scope);
         }
+        DynamicArrayObject* da = engine.get_dynamic_array(ident->name, scope);
+        if (da) {
+            LogicVal res = LogicVal::make_known(32, (uint64_t)da->elements.size());
+            res.is_unpacked = true;
+            res.unpacked_elements = da->elements;
+            return res;
+        }
+        QueueObject* q = engine.get_queue(ident->name, scope);
+        if (q) {
+            LogicVal res = LogicVal::make_known(32, (uint64_t)q->elements.size());
+            res.is_unpacked = true;
+            res.unpacked_elements.assign(q->elements.begin(), q->elements.end());
+            return res;
+        }
+        std::string mem_key = "";
+        if (engine.memory_map.find(scoped_ident) != engine.memory_map.end()) mem_key = scoped_ident;
+        else if (engine.memory_map.find(ident->name) != engine.memory_map.end()) mem_key = ident->name;
+        if (!mem_key.empty()) {
+            auto& mem = engine.memory_map.at(mem_key);
+            LogicVal res = LogicVal::make_known(32, (uint64_t)mem.depth);
+            res.is_unpacked = true;
+            res.unpacked_elements.reserve(mem.depth);
+            for (size_t i = 0; i < mem.depth; ++i) {
+                res.unpacked_elements.push_back(mem.get_word(i));
+            }
+            return res;
+        }
         return LogicVal::make_x(1);
     }
 
@@ -2658,6 +2705,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             new_b = (new_b << t_val.width) | t_val.bval;
         }
         return LogicVal(total_w, new_a, new_b);
+    }
+
+    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        auto arr_elems = eval_array_expr(ucat, scope);
+        LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
+        res.is_unpacked = true;
+        res.unpacked_elements = std::move(arr_elems);
+        return res;
     }
 
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
@@ -2686,6 +2741,21 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal::make_string(res_str);
         }
 
+        bool any_unpacked = false;
+        for (const auto& v : vals) {
+            if (v.is_unpacked) {
+                any_unpacked = true;
+                break;
+            }
+        }
+        if (any_unpacked) {
+            auto arr_elems = eval_array_expr(cat, scope);
+            LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
+            res.is_unpacked = true;
+            res.unpacked_elements = std::move(arr_elems);
+            return res;
+        }
+
         uint64_t new_a = 0;
         uint64_t new_b = 0;
         int shift = (int)total_w;
@@ -2699,6 +2769,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         return LogicVal(total_w, new_a, new_b);
+    }
+
+    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        auto arr_elems = eval_array_expr(ucat, scope);
+        LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
+        res.is_unpacked = true;
+        res.unpacked_elements = std::move(arr_elems);
+        return res;
     }
 
     if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
@@ -3456,6 +3534,12 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
                 out_is_signed = loc->queue_data.is_signed;
                 return true;
             }
+            if (loc->is_unpacked_array) {
+                out_elements = loc->unpacked_elements;
+                out_elem_width = loc->elem_width;
+                out_is_signed = loc->is_signed;
+                return true;
+            }
         }
     }
 
@@ -3474,6 +3558,12 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
                     out_elements.assign(loc->queue_data.elements.begin(), loc->queue_data.elements.end());
                     out_elem_width = loc->queue_data.elem_width;
                     out_is_signed = loc->queue_data.is_signed;
+                    return true;
+                }
+                if (loc->is_unpacked_array) {
+                    out_elements = loc->unpacked_elements;
+                    out_elem_width = loc->elem_width;
+                    out_is_signed = loc->is_signed;
                     return true;
                 }
             }
@@ -3673,6 +3763,104 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
 
 std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return {};
+
+    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        std::vector<LogicVal> res;
+        for (auto& elem : ucat->elements) {
+            if (auto sub_ucat = dynamic_cast<UnpackedConcatNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_ucat, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto sub_cat = dynamic_cast<ConcatNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_cat, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto sub_rep = dynamic_cast<ReplicateNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_rep, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto id = dynamic_cast<IdentifierNode*>(elem.get())) {
+                std::vector<LogicVal> id_elems;
+                uint32_t ew = 32;
+                bool sgn = false;
+                if (get_array_elements(id->name, scope, id_elems, ew, sgn)) {
+                    res.insert(res.end(), id_elems.begin(), id_elems.end());
+                } else {
+                    res.push_back(eval(elem.get(), scope));
+                }
+            } else {
+                LogicVal v = eval(elem.get(), scope);
+                if (v.is_unpacked) {
+                    res.insert(res.end(), v.unpacked_elements.begin(), v.unpacked_elements.end());
+                } else {
+                    res.push_back(v);
+                }
+            }
+        }
+        return res;
+    }
+
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        std::vector<LogicVal> res;
+        for (auto& elem : cat->elements) {
+            if (auto sub_ucat = dynamic_cast<UnpackedConcatNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_ucat, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto sub_cat = dynamic_cast<ConcatNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_cat, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto sub_rep = dynamic_cast<ReplicateNode*>(elem.get())) {
+                auto sub = eval_array_expr(sub_rep, scope);
+                res.insert(res.end(), sub.begin(), sub.end());
+            } else if (auto id = dynamic_cast<IdentifierNode*>(elem.get())) {
+                std::vector<LogicVal> id_elems;
+                uint32_t ew = 32;
+                bool sgn = false;
+                if (get_array_elements(id->name, scope, id_elems, ew, sgn)) {
+                    res.insert(res.end(), id_elems.begin(), id_elems.end());
+                } else {
+                    res.push_back(eval(elem.get(), scope));
+                }
+            } else {
+                LogicVal v = eval(elem.get(), scope);
+                if (v.is_unpacked) {
+                    res.insert(res.end(), v.unpacked_elements.begin(), v.unpacked_elements.end());
+                } else {
+                    res.push_back(v);
+                }
+            }
+        }
+        return res;
+    }
+
+    if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
+        LogicVal count_val = eval(rep->count_expr.get(), scope);
+        int64_t count = count_val.is_unknown() ? 0 : (int64_t)count_val.aval;
+        std::vector<LogicVal> inner_elems;
+        if (auto ucat = dynamic_cast<UnpackedConcatNode*>(rep->target_expr.get())) {
+            inner_elems = eval_array_expr(ucat, scope);
+        } else if (auto cat = dynamic_cast<ConcatNode*>(rep->target_expr.get())) {
+            inner_elems = eval_array_expr(cat, scope);
+        } else if (auto id = dynamic_cast<IdentifierNode*>(rep->target_expr.get())) {
+            uint32_t ew = 32;
+            bool sgn = false;
+            if (!get_array_elements(id->name, scope, inner_elems, ew, sgn)) {
+                inner_elems.push_back(eval(id, scope));
+            }
+        } else {
+            LogicVal v = eval(rep->target_expr.get(), scope);
+            if (v.is_unpacked) {
+                inner_elems = v.unpacked_elements;
+            } else {
+                inner_elems.push_back(v);
+            }
+        }
+        std::vector<LogicVal> res;
+        if (count > 0) {
+            res.reserve(inner_elems.size() * (size_t)count);
+            for (int64_t i = 0; i < count; ++i) {
+                res.insert(res.end(), inner_elems.begin(), inner_elems.end());
+            }
+        }
+        return res;
+    }
 
     if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
         std::vector<LogicVal> elements;

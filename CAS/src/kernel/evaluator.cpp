@@ -387,6 +387,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         lv->dimensions.push_back(info);
                     }
                     lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+                if (!lv->is_unpacked_array && !vdecl->is_dynamic_array && !vdecl->is_queue && !vdecl->is_associative_array) {
+                    lv->is_unpacked_array = true;
+                    lv->elem_width = vdecl->width;
+                    uint32_t tot = 1;
+                    for (const auto& d : lv->dimensions) {
+                        if (d.is_unpacked) tot *= (uint32_t)d.size();
+                    }
+                    lv->array_size = tot;
+                    lv->arr_start_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].left;
+                    lv->arr_end_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].right;
+                    lv->unpacked_elements.assign(tot, LogicVal::make_x(lv->elem_width));
+                }
+                    if (!lv->is_unpacked_array && !vdecl->is_dynamic_array && !vdecl->is_queue && !vdecl->is_associative_array) {
+                        lv->is_unpacked_array = true;
+                        lv->elem_width = vdecl->width;
+                        uint32_t tot = 1;
+                        for (const auto& d : lv->dimensions) {
+                            if (d.is_unpacked) tot *= (uint32_t)d.size();
+                        }
+                        lv->array_size = tot;
+                        lv->arr_start_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].left;
+                        lv->arr_end_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].right;
+                        lv->unpacked_elements.assign(tot, LogicVal::make_x(lv->elem_width));
+                    }
                 }
                 if (!vdecl->packed_dimensions.empty()) {
                     for (const auto& pdim : vdecl->packed_dimensions) {
@@ -439,10 +463,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->value.str_val = "";
                 }
                 if (vdecl->init_expr) {
-                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    if (vdecl->is_unpacked_array) {
-                        if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
-                            lv->unpacked_elements = init_val.unpacked_elements;
+                    if (vdecl->is_dynamic_array) {
+                        auto elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                        for (auto& el : elems) {
+                            el = LogicOps::cast_width(el, lv->dyn_array_data.elem_width, lv->dyn_array_data.is_signed);
+                        }
+                        lv->dyn_array_data.elements = std::move(elems);
+                    } else if (vdecl->is_unpacked_array) {
+                        LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        std::vector<LogicVal> elems;
+                        if (init_val.is_unpacked) {
+                            elems = init_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(vdecl->init_expr.get()) || dynamic_cast<ConcatNode*>(vdecl->init_expr.get())) {
+                            if (elems.size() != lv->unpacked_elements.size()) {
+                                throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                                    std::to_string(elems.size()) + ") does not match target array size (" +
+                                    std::to_string(lv->unpacked_elements.size()) + ") per IEEE 1800-2023 section 10.10");
+                            }
+                            for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                                lv->unpacked_elements[i] = LogicOps::cast_width(elems[i], lv->elem_width, lv->is_signed);
+                            }
                         } else {
                             for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
                                 uint32_t ew = lv->elem_width;
@@ -454,10 +497,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         lv->value = init_val;
-                    } else if (vdecl->type_name == "string" || init_val.is_string) {
-                        lv->value = init_val;
                     } else {
-                        lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                        LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        if (vdecl->type_name == "string" || init_val.is_string) {
+                            lv->value = init_val;
+                        } else {
+                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                        }
                     }
                 }
             }
@@ -487,6 +533,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->dimensions.push_back(info);
                 }
                 lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+                if (!lv->is_unpacked_array && !vdecl->is_dynamic_array && !vdecl->is_queue && !vdecl->is_associative_array) {
+                    lv->is_unpacked_array = true;
+                    lv->elem_width = vdecl->width;
+                    uint32_t tot = 1;
+                    for (const auto& d : lv->dimensions) {
+                        if (d.is_unpacked) tot *= (uint32_t)d.size();
+                    }
+                    lv->array_size = tot;
+                    lv->arr_start_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].left;
+                    lv->arr_end_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].right;
+                    lv->unpacked_elements.assign(tot, LogicVal::make_x(lv->elem_width));
+                }
             }
             if (lv && !vdecl->packed_dimensions.empty()) {
                 for (const auto& pdim : vdecl->packed_dimensions) {
@@ -544,10 +602,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (vdecl->init_expr) {
                 if (lv) {
-                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                    if (vdecl->is_unpacked_array) {
-                        if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
-                            lv->unpacked_elements = init_val.unpacked_elements;
+                    if (vdecl->is_dynamic_array) {
+                        auto elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                        for (auto& el : elems) {
+                            el = LogicOps::cast_width(el, lv->dyn_array_data.elem_width, lv->dyn_array_data.is_signed);
+                        }
+                        lv->dyn_array_data.elements = std::move(elems);
+                    } else if (vdecl->is_unpacked_array) {
+                        LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        std::vector<LogicVal> elems;
+                        if (init_val.is_unpacked) {
+                            elems = init_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(vdecl->init_expr.get()) || dynamic_cast<ConcatNode*>(vdecl->init_expr.get())) {
+                            if (elems.size() != lv->unpacked_elements.size()) {
+                                throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                                    std::to_string(elems.size()) + ") does not match target array size (" +
+                                    std::to_string(lv->unpacked_elements.size()) + ") per IEEE 1800-2023 section 10.10");
+                            }
+                            for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                                lv->unpacked_elements[i] = LogicOps::cast_width(elems[i], lv->elem_width, lv->is_signed);
+                            }
                         } else {
                             for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
                                 uint32_t ew = lv->elem_width;
@@ -559,10 +636,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         lv->value = init_val;
-                    } else if (vdecl->type_name == "string" || init_val.is_string) {
-                        lv->value = init_val;
                     } else {
-                        lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                        LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        if (vdecl->type_name == "string" || init_val.is_string) {
+                            lv->value = init_val;
+                        } else {
+                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                        }
                     }
                 }
             }
@@ -633,6 +713,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->dimensions.push_back(info);
                 }
                 lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+                if (!lv->is_unpacked_array && !vdecl->is_dynamic_array && !vdecl->is_queue && !vdecl->is_associative_array) {
+                    lv->is_unpacked_array = true;
+                    lv->elem_width = vdecl->width;
+                    uint32_t tot = 1;
+                    for (const auto& d : lv->dimensions) {
+                        if (d.is_unpacked) tot *= (uint32_t)d.size();
+                    }
+                    lv->array_size = tot;
+                    lv->arr_start_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].left;
+                    lv->arr_end_idx = lv->dimensions.empty() ? 0 : lv->dimensions[0].right;
+                    lv->unpacked_elements.assign(tot, LogicVal::make_x(lv->elem_width));
+                }
             }
             if (!vdecl->packed_dimensions.empty()) {
                 for (const auto& pdim : vdecl->packed_dimensions) {
@@ -661,10 +753,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (!lv->dimensions.empty()) lv->is_vector_or_array = true;
             if (vdecl->init_expr) {
-                LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
-                if (vdecl->is_unpacked_array) {
-                    if (init_val.is_unpacked && init_val.unpacked_elements.size() == lv->unpacked_elements.size()) {
-                        lv->unpacked_elements = init_val.unpacked_elements;
+                if (vdecl->is_dynamic_array) {
+                    auto elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                    for (auto& el : elems) {
+                        el = LogicOps::cast_width(el, lv->dyn_array_data.elem_width, lv->dyn_array_data.is_signed);
+                    }
+                    lv->dyn_array_data.elements = std::move(elems);
+                } else if (vdecl->is_unpacked_array) {
+                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                    std::vector<LogicVal> elems;
+                    if (init_val.is_unpacked) {
+                        elems = init_val.unpacked_elements;
+                    } else {
+                        elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
+                    }
+                    if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(vdecl->init_expr.get()) || dynamic_cast<ConcatNode*>(vdecl->init_expr.get())) {
+                        if (elems.size() != lv->unpacked_elements.size()) {
+                            throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                                std::to_string(elems.size()) + ") does not match target array size (" +
+                                std::to_string(lv->unpacked_elements.size()) + ") per IEEE 1800-2023 section 10.10");
+                        }
+                        for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
+                            lv->unpacked_elements[i] = LogicOps::cast_width(elems[i], lv->elem_width, lv->is_signed);
+                        }
                     } else {
                         for (size_t i = 0; i < lv->unpacked_elements.size(); ++i) {
                             uint32_t ew = lv->elem_width;
@@ -676,10 +787,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     lv->value = init_val;
-                } else if (vdecl->type_name == "string" || init_val.is_string) {
-                    lv->value = init_val;
                 } else {
-                    lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                    if (vdecl->type_name == "string" || init_val.is_string) {
+                        lv->value = init_val;
+                    } else {
+                        lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                    }
                 }
             }
         }
@@ -2404,6 +2518,37 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         if (local) {
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            if (local->is_dynamic_array) {
+                std::vector<LogicVal> elems;
+                if (rhs_val.is_unpacked) {
+                    elems = rhs_val.unpacked_elements;
+                } else {
+                    elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+                }
+                uint32_t ew = local->dyn_array_data.elem_width;
+                bool is_s = local->dyn_array_data.is_signed;
+                for (auto& el : elems) el = LogicOps::cast_width(el, ew, is_s);
+                local->dyn_array_data.elements = std::move(elems);
+                return;
+            }
+            if (local->is_unpacked_array) {
+                std::vector<LogicVal> elems;
+                if (rhs_val.is_unpacked) {
+                    elems = rhs_val.unpacked_elements;
+                } else {
+                    elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+                }
+                if (elems.size() != local->unpacked_elements.size()) {
+                    throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                        std::to_string(elems.size()) + ") does not match target array size (" +
+                        std::to_string(local->unpacked_elements.size()) + ") per IEEE 1800-2023 section 10.10");
+                }
+                for (size_t i = 0; i < local->unpacked_elements.size(); ++i) {
+                    local->unpacked_elements[i] = LogicOps::cast_width(elems[i], local->elem_width, local->is_signed);
+                }
+                local->value = rhs_val;
+                return;
+            }
             if (!member_name.empty()) {
                 const PackedStructType* st = nullptr;
                 if (!local->type_name.empty()) {
@@ -2435,6 +2580,43 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 local->value = rhs_val;
             } else {
                 local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+            }
+            return;
+        }
+
+        DynamicArrayObject* da_nba = engine.get_dynamic_array(target_name, bp.scope);
+        if (da_nba) {
+            LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            std::vector<LogicVal> elems;
+            if (rhs_val.is_unpacked) {
+                elems = rhs_val.unpacked_elements;
+            } else {
+                elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+            }
+            uint32_t ew = da_nba->elem_width;
+            bool is_s = da_nba->is_signed;
+            for (auto& el : elems) el = LogicOps::cast_width(el, ew, is_s);
+            da_nba->elements = std::move(elems);
+            return;
+        }
+
+        std::string scoped_mem_nba = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+        if (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end() || engine.memory_map.find(target_name) != engine.memory_map.end()) {
+            auto& mem = (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end()) ? engine.memory_map.at(scoped_mem_nba) : engine.memory_map.at(target_name);
+            LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            std::vector<LogicVal> elems;
+            if (rhs_val.is_unpacked) {
+                elems = rhs_val.unpacked_elements;
+            } else {
+                elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+            }
+            if (elems.size() != mem.depth) {
+                throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                    std::to_string(elems.size()) + ") does not match target array size (" +
+                    std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
+            }
+            for (size_t i = 0; i < mem.depth; ++i) {
+                mem.set_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
             }
             return;
         }
@@ -3062,8 +3244,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             return;
                         }
                     } else {
-                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
-                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                            uint32_t ew = local->dyn_array_data.elem_width;
+                            bool is_s = local->dyn_array_data.is_signed;
+                            for (auto& el : elems) {
+                                el = LogicOps::cast_width(el, ew, is_s);
+                            }
                             local->dyn_array_data.elements = std::move(elems);
                             return;
                         }
@@ -3079,8 +3271,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                     } else {
-                        if (rhs_val.is_unpacked && rhs_val.unpacked_elements.size() == local->unpacked_elements.size()) {
-                            local->unpacked_elements = rhs_val.unpacked_elements;
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                            if (elems.size() != local->unpacked_elements.size()) {
+                                throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                                    std::to_string(elems.size()) + ") does not match target array size (" +
+                                    std::to_string(local->unpacked_elements.size()) + ") per IEEE 1800-2023 section 10.10");
+                            }
+                            for (size_t i = 0; i < local->unpacked_elements.size(); ++i) {
+                                local->unpacked_elements[i] = LogicOps::cast_width(elems[i], local->elem_width, local->is_signed);
+                            }
                         } else {
                             for (size_t i = 0; i < local->unpacked_elements.size(); ++i) {
                                 uint32_t ew = local->elem_width;
@@ -3235,8 +3440,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             return;
                         }
                     } else {
-                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
-                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                            uint32_t ew = da->elem_width;
+                            bool is_s = da->is_signed;
+                            for (auto& el : elems) {
+                                el = LogicOps::cast_width(el, ew, is_s);
+                            }
                             da->elements = std::move(elems);
                             return;
                         }
@@ -3312,9 +3527,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             mem.set_word(addr, rhs_val);
                         }
                     } else {
-                        if (rhs_val.is_unpacked && rhs_val.unpacked_elements.size() == mem.depth) {
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
+                        if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                            if (elems.size() != mem.depth) {
+                                throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
+                                    std::to_string(elems.size()) + ") does not match target array size (" +
+                                    std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
+                            }
                             for (size_t i = 0; i < mem.depth; ++i) {
-                                mem.set_word(i, rhs_val.unpacked_elements[i]);
+                                mem.set_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
                             }
                         } else {
                             uint32_t ew = mem.word_width;

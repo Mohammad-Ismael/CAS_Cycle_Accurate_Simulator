@@ -1250,14 +1250,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
                     sig.type_name = type_name;
                     if (uarr_info) {
-                        sig.is_array = true;
-                        AstDimension ad;
-                        ad.left_expr = std::make_unique<NumberNode>(uarr_info->array_size, 32);
-                        ad.right_expr = nullptr;
-                        ad.is_single = true;
-                        sig.unpacked_dimensions.push_back(std::move(ad));
-                        sig.bound1_expr = std::make_unique<NumberNode>(uarr_info->start_idx, 32);
-                        sig.bound2_expr = std::make_unique<NumberNode>(uarr_info->end_idx, 32);
+                        if (uarr_info->is_dynamic_array) {
+                            sig.is_dynamic_array = true;
+                        } else {
+                            sig.is_array = true;
+                            AstDimension ad;
+                            ad.left_expr = std::make_unique<NumberNode>(uarr_info->array_size, 32);
+                            ad.right_expr = nullptr;
+                            ad.is_single = true;
+                            sig.unpacked_dimensions.push_back(std::move(ad));
+                            sig.bound1_expr = std::make_unique<NumberNode>(uarr_info->start_idx, 32);
+                            sig.bound2_expr = std::make_unique<NumberNode>(uarr_info->end_idx, 32);
+                        }
                     } else if (dim_meta && dim_meta->unpacked_dims > 0) {
                         sig.is_array = true;
                         for (const auto& d : dim_meta->dimensions) {
@@ -2326,11 +2330,17 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 advance();
                 std::vector<AstDimension> unpacked_dims;
                 bool is_unpacked_arr = false;
+                bool is_dynamic_arr = false;
                 uint32_t total_elements = 1;
                 int64_t arr_start = 0;
                 int64_t arr_end = 0;
                 while (match(TokenType::TOKEN_LBRACKET)) {
                     is_unpacked_arr = true;
+                    if (match(TokenType::TOKEN_RBRACKET)) {
+                        is_dynamic_arr = true;
+                        total_elements = 0;
+                        break;
+                    }
                     auto l = parse_expression();
                     std::unique_ptr<ExpressionNode> r = nullptr;
                     bool is_single = true;
@@ -2369,6 +2379,45 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 td->width = width;
                 td->is_signed = is_sgn;
                 td->packed_dims = packed_dims;
+
+                if (is_dynamic_arr) {
+                    td->is_unpacked_array = true;
+                    td->is_dynamic_array = true;
+                    td->elem_type = base_t;
+                    td->elem_width = width;
+                    td->elem_signed = is_sgn;
+                    td->array_size = 0;
+
+                    VariableDimMetadata vdm;
+                    vdm.name = tname;
+                    vdm.unpacked_dims = 1;
+                    vdm.is_vector_or_array = true;
+                    vdm.is_dynamic = true;
+                    ArrayDimInfo dinfo;
+                    dinfo.left = 0;
+                    dinfo.right = -1;
+                    dinfo.is_unpacked = true;
+                    dinfo.is_dynamic = true;
+                    vdm.dimensions.push_back(dinfo);
+
+                    global_type_dimensions[tname] = vdm;
+                    if (current_parsing_package) {
+                        global_type_dimensions[current_parsing_package->name + "::" + tname] = vdm;
+                        current_parsing_package->type_dimensions[tname] = vdm;
+                    } else if (current_parsing_module) {
+                        current_parsing_module->type_dimensions[tname] = vdm;
+                    }
+
+                    UnpackedArrayTypedef uinfo{tname, base_t, width, is_sgn, 0, 0, 0, true};
+                    unpacked_array_typedef_map[tname] = uinfo;
+                    global_unpacked_array_typedefs[tname] = uinfo;
+                    if (current_parsing_package) {
+                        current_parsing_package->unpacked_array_typedefs[tname] = uinfo;
+                    } else if (current_parsing_module) {
+                        current_parsing_module->unpacked_array_typedefs[tname] = uinfo;
+                    }
+                    return td;
+                }
 
                 VariableDimMetadata vdm;
                 vdm.name = tname;
@@ -4939,6 +4988,11 @@ static bool expr_has_side_effects(const ExpressionNode* expr) {
             if (expr_has_side_effects(el.get())) return true;
         }
     }
+    if (auto uco = dynamic_cast<const UnpackedConcatNode*>(expr)) {
+        for (const auto& el : uco->elements) {
+            if (expr_has_side_effects(el.get())) return true;
+        }
+    }
     if (auto ro = dynamic_cast<const ReplicateNode*>(expr)) {
         return expr_has_side_effects(ro->count_expr.get()) || expr_has_side_effects(ro->target_expr.get());
     }
@@ -4983,6 +5037,11 @@ static bool expr_references_identifier(const ExpressionNode* expr, const std::st
     }
     if (auto co = dynamic_cast<const ConcatNode*>(expr)) {
         for (const auto& el : co->elements) {
+            if (expr_references_identifier(el.get(), target_id)) return true;
+        }
+    }
+    if (auto uco = dynamic_cast<const UnpackedConcatNode*>(expr)) {
+        for (const auto& el : uco->elements) {
             if (expr_references_identifier(el.get(), target_id)) return true;
         }
     }

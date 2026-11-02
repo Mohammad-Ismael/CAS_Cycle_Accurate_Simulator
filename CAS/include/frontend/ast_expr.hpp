@@ -108,6 +108,23 @@ struct ConcatNode : public ExpressionNode {
     }
 };
 
+struct UnpackedConcatNode : public ExpressionNode {
+    std::vector<std::unique_ptr<ExpressionNode>> elements;
+    bool is_pattern = false;
+
+    UnpackedConcatNode() = default;
+    explicit UnpackedConcatNode(std::vector<std::unique_ptr<ExpressionNode>> elems, bool pattern = false)
+        : elements(std::move(elems)), is_pattern(pattern) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> cloned;
+        for (const auto& elem : elements) {
+            cloned.push_back(elem ? elem->clone() : nullptr);
+        }
+        return std::make_unique<UnpackedConcatNode>(std::move(cloned), is_pattern);
+    }
+};
+
 enum class StreamDirection {
     LEFT_TO_RIGHT, // >>
     RIGHT_TO_LEFT  // <<

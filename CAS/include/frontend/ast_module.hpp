@@ -396,6 +396,7 @@ struct UnpackedArrayTypedef {
     uint32_t array_size = 1;
     int64_t start_idx = 0;
     int64_t end_idx = 0;
+    bool is_dynamic_array = false;
     uint32_t total_bit_width() const { return elem_width * array_size; }
 };
 
@@ -409,6 +410,7 @@ struct TypedefNode : public ASTNode {
     uint32_t width = 0;
     bool is_signed = false;
     bool is_unpacked_array = false;
+    bool is_dynamic_array = false;
     std::string elem_type = "logic";
     uint32_t elem_width = 8;
     bool elem_signed = false;

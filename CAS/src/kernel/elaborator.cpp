@@ -502,6 +502,11 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
         for (auto& e : cat->elements) els.push_back(substitute_genvar_in_expr(e.get(), gname, val));
         return std::make_unique<ConcatNode>(std::move(els));
     }
+    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> els;
+        for (auto& e : ucat->elements) els.push_back(substitute_genvar_in_expr(e.get(), gname, val));
+        return std::make_unique<UnpackedConcatNode>(std::move(els), ucat->is_pattern);
+    }
     if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
         return std::make_unique<ReplicateNode>(
             substitute_genvar_in_expr(rep->count_expr.get(), gname, val),
@@ -898,7 +903,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.struct_types[scope + "." + td->type_name] = st;
         }
         if (!td->base_type.empty()) {
-            if (td->is_unpacked_array) {
+            if (td->is_unpacked_array && !td->is_dynamic_array) {
                 UnpackedArrayTypeInfo uinfo;
                 uinfo.name = td->type_name;
                 uinfo.elem_type = td->elem_type;
@@ -909,7 +914,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 uinfo.end_idx = td->arr_end_idx;
                 result.unpacked_array_types[td->type_name] = uinfo;
                 result.unpacked_array_types[scope + "." + td->type_name] = uinfo;
-            } else {
+            } else if (!td->is_dynamic_array) {
                 SimpleTypeInfo sinfo;
                 sinfo.name = td->type_name;
                 sinfo.base_type = td->base_type;

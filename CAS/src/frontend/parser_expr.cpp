@@ -478,6 +478,29 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
     }
 
+    if (match(TokenType::TOKEN_APOSTROPHE)) {
+        if (match(TokenType::TOKEN_LBRACE)) {
+            std::vector<std::unique_ptr<ExpressionNode>> elements;
+            if (match(TokenType::TOKEN_RBRACE)) {
+                return std::make_unique<UnpackedConcatNode>(std::move(elements), true);
+            }
+            auto first_expr = parse_expression();
+            if (match(TokenType::TOKEN_LBRACE)) {
+                auto target = parse_expression();
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inner replication target");
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing replication expression");
+                return std::make_unique<ReplicateNode>(std::move(first_expr), std::move(target));
+            }
+            elements.push_back(std::move(first_expr));
+            while (match(TokenType::TOKEN_COMMA)) {
+                elements.push_back(parse_expression());
+            }
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing assignment pattern");
+            return std::make_unique<UnpackedConcatNode>(std::move(elements), true);
+        }
+        throw std::runtime_error("Unexpected token after '\''");
+    }
+
     if (current.type == TokenType::TOKEN_NUMBER) {
         if (current.is_real) {
             double r = current.real_val;
@@ -876,6 +899,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation items");
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing streaming concatenation");
             return std::make_unique<StreamingConcatNode>(dir, std::move(slice_sz), std::move(items));
+        }
+
+        if (match(TokenType::TOKEN_RBRACE)) {
+            return std::make_unique<ConcatNode>(std::vector<std::unique_ptr<ExpressionNode>>());
         }
 
         auto first_expr = parse_expression();
@@ -1438,6 +1465,14 @@ std::unique_ptr<ExpressionNode> Parser::substitute_let_in_expr(
             elems.push_back(substitute_let_in_expr(el.get(), subst));
         }
         return std::make_unique<ConcatNode>(std::move(elems));
+    }
+
+    if (auto uco = dynamic_cast<const UnpackedConcatNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> elems;
+        for (const auto& el : uco->elements) {
+            elems.push_back(substitute_let_in_expr(el.get(), subst));
+        }
+        return std::make_unique<UnpackedConcatNode>(std::move(elems), uco->is_pattern);
     }
 
     if (auto sco = dynamic_cast<const StreamingConcatNode*>(expr)) {

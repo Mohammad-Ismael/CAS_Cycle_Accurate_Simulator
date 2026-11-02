@@ -252,7 +252,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
         bool is_q = false;
-        bool is_dyn = false;
+        bool is_dyn = (uarr_info && uarr_info->is_dynamic_array);
         bool is_assoc = false;
         std::string assoc_key_type = "";
         uint32_t assoc_key_width = 32;
@@ -284,8 +284,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             init_expr = parse_expression();
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        auto vstmt = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
-        if (uarr_info) {
+        uint32_t var_decl_w = is_dyn ? (uarr_info ? uarr_info->elem_width : width) : width;
+        auto vstmt = std::make_unique<VarDeclStatementNode>(vname, var_decl_w, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+        if (uarr_info && !uarr_info->is_dynamic_array) {
             vstmt->is_unpacked_array = true;
             vstmt->elem_width = uarr_info->elem_width;
             vstmt->array_size = uarr_info->array_size;
@@ -512,6 +513,24 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 cloned_packed.push_back(std::move(cad));
             }
             vnode->packed_dimensions = std::move(cloned_packed);
+            if (!unpacked_dims.empty() && !is_dyn && !is_q && !is_assoc) {
+                vnode->is_unpacked_array = true;
+                vnode->elem_width = width;
+                uint32_t tot_sz = 1;
+                for (const auto& ud : unpacked_dims) {
+                    if (auto nm = dynamic_cast<NumberNode*>(ud.left_expr.get())) {
+                        if (ud.is_single) {
+                            tot_sz *= (nm->aval > 0 ? (uint32_t)nm->aval : 1);
+                        } else if (ud.right_expr) {
+                            if (auto nr = dynamic_cast<NumberNode*>(ud.right_expr.get())) {
+                                uint32_t dsz = (nm->aval >= nr->aval) ? (uint32_t)(nm->aval - nr->aval + 1) : (uint32_t)(nr->aval - nm->aval + 1);
+                                tot_sz *= dsz;
+                            }
+                        }
+                    }
+                }
+                vnode->array_size = tot_sz;
+            }
             vnode->unpacked_dimensions = std::move(unpacked_dims);
             vnode->is_chandle = is_chandle_stmt;
             vnode->is_semaphore = is_semaphore_stmt;
