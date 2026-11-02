@@ -794,6 +794,60 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ExitStatementNode>(origin_file, origin_line);
     }
 
+    // Severity System Tasks: $fatal, $error, $warning, $info (§20.10)
+    if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
+        current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
+        TokenType task_tok = current.type;
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
+        advance();
+
+        SeverityLevel lvl = SeverityLevel::INFO;
+        if (task_tok == TokenType::TOKEN_FATAL) lvl = SeverityLevel::FATAL;
+        else if (task_tok == TokenType::TOKEN_ERROR) lvl = SeverityLevel::ERROR;
+        else if (task_tok == TokenType::TOKEN_WARNING) lvl = SeverityLevel::WARNING;
+        else if (task_tok == TokenType::TOKEN_INFO) lvl = SeverityLevel::INFO;
+
+        std::unique_ptr<ExpressionNode> finish_num = nullptr;
+        std::string fmt = "";
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+
+        if (match(TokenType::TOKEN_LPAREN)) {
+            if (current.type != TokenType::TOKEN_RPAREN) {
+                if (lvl == SeverityLevel::FATAL) {
+                    if (current.type == TokenType::TOKEN_STRING) {
+                        fmt = current.text;
+                        advance();
+                    } else {
+                        finish_num = parse_expression();
+                        if (match(TokenType::TOKEN_COMMA)) {
+                            if (current.type == TokenType::TOKEN_STRING) {
+                                fmt = current.text;
+                                advance();
+                            } else {
+                                args.push_back(parse_expression());
+                            }
+                        }
+                    }
+                } else {
+                    if (current.type == TokenType::TOKEN_STRING) {
+                        fmt = current.text;
+                        advance();
+                    } else {
+                        args.push_back(parse_expression());
+                    }
+                }
+
+                while (match(TokenType::TOKEN_COMMA)) {
+                    args.push_back(parse_expression());
+                }
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing severity task argument list");
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after severity task");
+        return std::make_unique<SeverityTaskStatementNode>(lvl, std::move(finish_num), fmt, std::move(args), origin_file, origin_line);
+    }
+
     // 12. If Statement
     if (current.type == TokenType::TOKEN_IF) {
         return parse_if_statement(DecisionModifier::NONE, current.filename, current.line);

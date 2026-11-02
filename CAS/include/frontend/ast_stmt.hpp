@@ -479,6 +479,39 @@ struct DisplayStatementNode : public StatementNode {
     }
 };
 
+enum class SeverityLevel { FATAL, ERROR, WARNING, INFO };
+
+struct SeverityTaskStatementNode : public StatementNode {
+    SeverityLevel level;
+    std::unique_ptr<ExpressionNode> finish_number;
+    std::string format_string;
+    std::vector<std::unique_ptr<ExpressionNode>> arg_exprs;
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit SeverityTaskStatementNode(SeverityLevel lvl,
+                                       std::unique_ptr<ExpressionNode> finish_num,
+                                       std::string fmt,
+                                       std::vector<std::unique_ptr<ExpressionNode>> args,
+                                       std::string file = "",
+                                       size_t line = 0)
+        : level(lvl), finish_number(std::move(finish_num)), format_string(std::move(fmt)),
+          arg_exprs(std::move(args)), src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<ExpressionNode>> a;
+        for (const auto& arg : arg_exprs) a.push_back(arg ? arg->clone() : nullptr);
+        return std::make_unique<SeverityTaskStatementNode>(
+            level,
+            finish_number ? finish_number->clone() : nullptr,
+            format_string,
+            std::move(a),
+            src_file,
+            src_line
+        );
+    }
+};
+
 struct FinishStatementNode : public StatementNode {
     std::string src_file = "";
     size_t src_line = 0;

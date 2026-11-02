@@ -7,6 +7,9 @@
 #include <cmath>
 
 uint64_t Lexer::global_timescale_ratio = 1;
+std::string Lexer::global_time_unit_str = "1ns";
+std::string Lexer::global_time_precision_str = "1ps";
+std::string Lexer::global_time_precision_unit = "ps";
 
 Lexer::Lexer(const std::string& filename, const std::string& source, const std::string& base_dir, std::ostream* debug_stream)
     : current_dir(base_dir), debug_out(debug_stream) {
@@ -126,6 +129,14 @@ void Lexer::handle_timescale() {
         cur.cursor++;
     }
     if (!unit_str.empty() && !prec_str.empty()) {
+        global_time_unit_str = unit_str;
+        global_time_precision_str = prec_str;
+        size_t u_idx = 0;
+        while (u_idx < prec_str.size() && (std::isdigit((unsigned char)prec_str[u_idx]) || std::isspace((unsigned char)prec_str[u_idx]))) {
+            u_idx++;
+        }
+        global_time_precision_unit = (u_idx < prec_str.size()) ? prec_str.substr(u_idx) : "ps";
+
         uint64_t unit_fs = parse_time_fs(unit_str);
         uint64_t prec_fs = parse_time_fs(prec_str);
         if (prec_fs > 0 && unit_fs >= prec_fs) {
@@ -511,6 +522,10 @@ Token Lexer::next_token() {
         if (ident == "$monitor") return {TokenType::TOKEN_MONITOR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$finish") return {TokenType::TOKEN_FINISH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$stop") return {TokenType::TOKEN_STOP, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$fatal") return {TokenType::TOKEN_FATAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$error") return {TokenType::TOKEN_ERROR, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$warning") return {TokenType::TOKEN_WARNING, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$info") return {TokenType::TOKEN_INFO, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$exit") return {TokenType::TOKEN_EXIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$dumpfile") return {TokenType::TOKEN_DUMPFILE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, cur_file, cur_line, 0};

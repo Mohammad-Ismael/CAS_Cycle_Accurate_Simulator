@@ -359,6 +359,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
+            current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted in compilation unit scope per IEEE 1800-2023 section 20.10");
+        }
+
         bool has_file_virt_qual = false;
         bool has_file_stat_qual = false;
         bool has_file_ext_qual = false;
@@ -1085,6 +1090,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     mod->classes.push_back(scls);
                 }
                 continue;
+            }
+
+            if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
+                current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted outside procedural or action-block context per IEEE 1800-2023 section 20.10");
             }
 
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
@@ -2471,6 +2481,10 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted inside class per IEEE 1800-2023 section 31.8 & 32.7");
         }
+        if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
+            current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted directly in class body per IEEE 1800-2023 section 20.10");
+        }
         bool is_pure = false;
         bool is_virt = false;
         bool is_stat = false;
@@ -3819,6 +3833,10 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
         if (current.type == TokenType::TOKEN_SYS_SETUP || current.type == TokenType::TOKEN_SYS_HOLD ||
             current.type == TokenType::TOKEN_SYS_WIDTH || current.type == TokenType::TOKEN_SYS_RECOVERY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: timing check system task '" + current.text + "' is not permitted inside package per IEEE 1800-2023 section 31.8 & 32.7");
+        }
+        if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
+            current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
+            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted in package scope per IEEE 1800-2023 section 20.10");
         }
         if (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE) {
             std::string loc = current.filename.empty() 

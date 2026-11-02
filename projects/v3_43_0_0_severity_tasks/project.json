@@ -1,0 +1,8 @@
+{
+  "name": "v3_43_0_0_severity_tasks",
+  "version": "v3.43.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§20.10",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_43_0_regression"
+}

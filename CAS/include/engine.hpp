@@ -105,6 +105,8 @@ private:
     bool allow_display = true;
     bool allow_monitor = true;
     bool allow_finish_msg = true;
+    bool fatal_error_occurred = false;
+    int sim_exit_code = 0;
 
     VcdDumper vcd_dumper;
     Evaluator evaluator;
@@ -132,6 +134,9 @@ public:
     bool is_display_allowed() const { return allow_display; }
     bool is_monitor_allowed() const { return allow_monitor; }
     bool is_finish_msg_allowed() const { return allow_finish_msg; }
+    void set_fatal_error(int code = 1) { fatal_error_occurred = true; sim_exit_code = code; }
+    bool has_fatal_error() const { return fatal_error_occurred; }
+    int get_sim_exit_code() const { return sim_exit_code; }
 
     bool is_queue(const std::string& name, const std::string& scope = "") const {
         std::string scoped = scope.empty() ? name : (scope + "." + name);

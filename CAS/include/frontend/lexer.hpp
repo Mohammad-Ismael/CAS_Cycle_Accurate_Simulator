@@ -85,6 +85,10 @@ enum class TokenType {
     TOKEN_MONITOR,
     TOKEN_FINISH,
     TOKEN_STOP,
+    TOKEN_FATAL,
+    TOKEN_ERROR,
+    TOKEN_WARNING,
+    TOKEN_INFO,
     TOKEN_DUMPFILE,
     TOKEN_DUMPVARS,
     TOKEN_IDENTIFIER,
@@ -267,8 +271,17 @@ private:
 
 public:
     static uint64_t global_timescale_ratio;
+    static std::string global_time_unit_str;
+    static std::string global_time_precision_str;
+    static std::string global_time_precision_unit;
     static uint64_t get_timescale_ratio() { return global_timescale_ratio; }
-    static void reset_timescale() { global_timescale_ratio = 1; }
+    static const std::string& get_time_precision_unit() { return global_time_precision_unit; }
+    static void reset_timescale() {
+        global_timescale_ratio = 1;
+        global_time_unit_str = "1ns";
+        global_time_precision_str = "1ps";
+        global_time_precision_unit = "ps";
+    }
 
     explicit Lexer(const std::string& filename, const std::string& source, 
                    const std::string& base_dir = ".", std::ostream* debug_stream = nullptr);

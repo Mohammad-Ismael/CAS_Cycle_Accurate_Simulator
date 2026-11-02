@@ -157,6 +157,10 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "---END_CAS_DEBUG_LOG---\n";
 
+        if (engine.has_fatal_error()) {
+            return engine.get_sim_exit_code();
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "\n" << e.what() << "\n";
         return 2;

@@ -1989,6 +1989,130 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto sev = dynamic_cast<SeverityTaskStatementNode*>(stmt)) {
+        std::string prefix = "";
+        switch (sev->level) {
+            case SeverityLevel::INFO: prefix = "Info"; break;
+            case SeverityLevel::WARNING: prefix = "Warning"; break;
+            case SeverityLevel::ERROR: prefix = "Error"; break;
+            case SeverityLevel::FATAL: prefix = "Fatal"; break;
+        }
+
+        std::string fname = sev->src_file;
+        size_t last_slash = fname.find_last_of("/\\");
+        if (last_slash != std::string::npos) fname = fname.substr(last_slash + 1);
+
+        std::string scope_str = bp.scope.empty() ? "$root" : bp.scope;
+        std::string prec_unit = Lexer::get_time_precision_unit();
+        if (prec_unit.empty()) prec_unit = "ps";
+
+        // Emit location header matching Synopsys VCS line-for-line:
+        // Prefix: "<filename>", <line>: <scope_path>: at time <time> <unit>
+        std::cout << prefix << ": \"" << fname << "\", " << sev->src_line
+                  << ": " << scope_str << ": at time "
+                  << engine.get_sim_time() << " " << prec_unit << "\n";
+
+        // Format and emit message line
+        if (!sev->format_string.empty()) {
+            size_t arg_idx = 0;
+            size_t fmt_len = sev->format_string.size();
+            for (size_t i = 0; i < fmt_len; ++i) {
+                if (sev->format_string[i] == '%' && i + 1 < fmt_len) {
+                    ++i;
+                    if (sev->format_string[i] == '%') {
+                        std::cout << '%';
+                        continue;
+                    }
+                    bool pad_zero = false;
+                    int width = 0;
+                    if (sev->format_string[i] == '0') {
+                        pad_zero = true;
+                        ++i;
+                    }
+                    while (i < fmt_len && std::isdigit((unsigned char)sev->format_string[i])) {
+                        width = width * 10 + (sev->format_string[i] - '0');
+                        ++i;
+                    }
+                    char spec = (i < fmt_len) ? sev->format_string[i] : ' ';
+
+                    if (arg_idx < sev->arg_exprs.size()) {
+                        LogicVal val = eval_expr(sev->arg_exprs[arg_idx++].get(), bp.scope);
+                        if (spec == 's') {
+                            if (val.is_string) std::cout << val.str_val;
+                            else std::cout << val.aval;
+                        } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
+                            std::cout << "x";
+                        } else if (spec == 'd' || spec == 't') {
+                            if (val.is_real) {
+                                std::cout << (int64_t)val.real_val;
+                            } else if (val.is_signed) {
+                                std::cout << val.to_signed();
+                            } else {
+                                std::cout << val.aval;
+                            }
+                        } else if (spec == 'f') {
+                            std::cout << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'b') {
+                            std::cout << val.to_bin_string();
+                        } else if (spec == 'h' || spec == 'x') {
+                            std::string hx = val.to_hex_string(true);
+                            if (pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = "0" + hx;
+                            }
+                            std::cout << hx;
+                        } else {
+                            std::cout << val.aval;
+                        }
+                    }
+                } else {
+                    std::cout << sev->format_string[i];
+                }
+            }
+            while (arg_idx < sev->arg_exprs.size()) {
+                std::cout << " ";
+                LogicVal val = eval_expr(sev->arg_exprs[arg_idx++].get(), bp.scope);
+                if (val.is_string) std::cout << val.str_val;
+                else if (val.is_real) std::cout << val.real_val;
+                else if (val.is_unknown()) std::cout << "x";
+                else if (val.is_signed) std::cout << val.to_signed();
+                else std::cout << val.aval;
+            }
+            std::cout << "\n";
+        } else if (!sev->arg_exprs.empty()) {
+            for (size_t a_i = 0; a_i < sev->arg_exprs.size(); ++a_i) {
+                if (a_i > 0) std::cout << " ";
+                LogicVal val = eval_expr(sev->arg_exprs[a_i].get(), bp.scope);
+                if (val.is_string) std::cout << val.str_val;
+                else if (val.is_real) std::cout << val.real_val;
+                else if (val.is_unknown()) std::cout << "x";
+                else if (val.is_signed) std::cout << val.to_signed();
+                else std::cout << val.aval;
+            }
+            std::cout << "\n";
+        }
+
+        if (sev->level == SeverityLevel::FATAL) {
+            int64_t f_num = 1;
+            if (sev->finish_number) {
+                LogicVal fn_val = eval_expr(sev->finish_number.get(), bp.scope);
+                f_num = fn_val.to_signed();
+            }
+            if (f_num < 0 || f_num > 2) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: $fatal finish number must be 0, 1, or 2 (got " + std::to_string(f_num) + ") per IEEE 1800-2023 section 20.10");
+            }
+            if (f_num == 1 || f_num == 2) {
+                if (engine.is_finish_msg_allowed()) {
+                    std::cout << "[CAS $fatal " << fname << ":" << sev->src_line << "] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
+                }
+            }
+            engine.set_fatal_error(1);
+            engine.scheduler.terminate();
+            bp.completed = true;
+            return;
+        }
+        return;
+    }
+
     if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
         if (engine.is_finish_msg_allowed()) {
             if (!fin->src_file.empty() && fin->src_line > 0) {
