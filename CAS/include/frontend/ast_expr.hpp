@@ -588,6 +588,36 @@ struct ArrayDimensionQueryNode : public ExpressionNode {
     }
 };
 
+enum class BoundQueryKind {
+    LEFT,
+    RIGHT,
+    LOW,
+    HIGH,
+    INCREMENT
+};
+
+struct ArrayBoundQueryNode : public ExpressionNode {
+    BoundQueryKind kind;
+    std::unique_ptr<ExpressionNode> target;
+    std::unique_ptr<ExpressionNode> dimension_expr;
+    std::string type_name_arg;
+
+    ArrayBoundQueryNode(BoundQueryKind k,
+                        std::unique_ptr<ExpressionNode> tgt,
+                        std::unique_ptr<ExpressionNode> dim = nullptr,
+                        std::string tname = "")
+        : kind(k), target(std::move(tgt)), dimension_expr(std::move(dim)), type_name_arg(std::move(tname)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<ArrayBoundQueryNode>(
+            kind,
+            target ? target->clone() : nullptr,
+            dimension_expr ? dimension_expr->clone() : nullptr,
+            type_name_arg
+        );
+    }
+};
+
 struct LetCallNode : public ExpressionNode {
     std::string let_name;
     std::string pkg_name;

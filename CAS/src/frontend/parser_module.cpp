@@ -3040,6 +3040,36 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
         }
         throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
     }
+    if (auto abqn = dynamic_cast<ArrayBoundQueryNode*>(expr)) {
+        std::string var_name = abqn->type_name_arg;
+        if (var_name.empty()) {
+            if (auto id = dynamic_cast<IdentifierNode*>(abqn->target.get())) {
+                var_name = id->name;
+            }
+        }
+        const VariableDimMetadata* tmeta = find_type_dim_metadata(var_name);
+        if (!tmeta || tmeta->dimensions.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
+        }
+        int64_t dim = 1;
+        if (abqn->dimension_expr) {
+            dim = (int64_t)eval_const_expr_with_params(abqn->dimension_expr.get(), params);
+        }
+        if (dim < 1 || (size_t)dim > tmeta->dimensions.size()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid dimension index " + std::to_string(dim) + " for array querying function per IEEE 1800-2023 section 20.7");
+        }
+        const auto& d = tmeta->dimensions[dim - 1];
+        switch (abqn->kind) {
+            case BoundQueryKind::LEFT: return (uint64_t)(int64_t)d.left;
+            case BoundQueryKind::RIGHT: return (uint64_t)(int64_t)d.right;
+            case BoundQueryKind::LOW: return (uint64_t)(int64_t)d.low();
+            case BoundQueryKind::HIGH: return (uint64_t)(int64_t)d.high();
+            case BoundQueryKind::INCREMENT: {
+                int64_t inc = d.increment();
+                return (inc < 0) ? (uint64_t)(uint32_t)-1 : (uint64_t)inc;
+            }
+        }
+    }
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
         if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
@@ -3049,6 +3079,25 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
         if (tmeta && !tmeta->dimensions.empty()) {
             if (aqn->query_type == ArrayQueryType::DIMENSIONS) return (uint64_t)tmeta->dimensions.size();
             if (aqn->query_type == ArrayQueryType::UNPACKED_DIMENSIONS) return (uint64_t)tmeta->unpacked_dims;
+            int64_t dim = 1;
+            if (aqn->dim_expr) {
+                dim = (int64_t)eval_const_expr_with_params(aqn->dim_expr.get(), params);
+            }
+            if (dim >= 1 && (size_t)dim <= tmeta->dimensions.size()) {
+                const auto& d = tmeta->dimensions[dim - 1];
+                switch (aqn->query_type) {
+                    case ArrayQueryType::SIZE: return (uint64_t)d.size();
+                    case ArrayQueryType::LEFT: return (uint64_t)(int64_t)d.left;
+                    case ArrayQueryType::RIGHT: return (uint64_t)(int64_t)d.right;
+                    case ArrayQueryType::LOW: return (uint64_t)(int64_t)d.low();
+                    case ArrayQueryType::HIGH: return (uint64_t)(int64_t)d.high();
+                    case ArrayQueryType::INCREMENT: {
+                        int64_t inc = d.increment();
+                        return (inc < 0) ? (uint64_t)(uint32_t)-1 : (uint64_t)inc;
+                    }
+                    default: break;
+                }
+            }
         }
     }
     return 0;

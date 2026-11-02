@@ -90,8 +90,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<ArrayDimensionQueryNode>(kind, std::move(target), type_name_arg);
     }
 
-    if (current.type == TokenType::TOKEN_SYS_SIZE ||
-        current.type == TokenType::TOKEN_SYS_LEFT ||
+    if (current.type == TokenType::TOKEN_SYS_LEFT ||
         current.type == TokenType::TOKEN_SYS_RIGHT ||
         current.type == TokenType::TOKEN_SYS_LOW ||
         current.type == TokenType::TOKEN_SYS_HIGH ||
@@ -100,22 +99,86 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         TokenType qtok = current.type;
         std::string fname = current.text;
         advance();
-        ArrayQueryType qtype;
-        if (qtok == TokenType::TOKEN_SYS_SIZE) qtype = ArrayQueryType::SIZE;
-        else if (qtok == TokenType::TOKEN_SYS_LEFT) qtype = ArrayQueryType::LEFT;
-        else if (qtok == TokenType::TOKEN_SYS_RIGHT) qtype = ArrayQueryType::RIGHT;
-        else if (qtok == TokenType::TOKEN_SYS_LOW) qtype = ArrayQueryType::LOW;
-        else if (qtok == TokenType::TOKEN_SYS_HIGH) qtype = ArrayQueryType::HIGH;
-        else qtype = ArrayQueryType::INCREMENT;
+        BoundQueryKind kind;
+        if (qtok == TokenType::TOKEN_SYS_LEFT) kind = BoundQueryKind::LEFT;
+        else if (qtok == TokenType::TOKEN_SYS_RIGHT) kind = BoundQueryKind::RIGHT;
+        else if (qtok == TokenType::TOKEN_SYS_LOW) kind = BoundQueryKind::LOW;
+        else if (qtok == TokenType::TOKEN_SYS_HIGH) kind = BoundQueryKind::HIGH;
+        else kind = BoundQueryKind::INCREMENT;
 
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after " + fname);
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] " + fname + " requires at least one argument per IEEE 1800-2023 section 20.7");
+        }
+
+        std::string type_name_arg = "";
+        std::unique_ptr<ExpressionNode> target = nullptr;
+
+        bool is_prim_keyword = (current.type == TokenType::TOKEN_LOGIC ||
+                                current.type == TokenType::TOKEN_REG ||
+                                current.type == TokenType::TOKEN_BIT ||
+                                current.type == TokenType::TOKEN_INTEGER ||
+                                current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_CHANDLE ||
+                                current.type == TokenType::TOKEN_VOID ||
+                                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                                 (current.text == "int" || current.text == "byte" ||
+                                  current.text == "shortint" || current.text == "longint" ||
+                                  current.text == "time" || current.text == "string" ||
+                                  current.text == "shortreal" || current.text == "realtime")));
+
+        if (is_prim_keyword) {
+            type_name_arg = current.text;
+            advance();
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in dimension");
+                auto lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' after dimension");
+                int64_t m = 0, l = 0;
+                if (auto nm = dynamic_cast<NumberNode*>(msb.get())) m = nm->aval;
+                if (auto nl = dynamic_cast<NumberNode*>(lsb.get())) l = nl->aval;
+                type_name_arg += "[" + std::to_string(m) + ":" + std::to_string(l) + "]";
+            }
+        } else {
+            target = parse_expression();
+        }
+
+        std::unique_ptr<ExpressionNode> dim_expr = nullptr;
+        if (match(TokenType::TOKEN_COMMA)) {
+            if (current.type == TokenType::TOKEN_RPAREN) {
+                throw std::runtime_error("[CAS-DTINPCIL] Expected dimension expression after ',' in " + fname);
+            }
+            dim_expr = parse_expression();
+            if (current.type == TokenType::TOKEN_COMMA) {
+                throw std::runtime_error("[CAS-DTINPCIL] " + fname + " accepts at most two arguments per IEEE 1800-2023 section 20.7");
+            }
+        }
+
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing " + fname);
+        return std::make_unique<ArrayBoundQueryNode>(kind, std::move(target), std::move(dim_expr), type_name_arg);
+    }
+
+    if (current.type == TokenType::TOKEN_SYS_SIZE) {
+        std::string fname = current.text;
+        advance();
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after " + fname);
+        if (current.type == TokenType::TOKEN_RPAREN) {
+            throw std::runtime_error("[CAS-DTINPCIL] " + fname + " requires at least one argument per IEEE 1800-2023 section 20.7");
+        }
         auto arr_expr = parse_expression();
         std::unique_ptr<ExpressionNode> dim_expr = nullptr;
         if (match(TokenType::TOKEN_COMMA)) {
+            if (current.type == TokenType::TOKEN_RPAREN) {
+                throw std::runtime_error("[CAS-DTINPCIL] Expected dimension expression after ',' in " + fname);
+            }
             dim_expr = parse_expression();
+            if (current.type == TokenType::TOKEN_COMMA) {
+                throw std::runtime_error("[CAS-DTINPCIL] " + fname + " accepts at most two arguments per IEEE 1800-2023 section 20.7");
+            }
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing " + fname);
-        return std::make_unique<ArrayQueryNode>(qtype, std::move(arr_expr), std::move(dim_expr));
+        return std::make_unique<ArrayQueryNode>(ArrayQueryType::SIZE, std::move(arr_expr), std::move(dim_expr));
     }
 
     if (current.type == TokenType::TOKEN_SYS_TYPENAME) {

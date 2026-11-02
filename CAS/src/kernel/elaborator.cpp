@@ -209,8 +209,58 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             case ArrayQueryType::RIGHT: return (uint64_t)d.right;
             case ArrayQueryType::LOW: return (uint64_t)d.low();
             case ArrayQueryType::HIGH: return (uint64_t)d.high();
-            case ArrayQueryType::INCREMENT: return (uint64_t)(int64_t)d.increment();
+            case ArrayQueryType::INCREMENT: {
+                int64_t inc = d.increment();
+                return (inc < 0) ? (uint64_t)(uint32_t)-1 : (uint64_t)inc;
+            }
             default: break;
+        }
+    }
+    if (auto abqn = dynamic_cast<ArrayBoundQueryNode*>(expr)) {
+        std::string var_name = abqn->type_name_arg;
+        if (var_name.empty()) {
+            if (auto id = dynamic_cast<IdentifierNode*>(abqn->target.get())) {
+                var_name = id->name;
+            } else if (auto ma = dynamic_cast<MemberAccessNode*>(abqn->target.get())) {
+                var_name = ma->var_name + "." + ma->member_name;
+            }
+        }
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        VariableDimMetadata meta;
+        bool found = false;
+        if (result.var_dimensions.find(scoped_var) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(scoped_var);
+            found = true;
+        } else if (result.var_dimensions.find(var_name) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(var_name);
+            found = true;
+        } else {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(var_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                meta = *tmeta;
+                found = true;
+            }
+        }
+        if (!found || meta.dimensions.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
+        }
+        int64_t dim = 1;
+        if (abqn->dimension_expr) {
+            dim = (int64_t)eval_const_expr(abqn->dimension_expr.get(), scope);
+        }
+        if (dim < 1 || (size_t)dim > meta.dimensions.size()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Invalid dimension index " + std::to_string(dim) + " for array querying function per IEEE 1800-2023 section 20.7");
+        }
+        const auto& d = meta.dimensions[dim - 1];
+        switch (abqn->kind) {
+            case BoundQueryKind::LEFT: return (uint64_t)(int64_t)d.left;
+            case BoundQueryKind::RIGHT: return (uint64_t)(int64_t)d.right;
+            case BoundQueryKind::LOW: return (uint64_t)(int64_t)d.low();
+            case BoundQueryKind::HIGH: return (uint64_t)(int64_t)d.high();
+            case BoundQueryKind::INCREMENT: {
+                int64_t inc = d.increment();
+                return (inc < 0) ? (uint64_t)(uint32_t)-1 : (uint64_t)inc;
+            }
         }
     }
     if (auto vin = dynamic_cast<VectorIntrinsicNode*>(expr)) {
@@ -487,6 +537,14 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
             adqn->kind,
             adqn->target ? substitute_genvar_in_expr(adqn->target.get(), gname, val) : nullptr,
             adqn->type_name_arg
+        );
+    }
+    if (auto abqn = dynamic_cast<ArrayBoundQueryNode*>(expr)) {
+        return std::make_unique<ArrayBoundQueryNode>(
+            abqn->kind,
+            abqn->target ? substitute_genvar_in_expr(abqn->target.get(), gname, val) : nullptr,
+            abqn->dimension_expr ? substitute_genvar_in_expr(abqn->dimension_expr.get(), gname, val) : nullptr,
+            abqn->type_name_arg
         );
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
