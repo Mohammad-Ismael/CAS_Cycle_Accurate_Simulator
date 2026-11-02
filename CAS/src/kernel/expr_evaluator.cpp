@@ -1,6 +1,7 @@
 #include "../../include/kernel/expr_evaluator.hpp"
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
+#include "../../include/frontend/parser.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -285,6 +286,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
         return eval_countbits(cbn, scope);
     }
+    if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
+        return eval_array_dimension_query(adqn, scope);
+    }
 
 
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
@@ -462,9 +466,18 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
+        // Check Parser::find_type_dim_metadata
+        if (!found && !var_name.empty()) {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(var_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                meta = *tmeta;
+                found = true;
+            }
+        }
+
         // Diagnostic enforcement: non-array / non-vector variables
         if (!found || !meta.is_vector_or_array || meta.dimensions.empty()) {
-            throw std::runtime_error("[CAS-DTINPCIL] Non-array or non-vector variable '" + var_name + "' passed to array querying function per IEEE 1800-2023 section 7.11");
+            throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
         }
 
         if (aqn->query_type == ArrayQueryType::DIMENSIONS) {
@@ -4377,4 +4390,156 @@ LogicVal ExprEvaluator::eval_countbits(CountBitsNode* node, const std::string& s
     }
 
     return LogicVal::make_known(32, (uint64_t)count);
+}
+
+LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node, const std::string& scope) {
+    if (!node) {
+        throw std::runtime_error("[CAS-DTINPCIL] Array query system function requires exactly one argument per IEEE 1800-2023 section 20.7");
+    }
+
+    std::string var_name = "";
+    if (!node->type_name_arg.empty()) {
+        var_name = node->type_name_arg;
+    } else if (auto id = dynamic_cast<IdentifierNode*>(node->target.get())) {
+        var_name = id->name;
+    } else if (auto ma = dynamic_cast<MemberAccessNode*>(node->target.get())) {
+        var_name = ma->var_name + "." + ma->member_name;
+    }
+
+    VariableDimMetadata meta;
+    bool found = false;
+
+    // 1. Check local variables
+    if (!var_name.empty() && context.has_active_frame()) {
+        LocalVar* loc = context.lookup_local(var_name);
+        if (loc && loc->is_vector_or_array && !loc->dimensions.empty()) {
+            meta.dimensions = loc->dimensions;
+            meta.unpacked_dims = loc->unpacked_dims;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    // 2. Check call stack
+    if (!found && !var_name.empty() && current_bp && !current_bp->call_stack.empty()) {
+        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+            LocalVar* loc = it->local_frame.get_var(var_name);
+            if (loc && loc->is_vector_or_array && !loc->dimensions.empty()) {
+                meta.dimensions = loc->dimensions;
+                meta.unpacked_dims = loc->unpacked_dims;
+                meta.is_vector_or_array = true;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    // 3. Check engine dynamic array
+    if (!found && !var_name.empty()) {
+        DynamicArrayObject* da = engine.get_dynamic_array(var_name, scope);
+        if (da) {
+            meta.dimensions.push_back({0, (int64_t)da->size() - 1, true, true, false});
+            if (da->elem_width > 1) {
+                meta.dimensions.push_back({(int64_t)da->elem_width - 1, 0, false, false, false});
+            }
+            meta.unpacked_dims = 1;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    // 4. Check engine queue
+    if (!found && !var_name.empty()) {
+        QueueObject* q = engine.get_queue(var_name, scope);
+        if (q) {
+            meta.dimensions.push_back({0, (int64_t)q->size() - 1, true, false, true});
+            if (q->elem_width > 1) {
+                meta.dimensions.push_back({(int64_t)q->elem_width - 1, 0, false, false, false});
+            }
+            meta.unpacked_dims = 1;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    // 5. Check engine memory_map
+    if (!found && !var_name.empty()) {
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        std::string mem_key = "";
+        if (engine.memory_map.find(scoped_var) != engine.memory_map.end()) mem_key = scoped_var;
+        else if (engine.memory_map.find(var_name) != engine.memory_map.end()) mem_key = var_name;
+        if (!mem_key.empty()) {
+            const auto& mem = engine.memory_map.at(mem_key);
+            meta.dimensions = mem.dimensions;
+            meta.unpacked_dims = mem.unpacked_dims_count;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    // 6. Check engine.var_dimensions
+    if (!found && !var_name.empty()) {
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        if (engine.var_dimensions.find(scoped_var) != engine.var_dimensions.end()) {
+            meta = engine.var_dimensions.at(scoped_var);
+            found = true;
+        } else if (engine.var_dimensions.find(var_name) != engine.var_dimensions.end()) {
+            meta = engine.var_dimensions.at(var_name);
+            found = true;
+        }
+    }
+
+    // 7. Check engine.net_map
+    if (!found && !var_name.empty()) {
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        size_t nid = (size_t)-1;
+        if (engine.net_map.find(scoped_var) != engine.net_map.end()) nid = engine.net_map.at(scoped_var);
+        else if (engine.net_map.find(var_name) != engine.net_map.end()) nid = engine.net_map.at(var_name);
+        if (nid != (size_t)-1) {
+            const auto& net = engine.netlist[nid];
+            if (net.width > 1) {
+                meta.dimensions.push_back({(int64_t)net.width - 1, 0, false, false, false});
+                meta.unpacked_dims = 0;
+                meta.is_vector_or_array = true;
+                found = true;
+            }
+        }
+    }
+
+    // 8. Check Parser::find_type_dim_metadata
+    if (!found && !var_name.empty()) {
+        const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(var_name);
+        if (tmeta && !tmeta->dimensions.empty()) {
+            meta = *tmeta;
+            found = true;
+        }
+    }
+
+    // 9. Parse primitive keywords with bracket dimensions (e.g. logic[31:0])
+    if (!found && !node->type_name_arg.empty()) {
+        std::string s = node->type_name_arg;
+        size_t pos = 0;
+        while ((pos = s.find('[', pos)) != std::string::npos) {
+            size_t cpos = s.find(':', pos);
+            size_t epos = s.find(']', pos);
+            if (cpos != std::string::npos && epos != std::string::npos && cpos < epos) {
+                int64_t left = std::stoll(s.substr(pos + 1, cpos - pos - 1));
+                int64_t right = std::stoll(s.substr(cpos + 1, epos - cpos - 1));
+                meta.dimensions.push_back({left, right, false, false, false});
+                meta.is_vector_or_array = true;
+                found = true;
+            }
+            pos = epos + 1;
+        }
+    }
+
+    if (!found || !meta.is_vector_or_array || meta.dimensions.empty()) {
+        throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
+    }
+
+    if (node->kind == DimQueryKind::TOTAL_DIMENSIONS) {
+        return LogicVal::make_known(32, meta.dimensions.size(), true);
+    } else {
+        return LogicVal::make_known(32, meta.unpacked_dims, true);
+    }
 }

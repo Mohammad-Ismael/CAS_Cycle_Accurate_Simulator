@@ -1217,7 +1217,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string t_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
                 mod_sig_type = p_name + "::" + t_name;
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_unpacked_array_typedef(current.text))) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr)) {
                 mod_sig_type = current.text;
                 advance();
             }
@@ -1227,9 +1227,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 auto enum_info = get_enum_typedef(type_name);
                 auto struct_info = get_struct_typedef(type_name);
                 const UnpackedArrayTypedef* uarr_info = get_unpacked_array_typedef(type_name);
+                const VariableDimMetadata* dim_meta = find_type_dim_metadata(type_name);
+                SimpleTypedef smp_info;
+                bool has_smp = get_simple_typedef(type_name, smp_info);
 
-                uint32_t width = uarr_info ? uarr_info->elem_width : (struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : 32));
-                bool is_signed_sig = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : false));
+                uint32_t width = uarr_info ? uarr_info->elem_width : (struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : (has_smp ? smp_info.width : 32)));
+                if (dim_meta) {
+                    uint32_t pw = 1;
+                    for (const auto& d : dim_meta->dimensions) {
+                        if (!d.is_unpacked) pw *= (uint32_t)d.size();
+                    }
+                    if (pw > 1) width = pw;
+                }
+                bool is_signed_sig = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_smp ? smp_info.is_signed : false)));
 
                 auto msb = std::make_unique<NumberNode>(width > 0 ? width - 1 : 0, 32);
                 auto lsb = std::make_unique<NumberNode>(0, 32);
@@ -1248,6 +1258,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         sig.unpacked_dimensions.push_back(std::move(ad));
                         sig.bound1_expr = std::make_unique<NumberNode>(uarr_info->start_idx, 32);
                         sig.bound2_expr = std::make_unique<NumberNode>(uarr_info->end_idx, 32);
+                    } else if (dim_meta && dim_meta->unpacked_dims > 0) {
+                        sig.is_array = true;
+                        for (const auto& d : dim_meta->dimensions) {
+                            if (d.is_unpacked) {
+                                AstDimension ad;
+                                ad.left_expr = std::make_unique<NumberNode>(d.size(), 32);
+                                ad.right_expr = nullptr;
+                                ad.is_single = true;
+                                sig.unpacked_dimensions.push_back(std::move(ad));
+                            }
+                        }
                     }
 
                     while (match(TokenType::TOKEN_LBRACKET)) {
@@ -2267,15 +2288,37 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             else if (base_t == "shortint") width = 16;
             else if (base_t == "longint") width = 64;
 
-            if (match(TokenType::TOKEN_LBRACKET)) {
+            std::vector<AstDimension> packed_dims;
+            while (match(TokenType::TOKEN_LBRACKET)) {
                 auto msb_e = parse_expression();
                 expect(TokenType::TOKEN_COLON, "Expected ':' in typedef range");
                 auto lsb_e = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in typedef range");
+                uint32_t dim_w = 1;
                 if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
                     if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                        width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                        dim_w = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
                     }
+                }
+                if (packed_dims.empty()) {
+                    width = dim_w;
+                } else {
+                    width *= dim_w;
+                }
+                AstDimension ad;
+                ad.left_expr = std::move(msb_e);
+                ad.right_expr = std::move(lsb_e);
+                ad.is_single = false;
+                packed_dims.push_back(std::move(ad));
+            }
+            if (packed_dims.empty()) {
+                const auto* base_meta = find_type_dim_metadata(base_t);
+                if (base_meta) {
+                    uint32_t bw = 1;
+                    for (const auto& d : base_meta->dimensions) {
+                        if (!d.is_unpacked) bw *= (uint32_t)d.size();
+                    }
+                    if (bw > 1) width = bw;
                 }
             }
             if (current.type == TokenType::TOKEN_IDENTIFIER) {
@@ -2325,6 +2368,70 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 td->base_type = base_t;
                 td->width = width;
                 td->is_signed = is_sgn;
+                td->packed_dims = packed_dims;
+
+                VariableDimMetadata vdm;
+                vdm.name = tname;
+                for (const auto& udim : unpacked_dims) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (auto nm = dynamic_cast<NumberNode*>(udim.left_expr.get())) b1 = (int64_t)nm->aval;
+                    if (udim.right_expr) {
+                        if (auto nr = dynamic_cast<NumberNode*>(udim.right_expr.get())) b2 = (int64_t)nr->aval;
+                    }
+                    if (udim.is_single) {
+                        b2 = b1 > 0 ? (b1 - 1) : 0;
+                        b1 = 0;
+                    }
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = true;
+                    vdm.dimensions.push_back(info);
+                }
+                vdm.unpacked_dims = (uint32_t)unpacked_dims.size();
+
+                if (!packed_dims.empty()) {
+                    for (const auto& pdim : packed_dims) {
+                        int64_t b1 = 0, b2 = 0;
+                        if (auto nm = dynamic_cast<NumberNode*>(pdim.left_expr.get())) b1 = (int64_t)nm->aval;
+                        if (pdim.right_expr) {
+                            if (auto nr = dynamic_cast<NumberNode*>(pdim.right_expr.get())) b2 = (int64_t)nr->aval;
+                        }
+                        ArrayDimInfo info;
+                        info.left = b1;
+                        info.right = b2;
+                        info.is_unpacked = false;
+                        vdm.dimensions.push_back(info);
+                    }
+                } else {
+                    const VariableDimMetadata* base_vdm = find_type_dim_metadata(base_t);
+                    if (base_vdm) {
+                        for (const auto& d : base_vdm->dimensions) {
+                            if (!d.is_unpacked) {
+                                vdm.dimensions.push_back(d);
+                            }
+                        }
+                    } else if (base_t == "int" || base_t == "integer") {
+                        vdm.dimensions.push_back(ArrayDimInfo{31, 0, false});
+                    } else if (base_t == "byte") {
+                        vdm.dimensions.push_back(ArrayDimInfo{7, 0, false});
+                    } else if (base_t == "shortint") {
+                        vdm.dimensions.push_back(ArrayDimInfo{15, 0, false});
+                    } else if (base_t == "longint") {
+                        vdm.dimensions.push_back(ArrayDimInfo{63, 0, false});
+                    }
+                }
+                if (!vdm.dimensions.empty()) {
+                    vdm.is_vector_or_array = true;
+                }
+
+                global_type_dimensions[tname] = vdm;
+                if (current_parsing_package) {
+                    global_type_dimensions[current_parsing_package->name + "::" + tname] = vdm;
+                    current_parsing_package->type_dimensions[tname] = vdm;
+                } else if (current_parsing_module) {
+                    current_parsing_module->type_dimensions[tname] = vdm;
+                }
                 if (is_unpacked_arr) {
                     td->is_unpacked_array = true;
                     td->elem_type = base_t;
@@ -2438,6 +2545,20 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
 
         struct_typedef_map[type_name] = struct_node;
+        if (is_packed && struct_node->total_width > 0) {
+            VariableDimMetadata svdm;
+            svdm.name = type_name;
+            svdm.dimensions.push_back(ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false});
+            svdm.unpacked_dims = 0;
+            svdm.is_vector_or_array = true;
+            global_type_dimensions[type_name] = svdm;
+            if (current_parsing_package) {
+                global_type_dimensions[current_parsing_package->name + "::" + type_name] = svdm;
+                current_parsing_package->type_dimensions[type_name] = svdm;
+            } else if (current_parsing_module) {
+                current_parsing_module->type_dimensions[type_name] = svdm;
+            }
+        }
         return std::make_unique<TypedefNode>(type_name, struct_node);
     }
 
@@ -2904,6 +3025,31 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
             else if (bit && match_1) count++;
         }
         return (uint64_t)count;
+    }
+    if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
+        std::string var_name = adqn->type_name_arg;
+        if (var_name.empty() && adqn->target) {
+            if (auto id = dynamic_cast<IdentifierNode*>(adqn->target.get())) {
+                var_name = id->name;
+            }
+        }
+        const VariableDimMetadata* tmeta = find_type_dim_metadata(var_name);
+        if (tmeta && !tmeta->dimensions.empty()) {
+            if (adqn->kind == DimQueryKind::TOTAL_DIMENSIONS) return (uint64_t)tmeta->dimensions.size();
+            else return (uint64_t)tmeta->unpacked_dims;
+        }
+        throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
+    }
+    if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
+        std::string var_name = "";
+        if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
+            var_name = id->name;
+        }
+        const VariableDimMetadata* tmeta = find_type_dim_metadata(var_name);
+        if (tmeta && !tmeta->dimensions.empty()) {
+            if (aqn->query_type == ArrayQueryType::DIMENSIONS) return (uint64_t)tmeta->dimensions.size();
+            if (aqn->query_type == ArrayQueryType::UNPACKED_DIMENSIONS) return (uint64_t)tmeta->unpacked_dims;
+        }
     }
     return 0;
 }

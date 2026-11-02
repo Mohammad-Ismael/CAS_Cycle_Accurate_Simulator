@@ -371,18 +371,53 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->class_type_name = vdecl->class_type_name;
                     lv->value = LogicVal(64, 0, 0);
                 }
+                if (!vdecl->unpacked_dimensions.empty()) {
+                    for (const auto& udim : vdecl->unpacked_dimensions) {
+                        int64_t b1 = 0, b2 = 0;
+                        if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                        if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                        if (udim.is_single) {
+                            b2 = b1 > 0 ? (b1 - 1) : 0;
+                            b1 = 0;
+                        }
+                        ArrayDimInfo info;
+                        info.left = b1;
+                        info.right = b2;
+                        info.is_unpacked = true;
+                        lv->dimensions.push_back(info);
+                    }
+                    lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+                }
                 if (!vdecl->packed_dimensions.empty()) {
                     for (const auto& pdim : vdecl->packed_dimensions) {
                         int64_t b1 = 0, b2 = 0;
                         if (pdim.left_expr) b1 = eval_expr(pdim.left_expr.get(), bp.scope).to_signed();
                         if (pdim.right_expr) b2 = eval_expr(pdim.right_expr.get(), bp.scope).to_signed();
-                        lv->dimensions.push_back({b1, b2, false, false, false});
+                        ArrayDimInfo info;
+                        info.left = b1;
+                        info.right = b2;
+                        info.is_unpacked = false;
+                        lv->dimensions.push_back(info);
                     }
                     lv->is_vector_or_array = true;
+                } else if (!vdecl->type_name.empty()) {
+                    const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(vdecl->type_name);
+                    if (tmeta) {
+                        for (const auto& d : tmeta->dimensions) {
+                            if (d.is_unpacked) {
+                                lv->dimensions.insert(lv->dimensions.begin() + lv->unpacked_dims, d);
+                                lv->unpacked_dims++;
+                            } else {
+                                lv->dimensions.push_back(d);
+                            }
+                        }
+                        lv->is_vector_or_array = true;
+                    }
                 } else if (vdecl->width > 1 && vdecl->type_name.empty()) {
                     lv->dimensions.push_back({(int64_t)(vdecl->width - 1), 0, false, false, false});
                     lv->is_vector_or_array = true;
                 }
+                if (!lv->dimensions.empty()) lv->is_vector_or_array = true;
                 if (vdecl->is_chandle || vdecl->type_name == "chandle") {
                     lv->is_chandle = true;
                     lv->type_name = "chandle";
@@ -436,6 +471,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->class_type_name = vdecl->class_type_name;
                 lv->value = LogicVal(64, 0, 0);
             }
+            if (lv && !vdecl->unpacked_dimensions.empty()) {
+                for (const auto& udim : vdecl->unpacked_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                    if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                    if (udim.is_single) {
+                        b2 = b1 > 0 ? (b1 - 1) : 0;
+                        b1 = 0;
+                    }
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = true;
+                    lv->dimensions.push_back(info);
+                }
+                lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+            }
             if (lv && !vdecl->packed_dimensions.empty()) {
                 for (const auto& pdim : vdecl->packed_dimensions) {
                     int64_t b1 = 0, b2 = 0;
@@ -444,10 +496,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->dimensions.push_back({b1, b2, false, false, false});
                 }
                 lv->is_vector_or_array = true;
+            } else if (lv && !vdecl->type_name.empty()) {
+                const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(vdecl->type_name);
+                if (tmeta) {
+                    for (const auto& d : tmeta->dimensions) {
+                        if (d.is_unpacked) {
+                            lv->dimensions.insert(lv->dimensions.begin() + lv->unpacked_dims, d);
+                            lv->unpacked_dims++;
+                        } else {
+                            lv->dimensions.push_back(d);
+                        }
+                    }
+                    lv->is_vector_or_array = true;
+                }
             } else if (lv && vdecl->width > 1 && vdecl->type_name.empty()) {
                 lv->dimensions.push_back({(int64_t)(vdecl->width - 1), 0, false, false, false});
                 lv->is_vector_or_array = true;
             }
+            if (lv && !lv->dimensions.empty()) lv->is_vector_or_array = true;
             if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle")) {
                 lv->is_chandle = true;
                 lv->type_name = "chandle";
@@ -551,6 +617,49 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->value.is_string = true;
                 lv->value.str_val = "";
             }
+            if (!vdecl->unpacked_dimensions.empty()) {
+                for (const auto& udim : vdecl->unpacked_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                    if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                    if (udim.is_single) {
+                        b2 = b1 > 0 ? (b1 - 1) : 0;
+                        b1 = 0;
+                    }
+                    ArrayDimInfo info;
+                    info.left = b1;
+                    info.right = b2;
+                    info.is_unpacked = true;
+                    lv->dimensions.push_back(info);
+                }
+                lv->unpacked_dims = (uint32_t)lv->dimensions.size();
+            }
+            if (!vdecl->packed_dimensions.empty()) {
+                for (const auto& pdim : vdecl->packed_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (pdim.left_expr) b1 = eval_expr(pdim.left_expr.get(), bp.scope).to_signed();
+                    if (pdim.right_expr) b2 = eval_expr(pdim.right_expr.get(), bp.scope).to_signed();
+                    lv->dimensions.push_back({b1, b2, false, false, false});
+                }
+                lv->is_vector_or_array = true;
+            } else if (!vdecl->type_name.empty()) {
+                const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(vdecl->type_name);
+                if (tmeta) {
+                    for (const auto& d : tmeta->dimensions) {
+                        if (d.is_unpacked) {
+                            lv->dimensions.insert(lv->dimensions.begin() + lv->unpacked_dims, d);
+                            lv->unpacked_dims++;
+                        } else {
+                            lv->dimensions.push_back(d);
+                        }
+                    }
+                    lv->is_vector_or_array = true;
+                }
+            } else if (vdecl->width > 1 && vdecl->type_name.empty()) {
+                lv->dimensions.push_back({(int64_t)(vdecl->width - 1), 0, false, false, false});
+                lv->is_vector_or_array = true;
+            }
+            if (!lv->dimensions.empty()) lv->is_vector_or_array = true;
             if (vdecl->init_expr) {
                 LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                 if (vdecl->is_unpacked_array) {

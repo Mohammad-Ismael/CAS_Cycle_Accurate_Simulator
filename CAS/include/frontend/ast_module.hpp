@@ -3,6 +3,7 @@
 #include "ast_expr.hpp"
 #include "ast_stmt.hpp"
 #include "../common/types.hpp"
+#include "../common/array_query_types.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -415,6 +416,7 @@ struct TypedefNode : public ASTNode {
     int64_t arr_start_idx = 0;
     int64_t arr_end_idx = 0;
     std::vector<AstDimension> unpacked_dims;
+    std::vector<AstDimension> packed_dims;
 
     TypedefNode() = default;
     TypedefNode(std::string name, std::shared_ptr<EnumTypeNode> et)
@@ -874,6 +876,7 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
     std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
+    std::unordered_map<std::string, VariableDimMetadata> type_dimensions;
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::unordered_map<std::string, FunctionNode*> function_map;
@@ -977,6 +980,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
     std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
+    std::unordered_map<std::string, VariableDimMetadata> type_dimensions;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<GatePrimitiveNode>> gates;
     std::vector<std::shared_ptr<PathDelayNode>> path_delays;

@@ -566,6 +566,28 @@ struct ArrayQueryNode : public ExpressionNode {
     }
 };
 
+enum class DimQueryKind {
+    TOTAL_DIMENSIONS,
+    UNPACKED_DIMENSIONS
+};
+
+struct ArrayDimensionQueryNode : public ExpressionNode {
+    DimQueryKind kind;
+    std::unique_ptr<ExpressionNode> target;
+    std::string type_name_arg;
+
+    ArrayDimensionQueryNode(DimQueryKind k, std::unique_ptr<ExpressionNode> tgt, std::string tname = "")
+        : kind(k), target(std::move(tgt)), type_name_arg(std::move(tname)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<ArrayDimensionQueryNode>(
+            kind,
+            target ? target->clone() : nullptr,
+            type_name_arg
+        );
+    }
+};
+
 struct LetCallNode : public ExpressionNode {
     std::string let_name;
     std::string pkg_name;

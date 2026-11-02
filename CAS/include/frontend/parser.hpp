@@ -352,6 +352,37 @@ public:
         return nullptr;
     }
 
+    static inline std::unordered_map<std::string, VariableDimMetadata> global_type_dimensions;
+
+    static const VariableDimMetadata* find_type_dim_metadata(const std::string& name) {
+        if (name.empty()) return nullptr;
+        if (global_type_dimensions.find(name) != global_type_dimensions.end()) {
+            return &global_type_dimensions.at(name);
+        }
+        auto colon_pos = name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string pkg = name.substr(0, colon_pos);
+            std::string type = name.substr(colon_pos + 2);
+            auto pit = global_packages.find(pkg);
+            if (pit != global_packages.end()) {
+                if (pit->second->type_dimensions.find(type) != pit->second->type_dimensions.end()) {
+                    return &pit->second->type_dimensions.at(type);
+                }
+            }
+        }
+        for (const auto& kv : global_packages) {
+            const auto& pkg = kv.second;
+            std::string qualified = pkg->name + "::" + name;
+            if (global_type_dimensions.find(qualified) != global_type_dimensions.end()) {
+                return &global_type_dimensions.at(qualified);
+            }
+            if (pkg->type_dimensions.find(name) != pkg->type_dimensions.end()) {
+                return &pkg->type_dimensions.at(name);
+            }
+        }
+        return nullptr;
+    }
+
     bool is_constant_size_param(const std::string& name, uint32_t& out_size) const {
         if (current_parsing_module) {
             for (const auto& p : current_parsing_module->parameters) {

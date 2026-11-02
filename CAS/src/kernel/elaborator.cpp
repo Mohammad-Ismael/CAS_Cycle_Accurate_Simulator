@@ -129,6 +129,40 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         uint64_t c = eval_const_expr(ter->condition.get(), scope);
         return c ? eval_const_expr(ter->true_expr.get(), scope) : eval_const_expr(ter->false_expr.get(), scope);
     }
+    if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
+        std::string var_name = adqn->type_name_arg;
+        if (var_name.empty() && adqn->target) {
+            if (auto id = dynamic_cast<IdentifierNode*>(adqn->target.get())) {
+                var_name = id->name;
+            } else if (auto ma = dynamic_cast<MemberAccessNode*>(adqn->target.get())) {
+                var_name = ma->var_name + "." + ma->member_name;
+            }
+        }
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        VariableDimMetadata meta;
+        bool found = false;
+        if (result.var_dimensions.find(scoped_var) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(scoped_var);
+            found = true;
+        } else if (result.var_dimensions.find(var_name) != result.var_dimensions.end()) {
+            meta = result.var_dimensions.at(var_name);
+            found = true;
+        } else {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(var_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                meta = *tmeta;
+                found = true;
+            }
+        }
+        if (!found || meta.dimensions.empty()) {
+            throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
+        }
+        if (adqn->kind == DimQueryKind::TOTAL_DIMENSIONS) {
+            return (uint64_t)meta.dimensions.size();
+        } else {
+            return (uint64_t)meta.unpacked_dims;
+        }
+    }
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
         if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
@@ -145,6 +179,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         } else if (result.var_dimensions.find(var_name) != result.var_dimensions.end()) {
             meta = result.var_dimensions.at(var_name);
             found = true;
+        } else {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(var_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                meta = *tmeta;
+                found = true;
+            }
         }
         if (!found || meta.dimensions.empty()) {
             throw std::runtime_error("[CAS-DTINPCIL] Non-array or non-vector variable '" + var_name + "' passed to array querying function per IEEE 1800-2023 section 7.11");
@@ -441,6 +481,13 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
             c_ctrl.push_back(substitute_genvar_in_expr(c.get(), gname, val));
         }
         return std::make_unique<CountBitsNode>(std::move(t), std::move(c_ctrl));
+    }
+    if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
+        return std::make_unique<ArrayDimensionQueryNode>(
+            adqn->kind,
+            adqn->target ? substitute_genvar_in_expr(adqn->target.get(), gname, val) : nullptr,
+            adqn->type_name_arg
+        );
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         return std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);
@@ -1046,6 +1093,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
+        const VariableDimMetadata* type_meta = nullptr;
+        if (!s.type_name.empty()) {
+            type_meta = Parser::find_type_dim_metadata(s.type_name);
+        }
+        bool has_unpacked_type = (type_meta && type_meta->unpacked_dims > 0);
+
         if (s.is_associative_array) {
             std::string aa_scope = scope + "." + s.name;
             result.assoc_array_map[aa_scope] = AssociativeArrayObject(aa_scope, w, s.is_signed, s.assoc_key_type, s.assoc_key_width);
@@ -1071,10 +1124,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 *debug_out << "     * Queue allocated: " << q_scope 
                            << " [" << w << "-bit, bound=" << max_bound << "]\n";
             }
-        } else if (s.is_array) {
+        } else if (s.is_array || has_unpacked_type) {
             std::vector<ArrayDimInfo> all_dims;
             uint32_t total_depth = 1;
-            if (!s.unpacked_dimensions.empty()) {
+            uint32_t unpacked_cnt = 0;
+            if (has_unpacked_type) {
+                all_dims = type_meta->dimensions;
+                unpacked_cnt = type_meta->unpacked_dims;
+                for (const auto& d : all_dims) {
+                    if (d.is_unpacked) total_depth *= (uint32_t)d.size();
+                }
+                uint32_t pw = 1;
+                for (const auto& d : all_dims) {
+                    if (!d.is_unpacked) pw *= (uint32_t)d.size();
+                }
+                if (pw > 0) w = pw;
+            } else if (!s.unpacked_dimensions.empty()) {
                 for (const auto& udim : s.unpacked_dimensions) {
                     int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), scope);
                     int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), scope) : 0;
@@ -1107,35 +1172,37 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 all_dims.push_back(info);
                 total_depth = (uint32_t)info.size();
             }
-            uint32_t unpacked_cnt = (uint32_t)all_dims.size();
+            if (!has_unpacked_type) unpacked_cnt = (uint32_t)all_dims.size();
 
             // Packed dimensions
-            if (!s.packed_dimensions.empty()) {
-                for (const auto& pdim : s.packed_dimensions) {
-                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
-                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+            if (!has_unpacked_type) {
+                if (!s.packed_dimensions.empty()) {
+                    for (const auto& pdim : s.packed_dimensions) {
+                        int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                        int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                        ArrayDimInfo info;
+                        info.left = b1;
+                        info.right = b2;
+                        info.is_unpacked = false;
+                        all_dims.push_back(info);
+                    }
+                } else if (s.msb_expr) {
+                    int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
+                    int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
                     ArrayDimInfo info;
                     info.left = b1;
                     info.right = b2;
                     info.is_unpacked = false;
                     all_dims.push_back(info);
+                } else if (s.type_name == "int" || s.type_name == "integer") {
+                    all_dims.push_back({31, 0, false, false, false});
+                } else if (s.type_name == "byte") {
+                    all_dims.push_back({7, 0, false, false, false});
+                } else if (s.type_name == "shortint") {
+                    all_dims.push_back({15, 0, false, false, false});
+                } else if (s.type_name == "longint" || s.type_name == "time") {
+                    all_dims.push_back({63, 0, false, false, false});
                 }
-            } else if (s.msb_expr) {
-                int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
-                int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
-                ArrayDimInfo info;
-                info.left = b1;
-                info.right = b2;
-                info.is_unpacked = false;
-                all_dims.push_back(info);
-            } else if (s.type_name == "int" || s.type_name == "integer") {
-                all_dims.push_back({31, 0, false, false, false});
-            } else if (s.type_name == "byte") {
-                all_dims.push_back({7, 0, false, false, false});
-            } else if (s.type_name == "shortint") {
-                all_dims.push_back({15, 0, false, false, false});
-            } else if (s.type_name == "longint" || s.type_name == "time") {
-                all_dims.push_back({63, 0, false, false, false});
             }
 
             std::string mem_scope = scope + "." + s.name;
@@ -1170,6 +1237,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.is_queue = true;
                 svdm.is_vector_or_array = true;
                 svdm.unpacked_dims = 1;
+            } else if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                svdm.dimensions = type_meta->dimensions;
+                svdm.unpacked_dims = 0;
+                svdm.is_vector_or_array = true;
             } else if (!s.packed_dimensions.empty()) {
                 for (const auto& pdim : s.packed_dimensions) {
                     int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);

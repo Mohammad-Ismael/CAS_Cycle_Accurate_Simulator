@@ -226,7 +226,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string t_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
         proc_type_name = p_name + "::" + t_name;
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text))) {
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr)) {
         proc_type_name = current.text;
         advance();
     }
@@ -238,7 +238,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         SimpleTypedef simple_info;
         bool has_simple = get_simple_typedef(type_name, simple_info);
         const UnpackedArrayTypedef* uarr_info = get_unpacked_array_typedef(type_name);
+        const VariableDimMetadata* dim_meta = find_type_dim_metadata(type_name);
         uint32_t width = uarr_info ? uarr_info->total_bit_width() : (struct_info ? struct_info->total_width : (enum_info ? enum_info->base_width : (has_simple ? simple_info.width : 32)));
+        if (dim_meta) {
+            uint32_t pw = 1;
+            for (const auto& d : dim_meta->dimensions) {
+                if (!d.is_unpacked) pw *= (uint32_t)d.size();
+            }
+            if (pw > 1) width = pw;
+        }
         bool is_signed_var = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_simple ? simple_info.is_signed : false)));
 
         std::string vname = current.text;

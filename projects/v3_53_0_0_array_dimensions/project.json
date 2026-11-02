@@ -1,0 +1,8 @@
+{
+  "name": "v3_53_0_0_array_dimensions",
+  "version": "v3.53.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§20.7",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_53_0_regression"
+}
