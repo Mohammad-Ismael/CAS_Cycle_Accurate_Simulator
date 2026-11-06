@@ -530,6 +530,18 @@ void StratifiedScheduler::propagate_comb() {
                 if (drv.is_gate) {
                     return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
                 } else {
+                    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(drv.rhs)) {
+                        std::string tname = engine.netlist[rca.target.net_id].type_name;
+                        if (tname.empty()) {
+                            std::string nname = engine.netlist[rca.target.net_id].name;
+                            if (engine.var_to_struct_type.count(nname)) tname = engine.var_to_struct_type.at(nname);
+                        }
+                        if (!tname.empty()) {
+                            if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
+                                return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
+                            }
+                        }
+                    }
                     return engine.evaluator.eval_expr(drv.rhs, drv.scope);
                 }
             };

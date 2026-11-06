@@ -1153,6 +1153,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return val;
         }
         if (scast->kind == CastKind::TYPE) {
+            if (auto ucat = dynamic_cast<UnpackedConcatNode*>(scast->expr.get())) {
+                const PackedStructType* st_cast = find_struct_type(scast->target_type_name, scope);
+                if (st_cast) {
+                    return eval_struct_pattern(ucat, *st_cast, scope);
+                }
+            }
             LogicVal val = eval(scast->expr.get(), scope);
             std::string target_type = scast->target_type_name;
             if (target_type == "bit" || target_type == "logic" || target_type == "reg") {
@@ -3073,6 +3079,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        if (const PackedStructType* st = infer_struct_for_pattern(ucat, scope)) {
+            return eval_struct_pattern(ucat, *st, scope);
+        }
         auto arr_elems = eval_array_expr(ucat, scope);
         LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
         res.is_unpacked = true;
@@ -3151,6 +3160,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        if (const PackedStructType* st = infer_struct_for_pattern(ucat, scope)) {
+            return eval_struct_pattern(ucat, *st, scope);
+        }
         auto arr_elems = eval_array_expr(ucat, scope);
         LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
         res.is_unpacked = true;
@@ -4383,6 +4395,145 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
     }
 
     return result;
+}
+
+const PackedStructType* ExprEvaluator::find_struct_type(const std::string& type_name, const std::string& scope) const {
+    if (type_name.empty()) return nullptr;
+
+    // 1. Check scoped name
+    if (!scope.empty()) {
+        std::string cur_s = scope;
+        while (true) {
+            std::string scoped = cur_s.empty() ? type_name : (cur_s + "." + type_name);
+            auto it = engine.struct_types.find(scoped);
+            if (it != engine.struct_types.end()) return &it->second;
+            if (cur_s.empty()) break;
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+    }
+
+    // 2. Check direct type name
+    auto it = engine.struct_types.find(type_name);
+    if (it != engine.struct_types.end()) return &it->second;
+
+    // 3. Suffix match (e.g. "top.dut...ds_rsp_t" matches "ds_rsp_t")
+    for (const auto& pair : engine.struct_types) {
+        if (pair.first.length() > type_name.length()) {
+            if (pair.first.rfind("." + type_name) == pair.first.length() - (type_name.length() + 1) ||
+                pair.first.rfind("::" + type_name) == pair.first.length() - (type_name.length() + 2)) {
+                return &pair.second;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+const PackedStructType* ExprEvaluator::infer_struct_for_pattern(UnpackedConcatNode* ucat, const std::string& scope) const {
+    if (!ucat) return nullptr;
+
+    std::vector<std::string> named_members;
+    for (const auto& elem : ucat->elements) {
+        if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+            if (!pm->member_name.empty() && pm->member_name != "default") {
+                named_members.push_back(pm->member_name);
+            }
+        }
+    }
+
+    if (named_members.empty()) return nullptr;
+
+    auto matches_all = [&](const PackedStructType& st) -> bool {
+        for (const auto& mname : named_members) {
+            if (!st.get_member(mname)) return false;
+        }
+        return true;
+    };
+
+    // 1. First priority: search in scope
+    if (!scope.empty()) {
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            for (const auto& pair : engine.struct_types) {
+                if (pair.first.rfind(cur_s, 0) == 0) {
+                    if (matches_all(pair.second)) {
+                        return &pair.second;
+                    }
+                }
+            }
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) break;
+            cur_s = cur_s.substr(0, dot);
+        }
+    }
+
+    // 2. Second priority: any struct_types entry that matches
+    for (const auto& pair : engine.struct_types) {
+        if (matches_all(pair.second)) {
+            return &pair.second;
+        }
+    }
+
+    return nullptr;
+}
+
+LogicVal ExprEvaluator::eval_struct_pattern(UnpackedConcatNode* ucat, const PackedStructType& st, const std::string& scope) {
+    LogicVal res(st.total_width, 0, 0, st.is_signed);
+
+    // 1. Process 'default:' member if present
+    ExpressionNode* default_expr = nullptr;
+    for (const auto& elem : ucat->elements) {
+        if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+            if (pm->member_name == "default") {
+                default_expr = pm->value.get();
+                break;
+            }
+        }
+    }
+
+    if (default_expr) {
+        LogicVal def_val = eval(default_expr, scope);
+        for (const auto& sm : st.members) {
+            LogicVal casted = LogicOps::cast_width(def_val, sm.width, sm.is_signed);
+            res.deposit_slice(sm.offset, sm.width, casted);
+        }
+    }
+
+    // 2. Process all elements (by-name or positional)
+    size_t pos_idx = 0;
+    for (const auto& elem : ucat->elements) {
+        if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+            if (pm->member_name == "default") {
+                continue;
+            }
+            if (!pm->member_name.empty()) {
+                const StructMember* sm = st.get_member(pm->member_name);
+                if (sm) {
+                    LogicVal m_val = eval(pm->value.get(), scope);
+                    m_val = LogicOps::cast_width(m_val, sm->width, sm->is_signed);
+                    res.deposit_slice(sm->offset, sm->width, m_val);
+                }
+            } else {
+                if (pos_idx < st.members.size()) {
+                    const auto& sm = st.members[pos_idx++];
+                    LogicVal m_val = eval(pm->value.get(), scope);
+                    m_val = LogicOps::cast_width(m_val, sm.width, sm.is_signed);
+                    res.deposit_slice(sm.offset, sm.width, m_val);
+                }
+            }
+        } else {
+            if (pos_idx < st.members.size()) {
+                const auto& sm = st.members[pos_idx++];
+                LogicVal m_val = eval(elem.get(), scope);
+                m_val = LogicOps::cast_width(m_val, sm.width, sm.is_signed);
+                res.deposit_slice(sm.offset, sm.width, m_val);
+            }
+        }
+    }
+
+    return res;
 }
 
 std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const std::string& scope) {

@@ -1,6 +1,7 @@
 #pragma once
 #include "../frontend/ast_expr.hpp"
 #include "../common/sva_types.hpp"
+#include "../common/struct_types.hpp"
 #include "netlist.hpp"
 #include "execution_context.hpp"
 #include <string>
@@ -69,6 +70,10 @@ public:
     LogicVal eval_sformatf(SFormatfNode* node, const std::string& scope);
     static std::string format_systemverilog_string(const std::string& fmt, const std::vector<LogicVal>& args, uint64_t sim_time);
     bool get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits);
+
+    const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
+    const PackedStructType* infer_struct_for_pattern(UnpackedConcatNode* ucat, const std::string& scope) const;
+    LogicVal eval_struct_pattern(UnpackedConcatNode* ucat, const PackedStructType& st, const std::string& scope);
 
     bool get_array_elements(const std::string& var_name, const std::string& scope, std::vector<LogicVal>& out_elements, uint32_t& out_elem_width, bool& out_is_signed);
     std::vector<LogicVal> eval_array_expr(ExpressionNode* expr, const std::string& scope);
