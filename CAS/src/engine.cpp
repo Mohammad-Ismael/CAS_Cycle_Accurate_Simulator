@@ -65,7 +65,9 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     assoc_array_map = std::move(elab_res.assoc_array_map);
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
+    param_val_map = std::move(elab_res.param_val_map);
     processes = std::move(elab_res.processes);
+    comb_target_net_ids = std::move(elab_res.comb_target_net_ids);
     function_map = std::move(elab_res.function_map);
     named_events = std::move(elab_res.named_events);
     named_event_map = std::move(elab_res.named_event_map);
@@ -272,6 +274,7 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
                        const std::string& top_module_name,
                        std::ostream* debug_out) {
     Elaborator elaborator;
+    elaborator.top_param_overrides = top_param_overrides;
     load_elaboration(elaborator.elaborate(modules, top_module_name, debug_out));
 }
 

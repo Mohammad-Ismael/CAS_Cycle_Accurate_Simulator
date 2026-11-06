@@ -31,7 +31,7 @@ ParsedNumber NumberParser::parse_simple_decimal(const std::string& num_str) {
     res.text = num_str;
     res.aval = std::stoull(num_str);
     res.bval = 0;
-    res.is_signed = false;
+    res.is_signed = true;
     return res;
 }
 
@@ -58,6 +58,47 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
                 res.bval |= 1;
             }
         }
+        uint32_t parsed_bits = static_cast<uint32_t>(digits.size());
+        if (parsed_bits < width && !digits.empty()) {
+            char msb_char = digits[0];
+            if (msb_char == 'x' || msb_char == 'X') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.aval |= (1ULL << b);
+                    res.bval |= (1ULL << b);
+                }
+            } else if (msb_char == 'z' || msb_char == 'Z' || msb_char == '?') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.bval |= (1ULL << b);
+                }
+            }
+        }
+    } else if (base == 'o' || base == 'O') {
+        for (char ch : digits) {
+            res.aval <<= 3;
+            res.bval <<= 3;
+            if (ch >= '0' && ch <= '7') {
+                res.aval |= (ch - '0');
+            } else if (ch == 'x' || ch == 'X') {
+                res.aval |= 0x7;
+                res.bval |= 0x7;
+            } else if (ch == 'z' || ch == 'Z' || ch == '?') {
+                res.bval |= 0x7;
+            }
+        }
+        uint32_t parsed_bits = static_cast<uint32_t>(digits.size() * 3);
+        if (parsed_bits < width && !digits.empty()) {
+            char msb_char = digits[0];
+            if (msb_char == 'x' || msb_char == 'X') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.aval |= (1ULL << b);
+                    res.bval |= (1ULL << b);
+                }
+            } else if (msb_char == 'z' || msb_char == 'Z' || msb_char == '?') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.bval |= (1ULL << b);
+                }
+            }
+        }
     } else if (base == 'h' || base == 'H') {
         for (char ch : digits) {
             res.aval <<= 4;
@@ -73,6 +114,20 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
                 res.bval |= 0xF;
             } else if (ch == 'z' || ch == 'Z' || ch == '?') {
                 res.bval |= 0xF;
+            }
+        }
+        uint32_t parsed_bits = static_cast<uint32_t>(digits.size() * 4);
+        if (parsed_bits < width && !digits.empty()) {
+            char msb_char = digits[0];
+            if (msb_char == 'x' || msb_char == 'X') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.aval |= (1ULL << b);
+                    res.bval |= (1ULL << b);
+                }
+            } else if (msb_char == 'z' || msb_char == 'Z' || msb_char == '?') {
+                for (uint32_t b = parsed_bits; b < width && b < 64; ++b) {
+                    res.bval |= (1ULL << b);
+                }
             }
         }
     } else if (base == 'd' || base == 'D') {

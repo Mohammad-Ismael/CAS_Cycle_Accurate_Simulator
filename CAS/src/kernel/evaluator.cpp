@@ -47,10 +47,7 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
     if (net_val.is_string || net.type_name == "string") {
         return net_val;
     }
-    uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
-    uint64_t a = (net_val.aval >> ref.offset) & mask;
-    uint64_t b = (net_val.bval >> ref.offset) & mask;
-    return LogicVal(ref.width, a, b);
+    return net_val.extract_slice(ref.offset, ref.width);
 }
 
 void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
@@ -64,17 +61,12 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
 
     auto cur = target_net.value;
-    uint64_t mask = (ref.width >= 64) ? ~0ULL : ((1ULL << ref.width) - 1);
-    uint64_t clear_mask = ~(mask << ref.offset);
-
-    uint64_t new_a = (cur.aval & clear_mask) | ((casted.aval & mask) << ref.offset);
-    uint64_t new_b = (cur.bval & clear_mask) | ((casted.bval & mask) << ref.offset);
-    LogicVal new_val(cur.width, new_a, new_b);
-    target_net.set(new_val);
+    cur.deposit_slice(ref.offset, ref.width, casted);
+    target_net.set(cur);
     if (target_id < engine.alias_members.size()) {
         for (size_t other_id : engine.alias_members[target_id]) {
             if (other_id != target_id && other_id < engine.netlist.size()) {
-                engine.netlist[other_id].set(new_val);
+                engine.netlist[other_id].set(cur);
             }
         }
     }
@@ -801,11 +793,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto for_stmt = dynamic_cast<ForStatementNode*>(stmt)) {
+        expr_eval.get_context().push_frame(bp.scope + ".for");
         if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
+        uint64_t for_iters = 0;
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
             for (auto& s : for_stmt->body) execute_statement(s.get(), bp);
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
+            for_iters++;
+            if (for_iters > 100000) {
+                std::cout << "[ERROR FOR LOOP] for loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
+                break;
+            }
         }
+        expr_eval.get_context().pop_frame();
         return;
     }
 
@@ -850,8 +850,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
+        uint64_t while_iters = 0;
         while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
             for (auto& s : while_stmt->body) execute_statement(s.get(), bp);
+            while_iters++;
+            if (while_iters > 100000) {
+                std::cout << "[ERROR WHILE LOOP] while loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
+                break;
+            }
         }
         return;
     }
@@ -861,6 +867,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
         for (uint64_t i = 0; i < count; ++i) {
             for (auto& s : rep_stmt->body) execute_statement(s.get(), bp);
+        }
+        return;
+    }
+
+    if (auto fv_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
+        while (engine.scheduler.is_active() && !bp.completed && !bp.is_delayed && bp.waiting_event_id == (size_t)-1 && !bp.is_waiting_sync && !bp.is_waiting_cycle) {
+            for (auto& s : fv_stmt->body) {
+                execute_statement(s.get(), bp);
+                if (!engine.scheduler.is_active() || bp.completed || bp.is_delayed || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_sync || bp.is_waiting_cycle) break;
+            }
         }
         return;
     }
@@ -1099,6 +1115,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto vc = dynamic_cast<VoidCastStatementNode*>(stmt)) {
+        if (vc->expr) {
+            eval_expr(vc->expr.get(), bp.scope);
+        }
+        return;
+    }
+
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         std::string tname = tcall->task_name;
         auto colons = tname.find("::");
@@ -1152,6 +1175,239 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
             }
+        }
+
+        if (tcall->task_name == "$finish" || tcall->task_name == "$stop") {
+            if (engine.is_finish_msg_allowed()) {
+                std::cout << "[CAS $finish] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
+            }
+            engine.scheduler.terminate();
+            bp.completed = true;
+            return;
+        }
+
+        if (tcall->task_name == "$readmemh" || tcall->task_name == "$readmemb") {
+            if (tcall->args.size() < 2) return;
+            bool is_hex = (tcall->task_name == "$readmemh");
+            LogicVal fn_val = eval_expr(tcall->args[0].get(), bp.scope);
+            std::string filename = fn_val.is_string ? fn_val.str_val : "";
+            if (filename.empty()) return;
+
+            std::string mem_name = "";
+            if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[1].get())) {
+                mem_name = id->name;
+            }
+
+            MemoryArray* target_mem = nullptr;
+            std::string cur_s = bp.scope;
+            while (!cur_s.empty()) {
+                std::string scoped_m = cur_s + "." + mem_name;
+                auto it = engine.memory_map.find(scoped_m);
+                if (it != engine.memory_map.end()) {
+                    target_mem = &it->second;
+                    break;
+                }
+                auto dot_pos = cur_s.rfind('.');
+                if (dot_pos == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot_pos);
+            }
+            if (!target_mem) {
+                auto it = engine.memory_map.find(mem_name);
+                if (it != engine.memory_map.end()) {
+                    target_mem = &it->second;
+                }
+            }
+            if (!target_mem) {
+                for (auto& kv : engine.memory_map) {
+                    if (kv.first.size() >= mem_name.size() &&
+                        kv.first.substr(kv.first.size() - mem_name.size()) == mem_name) {
+                        target_mem = &kv.second;
+                        break;
+                    }
+                }
+            }
+
+            if (!target_mem) return;
+
+            std::ifstream ifs(filename);
+            if (!ifs.is_open()) {
+                for (const auto& sp : engine.source_search_paths) {
+                    std::string alt = sp + "/" + filename;
+                    ifs.open(alt);
+                    if (ifs.is_open()) {
+                        filename = alt;
+                        break;
+                    }
+                }
+            }
+            if (!ifs.is_open()) return;
+
+            int64_t start_addr = target_mem->start_idx;
+            int64_t cur_addr = start_addr;
+            std::string token;
+            while (ifs >> token) {
+                if (token.rfind("//", 0) == 0) {
+                    std::string dummy;
+                    std::getline(ifs, dummy);
+                    continue;
+                }
+                if (token.rfind("/*", 0) == 0) {
+                    while (token.find("*/") == std::string::npos && (ifs >> token)) {}
+                    continue;
+                }
+                if (token.front() == '@') {
+                    std::string addr_hex = token.substr(1);
+                    cur_addr = std::stoull(addr_hex, nullptr, 16);
+                    continue;
+                }
+                uint64_t aval = 0;
+                uint64_t bval = 0;
+                int bits_per_digit = is_hex ? 4 : 1;
+                for (char ch : token) {
+                    if (ch == '_') continue;
+                    aval <<= bits_per_digit;
+                    bval <<= bits_per_digit;
+                    if (ch == 'x' || ch == 'X') {
+                        aval |= (bits_per_digit == 4 ? 0xF : 1);
+                        bval |= (bits_per_digit == 4 ? 0xF : 1);
+                    } else if (ch == 'z' || ch == 'Z' || ch == '?') {
+                        bval |= (bits_per_digit == 4 ? 0xF : 1);
+                    } else {
+                        int d = 0;
+                        if (ch >= '0' && ch <= '9') d = ch - '0';
+                        else if (ch >= 'a' && ch <= 'f') d = 10 + (ch - 'a');
+                        else if (ch >= 'A' && ch <= 'F') d = 10 + (ch - 'A');
+                        aval |= (d & ((1 << bits_per_digit) - 1));
+                    }
+                }
+                LogicVal word_val(target_mem->word_width, aval, bval);
+                target_mem->set_word(cur_addr++, word_val);
+            }
+            return;
+        }
+
+        if (tcall->task_name == "$fwrite" || tcall->task_name == "$fdisplay") {
+            if (tcall->args.empty()) return;
+            LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
+            int fd = (int)fd_val.aval;
+            bool is_fdisp = (tcall->task_name == "$fdisplay");
+            
+            std::ostream* out_stream = nullptr;
+            if (fd == 1) {
+                out_stream = &std::cout;
+            }
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.stream) {
+                out_stream = it->second.stream.get();
+            }
+
+            std::string fmt = "";
+            size_t arg_start = 1;
+            if (tcall->args.size() > 1) {
+                LogicVal fmt_val = eval_expr(tcall->args[1].get(), bp.scope);
+                if (fmt_val.is_string) {
+                    fmt = fmt_val.str_val;
+                    arg_start = 2;
+                }
+            }
+
+            std::stringstream ss;
+            size_t arg_idx = arg_start;
+            size_t fmt_len = fmt.size();
+            for (size_t i = 0; i < fmt_len; ++i) {
+                if (fmt[i] == '%' && i + 1 < fmt_len) {
+                    ++i;
+                    if (fmt[i] == '%') {
+                        ss << '%';
+                        continue;
+                    }
+                    bool pad_zero = false;
+                    int width = 0;
+                    if (fmt[i] == '0') {
+                        pad_zero = true;
+                        ++i;
+                    }
+                    while (i < fmt_len && std::isdigit((unsigned char)fmt[i])) {
+                        width = width * 10 + (fmt[i] - '0');
+                        ++i;
+                    }
+                    char spec = (i < fmt_len) ? fmt[i] : ' ';
+                    if (spec == 'm') {
+                        ss << bp.scope;
+                        continue;
+                    }
+                    if (arg_idx < tcall->args.size()) {
+                        LogicVal val = eval_expr(tcall->args[arg_idx++].get(), bp.scope);
+                        if (spec == 'c') {
+                            char ch = static_cast<char>(val.aval & 0xFF);
+                            ss << ch;
+                        } else if (spec == 's') {
+                            if (val.is_string) ss << val.str_val;
+                            else ss << val.aval;
+                        } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
+                            ss << "x";
+                        } else if (spec == 'd' || spec == 't') {
+                            if (val.is_real) ss << (int64_t)val.real_val;
+                            else if (val.is_signed) ss << val.to_signed();
+                            else ss << val.aval;
+                        } else if (spec == 'h' || spec == 'x') {
+                            std::string hx = val.to_hex_string(true);
+                            if (pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = "0" + hx;
+                            }
+                            ss << hx;
+                        } else {
+                            ss << val.aval;
+                        }
+                    }
+                } else {
+                    ss << fmt[i];
+                }
+            }
+            while (arg_idx < tcall->args.size()) {
+                LogicVal val = eval_expr(tcall->args[arg_idx++].get(), bp.scope);
+                if (val.is_string) ss << val.str_val;
+                else ss << val.aval;
+                arg_idx++;
+            }
+            if (is_fdisp) ss << "\n";
+
+            std::string out_str = ss.str();
+            if (out_stream) {
+                *out_stream << out_str;
+            }
+            if (out_stream != &std::cout) {
+                std::cout << out_str;
+            }
+            return;
+        }
+
+        if (tcall->task_name == "$fflush") {
+            if (!tcall->args.empty()) {
+                LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
+                int fd = (int)fd_val.aval;
+                auto it = engine.open_files.find(fd);
+                if (it != engine.open_files.end() && it->second.stream) {
+                    it->second.stream->flush();
+                }
+                std::cout.flush();
+            } else {
+                std::cout.flush();
+            }
+            return;
+        }
+
+        if (tcall->task_name == "$fclose") {
+            if (!tcall->args.empty()) {
+                LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
+                int fd = (int)fd_val.aval;
+                auto it = engine.open_files.find(fd);
+                if (it != engine.open_files.end()) {
+                    if (it->second.stream) it->second.stream->close();
+                    engine.open_files.erase(it);
+                }
+            }
+            return;
         }
 
         auto dot = tname.rfind('.');
@@ -2295,10 +2551,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         ++i;
                     }
                     char spec = (i < fmt_len) ? disp->format_string[i] : ' ';
+                    if (spec == 'm') {
+                        std::cout << bp.scope;
+                        continue;
+                    }
 
                     if (arg_idx < disp->arg_exprs.size()) {
                         LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
-                        if (spec == 's') {
+                        if (spec == 'c') {
+                            char ch = static_cast<char>(val.aval & 0xFF);
+                            std::cout << ch;
+                        } else if (spec == 's') {
                             if (val.is_string) std::cout << val.str_val;
                             else std::cout << val.aval;
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
@@ -2559,6 +2822,57 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 return;
             }
             if (local->is_unpacked_array) {
+                if (nassign->bit_idx) {
+                    LogicVal idx_val = eval_expr(nassign->bit_idx.get(), bp.scope);
+                    if (!idx_val.is_unknown()) {
+                        int64_t idx = (int64_t)idx_val.aval;
+                        int64_t rel_idx = idx - local->arr_start_idx;
+                        if (rel_idx >= 0 && (size_t)rel_idx < local->unpacked_elements.size()) {
+                            if (nassign->bit_idx2) {
+                                LogicVal msb_val = eval_expr(nassign->bit_idx2.get(), bp.scope);
+                                if (!msb_val.is_unknown()) {
+                                    uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                    if (nassign->bit_lsb2) {
+                                        LogicVal lsb_val = eval_expr(nassign->bit_lsb2.get(), bp.scope);
+                                        if (nassign->is_plus_colon2) {
+                                            lsb = msb_val.aval;
+                                            slice_w = lsb_val.aval;
+                                            msb = lsb + slice_w - 1;
+                                        } else if (nassign->is_minus_colon2) {
+                                            slice_w = lsb_val.aval;
+                                            msb = msb_val.aval;
+                                            lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                        } else {
+                                            msb = msb_val.aval;
+                                            lsb = lsb_val.aval;
+                                            if (msb < lsb) std::swap(msb, lsb);
+                                            slice_w = msb - lsb + 1;
+                                        }
+                                    } else {
+                                        lsb = msb_val.aval;
+                                        slice_w = 1;
+                                        msb = lsb;
+                                    }
+                                    local->unpacked_elements[rel_idx].deposit_slice(lsb, slice_w, rhs_val);
+                                }
+                            } else {
+                                local->unpacked_elements[rel_idx] = LogicOps::cast_width(rhs_val, local->elem_width, local->is_signed);
+                            }
+                            std::string elem_vname = base_var + "[" + std::to_string(idx) + "]";
+                            if (expr_eval.get_context().has_active_frame()) {
+                                LocalVar* elem_lv = expr_eval.get_context().lookup_local(elem_vname);
+                                if (elem_lv) elem_lv->value = rhs_val;
+                            }
+                            if (!bp.call_stack.empty()) {
+                                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                    LocalVar* elem_lv = it->local_frame.get_var(elem_vname);
+                                    if (elem_lv) { elem_lv->value = rhs_val; break; }
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
                 std::vector<LogicVal> elems;
                 if (rhs_val.is_unpacked) {
                     elems = rhs_val.unpacked_elements;
@@ -2586,13 +2900,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (st) {
                     const StructMember* sm = st->get_member(member_name);
                     if (sm) {
-                        uint32_t w = sm->width;
-                        uint32_t off = sm->offset;
-                        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                        uint64_t full_mask = mask << off;
-                        uint64_t new_a = (local->value.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
-                        uint64_t new_b = (local->value.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
-                        local->value = LogicVal(local->width, new_a, new_b);
+                        local->value.deposit_slice(sm->offset, sm->width, rhs_val);
                         return;
                     }
                 }
@@ -2628,8 +2936,92 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         std::string scoped_mem_nba = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
-        if (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end() || engine.memory_map.find(target_name) != engine.memory_map.end()) {
-            auto& mem = (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end()) ? engine.memory_map.at(scoped_mem_nba) : engine.memory_map.at(target_name);
+        if (engine.memory_map.find(scoped_mem_nba) == engine.memory_map.end()) {
+            std::string cur_s = bp.scope;
+            while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + target_name) == engine.memory_map.end()) {
+                auto dot = cur_s.rfind('.');
+                if (dot == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot);
+            }
+            if (!cur_s.empty()) scoped_mem_nba = cur_s + "." + target_name;
+            else if (engine.memory_map.find(target_name) != engine.memory_map.end()) {
+                scoped_mem_nba = target_name;
+            }
+        }
+        if (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end()) {
+            auto& mem = engine.memory_map.at(scoped_mem_nba);
+            if (nassign->bit_idx) {
+                LogicVal idx_val = eval_expr(nassign->bit_idx.get(), bp.scope);
+                if (!idx_val.is_unknown()) {
+                    int64_t addr = (int64_t)idx_val.aval;
+                    LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+                    if (nassign->bit_idx2) {
+                        LogicVal msb_val = eval_expr(nassign->bit_idx2.get(), bp.scope);
+                        if (!msb_val.is_unknown()) {
+                            uint32_t msb = 0, lsb = 0, slice_w = 0;
+                            if (nassign->bit_lsb2) {
+                                LogicVal lsb_val = eval_expr(nassign->bit_lsb2.get(), bp.scope);
+                                if (nassign->is_plus_colon2) {
+                                    lsb = msb_val.aval;
+                                    slice_w = lsb_val.aval;
+                                    msb = lsb + slice_w - 1;
+                                } else if (nassign->is_minus_colon2) {
+                                    slice_w = lsb_val.aval;
+                                    msb = msb_val.aval;
+                                    lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                } else {
+                                    msb = msb_val.aval;
+                                    lsb = lsb_val.aval;
+                                    if (msb < lsb) std::swap(msb, lsb);
+                                    slice_w = msb - lsb + 1;
+                                }
+                            } else {
+                                lsb = msb_val.aval;
+                                slice_w = 1;
+                                msb = lsb;
+                            }
+                            if (nassign->intra_delay > 0) {
+                                uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                                engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                            } else {
+                                engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                            }
+                        }
+                    } else if (nassign->bit_lsb) {
+                        LogicVal msb_val = eval_expr(nassign->bit_idx.get(), bp.scope);
+                        LogicVal lsb_val = eval_expr(nassign->bit_lsb.get(), bp.scope);
+                        uint32_t msb = 0, lsb = 0, slice_w = 0;
+                        if (nassign->is_plus_colon) {
+                            lsb = msb_val.aval;
+                            slice_w = lsb_val.aval;
+                            msb = lsb + slice_w - 1;
+                        } else if (nassign->is_minus_colon) {
+                            slice_w = lsb_val.aval;
+                            msb = msb_val.aval;
+                            lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                        } else {
+                            msb = msb_val.aval;
+                            lsb = lsb_val.aval;
+                            if (msb < lsb) std::swap(msb, lsb);
+                            slice_w = msb - lsb + 1;
+                        }
+                        if (nassign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                            engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                        } else {
+                            engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                        }
+                    } else {
+                        if (nassign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                            engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, addr, rhs_val);
+                        } else {
+                            engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val);
+                        }
+                    }
+                }
+                return;
+            }
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
             std::vector<LogicVal> elems;
             if (rhs_val.is_unpacked) {
@@ -2699,6 +3091,95 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             engine.scheduler.queue_delayed_nba(wake_time, net_id, casted, sm->offset, sm->width, true);
                         } else {
                             engine.scheduler.queue_nba(net_id, casted, sm->offset, sm->width, true);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            if (nassign->bit_idx) {
+                uint32_t d1_width = 1;
+                std::string full_target_name = engine.netlist[net_id].name;
+                auto it_vdm = engine.var_dimensions.find(full_target_name);
+                if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(bp.scope.empty() ? nassign->target : (bp.scope + "." + nassign->target));
+                if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(nassign->target);
+                int64_t base_low = 0;
+                if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                    base_low = it_vdm->second.dimensions[0].low();
+                    if (it_vdm->second.dimensions.size() > 1) {
+                        d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                    }
+                }
+                LogicVal idx_v = eval_expr(nassign->bit_idx.get(), bp.scope);
+                if (!idx_v.is_unknown()) {
+                    uint32_t msb = 0, lsb = 0, slice_w = 0;
+                    uint32_t elem_idx = idx_v.aval;
+                    if (base_low > 0 && elem_idx >= (uint32_t)base_low) elem_idx -= (uint32_t)base_low;
+                    if (nassign->bit_idx2) {
+                        LogicVal idx_v2 = eval_expr(nassign->bit_idx2.get(), bp.scope);
+                        if (!idx_v2.is_unknown()) {
+                            if (nassign->bit_lsb2) {
+                                LogicVal lsb_v2 = eval_expr(nassign->bit_lsb2.get(), bp.scope);
+                                if (!lsb_v2.is_unknown()) {
+                                    if (nassign->is_plus_colon2) {
+                                        uint32_t b_base = idx_v2.aval;
+                                        slice_w = lsb_v2.aval;
+                                        lsb = elem_idx * d1_width + b_base;
+                                    } else if (nassign->is_minus_colon2) {
+                                        slice_w = lsb_v2.aval;
+                                        uint32_t b_base = idx_v2.aval;
+                                        uint32_t b_lsb = (b_base >= slice_w - 1) ? (b_base - (slice_w - 1)) : 0;
+                                        lsb = elem_idx * d1_width + b_lsb;
+                                    } else {
+                                        uint32_t b_msb = idx_v2.aval;
+                                        uint32_t b_lsb = lsb_v2.aval;
+                                        if (b_msb < b_lsb) std::swap(b_msb, b_lsb);
+                                        slice_w = b_msb - b_lsb + 1;
+                                        lsb = elem_idx * d1_width + b_lsb;
+                                    }
+                                }
+                            } else {
+                                slice_w = 1;
+                                lsb = elem_idx * d1_width + idx_v2.aval;
+                            }
+                        }
+                    } else if (nassign->bit_lsb) {
+                        LogicVal lsb_v = eval_expr(nassign->bit_lsb.get(), bp.scope);
+                        if (!lsb_v.is_unknown()) {
+                            if (nassign->is_plus_colon) {
+                                lsb = idx_v.aval;
+                                slice_w = lsb_v.aval;
+                                msb = lsb + slice_w - 1;
+                            } else if (nassign->is_minus_colon) {
+                                slice_w = lsb_v.aval;
+                                msb = idx_v.aval;
+                                lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                            } else {
+                                msb = idx_v.aval;
+                                lsb = lsb_v.aval;
+                                if (msb < lsb) std::swap(msb, lsb);
+                                slice_w = msb - lsb + 1;
+                            }
+                            if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
+                        }
+                    } else {
+                        if (d1_width > 1) {
+                            lsb = elem_idx * d1_width;
+                            slice_w = d1_width;
+                            msb = lsb + slice_w - 1;
+                        } else {
+                            lsb = elem_idx;
+                            slice_w = 1;
+                            msb = lsb;
+                        }
+                    }
+                    if (slice_w > 0) {
+                        LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, false);
+                        if (nassign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                            engine.scheduler.queue_delayed_nba(wake_time, net_id, casted_slice, lsb, slice_w, true);
+                        } else {
+                            engine.scheduler.queue_nba(net_id, casted_slice, lsb, slice_w, true);
                         }
                         return;
                     }
@@ -2784,17 +3265,84 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (!addr_val.is_unknown()) {
             int64_t addr = (int64_t)addr_val.aval;
-            if (mem_assign->is_non_blocking) {
-                if (mem_assign->intra_delay > 0) {
-                    uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
-                    engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem, addr, rhs_val);
+            if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
+                auto& mem = engine.memory_map.at(scoped_mem);
+                if (!mem_assign->member_name.empty()) {
+                    std::string type_name = "";
+                    if (engine.var_to_struct_type.find(scoped_mem) != engine.var_to_struct_type.end()) {
+                        type_name = engine.var_to_struct_type.at(scoped_mem);
+                    } else if (engine.var_to_struct_type.find(mem_assign->mem_name) != engine.var_to_struct_type.end()) {
+                        type_name = engine.var_to_struct_type.at(mem_assign->mem_name);
+                    }
+                    const PackedStructType* st = nullptr;
+                    std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
+                    if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
+                        st = &engine.struct_types.at(scoped_type);
+                    } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
+                        st = &engine.struct_types.at(type_name);
+                    }
+                    if (st) {
+                        const StructMember* sm = st->get_member(mem_assign->member_name);
+                        if (sm) {
+                            LogicVal cur_word = mem.get_word(addr);
+                            cur_word.deposit_slice(sm->offset, sm->width, rhs_val);
+                            LogicVal new_word = cur_word;
+                            if (mem_assign->is_non_blocking) {
+                                if (mem_assign->intra_delay > 0) {
+                                    uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
+                                    engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem, addr, new_word);
+                                } else {
+                                    engine.scheduler.queue_nba_mem(scoped_mem, addr, new_word);
+                                }
+                            } else {
+                                mem.set_word(addr, new_word);
+                            }
+                            return;
+                        }
+                    }
+                }
+                if (mem_assign->is_non_blocking) {
+                    if (mem_assign->intra_delay > 0) {
+                        uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
+                        engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem, addr, rhs_val);
+                    } else {
+                        engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
+                    }
                 } else {
-                    engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
+                    mem.set_word(addr, rhs_val);
                 }
             } else {
-                if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
-                    auto& mem = engine.memory_map.at(scoped_mem);
-                    mem.set_word(addr, rhs_val);
+                size_t net_id = engine.get_net_id(bp.scope, mem_assign->mem_name);
+                if (net_id != (size_t)-1) {
+                    uint32_t d1_width = 1;
+                    std::string full_target_name = engine.netlist[net_id].name;
+                    auto it_vdm = engine.var_dimensions.find(full_target_name);
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name));
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(mem_assign->mem_name);
+                    int64_t base_low = 0;
+                    if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                        base_low = it_vdm->second.dimensions[0].low();
+                        if (it_vdm->second.dimensions.size() > 1) {
+                            d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                        }
+                    }
+                    int64_t elem_idx = addr;
+                    if (base_low > 0 && elem_idx >= base_low) elem_idx -= base_low;
+                    uint32_t offset = (uint32_t)(elem_idx * d1_width);
+                    uint32_t slice_w = d1_width;
+                    LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, false);
+                    if (mem_assign->is_non_blocking) {
+                        if (mem_assign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
+                            engine.scheduler.queue_delayed_nba(wake_time, net_id, casted_slice, offset, slice_w, true);
+                        } else {
+                            engine.scheduler.queue_nba(net_id, casted_slice, offset, slice_w, true);
+                        }
+                    } else {
+                        auto cur = engine.netlist[net_id].value;
+                        cur.deposit_slice(offset, slice_w, casted_slice);
+                        engine.netlist[net_id].set(cur);
+                    }
                 }
             }
         }
@@ -3144,13 +3692,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (st) {
                         const StructMember* sm = st->get_member(member_name);
                         if (sm) {
-                            uint32_t w = sm->width;
-                            uint32_t off = sm->offset;
-                            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                            uint64_t full_mask = mask << off;
-                            uint64_t new_a = (local->value.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
-                            uint64_t new_b = (local->value.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
-                            local->value = LogicVal(local->width, new_a, new_b);
+                            local->value.deposit_slice(sm->offset, sm->width, rhs_val);
                             return;
                         }
                     }
@@ -3294,7 +3836,47 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             int64_t idx = (int64_t)idx_val.aval;
                             int64_t rel_idx = idx - local->arr_start_idx;
                             if (rel_idx >= 0 && (size_t)rel_idx < local->unpacked_elements.size()) {
-                                local->unpacked_elements[rel_idx] = LogicOps::cast_width(rhs_val, local->elem_width, local->is_signed);
+                                if (assign->bit_idx2) {
+                                    LogicVal msb_val = eval_expr(assign->bit_idx2.get(), bp.scope);
+                                    if (!msb_val.is_unknown()) {
+                                        uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                        if (assign->bit_lsb2) {
+                                            LogicVal lsb_val = eval_expr(assign->bit_lsb2.get(), bp.scope);
+                                            if (assign->is_plus_colon2) {
+                                                lsb = msb_val.aval;
+                                                slice_w = lsb_val.aval;
+                                                msb = lsb + slice_w - 1;
+                                            } else if (assign->is_minus_colon2) {
+                                                slice_w = lsb_val.aval;
+                                                msb = msb_val.aval;
+                                                lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                            } else {
+                                                msb = msb_val.aval;
+                                                lsb = lsb_val.aval;
+                                                if (msb < lsb) std::swap(msb, lsb);
+                                                slice_w = msb - lsb + 1;
+                                            }
+                                        } else {
+                                            lsb = msb_val.aval;
+                                            slice_w = 1;
+                                            msb = lsb;
+                                        }
+                                        local->unpacked_elements[rel_idx].deposit_slice(lsb, slice_w, rhs_val);
+                                    }
+                                } else {
+                                    local->unpacked_elements[rel_idx] = LogicOps::cast_width(rhs_val, local->elem_width, local->is_signed);
+                                }
+                            }
+                            std::string elem_vname = base_var + "[" + std::to_string(idx) + "]";
+                            if (expr_eval.get_context().has_active_frame()) {
+                                LocalVar* elem_lv = expr_eval.get_context().lookup_local(elem_vname);
+                                if (elem_lv) elem_lv->value = rhs_val;
+                            }
+                            if (!bp.call_stack.empty()) {
+                                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                    LocalVar* elem_lv = it->local_frame.get_var(elem_vname);
+                                    if (elem_lv) { elem_lv->value = rhs_val; break; }
+                                }
                             }
                         }
                     } else {
@@ -3327,15 +3909,32 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 } else if (assign->bit_idx && !local->is_class_handle) {
-                    LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                    if (!idx_val.is_unknown()) {
-                        uint32_t bit = idx_val.aval;
-                        uint64_t bit_mask = 1ULL << bit;
-                        uint64_t bit_a = (rhs_val.aval & 1) << bit;
-                        uint64_t bit_b = (rhs_val.bval & 1) << bit;
-                        uint64_t new_a = (local->value.aval & ~bit_mask) | bit_a;
-                        uint64_t new_b = (local->value.bval & ~bit_mask) | bit_b;
-                        local->value = LogicVal(local->width, new_a, new_b);
+                    if (assign->bit_lsb) {
+                        LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
+                        if (!msb_val.is_unknown() && !lsb_val.is_unknown()) {
+                            uint32_t msb = 0, lsb = 0, slice_w = 0;
+                            if (assign->is_plus_colon) {
+                                lsb = msb_val.aval;
+                                slice_w = lsb_val.aval;
+                                msb = lsb + slice_w - 1;
+                            } else if (assign->is_minus_colon) {
+                                slice_w = lsb_val.aval;
+                                msb = msb_val.aval;
+                                lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                            } else {
+                                msb = msb_val.aval;
+                                lsb = lsb_val.aval;
+                                if (msb < lsb) std::swap(msb, lsb);
+                                slice_w = msb - lsb + 1;
+                            }
+                            local->value.deposit_slice(lsb, slice_w, rhs_val);
+                        }
+                    } else {
+                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        if (!idx_val.is_unknown()) {
+                            local->value.deposit_slice(idx_val.aval, 1, rhs_val);
+                        }
                     }
                 } else {
                     if (local->is_class_handle && rhs_val.aval != 0) {
@@ -3541,7 +4140,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 std::string scoped_mem = scoped_full;
                 if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
-                    if (engine.memory_map.find(target_name) != engine.memory_map.end()) {
+                    std::string cur_s = bp.scope;
+                    while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + target_name) == engine.memory_map.end()) {
+                        auto dot = cur_s.rfind('.');
+                        if (dot == std::string::npos) cur_s = "";
+                        else cur_s = cur_s.substr(0, dot);
+                    }
+                    if (!cur_s.empty()) scoped_mem = cur_s + "." + target_name;
+                    else if (engine.memory_map.find(target_name) != engine.memory_map.end()) {
                         scoped_mem = target_name;
                     }
                 }
@@ -3551,8 +4157,61 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
                             int64_t addr = (int64_t)idx_val.aval;
-                            mem.set_word(addr, rhs_val);
+                            if (assign->bit_idx2) {
+                                LogicVal word_val = mem.get_word(addr);
+                                LogicVal msb_val = eval_expr(assign->bit_idx2.get(), bp.scope);
+                                if (!msb_val.is_unknown()) {
+                                    uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                    if (assign->bit_lsb2) {
+                                        LogicVal lsb_val = eval_expr(assign->bit_lsb2.get(), bp.scope);
+                                        if (assign->is_plus_colon2) {
+                                            lsb = msb_val.aval;
+                                            slice_w = lsb_val.aval;
+                                            msb = lsb + slice_w - 1;
+                                        } else if (assign->is_minus_colon2) {
+                                            slice_w = lsb_val.aval;
+                                            msb = msb_val.aval;
+                                            lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                        } else {
+                                            msb = msb_val.aval;
+                                            lsb = lsb_val.aval;
+                                            if (msb < lsb) std::swap(msb, lsb);
+                                            slice_w = msb - lsb + 1;
+                                        }
+                                    } else {
+                                        lsb = msb_val.aval;
+                                        slice_w = 1;
+                                        msb = lsb;
+                                    }
+                                    word_val.deposit_slice(lsb, slice_w, rhs_val);
+                                    mem.set_word(addr, word_val);
+                                }
+                            } else if (assign->bit_lsb) {
+                                LogicVal word_val = mem.get_word(addr);
+                                LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                                LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
+                                uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                if (assign->is_plus_colon) {
+                                    lsb = msb_val.aval;
+                                    slice_w = lsb_val.aval;
+                                    msb = lsb + slice_w - 1;
+                                } else if (assign->is_minus_colon) {
+                                    slice_w = lsb_val.aval;
+                                    msb = msb_val.aval;
+                                    lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                } else {
+                                    msb = msb_val.aval;
+                                    lsb = lsb_val.aval;
+                                    if (msb < lsb) std::swap(msb, lsb);
+                                    slice_w = msb - lsb + 1;
+                                }
+                                word_val.deposit_slice(lsb, slice_w, rhs_val);
+                                mem.set_word(addr, word_val);
+                            } else {
+                                mem.set_word(addr, rhs_val);
+                            }
                         }
+                        return;
                     } else {
                         std::vector<LogicVal> elems;
                         if (rhs_val.is_unpacked) {
@@ -3619,28 +4278,104 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             const StructMember* sm = st->get_member(member_name);
                             if (sm) {
                                 auto cur = engine.netlist[net_id].value;
-                                uint32_t w = sm->width;
-                                uint32_t off = sm->offset;
-                                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                                uint64_t full_mask = mask << off;
-                                uint64_t new_a = (cur.aval & ~full_mask) | ((rhs_val.aval & mask) << off);
-                                uint64_t new_b = (cur.bval & ~full_mask) | ((rhs_val.bval & mask) << off);
-                                engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+                                cur.deposit_slice(sm->offset, sm->width, rhs_val);
+                                engine.netlist[net_id].set(cur);
                                 return;
                             }
                         }
                     }
                     if (assign->bit_idx) {
-                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                        if (!idx_val.is_unknown()) {
-                            uint32_t bit = idx_val.aval;
-                            auto cur = engine.netlist[net_id].value;
-                            uint64_t bit_mask = 1ULL << bit;
-                            uint64_t bit_a = (rhs_val.aval & 1) << bit;
-                            uint64_t bit_b = (rhs_val.bval & 1) << bit;
-                            uint64_t new_a = (cur.aval & ~bit_mask) | bit_a;
-                            uint64_t new_b = (cur.bval & ~bit_mask) | bit_b;
-                            engine.netlist[net_id].set(LogicVal(cur.width, new_a, new_b));
+                        uint32_t d1_width = 1;
+                        std::string full_target_name = engine.netlist[net_id].name;
+                        auto it_vdm = engine.var_dimensions.find(full_target_name);
+                        if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(bp.scope.empty() ? target_name : (bp.scope + "." + target_name));
+                        if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(target_name);
+                        int64_t base_low = 0;
+                        if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                            base_low = it_vdm->second.dimensions[0].low();
+                            if (it_vdm->second.dimensions.size() > 1) {
+                                d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                            }
+                        }
+                        if (assign->bit_idx2) {
+                            LogicVal idx_v = eval_expr(assign->bit_idx.get(), bp.scope);
+                            LogicVal idx_v2 = eval_expr(assign->bit_idx2.get(), bp.scope);
+                            if (!idx_v.is_unknown() && !idx_v2.is_unknown()) {
+                                uint32_t elem_idx = idx_v.aval;
+                                if (base_low > 0 && elem_idx >= (uint32_t)base_low) elem_idx -= (uint32_t)base_low;
+                                uint32_t lsb = 0, slice_w = 1;
+                                if (assign->bit_lsb2) {
+                                    LogicVal lsb_v2 = eval_expr(assign->bit_lsb2.get(), bp.scope);
+                                    if (!lsb_v2.is_unknown()) {
+                                        if (assign->is_plus_colon2) {
+                                            uint32_t b_base = idx_v2.aval;
+                                            slice_w = lsb_v2.aval;
+                                            lsb = elem_idx * d1_width + b_base;
+                                        } else if (assign->is_minus_colon2) {
+                                            slice_w = lsb_v2.aval;
+                                            uint32_t b_base = idx_v2.aval;
+                                            uint32_t b_lsb = (b_base >= slice_w - 1) ? (b_base - (slice_w - 1)) : 0;
+                                            lsb = elem_idx * d1_width + b_lsb;
+                                        } else {
+                                            uint32_t b_msb = idx_v2.aval;
+                                            uint32_t b_lsb = lsb_v2.aval;
+                                            if (b_msb < b_lsb) std::swap(b_msb, b_lsb);
+                                            slice_w = b_msb - b_lsb + 1;
+                                            lsb = elem_idx * d1_width + b_lsb;
+                                        }
+                                    }
+                                } else {
+                                    slice_w = 1;
+                                    lsb = elem_idx * d1_width + idx_v2.aval;
+                                }
+                                auto cur = engine.netlist[net_id].value;
+                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                engine.netlist[net_id].set(cur);
+                                return;
+                            }
+                        } else if (assign->bit_lsb) {
+                            LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                            LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
+                            if (!msb_val.is_unknown() && !lsb_val.is_unknown()) {
+                                uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                if (assign->is_plus_colon) {
+                                    lsb = msb_val.aval;
+                                    slice_w = lsb_val.aval;
+                                    msb = lsb + slice_w - 1;
+                                } else if (assign->is_minus_colon) {
+                                    slice_w = lsb_val.aval;
+                                    msb = msb_val.aval;
+                                    lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                } else {
+                                    msb = msb_val.aval;
+                                    lsb = lsb_val.aval;
+                                    if (msb < lsb) std::swap(msb, lsb);
+                                    slice_w = msb - lsb + 1;
+                                }
+                                if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
+                                auto cur = engine.netlist[net_id].value;
+                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                engine.netlist[net_id].set(cur);
+                                return;
+                            }
+                        } else {
+                            LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                            if (!idx_val.is_unknown()) {
+                                uint32_t elem_idx = idx_val.aval;
+                                if (base_low > 0 && elem_idx >= (uint32_t)base_low) elem_idx -= (uint32_t)base_low;
+                                uint32_t lsb = 0, slice_w = 1;
+                                if (d1_width > 1) {
+                                    lsb = elem_idx * d1_width;
+                                    slice_w = d1_width;
+                                } else {
+                                    lsb = elem_idx;
+                                    slice_w = 1;
+                                }
+                                auto cur = engine.netlist[net_id].value;
+                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                engine.netlist[net_id].set(cur);
+                                return;
+                            }
                         }
                     } else {
                         if (engine.netlist[net_id].is_class_handle && rhs_val.aval != 0) {

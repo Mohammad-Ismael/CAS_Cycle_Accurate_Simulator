@@ -133,6 +133,13 @@ struct BlockingAssignNode : public StatementNode {
     std::vector<std::string> lhs_targets;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
+    std::unique_ptr<ExpressionNode> bit_lsb = nullptr;
+    bool is_plus_colon = false;
+    bool is_minus_colon = false;
+    std::unique_ptr<ExpressionNode> bit_idx2 = nullptr;
+    std::unique_ptr<ExpressionNode> bit_lsb2 = nullptr;
+    bool is_plus_colon2 = false;
+    bool is_minus_colon2 = false;
     std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
@@ -154,6 +161,13 @@ struct BlockingAssignNode : public StatementNode {
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<BlockingAssignNode>(lhs_targets, rhs ? rhs->clone() : nullptr, intra_delay);
         node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
+        node->bit_lsb = bit_lsb ? bit_lsb->clone() : nullptr;
+        node->is_plus_colon = is_plus_colon;
+        node->is_minus_colon = is_minus_colon;
+        node->bit_idx2 = bit_idx2 ? bit_idx2->clone() : nullptr;
+        node->bit_lsb2 = bit_lsb2 ? bit_lsb2->clone() : nullptr;
+        node->is_plus_colon2 = is_plus_colon2;
+        node->is_minus_colon2 = is_minus_colon2;
         node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
@@ -165,6 +179,14 @@ struct BlockingAssignNode : public StatementNode {
 struct NonBlockingAssignNode : public StatementNode {
     std::string target;
     std::unique_ptr<ExpressionNode> rhs;
+    std::unique_ptr<ExpressionNode> bit_idx = nullptr;
+    std::unique_ptr<ExpressionNode> bit_lsb = nullptr;
+    bool is_plus_colon = false;
+    bool is_minus_colon = false;
+    std::unique_ptr<ExpressionNode> bit_idx2 = nullptr;
+    std::unique_ptr<ExpressionNode> bit_lsb2 = nullptr;
+    bool is_plus_colon2 = false;
+    bool is_minus_colon2 = false;
     std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
@@ -182,6 +204,14 @@ struct NonBlockingAssignNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<NonBlockingAssignNode>(target, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
+        node->bit_lsb = bit_lsb ? bit_lsb->clone() : nullptr;
+        node->is_plus_colon = is_plus_colon;
+        node->is_minus_colon = is_minus_colon;
+        node->bit_idx2 = bit_idx2 ? bit_idx2->clone() : nullptr;
+        node->bit_lsb2 = bit_lsb2 ? bit_lsb2->clone() : nullptr;
+        node->is_plus_colon2 = is_plus_colon2;
+        node->is_minus_colon2 = is_minus_colon2;
         node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
@@ -199,6 +229,7 @@ struct MemAssignNode : public StatementNode {
     bool has_intra_event = false;
     EdgeType intra_edge = EdgeType::LEVEL;
     std::string intra_signal = std::string();
+    std::string member_name;
 
     void set_intra_event(EdgeType edge, std::string sig) {
         has_intra_event = true;
@@ -217,6 +248,7 @@ struct MemAssignNode : public StatementNode {
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;
+        node->member_name = member_name;
         return node;
     }
 };
@@ -621,6 +653,14 @@ struct SysCastStatementNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         return std::make_unique<SysCastStatementNode>(dest_expr ? dest_expr->clone() : nullptr, src_expr ? src_expr->clone() : nullptr);
+    }
+};
+
+struct VoidCastStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> expr;
+    explicit VoidCastStatementNode(std::unique_ptr<ExpressionNode> e) : expr(std::move(e)) {}
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<VoidCastStatementNode>(expr ? expr->clone() : nullptr);
     }
 };
 

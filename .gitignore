@@ -5,3 +5,5 @@ codes.txt
 requested_code.txt
 *.so
 **/*.so
+projects/ibex/
+*.log

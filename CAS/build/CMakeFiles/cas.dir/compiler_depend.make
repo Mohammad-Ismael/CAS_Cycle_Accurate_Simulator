@@ -230,6 +230,7 @@ CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp \
   /usr/include/dlfcn.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -273,6 +274,8 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/bits/cpp_type_traits.h \
   /usr/include/c++/13.2.1/bits/cxxabi_forced.h \
   /usr/include/c++/13.2.1/bits/cxxabi_init_exception.h \
+  /usr/include/c++/13.2.1/bits/enable_special_members.h \
+  /usr/include/c++/13.2.1/bits/erase_if.h \
   /usr/include/c++/13.2.1/bits/exception.h \
   /usr/include/c++/13.2.1/bits/exception_defines.h \
   /usr/include/c++/13.2.1/bits/exception_ptr.h \
@@ -280,6 +283,8 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/bits/functexcept.h \
   /usr/include/c++/13.2.1/bits/functional_hash.h \
   /usr/include/c++/13.2.1/bits/hash_bytes.h \
+  /usr/include/c++/13.2.1/bits/hashtable.h \
+  /usr/include/c++/13.2.1/bits/hashtable_policy.h \
   /usr/include/c++/13.2.1/bits/invoke.h \
   /usr/include/c++/13.2.1/bits/ios_base.h \
   /usr/include/c++/13.2.1/bits/istream.tcc \
@@ -293,6 +298,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/bits/move.h \
   /usr/include/c++/13.2.1/bits/nested_exception.h \
   /usr/include/c++/13.2.1/bits/new_allocator.h \
+  /usr/include/c++/13.2.1/bits/node_handle.h \
   /usr/include/c++/13.2.1/bits/ostream.tcc \
   /usr/include/c++/13.2.1/bits/ostream_insert.h \
   /usr/include/c++/13.2.1/bits/postypes.h \
@@ -318,6 +324,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/bits/streambuf_iterator.h \
   /usr/include/c++/13.2.1/bits/string_view.tcc \
   /usr/include/c++/13.2.1/bits/stringfwd.h \
+  /usr/include/c++/13.2.1/bits/unordered_map.h \
   /usr/include/c++/13.2.1/bits/uses_allocator.h \
   /usr/include/c++/13.2.1/bits/uses_allocator_args.h \
   /usr/include/c++/13.2.1/bits/utility.h \
@@ -335,6 +342,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/debug/assertions.h \
   /usr/include/c++/13.2.1/debug/debug.h \
   /usr/include/c++/13.2.1/exception \
+  /usr/include/c++/13.2.1/ext/aligned_buffer.h \
   /usr/include/c++/13.2.1/ext/alloc_traits.h \
   /usr/include/c++/13.2.1/ext/atomicity.h \
   /usr/include/c++/13.2.1/ext/numeric_traits.h \
@@ -370,6 +378,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/c++/13.2.1/tuple \
   /usr/include/c++/13.2.1/type_traits \
   /usr/include/c++/13.2.1/typeinfo \
+  /usr/include/c++/13.2.1/unordered_map \
   /usr/include/c++/13.2.1/vector \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/atomic_word.h \
   /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
@@ -387,6 +396,7 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: /app/CAS/src/frontend/lexer.cpp \
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -492,6 +502,7 @@ CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: /app/CAS/src/frontend/numbe
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -691,6 +702,7 @@ CMakeFiles/cas.dir/src/frontend/parser.cpp.o: /app/CAS/src/frontend/parser.cpp \
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -894,6 +906,7 @@ CMakeFiles/cas.dir/src/frontend/parser_expr.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -1097,6 +1110,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/par
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -1300,6 +1314,7 @@ CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o: /app/CAS/src/frontend/parse
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -1522,6 +1537,7 @@ CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -1726,6 +1742,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -1769,6 +1786,8 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /app/CAS/include/frontend/ast_stmt.hpp \
   /app/CAS/include/kernel/elaborator.hpp \
   /app/CAS/include/kernel/execution_context.hpp \
+  /app/CAS/include/kernel/expr_evaluator.hpp \
+  /app/CAS/include/kernel/logic_ops.hpp \
   /app/CAS/include/kernel/netlist.hpp \
   /app/CAS/include/tracer/vcd_dumper.hpp \
   /usr/include/alloca.h \
@@ -1944,6 +1963,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: /app/CAS/src/kernel/elaborator.c
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -2194,6 +2214,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: /app/CAS/src/kernel/evaluator.cpp
   /usr/include/dlfcn.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -2392,6 +2413,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execu
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -2420,6 +2442,8 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /app/CAS/include/common/dpic_types.hpp \
   /app/CAS/include/common/sync_types.hpp \
   /app/CAS/include/engine.hpp \
+  /app/CAS/include/frontend/lexer.hpp \
+  /app/CAS/include/frontend/parser.hpp \
   /app/CAS/include/frontend/ast_module.hpp \
   /app/CAS/include/frontend/ast_stmt.hpp \
   /app/CAS/include/common/array_query_types.hpp \
@@ -2640,6 +2664,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_eva
   /usr/include/dlfcn.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -2890,6 +2915,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
   /usr/include/dlfcn.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -3143,6 +3169,7 @@ CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp \
   /usr/include/dlfcn.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/string.h \
@@ -3292,6 +3319,7 @@ CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: /app/CAS/src/profiler/profiler.c
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -3497,6 +3525,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/ctype.h \
   /usr/include/errno.h \
   /usr/include/features.h \
+  /usr/include/fortify/fortify-headers.h \
   /usr/include/fortify/stdio.h \
   /usr/include/fortify/stdlib.h \
   /usr/include/fortify/strings.h \
@@ -3516,8 +3545,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
   /usr/include/wchar.h \
   /usr/include/wctype.h
 
-
-/usr/include/sys/time.h:
 
 /usr/include/fortify/sys/select.h:
 
@@ -3638,6 +3665,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/bits/exception_ptr.h:
 
 /usr/include/c++/13.2.1/unordered_set:
+
+/app/CAS/src/frontend/parser_module.cpp:
+
+/usr/include/c++/13.2.1/bits/stl_function.h:
 
 /usr/include/c++/13.2.1/bits/exception_defines.h:
 
@@ -3764,10 +3795,6 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /app/CAS/include/common/queue_types.hpp:
 
 /usr/include/c++/13.2.1/stdexcept:
-
-/usr/include/c++/13.2.1/bits/stl_function.h:
-
-/app/CAS/src/frontend/parser_module.cpp:
 
 /usr/include/c++/13.2.1/bits/locale_facets.h:
 
@@ -3922,6 +3949,10 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.c
 /usr/include/c++/13.2.1/tr1/poly_laguerre.tcc:
 
 /usr/include/c++/13.2.1/exception:
+
+/usr/include/sys/time.h:
+
+/usr/include/fortify/fortify-headers.h:
 
 /usr/include/c++/13.2.1/ext/alloc_traits.h:
 

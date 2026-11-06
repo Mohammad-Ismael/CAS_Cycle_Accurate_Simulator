@@ -193,6 +193,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
+    std::unordered_map<std::string, LogicVal> param_val_map;
     std::vector<BoundProcess> processes;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
@@ -235,6 +236,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, VariableDimMetadata> var_dimensions;
     std::vector<size_t> canonical_net_map;
     std::vector<std::vector<size_t>> alias_members;
+    std::unordered_set<size_t> comb_target_net_ids;
     std::string top_scope;
 };
 
@@ -254,6 +256,7 @@ private:
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false, NetKind kind = NetKind::WIRE);
     uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);
+    uint64_t eval_bits(ExpressionNode* expr, const std::string& scope);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
 
     void elaborate_module(ModuleNode* mod, const std::string& scope,
@@ -261,6 +264,10 @@ private:
                           const std::vector<ParamOverride>* overrides = nullptr,
                           const std::string& parent_scope = "",
                           std::ostream* debug_out = nullptr);
+
+    void elaborate_instantiation_node(InstantiationNode* inst, const std::string& scope,
+                                     const std::unordered_map<std::string, ModuleNode*>& module_defs,
+                                     std::ostream* debug_out);
 
     void unroll_generate_node(ASTNode* node,
                               const std::string& scope,
@@ -277,6 +284,7 @@ private:
                                bool has_genvar,
                                std::ostream* debug_out);
 
+    const std::unordered_map<std::string, ModuleNode*>* current_module_defs = nullptr;
     ConfigNode* active_config = nullptr;
     std::unordered_map<std::string, std::string> active_instance_cell_map;
     std::unordered_map<std::string, std::string> active_cell_rebind_map;
@@ -285,6 +293,8 @@ private:
     std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
 
 public:
+    std::unordered_map<std::string, LogicVal> top_param_overrides;
+    LogicVal eval_const_logic_val(ExpressionNode* expr, const std::string& scope);
     Elaborator() = default;
 
     ElaborationResult elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

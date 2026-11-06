@@ -385,19 +385,51 @@ public:
 
     bool is_constant_size_param(const std::string& name, uint32_t& out_size) const {
         if (current_parsing_module) {
+            std::unordered_map<std::string, uint64_t> pmap;
             for (const auto& p : current_parsing_module->parameters) {
-                if (p.name == name && p.default_expr) {
+                if (p.default_expr) {
                     try {
-                        uint64_t v = const_cast<Parser*>(this)->eval_const_expr(p.default_expr.get());
-                        out_size = static_cast<uint32_t>(v);
-                        return true;
+                        uint64_t v = const_cast<Parser*>(this)->eval_const_expr_with_params(p.default_expr.get(), pmap);
+                        pmap[p.name] = v;
                     } catch (...) {}
+                }
+            }
+            if (pmap.count(name) && pmap.at(name) > 0) {
+                out_size = static_cast<uint32_t>(pmap.at(name));
+                return true;
+            }
+            if (current_parsing_module->explicit_imports.count(name)) {
+                const auto& imp = current_parsing_module->explicit_imports.at(name);
+                auto pit = global_packages.find(imp.first);
+                if (pit != global_packages.end()) {
+                    auto cit = pit->second->param_constants.find(imp.second);
+                    if (cit != pit->second->param_constants.end() && cit->second > 0) {
+                        out_size = static_cast<uint32_t>(cit->second);
+                        return true;
+                    }
+                }
+            }
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto cit = pit->second->param_constants.find(name);
+                    if (cit != pit->second->param_constants.end() && cit->second > 0) {
+                        out_size = static_cast<uint32_t>(cit->second);
+                        return true;
+                    }
+                }
+            }
+            for (const auto& kv : global_packages) {
+                auto cit = kv.second->param_constants.find(name);
+                if (cit != kv.second->param_constants.end() && cit->second > 0) {
+                    out_size = static_cast<uint32_t>(cit->second);
+                    return true;
                 }
             }
         }
         if (current_parsing_package) {
             auto it = current_parsing_package->param_constants.find(name);
-            if (it != current_parsing_package->param_constants.end()) {
+            if (it != current_parsing_package->param_constants.end() && it->second > 0) {
                 out_size = static_cast<uint32_t>(it->second);
                 return true;
             }
@@ -406,7 +438,7 @@ public:
     }
 
     bool is_typedef(const std::string& name) const {
-        return get_enum_typedef(name) != nullptr || get_struct_typedef(name) != nullptr;
+        return get_enum_typedef(name) != nullptr || get_struct_typedef(name) != nullptr || is_simple_typedef(name) || is_unpacked_array_typedef(name);
     }
     bool is_enum_typedef(const std::string& name) const {
         return get_enum_typedef(name) != nullptr;
@@ -537,6 +569,7 @@ public:
     std::unique_ptr<ExpressionNode> parse_relational();
     std::unique_ptr<ExpressionNode> parse_shift();
     std::unique_ptr<ExpressionNode> parse_additive();
+    std::unique_ptr<ExpressionNode> parse_power();
     std::unique_ptr<ExpressionNode> parse_multiplicative();
     std::unique_ptr<ExpressionNode> parse_unary();
     std::unique_ptr<ExpressionNode> parse_primary();

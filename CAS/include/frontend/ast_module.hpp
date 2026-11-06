@@ -157,6 +157,7 @@ struct ParamOverride {
 
 enum class ProcessType {
     INITIAL,
+    FINAL,
     ALWAYS,
     COMBINATIONAL,
     SEQUENTIAL
@@ -165,6 +166,7 @@ enum class ProcessType {
 struct SensitivityTarget {
     EdgeType edge;
     std::string signal_name;
+    size_t net_id = (size_t)-1;
 };
 
 struct ProcessNode : public ASTNode {
@@ -174,9 +176,12 @@ struct ProcessNode : public ASTNode {
     bool is_always_ff = false;
     bool is_always_comb = false;
     bool is_always_latch = false;
+    bool is_final = false;
 
     ProcessNode() = default;
-    explicit ProcessNode(ProcessType t) : type(t) {}
+    explicit ProcessNode(ProcessType t) : type(t) {
+        if (t == ProcessType::FINAL) is_final = true;
+    }
 
     std::unique_ptr<ProcessNode> clone() const {
         auto p = std::make_unique<ProcessNode>(type);
@@ -184,6 +189,7 @@ struct ProcessNode : public ASTNode {
         p->is_always_ff = is_always_ff;
         p->is_always_comb = is_always_comb;
         p->is_always_latch = is_always_latch;
+        p->is_final = is_final;
         for (const auto& s : body) {
             p->body.push_back(s ? s->clone() : nullptr);
         }
@@ -272,9 +278,11 @@ struct InstantiationNode : public ASTNode {
 
 struct ContinuousAssignNode : public ASTNode {
     std::string target_name;
+    std::vector<std::string> concat_targets;
     std::unique_ptr<ExpressionNode> target_index_expr = nullptr;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<StreamingConcatNode> stream_target = nullptr;
+    std::string member_name;
 
     ContinuousAssignNode() = default;
     ContinuousAssignNode(std::string target, std::unique_ptr<ExpressionNode> r)
@@ -282,8 +290,10 @@ struct ContinuousAssignNode : public ASTNode {
 
     std::unique_ptr<ContinuousAssignNode> clone() const {
         auto node = std::make_unique<ContinuousAssignNode>(target_name, rhs ? rhs->clone() : nullptr);
+        node->concat_targets = concat_targets;
         if (target_index_expr) node->target_index_expr = target_index_expr->clone();
         if (stream_target) node->stream_target = std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_target->clone().release()));
+        node->member_name = member_name;
         return node;
     }
 };
@@ -980,6 +990,8 @@ struct ModuleNode : public ASTNode {
     std::vector<PortNode> signals;
     std::vector<std::string> events;
     std::vector<std::unique_ptr<TypedefNode>> typedefs;
+    std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
+    std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
     std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
     std::unordered_map<std::string, VariableDimMetadata> type_dimensions;

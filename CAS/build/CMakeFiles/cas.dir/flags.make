@@ -6,5 +6,5 @@ CXX_DEFINES = -Dcas_EXPORTS
 
 CXX_INCLUDES = -I/app/CAS/include
 
-CXX_FLAGS = -std=gnu++17
+CXX_FLAGS = -O3 -DNDEBUG -std=gnu++17
 

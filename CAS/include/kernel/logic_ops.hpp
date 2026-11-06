@@ -89,30 +89,49 @@ public:
             res.is_signed = is_signed;
             return res;
         }
-        if (v.width > target_width) {
-            uint64_t mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
-            return LogicVal(target_width, v.aval & mask, v.bval & mask, is_signed);
+        if (v.width <= 64 && target_width <= 64) {
+            if (v.width > target_width) {
+                uint64_t mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
+                return LogicVal(target_width, v.aval & mask, v.bval & mask, is_signed);
+            }
+
+            uint64_t new_a = v.aval;
+            uint64_t new_b = v.bval;
+
+            if (is_signed && v.width > 0) {
+                bool sign_bit_a = (v.aval >> (v.width - 1)) & 1;
+                bool sign_bit_b = (v.bval >> (v.width - 1)) & 1;
+
+                if (sign_bit_b) {
+                    uint64_t ext_mask = ~0ULL << v.width;
+                    new_a |= ext_mask;
+                    new_b |= ext_mask;
+                } else if (sign_bit_a) {
+                    uint64_t ext_mask = ~0ULL << v.width;
+                    new_a |= ext_mask;
+                }
+            }
+
+            uint64_t target_mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
+            return LogicVal(target_width, new_a & target_mask, new_b & target_mask, is_signed);
         }
 
-        uint64_t new_a = v.aval;
-        uint64_t new_b = v.bval;
-
+        if (v.width > target_width) {
+            LogicVal res = v.extract_slice(0, target_width);
+            res.is_signed = is_signed;
+            return res;
+        }
+        LogicVal res(target_width, 0, 0, is_signed);
+        res.deposit_slice(0, v.width, v);
         if (is_signed && v.width > 0) {
-            bool sign_bit_a = (v.aval >> (v.width - 1)) & 1;
-            bool sign_bit_b = (v.bval >> (v.width - 1)) & 1;
-
-            if (sign_bit_b) {
-                uint64_t ext_mask = ~0ULL << v.width;
-                new_a |= ext_mask;
-                new_b |= ext_mask;
-            } else if (sign_bit_a) {
-                uint64_t ext_mask = ~0ULL << v.width;
-                new_a |= ext_mask;
+            bool sign_a = v.get_bit_a(v.width - 1);
+            bool sign_b = v.get_bit_b(v.width - 1);
+            for (uint32_t i = v.width; i < target_width; ++i) {
+                res.set_bit(i, sign_a, sign_b);
             }
         }
-
-        uint64_t target_mask = (target_width >= 64) ? ~0ULL : ((1ULL << target_width) - 1);
-        return LogicVal(target_width, new_a & target_mask, new_b & target_mask, is_signed);
+        res.mask();
+        return res;
     }
 
     static LogicVal bitwise_not(const LogicVal& v) {

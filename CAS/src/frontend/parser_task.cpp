@@ -91,14 +91,43 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
 
+            std::vector<AstDimension> packed_dims;
             std::unique_ptr<ExpressionNode> msb = nullptr;
             std::unique_ptr<ExpressionNode> lsb = nullptr;
-            if (match(TokenType::TOKEN_LBRACKET)) {
-                msb = parse_expression();
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto m = parse_expression();
                 expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
-                lsb = parse_expression();
+                auto l = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
-            } else if (is_int) {
+                AstDimension ad;
+                ad.left_expr = m->clone();
+                ad.right_expr = l->clone();
+                ad.is_single = false;
+                packed_dims.push_back(std::move(ad));
+                if (!msb) {
+                    msb = std::move(m);
+                    lsb = std::move(l);
+                }
+            }
+            if (packed_dims.size() > 1) {
+                uint32_t total_w = 1;
+                bool all_const = true;
+                for (const auto& pd : packed_dims) {
+                    int64_t v1 = 0, v2 = 0;
+                    if (auto nl = dynamic_cast<NumberNode*>(pd.left_expr.get())) v1 = (int64_t)nl->aval;
+                    else all_const = false;
+                    if (auto nr = dynamic_cast<NumberNode*>(pd.right_expr.get())) v2 = (int64_t)nr->aval;
+                    else all_const = false;
+                    if (all_const) {
+                        uint32_t d_w = (v1 >= v2) ? (uint32_t)(v1 - v2 + 1) : (uint32_t)(v2 - v1 + 1);
+                        total_w *= d_w;
+                    }
+                }
+                if (all_const && total_w > 0) {
+                    msb = std::make_unique<NumberNode>((uint64_t)(total_w - 1), 32);
+                    lsb = std::make_unique<NumberNode>(0ULL, 32);
+                }
+            } else if (packed_dims.empty() && is_int) {
                 msb = std::make_unique<NumberNode>(31ULL, (uint32_t)32);
                 lsb = std::make_unique<NumberNode>(0ULL, (uint32_t)32);
             }
@@ -106,6 +135,7 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
             std::string pname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected port name");
             PortNode pnode(pname, dir, std::move(msb), std::move(lsb), is_s);
+            pnode.packed_dimensions = packed_dims;
             pnode.type_name = arg_type_name;
             pnode.is_virtual_interface = is_vif;
             pnode.interface_name = vif_iface;

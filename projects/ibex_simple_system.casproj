@@ -1,0 +1,8 @@
+{
+  "casproj_version": "1.0",
+  "project_name": "ibex_simple_system",
+  "project_dir": "projects/ibex_simple_system",
+  "entry_point": "projects/ibex_simple_system_tb.sv",
+  "top_module": "ibex_simple_system_tb",
+  "runner_script": "projects/run_ibex_cas.sh"
+}

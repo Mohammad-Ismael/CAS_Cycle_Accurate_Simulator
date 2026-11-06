@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <vector>
 #include <ostream>
+#include <unordered_map>
 
 enum class TokenType {
     TOKEN_EOF,
@@ -82,6 +83,7 @@ enum class TokenType {
     TOKEN_BEGIN,
     TOKEN_END,
     TOKEN_INITIAL,
+    TOKEN_FINAL,
     TOKEN_DISPLAY,
     TOKEN_MONITOR,
     TOKEN_FINISH,
@@ -117,6 +119,11 @@ enum class TokenType {
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_STAR,
+    TOKEN_POWER,
+    TOKEN_SLASH,
+    TOKEN_PERCENT,
+    TOKEN_SLASH_EQUAL,
+    TOKEN_PERCENT_EQUAL,
     TOKEN_AND,
     TOKEN_OR_BIT,
     TOKEN_XOR,
@@ -200,6 +207,8 @@ enum class TokenType {
     TOKEN_MINUS_MINUS,
     TOKEN_PLUS_EQUAL,
     TOKEN_MINUS_EQUAL,
+    TOKEN_PLUS_COLON,
+    TOKEN_MINUS_COLON,
     TOKEN_STAR_EQUAL,
     TOKEN_AND_EQUAL,
     TOKEN_OR_EQUAL,
@@ -257,6 +266,7 @@ struct Token {
     uint64_t bval = 0;
     bool is_real = false;
     double real_val = 0.0;
+    bool is_signed = false;
 };
 
 struct SourceBuffer {
@@ -273,6 +283,13 @@ private:
     std::ostream* debug_out = nullptr;
     size_t include_depth = 0;
 
+    struct CondStackEntry {
+        bool is_active;
+        bool branch_taken;
+    };
+    std::vector<CondStackEntry> cond_stack;
+    void skip_inactive_block();
+
     char peek() const;
     char peek_next() const;
     char advance();
@@ -285,6 +302,33 @@ public:
     static std::string global_time_unit_str;
     static std::string global_time_precision_str;
     static std::string global_time_precision_unit;
+    struct MacroDef {
+        std::string name;
+        std::vector<std::string> args;
+        std::vector<std::string> defaults;
+        bool has_args = false;
+        std::string body;
+    };
+    static std::unordered_map<std::string, MacroDef> global_macro_defs;
+    static std::vector<std::string> global_include_dirs;
+    static std::unordered_map<std::string, std::string> global_defines;
+    static void set_define(const std::string& key, const std::string& val = "") {
+        global_defines[key] = val;
+        global_macro_defs[key] = {key, {}, {}, false, val};
+    }
+    static bool is_defined(const std::string& key) {
+        return global_defines.find(key) != global_defines.end();
+    }
+    static void clear_defines() {
+        global_defines.clear();
+        global_macro_defs.clear();
+    }
+    static void add_include_dir(const std::string& dir) {
+        global_include_dirs.push_back(dir);
+    }
+    static void clear_include_dirs() {
+        global_include_dirs.clear();
+    }
     static uint64_t get_timescale_ratio() { return global_timescale_ratio; }
     static const std::string& get_time_precision_unit() { return global_time_precision_unit; }
     static void reset_timescale() {

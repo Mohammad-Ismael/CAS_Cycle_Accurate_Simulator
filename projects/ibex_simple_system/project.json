@@ -1,0 +1,19 @@
+{
+  "name": "ibex_simple_system",
+  "project_name": "ibex_simple_system",
+  "top_module": "ibex_simple_system_tb",
+  "runner_script": "projects/run_ibex_cas.sh",
+  "files": [
+    "projects/ibex_simple_system_tb.sv"
+  ],
+  "settings": {
+    "top_module": "ibex_simple_system_tb",
+    "timescale": "1ns/1ps",
+    "enable_profiler": true,
+    "enable_debug": false,
+    "enable_vcd": true,
+    "vcd_filename": "ibex_simple_system.vcd",
+    "firmware": "projects/ibex/examples/sw/simple_system/hello_test/hello_test.vmem",
+    "vc_file": "projects/ibex/build/lowrisc_ibex_ibex_simple_system_0/sim-verilator/lowrisc_ibex_ibex_simple_system_0.vc"
+  }
+}

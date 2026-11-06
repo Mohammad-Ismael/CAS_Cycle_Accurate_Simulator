@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include <vector>
 
 struct MonitorSession {
@@ -40,6 +41,7 @@ private:
     std::vector<size_t> canonical_net_map;
     std::vector<std::vector<size_t>> alias_members;
     std::vector<BoundProcess> processes;
+    std::unordered_set<size_t> comb_target_net_ids;
 
     std::vector<SliceBinding> slice_bindings;
     std::vector<MemoryBinding> memory_bindings;
@@ -59,6 +61,7 @@ private:
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
+    std::unordered_map<std::string, LogicVal> param_val_map;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
     std::unordered_map<std::string, EnumType> enum_types;
@@ -122,6 +125,20 @@ public:
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::unordered_map<std::string, std::shared_ptr<PackageNode>> package_defs;
     std::string active_scope_name;
+
+    struct SimOpenFile {
+        std::shared_ptr<std::ofstream> stream;
+        std::string path;
+    };
+    std::unordered_map<int, SimOpenFile> open_files;
+    int next_file_descriptor = 32;
+    std::unordered_map<std::string, LogicVal> top_param_overrides;
+    std::vector<std::string> plusargs;
+    uint64_t max_cycles = 0;
+
+    void set_max_cycles(uint64_t m) { max_cycles = m; }
+    void set_top_param_override(const std::string& name, const LogicVal& val) { top_param_overrides[name] = val; }
+    void add_plusarg(const std::string& pa) { plusargs.push_back(pa); }
 
     LogicVal dispatch_dpi_export(const std::string& c_name, const std::vector<LogicVal>& args);
 

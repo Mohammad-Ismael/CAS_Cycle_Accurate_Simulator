@@ -85,7 +85,12 @@ struct ScopeFrame {
     }
 
     void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "", bool is_q = false, bool is_dyn = false, bool is_assoc = false, const std::string& key_t = "", uint32_t key_w = 32) {
-        locals.emplace(name, LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w));
+        auto it = locals.find(name);
+        if (it != locals.end()) {
+            it->second = LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w);
+        } else {
+            locals.emplace(name, LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w));
+        }
     }
 };
 

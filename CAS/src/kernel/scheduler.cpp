@@ -15,8 +15,8 @@ void StratifiedScheduler::queue_nba(size_t net_id, const LogicVal& val, uint32_t
     nba_queue.push_back({net_id, val, offset, slice_width, is_slice});
 }
 
-void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, int64_t addr, const LogicVal& val) {
-    nba_mem_queue.push_back({scoped_mem, addr, val});
+void StratifiedScheduler::queue_nba_mem(const std::string& scoped_mem, int64_t addr, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
+    nba_mem_queue.push_back({scoped_mem, addr, val, offset, slice_width, is_slice});
 }
 
 void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
@@ -24,8 +24,8 @@ void StratifiedScheduler::queue_delayed_nba(uint64_t wake_time, size_t net_id, c
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
-void StratifiedScheduler::queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, int64_t addr, const LogicVal& val) {
-    delayed_nba_mem_queue[wake_time].push_back({scoped_mem, addr, val});
+void StratifiedScheduler::queue_delayed_nba_mem(uint64_t wake_time, const std::string& scoped_mem, int64_t addr, const LogicVal& val, uint32_t offset, uint32_t slice_width, bool is_slice) {
+    delayed_nba_mem_queue[wake_time].push_back({scoped_mem, addr, val, offset, slice_width, is_slice});
     time_wheel.schedule(wake_time, UINT32_MAX);
 }
 
@@ -442,7 +442,14 @@ void StratifiedScheduler::terminate() {
     time_wheel.clear();
 }
 
+static double t_slice_ms = 0;
+static double t_rca_ms = 0;
+static double t_proc_ms = 0;
+
+static bool comb_dirty = true;
+
 void StratifiedScheduler::propagate_comb() {
+    if (!comb_dirty) return;
     delta_cycles_count++;
     bool changed = true;
     size_t iters = 0;
@@ -450,15 +457,21 @@ void StratifiedScheduler::propagate_comb() {
     while (changed && iters < 200) {
         changed = false;
 
+        auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& bind : engine.slice_bindings) {
             if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
             LogicVal src_val = engine.evaluator.read_slice(bind.src);
+            if (src_val.width != bind.dst.width && !src_val.is_string) {
+                src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
+            }
             LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
             if (src_val != dst_val) {
                 engine.evaluator.write_slice(bind.dst, src_val);
                 changed = true;
             }
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        t_slice_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
 
         for (auto& mbind : engine.memory_bindings) {
             auto it_src = engine.memory_map.find(mbind.src);
@@ -490,7 +503,12 @@ void StratifiedScheduler::propagate_comb() {
                 it = engine.memory_map.find(mca.mem_name);
             }
             if (it != engine.memory_map.end()) {
-                LogicVal idx_val = engine.evaluator.eval_expr(mca.index_expr.get(), mca.scope);
+                LogicVal idx_val;
+                if (auto idx_node = dynamic_cast<IndexSelectNode*>(mca.index_expr.get())) {
+                    idx_val = engine.evaluator.eval_expr(idx_node->msb_expr.get(), mca.scope);
+                } else {
+                    idx_val = engine.evaluator.eval_expr(mca.index_expr.get(), mca.scope);
+                }
                 if (!idx_val.is_unknown()) {
                     int64_t addr = (int64_t)idx_val.aval;
                     LogicVal rhs_val = engine.evaluator.eval_expr(mca.rhs.get(), mca.scope);
@@ -503,6 +521,7 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
+        auto t2 = std::chrono::high_resolution_clock::now();
         // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution
         for (auto& rca : engine.resolved_continuous_assigns) {
             if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
@@ -574,6 +593,8 @@ void StratifiedScheduler::propagate_comb() {
                 pending_specify_events.erase(target_id);
             }
         }
+        auto t3 = std::chrono::high_resolution_clock::now();
+        t_rca_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
 
         // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignments propagate whenever operands change
         for (auto& net : engine.netlist) {
@@ -587,21 +608,68 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        for (auto& bp : engine.processes) {
-            if (bp.proc->type != ProcessType::COMBINATIONAL) continue;
+        auto t4 = std::chrono::high_resolution_clock::now();
+        static std::vector<size_t> comb_target_nets;
+        static std::vector<size_t> comb_pids;
+        static bool comb_init_done = false;
+        if (!comb_init_done) {
+            comb_init_done = true;
+            for (size_t nid : engine.comb_target_net_ids) {
+                if (nid < engine.netlist.size()) comb_target_nets.push_back(nid);
+            }
+            for (size_t i = 0; i < engine.processes.size(); ++i) {
+                if (engine.processes[i].proc->type == ProcessType::COMBINATIONAL) {
+                    comb_pids.push_back(i);
+                }
+            }
+        }
+
+        struct FastVal {
+            uint64_t aval, bval;
+            uint64_t w1_a, w1_b;
+        };
+        static std::vector<FastVal> comb_fast_snap;
+        if (comb_fast_snap.size() != comb_target_nets.size()) {
+            comb_fast_snap.resize(comb_target_nets.size());
+        }
+        for (size_t k = 0; k < comb_target_nets.size(); ++k) {
+            const auto& v = engine.netlist[comb_target_nets[k]].value;
+            comb_fast_snap[k].aval = v.aval;
+            comb_fast_snap[k].bval = v.bval;
+            if (v.wide_aval.size() > 1) {
+                comb_fast_snap[k].w1_a = v.wide_aval[1];
+                comb_fast_snap[k].w1_b = v.wide_bval[1];
+            } else {
+                comb_fast_snap[k].w1_a = 0;
+                comb_fast_snap[k].w1_b = 0;
+            }
+        }
+
+        for (size_t pid : comb_pids) {
+            auto& bp = engine.processes[pid];
             for (auto& stmt : bp.proc->body) {
                 engine.evaluator.execute_statement(stmt.get(), bp);
             }
         }
 
-        for (const auto& n : engine.netlist) {
-            if (n.modified) {
+        for (size_t k = 0; k < comb_target_nets.size(); ++k) {
+            const auto& v = engine.netlist[comb_target_nets[k]].value;
+            if (v.aval != comb_fast_snap[k].aval || v.bval != comb_fast_snap[k].bval) {
                 changed = true;
                 break;
             }
+            if (v.wide_aval.size() > 1) {
+                if (v.wide_aval[1] != comb_fast_snap[k].w1_a || v.wide_bval[1] != comb_fast_snap[k].w1_b) {
+                    changed = true;
+                    break;
+                }
+            }
         }
+        auto t5 = std::chrono::high_resolution_clock::now();
+        t_proc_ms += std::chrono::duration<double, std::milli>(t5 - t4).count();
         iters++;
     }
+    comb_dirty = false;
 }
 
 bool StratifiedScheduler::evaluate_timing_checks() {
@@ -743,7 +811,10 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
 
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
-            size_t net_id = engine.get_net_id(bp.scope, sens.signal_name);
+            if (sens.net_id == (size_t)-1) {
+                sens.net_id = engine.get_net_id(bp.scope, sens.signal_name);
+            }
+            size_t net_id = sens.net_id;
             if (net_id == (size_t)-1) continue;
             const auto& net = engine.netlist[net_id];
 
@@ -753,6 +824,7 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
         }
 
         if (triggered) {
+            comb_dirty = true;
             bp.fired_in_time_slot = true;
             for (auto& stmt : bp.proc->body) {
                 engine.evaluator.execute_statement(stmt.get(), bp);
@@ -856,6 +928,7 @@ void StratifiedScheduler::evaluate_covergroup_events() {
 
 bool StratifiedScheduler::commit_nba_updates() {
     if (nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
+    comb_dirty = true;
 
     nba_commits_count++;
     for (const auto& update : nba_queue) {
@@ -863,13 +936,8 @@ bool StratifiedScheduler::commit_nba_updates() {
         if (!engine.netlist[target_id].has_procedural_assign) {
             if (update.is_slice) {
                 auto& net = engine.netlist[target_id];
-                uint32_t w = update.slice_width;
-                uint32_t off = update.offset;
-                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                uint64_t full_mask = mask << off;
-                uint64_t new_a = (net.value.aval & ~full_mask) | ((update.val.aval & mask) << off);
-                uint64_t new_b = (net.value.bval & ~full_mask) | ((update.val.bval & mask) << off);
-                LogicVal new_val(net.width, new_a, new_b);
+                LogicVal new_val = net.value;
+                new_val.deposit_slice(update.offset, update.slice_width, update.val);
                 net.set(new_val);
                 if (target_id < engine.alias_members.size()) {
                     for (size_t other_id : engine.alias_members[target_id]) {
@@ -895,7 +963,13 @@ bool StratifiedScheduler::commit_nba_updates() {
     for (const auto& mem_up : nba_mem_queue) {
         if (engine.memory_map.find(mem_up.mem_scoped_name) != engine.memory_map.end()) {
             auto& mem = engine.memory_map.at(mem_up.mem_scoped_name);
-            mem.set_word(mem_up.addr, mem_up.val);
+            if (mem_up.is_slice) {
+                LogicVal cur = mem.get_word(mem_up.addr);
+                cur.deposit_slice(mem_up.offset, mem_up.slice_width, mem_up.val);
+                mem.set_word(mem_up.addr, cur);
+            } else {
+                mem.set_word(mem_up.addr, mem_up.val);
+            }
         }
     }
     nba_mem_queue.clear();
@@ -1479,6 +1553,7 @@ void StratifiedScheduler::step_process(size_t pid) {
     if (pid >= engine.processes.size()) return;
     auto& initial_bp = engine.processes[pid];
     if (initial_bp.completed || initial_bp.wait_target.active || initial_bp.fork_barrier.active || initial_bp.is_delayed || initial_bp.is_waiting_fork || initial_bp.waiting_event_id != (size_t)-1 || initial_bp.is_waiting_cycle || initial_bp.is_waiting_sync) return;
+    comb_dirty = true;
 
     engine.evaluator.set_current_process(&initial_bp);
 
@@ -2279,6 +2354,7 @@ void StratifiedScheduler::step_process(size_t pid) {
 }
 
 void StratifiedScheduler::execute_time_slot_delta_loop() {
+    comb_dirty = true;
     bool activity = true;
     size_t loop_guard = 0;
     const size_t MAX_DELTA_ITERS = 100;
@@ -2405,7 +2481,6 @@ void StratifiedScheduler::run_simulation() {
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
-            propagate_comb();
         }
     }
 
@@ -2429,9 +2504,18 @@ void StratifiedScheduler::run_simulation() {
         n.commit_time_slot();
     }
 
+    uint64_t sim_step_count = 0;
     while (simulation_active && !time_wheel.empty()) {
+        if (engine.max_cycles > 0 && sim_step_count >= engine.max_cycles) {
+            simulation_active = false;
+            break;
+        }
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
+        sim_step_count++;
+        if (sim_step_count % 500 == 0) {
+            std::cout << "[CAS PROGRESS] Time: " << current_sim_time << " ns (" << sim_step_count << " steps)\n" << std::flush;
+        }
 
         for (auto& n : engine.netlist) {
             n.changed_in_current_sim_time = false;
@@ -2529,4 +2613,5 @@ void StratifiedScheduler::run_simulation() {
             n.commit_time_slot();
         }
     }
+    std::cout << "[PROFILE] slice_ms=" << t_slice_ms << " rca_ms=" << t_rca_ms << " proc_ms=" << t_proc_ms << std::endl;
 }

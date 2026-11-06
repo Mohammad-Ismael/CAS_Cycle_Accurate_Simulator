@@ -15,8 +15,8 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: \
  /usr/include/features.h /usr/include/bits/alltypes.h \
  /usr/include/bits/limits.h /usr/include/stdlib.h /usr/include/alloca.h \
  /usr/include/string.h /usr/include/fortify/strings.h \
- /usr/include/strings.h /usr/include/wchar.h \
- /usr/include/c++/13.2.1/type_traits \
+ /usr/include/strings.h /usr/include/fortify/fortify-headers.h \
+ /usr/include/wchar.h /usr/include/c++/13.2.1/type_traits \
  /usr/include/c++/13.2.1/bits/allocator.h \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/c++allocator.h \
  /usr/include/c++/13.2.1/bits/new_allocator.h /usr/include/c++/13.2.1/new \
@@ -102,6 +102,14 @@ CMakeFiles/cas.dir/src/frontend/lexer.cpp.o: \
  /usr/include/c++/13.2.1/bits/locale_facets.tcc \
  /usr/include/c++/13.2.1/bits/basic_ios.tcc \
  /usr/include/c++/13.2.1/bits/ostream.tcc \
+ /usr/include/c++/13.2.1/unordered_map \
+ /usr/include/c++/13.2.1/bits/unordered_map.h \
+ /usr/include/c++/13.2.1/bits/hashtable.h \
+ /usr/include/c++/13.2.1/bits/hashtable_policy.h \
+ /usr/include/c++/13.2.1/ext/aligned_buffer.h \
+ /usr/include/c++/13.2.1/bits/enable_special_members.h \
+ /usr/include/c++/13.2.1/bits/node_handle.h \
+ /usr/include/c++/13.2.1/bits/erase_if.h \
  /app/CAS/src/frontend/../../include/frontend/number_parser.hpp \
  /usr/include/c++/13.2.1/fstream /usr/include/c++/13.2.1/istream \
  /usr/include/c++/13.2.1/bits/istream.tcc \

@@ -4,6 +4,13 @@
 #include <cmath>
 
 std::unique_ptr<StatementNode> Parser::parse_statement() {
+    std::string stmt_label = "";
+    while (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON) {
+        stmt_label = current.text;
+        advance(); // consume ident
+        advance(); // consume ':'
+    }
+
     // Null statement (§12.3)
     if (match(TokenType::TOKEN_SEMICOLON)) {
         return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
@@ -88,12 +95,18 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // 0. Handle 'begin ... end' block statements
     if (match(TokenType::TOKEN_BEGIN)) {
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block name after 'begin :'");
+        }
         enter_scope();
         std::vector<std::unique_ptr<StatementNode>> stmts;
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
             stmts.push_back(parse_statement());
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block name after 'end :'");
+        }
         match(TokenType::TOKEN_SEMICOLON);
         exit_scope();
         return std::make_unique<BlockStatementNode>(std::move(stmts));
@@ -249,53 +262,60 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         bool is_signed_var = uarr_info ? uarr_info->elem_signed : (struct_info ? struct_info->is_signed : (enum_info ? enum_info->is_signed : (has_simple ? simple_info.is_signed : false)));
 
-        std::string vname = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
-        bool is_q = false;
-        bool is_dyn = (uarr_info && uarr_info->is_dynamic_array);
-        bool is_assoc = false;
-        std::string assoc_key_type = "";
-        uint32_t assoc_key_width = 32;
-        if (match(TokenType::TOKEN_LBRACKET)) {
-            if (match(TokenType::TOKEN_DOLLAR)) {
-                is_q = true;
-                if (match(TokenType::TOKEN_COLON)) {
+        std::vector<std::unique_ptr<StatementNode>> vstmts;
+        while (true) {
+            std::string vname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+            bool is_q = false;
+            bool is_dyn = (uarr_info && uarr_info->is_dynamic_array);
+            bool is_assoc = false;
+            std::string assoc_key_type = "";
+            uint32_t assoc_key_width = 32;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    is_q = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    is_dyn = true;
+                } else if (is_assoc_key_token(current)) {
+                    is_assoc = true;
+                    parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                } else {
                     parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                 }
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-            } else if (match(TokenType::TOKEN_RBRACKET)) {
-                is_dyn = true;
-            } else if (is_assoc_key_token(current)) {
+            } else if (match(TokenType::TOKEN_REP_CONSEC)) {
                 is_assoc = true;
-                parse_assoc_key_type(assoc_key_type, assoc_key_width);
+                assoc_key_type = "*";
+                assoc_key_width = 64;
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-            } else {
-                parse_expression();
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
             }
-        } else if (match(TokenType::TOKEN_REP_CONSEC)) {
-            is_assoc = true;
-            assoc_key_type = "*";
-            assoc_key_width = 64;
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-        }
-        std::unique_ptr<ExpressionNode> init_expr = nullptr;
-        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
-            init_expr = parse_expression();
+            std::unique_ptr<ExpressionNode> init_expr = nullptr;
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                init_expr = parse_expression();
+            }
+            uint32_t var_decl_w = is_dyn ? (uarr_info ? uarr_info->elem_width : width) : width;
+            auto vstmt = std::make_unique<VarDeclStatementNode>(vname, var_decl_w, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            if (uarr_info && !uarr_info->is_dynamic_array) {
+                vstmt->is_unpacked_array = true;
+                vstmt->elem_width = uarr_info->elem_width;
+                vstmt->array_size = uarr_info->array_size;
+                vstmt->arr_start_idx = uarr_info->start_idx;
+                vstmt->arr_end_idx = uarr_info->end_idx;
+            }
+            vstmt->init_expr = std::move(init_expr);
+            register_local_decl_var(vname, width, is_signed_var, type_name);
+            vstmts.push_back(std::move(vstmt));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
-        uint32_t var_decl_w = is_dyn ? (uarr_info ? uarr_info->elem_width : width) : width;
-        auto vstmt = std::make_unique<VarDeclStatementNode>(vname, var_decl_w, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
-        if (uarr_info && !uarr_info->is_dynamic_array) {
-            vstmt->is_unpacked_array = true;
-            vstmt->elem_width = uarr_info->elem_width;
-            vstmt->array_size = uarr_info->array_size;
-            vstmt->arr_start_idx = uarr_info->start_idx;
-            vstmt->arr_end_idx = uarr_info->end_idx;
-        }
-        vstmt->init_expr = std::move(init_expr);
-        register_local_decl_var(vname, width, is_signed_var, type_name);
-        return vstmt;
+        if (vstmts.size() == 1) return std::move(vstmts[0]);
+        return std::make_unique<BlockStatementNode>(std::move(vstmts));
     }
 
     if (current.type == TokenType::TOKEN_TYPE) {
@@ -745,14 +765,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::unique_ptr<StatementNode> step_stmt = nullptr;
         if (match(TokenType::TOKEN_PLUS_PLUS)) {
             auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto one = std::make_unique<NumberNode>(1ULL, 32);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
             auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
             step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
         } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
             auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto one = std::make_unique<NumberNode>(1ULL, 32);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
             auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
             step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
+        } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
+            auto step_rhs = parse_expression();
+            auto lhs_id = std::make_unique<IdentifierNode>(target);
+            auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(step_rhs));
+            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
+        } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
+            auto step_rhs = parse_expression();
+            auto lhs_id = std::make_unique<IdentifierNode>(target);
+            auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(step_rhs));
+            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
+        } else if (match(TokenType::TOKEN_STAR_EQUAL)) {
+            auto step_rhs = parse_expression();
+            auto lhs_id = std::make_unique<IdentifierNode>(target);
+            auto mul = std::make_unique<BinaryOpNode>("*", std::move(lhs_id), std::move(step_rhs));
+            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(mul));
         } else {
             expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
             auto step_rhs = parse_expression();
@@ -1139,7 +1174,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (current.type == TokenType::TOKEN_ASSERT) {
-        return parse_assert_property();
+        return parse_assert_property(stmt_label);
     }
 
     if (match(TokenType::TOKEN_CAST)) {
@@ -1150,6 +1185,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $cast");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $cast statement");
         return std::make_unique<SysCastStatementNode>(std::move(dest), std::move(src));
+    }
+
+    if (match(TokenType::TOKEN_VOID)) {
+        expect(TokenType::TOKEN_APOSTROPHE, "Expected ''' after void in cast");
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after void'");
+        auto expr = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing void'(...)");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after void'(...)");
+        return std::make_unique<VoidCastStatementNode>(std::move(expr));
     }
 
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
@@ -1172,17 +1216,79 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
         if (match(TokenType::TOKEN_LBRACKET)) {
             auto idx_expr = parse_expression();
+            std::unique_ptr<ExpressionNode> lsb_expr = nullptr;
+            bool is_plus_c = false;
+            bool is_minus_c = false;
+            if (match(TokenType::TOKEN_COLON)) {
+                lsb_expr = parse_expression();
+            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                lsb_expr = parse_expression();
+                is_plus_c = true;
+            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                lsb_expr = parse_expression();
+                is_minus_c = true;
+            }
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
 
+            std::unique_ptr<ExpressionNode> idx_expr2 = nullptr;
+            std::unique_ptr<ExpressionNode> lsb_expr2 = nullptr;
+            bool is_plus_c2 = false;
+            bool is_minus_c2 = false;
+            bool has_dim2 = false;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                has_dim2 = true;
+                idx_expr2 = parse_expression();
+                if (match(TokenType::TOKEN_COLON)) {
+                    lsb_expr2 = parse_expression();
+                } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                    lsb_expr2 = parse_expression();
+                    is_plus_c2 = true;
+                } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                    lsb_expr2 = parse_expression();
+                    is_minus_c2 = true;
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
+            }
+
+            std::string post_member_name = "";
             if (match(TokenType::TOKEN_DOT)) {
-                std::string idx_str = "0";
-                if (auto num = dynamic_cast<NumberNode*>(idx_expr.get())) idx_str = std::to_string(num->aval);
-                ident += "[" + idx_str + "]." + current.text;
+                post_member_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
                 while (match(TokenType::TOKEN_DOT)) {
-                    ident += "." + current.text;
+                    post_member_name += "." + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
                 }
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    uint64_t intra_delay = 0;
+                    bool has_intra_ev = false;
+                    EdgeType intra_edge = EdgeType::LEVEL;
+                    std::string intra_sig = "";
+                    parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
+                    auto rhs = parse_expression();
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                    auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), false, intra_delay);
+                    node->member_name = post_member_name;
+                    if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                    return node;
+                }
+                if (match(TokenType::TOKEN_LE)) {
+                    uint64_t intra_delay = 0;
+                    bool has_intra_ev = false;
+                    EdgeType intra_edge = EdgeType::LEVEL;
+                    std::string intra_sig = "";
+                    parse_intra_timing(intra_delay, has_intra_ev, intra_edge, intra_sig);
+
+                    auto rhs = parse_expression();
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
+                    auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
+                    node->member_name = post_member_name;
+                    if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                    return node;
+                }
+                std::string idx_str = "0";
+                if (auto num = dynamic_cast<NumberNode*>(idx_expr.get())) idx_str = std::to_string(num->aval);
+                ident += "[" + idx_str + "]." + post_member_name;
             } else if (match(TokenType::TOKEN_EQUAL)) {
                 uint64_t intra_delay = 0;
                 bool has_intra_ev = false;
@@ -1193,6 +1299,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                 auto node = std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr), intra_delay);
+                node->bit_lsb = std::move(lsb_expr);
+                node->is_plus_colon = is_plus_c;
+                node->is_minus_colon = is_minus_c;
+                node->bit_idx2 = std::move(idx_expr2);
+                node->bit_lsb2 = std::move(lsb_expr2);
+                node->is_plus_colon2 = is_plus_c2;
+                node->is_minus_colon2 = is_minus_c2;
                 if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
                 return node;
             }
@@ -1208,7 +1321,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                 auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
                 auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_idx), std::move(rhs));
-                return std::make_unique<BlockingAssignNode>(ident, std::move(op_expr), std::move(idx_expr));
+                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(op_expr), std::move(idx_expr));
+                node->bit_lsb = std::move(lsb_expr);
+                node->is_plus_colon = is_plus_c;
+                node->is_minus_colon = is_minus_c;
+                node->bit_idx2 = std::move(idx_expr2);
+                node->bit_lsb2 = std::move(lsb_expr2);
+                node->is_plus_colon2 = is_plus_c2;
+                node->is_minus_colon2 = is_minus_c2;
+                return node;
             }
             if (match(TokenType::TOKEN_LE)) {
                 uint64_t intra_delay = 0;
@@ -1219,16 +1340,30 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-                auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
-                if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
-                return node;
+                if (lsb_expr || has_dim2) {
+                    auto node = std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs), intra_delay);
+                    node->bit_idx = std::move(idx_expr);
+                    node->bit_lsb = std::move(lsb_expr);
+                    node->is_plus_colon = is_plus_c;
+                    node->is_minus_colon = is_minus_c;
+                    node->bit_idx2 = std::move(idx_expr2);
+                    node->bit_lsb2 = std::move(lsb_expr2);
+                    node->is_plus_colon2 = is_plus_c2;
+                    node->is_minus_colon2 = is_minus_c2;
+                    if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                    return node;
+                } else {
+                    auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
+                    if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                    return node;
+                }
             }
         }
 
         if (match(TokenType::TOKEN_PLUS_PLUS)) {
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++'");
             auto lhs_id = std::make_unique<IdentifierNode>(ident);
-            auto one = std::make_unique<NumberNode>(1ULL, 32);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
             auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
             return std::make_unique<BlockingAssignNode>(ident, std::move(add));
         }
@@ -1236,7 +1371,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (match(TokenType::TOKEN_MINUS_MINUS)) {
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--'");
             auto lhs_id = std::make_unique<IdentifierNode>(ident);
-            auto one = std::make_unique<NumberNode>(1ULL, 32);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
             auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
             return std::make_unique<BlockingAssignNode>(ident, std::move(sub));
         }
@@ -1405,6 +1540,9 @@ std::unique_ptr<StatementNode> Parser::parse_case_statement(DecisionModifier mod
 std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
     std::vector<std::unique_ptr<StatementNode>> stmts;
     if (match(TokenType::TOKEN_BEGIN)) {
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block name after 'begin :'");
+        }
         enter_scope();
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
             auto s = parse_statement();
@@ -1417,6 +1555,9 @@ std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
             }
         }
         expect(TokenType::TOKEN_END, "Expected 'end' closing begin block");
+        if (match(TokenType::TOKEN_COLON)) {
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected block name after 'end :'");
+        }
         match(TokenType::TOKEN_SEMICOLON);
         exit_scope();
     } else {

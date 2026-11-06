@@ -11,23 +11,24 @@ struct NumberNode : public ExpressionNode {
     uint32_t width;
     bool is_real = false;
     double real_val = 0.0;
+    bool is_signed = false;
 
     template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-    explicit NumberNode(T val, uint32_t w = 32, bool unk = false)
+    explicit NumberNode(T val, uint32_t w = 32, bool unk = false, bool s = false)
         : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : static_cast<uint64_t>(val)),
           bval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : 0),
-          width(w), is_real(false), real_val(0.0) {}
+          width(w), is_real(false), real_val(0.0), is_signed(s) {}
 
-    NumberNode(uint64_t a, uint64_t b, uint32_t w)
-        : aval(a), bval(b), width(w), is_real(false), real_val(0.0) {}
+    NumberNode(uint64_t a, uint64_t b, uint32_t w, bool s = false)
+        : aval(a), bval(b), width(w), is_real(false), real_val(0.0), is_signed(s) {}
 
     explicit NumberNode(double r)
-        : aval(static_cast<uint64_t>(r)), bval(0), width(64), is_real(true), real_val(r) {}
+        : aval(static_cast<uint64_t>(r)), bval(0), width(64), is_real(true), real_val(r), is_signed(false) {}
 
     bool is_unknown() const { return bval != 0; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        auto node = std::make_unique<NumberNode>(aval, bval, width);
+        auto node = std::make_unique<NumberNode>(aval, bval, width, is_signed);
         node->is_real = is_real;
         node->real_val = real_val;
         return node;
@@ -64,6 +65,8 @@ struct IndexSelectNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
     bool is_part_select = false;
+    bool is_plus_colon = false;
+    bool is_minus_colon = false;
     std::unique_ptr<ExpressionNode> bit_msb_expr = nullptr;
     std::unique_ptr<ExpressionNode> bit_lsb_expr = nullptr;
     bool has_bit_select = false;
@@ -85,6 +88,8 @@ struct IndexSelectNode : public ExpressionNode {
                 lsb_expr ? lsb_expr->clone() : nullptr
             );
         }
+        node->is_plus_colon = is_plus_colon;
+        node->is_minus_colon = is_minus_colon;
         node->has_bit_select = has_bit_select;
         node->bit_msb_expr = bit_msb_expr ? bit_msb_expr->clone() : nullptr;
         node->bit_lsb_expr = bit_lsb_expr ? bit_lsb_expr->clone() : nullptr;
@@ -122,6 +127,18 @@ struct UnpackedConcatNode : public ExpressionNode {
             cloned.push_back(elem ? elem->clone() : nullptr);
         }
         return std::make_unique<UnpackedConcatNode>(std::move(cloned), is_pattern);
+    }
+};
+
+struct PatternMemberNode : public ExpressionNode {
+    std::string member_name;
+    std::unique_ptr<ExpressionNode> value;
+
+    PatternMemberNode(std::string name, std::unique_ptr<ExpressionNode> val)
+        : member_name(std::move(name)), value(std::move(val)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<PatternMemberNode>(member_name, value ? value->clone() : nullptr);
     }
 };
 
@@ -238,12 +255,15 @@ struct MethodCallNode : public ExpressionNode {
 struct MemberAccessNode : public ExpressionNode {
     std::string var_name;
     std::string member_name;
+    std::unique_ptr<ExpressionNode> index_expr = nullptr;
 
     MemberAccessNode(std::string v, std::string m)
         : var_name(std::move(v)), member_name(std::move(m)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<MemberAccessNode>(var_name, member_name);
+        auto n = std::make_unique<MemberAccessNode>(var_name, member_name);
+        if (index_expr) n->index_expr = index_expr->clone();
+        return n;
     }
 };
 

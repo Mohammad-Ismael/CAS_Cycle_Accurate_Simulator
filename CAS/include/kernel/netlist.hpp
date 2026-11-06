@@ -15,6 +15,7 @@ struct Net {
     LogicVal prev_value;
     bool modified;
     uint64_t change_counter = 0;
+    inline static uint64_t global_net_change_count = 0;
     bool changed_in_current_sim_time = true;
     std::string vcd_id;
     bool has_procedural_assign = false;
@@ -43,17 +44,21 @@ struct Net {
             clamped = val;
             clamped.is_string = true;
         } else if (val.is_real) {
-            clamped = LogicVal(width, val.aval, val.bval);
+            clamped = val;
+            clamped.width = width;
             clamped.is_real = true;
             clamped.real_val = val.real_val;
         } else {
-            clamped = LogicVal(width, val.aval, val.bval);
+            clamped = val;
+            clamped.width = width;
+            clamped.mask();
         }
         if (value != clamped) {
             prev_value = value;
             value = clamped;
             modified = true;
             change_counter++;
+            global_net_change_count++;
             changed_in_current_sim_time = true;
         }
     }
@@ -99,6 +104,7 @@ struct MemoryContinuousAssign {
     std::string mem_name;
     std::unique_ptr<ExpressionNode> index_expr;
     std::unique_ptr<ExpressionNode> rhs;
+    std::string member_name;
 };
 
 struct NamedEvent {
