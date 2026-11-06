@@ -2493,6 +2493,7 @@ void StratifiedScheduler::run_simulation() {
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
+            propagate_comb();
         }
     }
 
