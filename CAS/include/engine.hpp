@@ -35,6 +35,7 @@ class Engine {
     friend class ExprEvaluator;
     friend class StratifiedScheduler;
     friend class BytecodeCompiler;
+    friend class NativeCodeGen;
 
 private:
     std::vector<Net> netlist;
@@ -168,6 +169,13 @@ public:
     void set_display_allowed(bool allowed) { allow_display = allowed; }
     void set_monitor_allowed(bool allowed) { allow_monitor = allowed; }
     void set_finish_msg_allowed(bool allowed) { allow_finish_msg = allowed; }
+    void set_native_codegen(bool en) { enable_native_codegen = en; }
+    void set_native_codegen_path(const std::string& p) { native_codegen_output_path = p; }
+    bool is_native_codegen_enabled() const { return enable_native_codegen; }
+    const std::string& get_native_codegen_path() const { return native_codegen_output_path; }
+
+    bool enable_native_codegen = false;
+    std::string native_codegen_output_path = "/tmp/cas_native_comb.cpp";
 
     bool is_display_allowed() const { return allow_display; }
     bool is_monitor_allowed() const { return allow_monitor; }

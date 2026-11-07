@@ -1,5 +1,6 @@
 #include "../include/engine.hpp"
 #include "../include/kernel/logic_ops.hpp"
+#include "../include/kernel/codegen.hpp"
 
 #include <algorithm>
 
@@ -957,6 +958,28 @@ void Engine::bind_all_ast_nodes() {
             bp.is_pure_fast_proc = true;
         } else if (bp.proc->type == ProcessType::COMBINATIONAL || bp.proc->is_always_comb || bp.proc->is_always_latch) {
             bp.is_bytecode_compiled = BytecodeCompiler::compile_process(bp, *this);
+        }
+    }
+
+    bool do_native_codegen = enable_native_codegen || (std::getenv("CAS_NATIVE_CODEGEN") != nullptr);
+    if (do_native_codegen) {
+        std::string out_path = native_codegen_output_path;
+        if (const char* env_path = std::getenv("CAS_NATIVE_CODEGEN_PATH")) {
+            out_path = env_path;
+        }
+        bool gen_ok = NativeCodeGen::generate_comb_source(out_path, resolved_continuous_assigns, processes, *this);
+        if (gen_ok) {
+            std::cout << "[NativeCodeGen] Successfully generated " << out_path << "\n";
+            std::string obj_path = out_path + ".o";
+            std::string cmd = "g++ -c " + out_path + " -O2 -fPIC -o " + obj_path + " 2>&1";
+            int ret = std::system(cmd.c_str());
+            if (ret == 0) {
+                std::cout << "[NativeCodeGen] Test compilation passed (" << obj_path << ")\n";
+            } else {
+                std::cout << "[NativeCodeGen] Warning: g++ test compilation failed with code " << ret << "\n";
+            }
+        } else {
+            std::cout << "[NativeCodeGen] Failed to generate " << out_path << "\n";
         }
     }
 }

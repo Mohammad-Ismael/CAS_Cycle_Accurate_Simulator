@@ -21,6 +21,7 @@ int main(int argc, char* argv[]) {
     bool enable_display = true;
     bool enable_monitor = true;
     bool enable_finish_msg = true;
+    bool enable_native_codegen = false;
     std::string top_override = "";
     std::string timescale_unit = "1ns";
     std::vector<std::string> source_files;
@@ -130,6 +131,8 @@ int main(int argc, char* argv[]) {
             enable_monitor = false;
         } else if (std::strcmp(argv[i], "--no-finish-msg") == 0) {
             enable_finish_msg = false;
+        } else if (std::strcmp(argv[i], "--native-codegen") == 0) {
+            enable_native_codegen = true;
         } else if ((std::strcmp(argv[i], "--top") == 0 || std::strcmp(argv[i], "-top") == 0) && i + 1 < argc) {
             top_override = argv[++i];
         } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
@@ -275,6 +278,7 @@ int main(int argc, char* argv[]) {
         engine.set_display_allowed(enable_display);
         engine.set_monitor_allowed(enable_monitor);
         engine.set_finish_msg_allowed(enable_finish_msg);
+        engine.set_native_codegen(enable_native_codegen);
         engine.package_defs = Parser::global_packages;
 
         for (const auto& kv : top_param_overrides) {
