@@ -125,6 +125,12 @@ struct ForkBarrier {
     std::vector<size_t> child_pids;
 };
 
+struct FastNetAssign {
+    uint32_t dst_net_id = UINT32_MAX;
+    uint32_t src_net_id = UINT32_MAX;
+    bool is_nba = true;
+};
+
 struct BoundProcess {
     std::string scope;
     ProcessNode* proc = nullptr;
@@ -152,6 +158,9 @@ struct BoundProcess {
 
     size_t pid = (size_t)-1;
     bool is_waiting_sync = false;
+
+    std::vector<FastNetAssign> fast_assignments;
+    bool is_pure_fast_proc = false;
 
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)

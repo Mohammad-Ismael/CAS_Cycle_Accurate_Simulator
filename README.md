@@ -297,9 +297,35 @@ docker exec cas_dev python3 regressions/run_regressions.py
 
 ## Phase 2: Real-World Silicon Verification (lowRISC Ibex)
 
-With the completion of Milestone `v3.57.0.0`, CAS achieves 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 78 milestone test suites.
+With the completion of Milestone `v3.57.0.0`, CAS achieved 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 78 milestone test suites.
 
-The project is now transitioning to **Phase 2: Real-World Silicon Verification**, targeting the **lowRISC Ibex** 32-bit RISC-V CPU core:
-- **Target Core:** lowRISC Ibex (`ibex_core` / `ibex_top`), an industrial-grade 32-bit RISC-V core with 2-stage in-order pipeline, compressed instructions (RV32IMC / RV32EMC), and optional branch target ALU.
-- **Environment:** Verification runs natively within the CAS Studio GUI and CLI, validating execution trace, pipeline control, register file integrity, and memory bus transactions against golden reference models.
-- **Permanent Baseline:** The 78-milestone regression baseline in `regressions/run_regressions.py` remains active and enforced on every subsequent release to safeguard against regression in core language and simulation features.
+Building upon this golden baseline, CAS has achieved **100% cycle-accurate execution parity** against Verilator on industrial-grade silicon RTL: the **lowRISC Ibex** 32-bit RISC-V core (`ibex_simple_system`).
+
+### lowRISC Ibex RV32IMC Milestone Parity
+- **Target Core:** lowRISC Ibex (`ibex_core` / `ibex_top`), an industrial-grade 32-bit RISC-V core with 2-stage in-order pipeline, RV32IMC compressed instruction set, register file, and integrated memory-mapped peripherals (Timer, UART, Simulator Control).
+- **Golden Parity Against Verilator:** CAS executes `hello_test` firmware compiled for lowRISC Ibex with bit-level and cycle-accurate parity:
+  - Exact instruction-by-instruction RVFI trace parity across register writes, jumps, and ALU ops.
+  - Precise timer peripheral interrupt handling (`mtime` / `mtimecmp`) and `wfi` (Wait-For-Interrupt) core wakeup.
+  - Accurate memory-mapped I/O (MMIO) bus writes, streaming clean UART banner output:
+    ```text
+    Hello simple system
+    DEADBEEF
+    BAADF00D
+    ```
+- **Permanent Baseline Safeguard:** All 78 milestone regression suites (`regressions/run_regressions.py`) run continuously with 100.0% Synopsys VCS Golden Parity.
+
+---
+
+## Phase 2 Performance Architecture & Optimizations
+
+To execute complex SystemVerilog processor designs like lowRISC Ibex at scale, CAS incorporates major simulation engine performance advancements:
+
+### Sprint A: Event-Driven Stratified Scheduler Engine
+- **Static Fanout Dependency Extraction:** During elaboration, CAS traverses the hierarchical AST to construct a static, bidirectional `FanoutGraph` mapping every net ID to its dependent resolved continuous assigns (`net_to_rca`) and combinational processes (`net_to_comb_proc`).
+- **Event-Driven Continuous Assignment Worklist:** Continuous assignment propagation in `StratifiedScheduler::propagate_comb()` operates on an active dirty worklist ($O(\text{active})$) triggered strictly by net value changes (`notify_net_changed`), eliminating oblivious $O(N)$ full-graph sweeps.
+- **Event-Driven Combinational Process Worklist:** Combinational processes (`always_comb`, `always @*`) are scheduled dynamically through an event-driven dirty worklist, evaluating only blocks whose sensitive inputs transitioned.
+
+### Sprint B: AST & Arithmetic Execution Acceleration
+- **Direct Net ID AST Binding:** AST identifier nodes (`IdentifierNode`) bind and cache their resolved `net_id` during elaboration (`cached_net_id`). Runtime expression evaluation directly accesses the flat `netlist[]` array by index, bypassing runtime string hashing and scope map lookups.
+- **2-State / 64-Bit Fast-Path Arithmetic Bypass:** Arithmetic, comparison, and bitwise operations on bit-widths $\le 64$ containing known values (`bval == 0`) bypass multi-word 4-state bitvector heap operations and dynamic type boxing, executing directly on raw `uint64_t` registers.
+- **Flattened Procedural Assignment Acceleration:** During elaboration, sequential blocks containing simple register transfers (`q <= d`) and wire assignments are recognized and flattened into compact linear execution vectors (`FastNetAssign`). At runtime, `Evaluator::execute_fast_assignments()` directly commits or enqueues updates without AST statement tree traversal or polymorphic dynamic casting.

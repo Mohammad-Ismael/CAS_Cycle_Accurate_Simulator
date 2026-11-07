@@ -118,6 +118,39 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
     }
 }
 
+void Evaluator::execute_fast_assignments(BoundProcess& bp) {
+    for (const auto& fa : bp.fast_assignments) {
+        uint32_t dst = fa.dst_net_id;
+        uint32_t src = fa.src_net_id;
+        if (dst >= engine.netlist.size() || src >= engine.netlist.size()) continue;
+        if (engine.netlist[dst].has_procedural_assign) continue;
+
+        const auto& s_val = engine.netlist[src].value;
+        LogicVal casted = (engine.netlist[dst].type_name == "string" || s_val.is_string)
+            ? s_val
+            : (engine.netlist[dst].width == engine.netlist[src].width && engine.netlist[dst].is_signed == engine.netlist[src].is_signed)
+                ? s_val
+                : LogicOps::cast_width(s_val, engine.netlist[dst].width, engine.netlist[dst].is_signed);
+
+        if (fa.is_nba) {
+            engine.scheduler.queue_nba(dst, casted);
+        } else {
+            LogicVal old_v = engine.netlist[dst].value;
+            engine.netlist[dst].set(casted);
+            if (dst < engine.alias_members.size()) {
+                for (size_t other_id : engine.alias_members[dst]) {
+                    if (other_id != dst && other_id < engine.netlist.size()) {
+                        engine.netlist[other_id].set(casted);
+                    }
+                }
+            }
+            if (engine.netlist[dst].value != old_v) {
+                engine.scheduler.notify_net_changed(dst);
+            }
+        }
+    }
+}
+
 LogicVal Evaluator::eval_expr(ExpressionNode* expr, const std::string& scope) {
     return expr_eval.eval(expr, scope);
 }

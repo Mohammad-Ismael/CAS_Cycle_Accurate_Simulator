@@ -27,6 +27,7 @@ public:
     LogicVal read_slice(const NetSliceRef& ref);
     void write_slice(const NetSliceRef& ref, const LogicVal& val);
     void write_variable(const std::string& var_name, const LogicVal& val, BoundProcess& bp);
+    void execute_fast_assignments(BoundProcess& bp);
     LogicVal eval_expr(ExpressionNode* expr, const std::string& scope);
     LogicVal eval_gate(const GateInstance& g);
     void execute_statement(StatementNode* stmt, BoundProcess& bp);

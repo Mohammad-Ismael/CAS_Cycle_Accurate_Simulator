@@ -872,6 +872,53 @@ static void bind_ast_stmt(StatementNode* stmt, const std::string& scope, const E
     }
 }
 
+static bool extract_fast_assignments_from_stmts(const std::vector<std::unique_ptr<StatementNode>>& stmts,
+                                                std::vector<FastNetAssign>& out_fast) {
+    if (stmts.empty()) return false;
+    for (const auto& s_ptr : stmts) {
+        StatementNode* s = s_ptr.get();
+        if (!s) return false;
+        if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
+            if (!extract_fast_assignments_from_stmts(blk->statements, out_fast)) {
+                return false;
+            }
+            continue;
+        }
+        if (auto nba = dynamic_cast<NonBlockingAssignNode*>(s)) {
+            if (nba->is_bound && nba->cached_net_id != UINT32_MAX && !nba->bit_idx && !nba->has_intra_event && nba->intra_delay == 0 && !nba->stream_lhs) {
+                if (auto rhs_id = dynamic_cast<IdentifierNode*>(nba->rhs.get())) {
+                    if (rhs_id->is_bound && rhs_id->cached_net_id != UINT32_MAX) {
+                        FastNetAssign fa;
+                        fa.dst_net_id = nba->cached_net_id;
+                        fa.src_net_id = rhs_id->cached_net_id;
+                        fa.is_nba = true;
+                        out_fast.push_back(fa);
+                        continue;
+                    }
+                }
+            }
+            return false;
+        }
+        if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
+            if (ba->is_bound && ba->cached_net_id != UINT32_MAX && ba->lhs_targets.size() == 1 && !ba->bit_idx && !ba->stream_lhs && ba->intra_delay == 0) {
+                if (auto rhs_id = dynamic_cast<IdentifierNode*>(ba->rhs.get())) {
+                    if (rhs_id->is_bound && rhs_id->cached_net_id != UINT32_MAX) {
+                        FastNetAssign fa;
+                        fa.dst_net_id = ba->cached_net_id;
+                        fa.src_net_id = rhs_id->cached_net_id;
+                        fa.is_nba = false;
+                        out_fast.push_back(fa);
+                        continue;
+                    }
+                }
+            }
+            return false;
+        }
+        return false;
+    }
+    return !out_fast.empty();
+}
+
 void Engine::bind_all_ast_nodes() {
     for (auto& rca : resolved_continuous_assigns) {
         for (auto& drv : rca.drivers) {
@@ -897,6 +944,12 @@ void Engine::bind_all_ast_nodes() {
         if (!bp.proc) continue;
         for (auto& s : bp.proc->body) {
             bind_ast_stmt(s.get(), bp.scope, *this);
+        }
+
+        std::vector<FastNetAssign> fast_list;
+        if (extract_fast_assignments_from_stmts(bp.proc->body, fast_list)) {
+            bp.fast_assignments = std::move(fast_list);
+            bp.is_pure_fast_proc = true;
         }
     }
 }

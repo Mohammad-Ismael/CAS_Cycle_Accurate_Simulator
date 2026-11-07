@@ -716,8 +716,12 @@ void StratifiedScheduler::propagate_comb() {
             for (uint32_t pid : current_comb_batch) {
                 if (pid >= engine.processes.size()) continue;
                 auto& bp = engine.processes[pid];
-                for (auto& stmt : bp.proc->body) {
-                    engine.evaluator.execute_statement(stmt.get(), bp);
+                if (bp.is_pure_fast_proc) {
+                    engine.evaluator.execute_fast_assignments(bp);
+                } else {
+                    for (auto& stmt : bp.proc->body) {
+                        engine.evaluator.execute_statement(stmt.get(), bp);
+                    }
                 }
             }
         }
@@ -896,8 +900,12 @@ void StratifiedScheduler::evaluate_sequential_blocks() {
         if (triggered) {
             comb_dirty = true;
             bp.fired_in_time_slot = true;
-            for (auto& stmt : bp.proc->body) {
-                engine.evaluator.execute_statement(stmt.get(), bp);
+            if (bp.is_pure_fast_proc) {
+                engine.evaluator.execute_fast_assignments(bp);
+            } else {
+                for (auto& stmt : bp.proc->body) {
+                    engine.evaluator.execute_statement(stmt.get(), bp);
+                }
             }
         }
     }
