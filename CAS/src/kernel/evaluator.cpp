@@ -3362,9 +3362,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             engine.scheduler.queue_nba(net_id, casted_slice, offset, slice_w, true);
                         }
                     } else {
-                        auto cur = engine.netlist[net_id].value;
+                        size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                        auto old_v = engine.netlist[target_id].value;
+                        auto cur = old_v;
                         cur.deposit_slice(offset, slice_w, casted_slice);
-                        engine.netlist[net_id].set(cur);
+                        engine.netlist[target_id].set(cur);
+                        if (target_id < engine.alias_members.size()) {
+                            for (size_t other_id : engine.alias_members[target_id]) {
+                                if (other_id != target_id && other_id < engine.netlist.size()) {
+                                    engine.netlist[other_id].set(cur);
+                                }
+                            }
+                        }
+                        if (engine.netlist[target_id].value != old_v) {
+                            engine.scheduler.notify_net_changed(target_id);
+                        }
                     }
                 }
             }
@@ -3447,19 +3459,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (local) {
                     uint32_t width = local->width;
-                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                    local->value = LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask);
+                    local->value = rhs_val.extract_slice(shift, width);
                     shift += width;
                 } else {
-                    std::string scoped_target = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
-                    size_t net_id = (size_t)-1;
-                    if (engine.net_map.find(scoped_target) != engine.net_map.end()) net_id = engine.net_map.at(scoped_target);
-                    else if (engine.net_map.find(target_name) != engine.net_map.end()) net_id = engine.net_map.at(target_name);
+                    size_t net_id = engine.get_net_id(bp.scope, target_name);
                     if (net_id != (size_t)-1) {
-                        uint32_t width = engine.netlist[net_id].width;
-                        if (!engine.netlist[net_id].has_procedural_assign) {
-                            uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
-                            engine.netlist[net_id].set(LogicVal(width, (rhs_val.aval >> shift) & mask, (rhs_val.bval >> shift) & mask));
+                        size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                        uint32_t width = engine.netlist[target_id].width;
+                        if (!engine.netlist[target_id].has_procedural_assign) {
+                            LogicVal old_v = engine.netlist[target_id].value;
+                            LogicVal new_v = rhs_val.extract_slice(shift, width);
+                            engine.netlist[target_id].set(new_v);
+                            if (target_id < engine.alias_members.size()) {
+                                for (size_t other_id : engine.alias_members[target_id]) {
+                                    if (other_id != target_id && other_id < engine.netlist.size()) {
+                                        engine.netlist[other_id].set(new_v);
+                                    }
+                                }
+                            }
+                            if (engine.netlist[target_id].value != old_v) {
+                                engine.scheduler.notify_net_changed(target_id);
+                            }
                         }
                         shift += width;
                     } else {
@@ -3467,6 +3487,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
             }
+            return;
         } else {
             std::string target_name = assign->lhs_targets[0];
             auto colons = target_name.find("::");
@@ -4234,6 +4255,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 mem.set_word(addr, rhs_val);
                             }
                         }
+                        engine.scheduler.notify_mem_changed();
                         return;
                     } else {
                         std::vector<LogicVal> elems;
@@ -4262,6 +4284,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                     }
+                    engine.scheduler.notify_mem_changed();
                     return;
                 }
                 size_t net_id = engine.get_net_id(bp.scope, target_name);
@@ -4300,9 +4323,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (st) {
                             const StructMember* sm = st->get_member(member_name);
                             if (sm) {
-                                auto cur = engine.netlist[net_id].value;
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto old_v = engine.netlist[target_id].value;
+                                auto cur = old_v;
                                 cur.deposit_slice(sm->offset, sm->width, rhs_val);
-                                engine.netlist[net_id].set(cur);
+                                engine.netlist[target_id].set(cur);
+                                if (target_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_id]) {
+                                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(cur);
+                                        }
+                                    }
+                                }
+                                if (engine.netlist[target_id].value != old_v) {
+                                    engine.scheduler.notify_net_changed(target_id);
+                                }
                                 return;
                             }
                         }
@@ -4351,9 +4386,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     slice_w = 1;
                                     lsb = elem_idx * d1_width + idx_v2.aval;
                                 }
-                                auto cur = engine.netlist[net_id].value;
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto old_v = engine.netlist[target_id].value;
+                                auto cur = old_v;
                                 cur.deposit_slice(lsb, slice_w, rhs_val);
-                                engine.netlist[net_id].set(cur);
+                                engine.netlist[target_id].set(cur);
+                                if (target_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_id]) {
+                                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(cur);
+                                        }
+                                    }
+                                }
+                                if (engine.netlist[target_id].value != old_v) {
+                                    engine.scheduler.notify_net_changed(target_id);
+                                }
                                 return;
                             }
                         } else if (assign->bit_lsb) {
@@ -4377,7 +4424,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
-                                auto cur = engine.netlist[target_id].value;
+                                auto old_v = engine.netlist[target_id].value;
+                                auto cur = old_v;
                                 cur.deposit_slice(lsb, slice_w, rhs_val);
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
@@ -4386,6 +4434,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                             engine.netlist[other_id].set(cur);
                                         }
                                     }
+                                }
+                                if (engine.netlist[target_id].value != old_v) {
+                                    engine.scheduler.notify_net_changed(target_id);
                                 }
                                 return;
                             }
@@ -4693,7 +4744,11 @@ void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNo
                 if (is_nba) {
                     engine.scheduler.queue_nba(net_id, val);
                 } else {
+                    LogicVal old_v = engine.netlist[net_id].value;
                     engine.netlist[net_id].set(val);
+                    if (engine.netlist[net_id].value != old_v) {
+                        engine.scheduler.notify_net_changed(net_id);
+                    }
                 }
                 continue;
             }
@@ -4718,6 +4773,7 @@ void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNo
                     }
                 }
                 mem.set_word(idx, LogicVal(ew, a, b));
+                engine.scheduler.notify_mem_changed();
                 continue;
             }
         }

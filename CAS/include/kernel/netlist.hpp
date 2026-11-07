@@ -157,8 +157,15 @@ struct FanoutGraph {
     // list of RCA indices that read from any memory array
     std::vector<uint32_t> mem_reading_rcas;
 
+    // list of combinational process IDs that read from any memory array
+    std::vector<uint32_t> mem_reading_comb_procs;
+
+    // net_id -> vector of MCA indices
+    std::vector<std::vector<uint32_t>> net_to_mca;
+
     void resize(size_t net_count) {
         net_to_rca.resize(net_count);
         net_to_comb_proc.resize(net_count);
+        net_to_mca.resize(net_count);
     }
 };

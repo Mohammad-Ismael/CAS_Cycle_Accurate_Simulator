@@ -310,36 +310,36 @@ static void collect_read_nets(const ExpressionNode* expr, const std::string& sco
     }
 }
 
-static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids) {
+static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem) {
     if (!stmt) return;
 
     if (auto if_s = dynamic_cast<const IfStatementNode*>(stmt)) {
-        collect_read_nets(if_s->condition.get(), scope, engine, out_net_ids);
-        for (const auto& s : if_s->then_branch) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
-        for (const auto& s : if_s->else_branch) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        collect_read_nets(if_s->condition.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& s : if_s->then_branch) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& s : if_s->else_branch) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto blk = dynamic_cast<const BlockStatementNode*>(stmt)) {
-        for (const auto& s : blk->statements) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        for (const auto& s : blk->statements) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto cs = dynamic_cast<const CaseStatementNode*>(stmt)) {
-        collect_read_nets(cs->selector.get(), scope, engine, out_net_ids);
+        collect_read_nets(cs->selector.get(), scope, engine, out_net_ids, out_reads_mem);
         for (const auto& item : cs->items) {
-            if (item.match_expr) collect_read_nets(item.match_expr.get(), scope, engine, out_net_ids);
-            for (const auto& me : item.match_exprs) collect_read_nets(me.get(), scope, engine, out_net_ids);
-            for (const auto& s : item.statements) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+            if (item.match_expr) collect_read_nets(item.match_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+            for (const auto& me : item.match_exprs) collect_read_nets(me.get(), scope, engine, out_net_ids, out_reads_mem);
+            for (const auto& s : item.statements) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         }
         return;
     }
 
     if (auto for_s = dynamic_cast<const ForStatementNode*>(stmt)) {
-        collect_stmt_read_nets(for_s->init_stmt.get(), scope, engine, out_net_ids);
-        collect_read_nets(for_s->condition.get(), scope, engine, out_net_ids);
-        collect_stmt_read_nets(for_s->step_stmt.get(), scope, engine, out_net_ids);
-        for (const auto& s : for_s->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        collect_stmt_read_nets(for_s->init_stmt.get(), scope, engine, out_net_ids, out_reads_mem);
+        collect_read_nets(for_s->condition.get(), scope, engine, out_net_ids, out_reads_mem);
+        collect_stmt_read_nets(for_s->step_stmt.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& s : for_s->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
@@ -349,74 +349,74 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
             size_t canon = engine.get_canonical_net_id(raw_nid);
             out_net_ids.push_back((uint32_t)canon);
         }
-        for (const auto& s : fe->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        for (const auto& s : fe->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto wh = dynamic_cast<const WhileStatementNode*>(stmt)) {
-        collect_read_nets(wh->condition.get(), scope, engine, out_net_ids);
-        for (const auto& s : wh->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        collect_read_nets(wh->condition.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& s : wh->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto rep = dynamic_cast<const RepeatStatementNode*>(stmt)) {
-        collect_read_nets(rep->count_expr.get(), scope, engine, out_net_ids);
-        for (const auto& s : rep->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        collect_read_nets(rep->count_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& s : rep->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto fo = dynamic_cast<const ForeverStatementNode*>(stmt)) {
-        for (const auto& s : fo->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        for (const auto& s : fo->body) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto ba = dynamic_cast<const BlockingAssignNode*>(stmt)) {
-        collect_read_nets(ba->rhs.get(), scope, engine, out_net_ids);
-        if (ba->bit_idx) collect_read_nets(ba->bit_idx.get(), scope, engine, out_net_ids);
-        if (ba->bit_lsb) collect_read_nets(ba->bit_lsb.get(), scope, engine, out_net_ids);
-        if (ba->bit_idx2) collect_read_nets(ba->bit_idx2.get(), scope, engine, out_net_ids);
-        if (ba->bit_lsb2) collect_read_nets(ba->bit_lsb2.get(), scope, engine, out_net_ids);
+        collect_read_nets(ba->rhs.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (ba->bit_idx) collect_read_nets(ba->bit_idx.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (ba->bit_lsb) collect_read_nets(ba->bit_lsb.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (ba->bit_idx2) collect_read_nets(ba->bit_idx2.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (ba->bit_lsb2) collect_read_nets(ba->bit_lsb2.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(stmt)) {
-        collect_read_nets(nba->rhs.get(), scope, engine, out_net_ids);
-        if (nba->bit_idx) collect_read_nets(nba->bit_idx.get(), scope, engine, out_net_ids);
-        if (nba->bit_lsb) collect_read_nets(nba->bit_lsb.get(), scope, engine, out_net_ids);
-        if (nba->bit_idx2) collect_read_nets(nba->bit_idx2.get(), scope, engine, out_net_ids);
-        if (nba->bit_lsb2) collect_read_nets(nba->bit_lsb2.get(), scope, engine, out_net_ids);
+        collect_read_nets(nba->rhs.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (nba->bit_idx) collect_read_nets(nba->bit_idx.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (nba->bit_lsb) collect_read_nets(nba->bit_lsb.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (nba->bit_idx2) collect_read_nets(nba->bit_idx2.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (nba->bit_lsb2) collect_read_nets(nba->bit_lsb2.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto mem = dynamic_cast<const MemAssignNode*>(stmt)) {
-        collect_read_nets(mem->addr_expr.get(), scope, engine, out_net_ids);
-        collect_read_nets(mem->rhs.get(), scope, engine, out_net_ids);
+        collect_read_nets(mem->addr_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+        collect_read_nets(mem->rhs.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto pa = dynamic_cast<const ProceduralAssignNode*>(stmt)) {
-        collect_read_nets(pa->rhs.get(), scope, engine, out_net_ids);
+        collect_read_nets(pa->rhs.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto ret = dynamic_cast<const ReturnStatementNode*>(stmt)) {
-        if (ret->expr) collect_read_nets(ret->expr.get(), scope, engine, out_net_ids);
+        if (ret->expr) collect_read_nets(ret->expr.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto tc = dynamic_cast<const TaskCallNode*>(stmt)) {
-        for (const auto& arg : tc->args) collect_read_nets(arg.get(), scope, engine, out_net_ids);
+        for (const auto& arg : tc->args) collect_read_nets(arg.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto disp = dynamic_cast<const DisplayStatementNode*>(stmt)) {
-        for (const auto& arg : disp->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids);
+        for (const auto& arg : disp->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto sev = dynamic_cast<const SeverityTaskStatementNode*>(stmt)) {
-        if (sev->finish_number) collect_read_nets(sev->finish_number.get(), scope, engine, out_net_ids);
-        for (const auto& arg : sev->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids);
+        if (sev->finish_number) collect_read_nets(sev->finish_number.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& arg : sev->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
@@ -430,47 +430,53 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
     }
 
     if (auto fork_s = dynamic_cast<const ForkStatementNode*>(stmt)) {
-        for (const auto& s : fork_s->branches) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids);
+        for (const auto& s : fork_s->branches) collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto delay_s = dynamic_cast<const DelayStatementNode*>(stmt)) {
-        if (delay_s->delay_expr) collect_read_nets(delay_s->delay_expr.get(), scope, engine, out_net_ids);
+        if (delay_s->delay_expr) collect_read_nets(delay_s->delay_expr.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto vd = dynamic_cast<const VarDeclStatementNode*>(stmt)) {
-        if (vd->init_expr) collect_read_nets(vd->init_expr.get(), scope, engine, out_net_ids);
+        if (vd->init_expr) collect_read_nets(vd->init_expr.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto sf = dynamic_cast<const SFormatStatementNode*>(stmt)) {
-        if (sf->target_expr) collect_read_nets(sf->target_expr.get(), scope, engine, out_net_ids);
-        if (sf->format_expr) collect_read_nets(sf->format_expr.get(), scope, engine, out_net_ids);
-        for (const auto& arg : sf->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids);
+        if (sf->target_expr) collect_read_nets(sf->target_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (sf->format_expr) collect_read_nets(sf->format_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+        for (const auto& arg : sf->arg_exprs) collect_read_nets(arg.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto vc = dynamic_cast<const VoidCastStatementNode*>(stmt)) {
-        if (vc->expr) collect_read_nets(vc->expr.get(), scope, engine, out_net_ids);
+        if (vc->expr) collect_read_nets(vc->expr.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto sc = dynamic_cast<const SysCastStatementNode*>(stmt)) {
-        if (sc->dest_expr) collect_read_nets(sc->dest_expr.get(), scope, engine, out_net_ids);
-        if (sc->src_expr) collect_read_nets(sc->src_expr.get(), scope, engine, out_net_ids);
+        if (sc->dest_expr) collect_read_nets(sc->dest_expr.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (sc->src_expr) collect_read_nets(sc->src_expr.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
     if (auto r = dynamic_cast<const RandomizeStatementNode*>(stmt)) {
-        if (r->call) collect_read_nets(r->call.get(), scope, engine, out_net_ids);
+        if (r->call) collect_read_nets(r->call.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
+}
+
+static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids) {
+    bool dummy = false;
+    collect_stmt_read_nets(stmt, scope, engine, out_net_ids, dummy);
 }
 
 void Engine::build_fanout_graph() {
     fanout.resize(netlist.size());
     fanout.mem_reading_rcas.clear();
+    fanout.mem_reading_comb_procs.clear();
 
     // 1. Build net_to_rca
     for (size_t rca_idx = 0; rca_idx < resolved_continuous_assigns.size(); ++rca_idx) {
@@ -510,6 +516,7 @@ void Engine::build_fanout_graph() {
         if (bp.proc->type != ProcessType::COMBINATIONAL && !bp.proc->is_always_comb && !bp.proc->is_always_latch) continue;
 
         std::vector<uint32_t> read_nets;
+        bool reads_mem = false;
         for (const auto& sens : bp.proc->sensitivity_list) {
             size_t raw_nid = get_net_id(bp.scope, sens.signal_name);
             if (raw_nid != (size_t)-1) {
@@ -518,10 +525,14 @@ void Engine::build_fanout_graph() {
             }
         }
         for (const auto& s : bp.proc->body) {
-            collect_stmt_read_nets(s.get(), bp.scope, *this, read_nets);
+            collect_stmt_read_nets(s.get(), bp.scope, *this, read_nets, reads_mem);
         }
         std::sort(read_nets.begin(), read_nets.end());
         read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
+
+        if (reads_mem) {
+            fanout.mem_reading_comb_procs.push_back((uint32_t)pid);
+        }
 
         for (uint32_t nid : read_nets) {
             if (nid < fanout.net_to_comb_proc.size()) {
@@ -530,13 +541,32 @@ void Engine::build_fanout_graph() {
         }
     }
 
-    // 3. Mirror fanout to alias members
+    // 3. Build net_to_mca
+    for (size_t mca_idx = 0; mca_idx < memory_continuous_assigns.size(); ++mca_idx) {
+        const auto& mca = memory_continuous_assigns[mca_idx];
+        std::vector<uint32_t> read_nets;
+        bool reads_mem = false;
+        if (mca.rhs) collect_read_nets(mca.rhs.get(), mca.scope, *this, read_nets, reads_mem);
+        if (mca.index_expr) collect_read_nets(mca.index_expr.get(), mca.scope, *this, read_nets, reads_mem);
+        std::sort(read_nets.begin(), read_nets.end());
+        read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
+        for (uint32_t nid : read_nets) {
+            if (nid < fanout.net_to_mca.size()) {
+                fanout.net_to_mca[nid].push_back((uint32_t)mca_idx);
+            }
+        }
+    }
+
+    // 4. Mirror fanout to alias members
     for (size_t canon_nid = 0; canon_nid < alias_members.size(); ++canon_nid) {
         if (!alias_members[canon_nid].empty()) {
             for (size_t other_id : alias_members[canon_nid]) {
                 if (other_id != canon_nid && other_id < fanout.net_to_rca.size()) {
                     fanout.net_to_rca[other_id] = fanout.net_to_rca[canon_nid];
                     fanout.net_to_comb_proc[other_id] = fanout.net_to_comb_proc[canon_nid];
+                    if (other_id < fanout.net_to_mca.size()) {
+                        fanout.net_to_mca[other_id] = fanout.net_to_mca[canon_nid];
+                    }
                 }
             }
         }
@@ -761,6 +791,7 @@ void Engine::run(std::ostream* debug_out) {
         *debug_out << "  -> Built-in Gates Instantiated  : " << gates.size() << "\n";
         *debug_out << "  -> Continuous Assigns Bound     : " << continuous_assigns.size() << "\n";
         *debug_out << "  -> Memory Arrays Allocated      : " << memory_map.size() << "\n";
+        *debug_out << "  -> Memory Continuous Assigns    : " << memory_continuous_assigns.size() << "\n";
         *debug_out << "  -> Concurrent Processes Bound   : " << processes.size() << "\n";
         size_t total_rca_edges = 0;
         size_t nets_with_rca = 0;

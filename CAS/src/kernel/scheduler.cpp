@@ -463,6 +463,17 @@ void StratifiedScheduler::enqueue_rca(uint32_t rca_idx) {
     }
 }
 
+void StratifiedScheduler::enqueue_comb_proc(uint32_t proc_id) {
+    if (comb_proc_enqueued.size() != engine.processes.size()) {
+        comb_proc_enqueued.assign(engine.processes.size(), 0);
+    }
+    if (proc_id < comb_proc_enqueued.size() && !comb_proc_enqueued[proc_id]) {
+        comb_proc_enqueued[proc_id] = 1;
+        dirty_comb_procs.push_back(proc_id);
+        comb_dirty = true;
+    }
+}
+
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id >= engine.netlist.size()) return;
     size_t canon_nid = engine.get_canonical_net_id(net_id);
@@ -472,22 +483,36 @@ void StratifiedScheduler::notify_net_changed(size_t net_id) {
             enqueue_rca(rca_idx);
         }
     }
+    if (canon_nid < engine.fanout.net_to_comb_proc.size()) {
+        const auto& proc_list = engine.fanout.net_to_comb_proc[canon_nid];
+        for (uint32_t proc_id : proc_list) {
+            enqueue_comb_proc(proc_id);
+        }
+    }
+    if (canon_nid < engine.fanout.net_to_mca.size() && !engine.fanout.net_to_mca[canon_nid].empty()) {
+        comb_dirty = true;
+    }
 }
 
 void StratifiedScheduler::notify_mem_changed() {
+    comb_dirty = true;
     for (uint32_t rca_idx : engine.fanout.mem_reading_rcas) {
         enqueue_rca(rca_idx);
+    }
+    for (uint32_t proc_id : engine.fanout.mem_reading_comb_procs) {
+        enqueue_comb_proc(proc_id);
     }
 }
 
 void StratifiedScheduler::propagate_comb() {
-    if (!comb_dirty && dirty_rcas.empty()) return;
+    if (!comb_dirty && dirty_rcas.empty() && dirty_comb_procs.empty()) return;
     delta_cycles_count++;
-    bool changed = true;
     size_t iters = 0;
+    bool changed = true;
 
     while (changed && iters < 200) {
         changed = false;
+        iters++;
 
         auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& bind : engine.slice_bindings) {
@@ -499,8 +524,8 @@ void StratifiedScheduler::propagate_comb() {
             LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
             if (src_val != dst_val) {
                 engine.evaluator.write_slice(bind.dst, src_val);
-                changed = true;
                 notify_net_changed(bind.dst.net_id);
+                changed = true;
             }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -513,8 +538,8 @@ void StratifiedScheduler::propagate_comb() {
                 for (size_t i = 0; i < it_src->second.words.size() && i < it_dst->second.words.size(); ++i) {
                     if (it_dst->second.words[i] != it_src->second.words[i]) {
                         it_dst->second.words[i] = it_src->second.words[i];
-                        changed = true;
                         notify_mem_changed();
+                        changed = true;
                     }
                 }
             }
@@ -549,120 +574,122 @@ void StratifiedScheduler::propagate_comb() {
                     LogicVal cur_val = it->second.get_word(addr);
                     if (cur_val != rhs_val) {
                         it->second.set_word(addr, rhs_val);
-                        changed = true;
                         notify_mem_changed();
+                        changed = true;
                     }
                 }
             }
         }
 
         auto t2 = std::chrono::high_resolution_clock::now();
-        // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution (Event-Driven)
-        std::vector<uint32_t> current_batch;
-        size_t rca_inner_guard = 0;
-        while (!dirty_rcas.empty() && rca_inner_guard < 100) {
-            rca_inner_guard++;
-            current_batch.swap(dirty_rcas);
-            for (uint32_t idx : current_batch) {
-                if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
-            }
-
-            for (uint32_t rca_idx : current_batch) {
-                if (rca_idx >= engine.resolved_continuous_assigns.size()) continue;
-                auto& rca = engine.resolved_continuous_assigns[rca_idx];
-                if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
-
-                auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
-                    if (drv.is_gate) {
-                        return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
-                    } else {
-                        if (auto ucat = dynamic_cast<UnpackedConcatNode*>(drv.rhs)) {
-                            std::string tname = engine.netlist[rca.target.net_id].type_name;
-                            if (tname.empty()) {
-                                std::string nname = engine.netlist[rca.target.net_id].name;
-                                if (engine.var_to_struct_type.count(nname)) tname = engine.var_to_struct_type.at(nname);
-                            }
-                            if (!tname.empty()) {
-                                if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
-                                    return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
-                                }
-                            }
-                        }
-                        return engine.evaluator.eval_expr(drv.rhs, drv.scope);
-                    }
-                };
-
-                LogicVal resolved;
-                if (rca.drivers.empty()) {
-                    resolved = LogicVal::make_z(rca.target.width);
-                } else if (rca.drivers.size() == 1) {
-                    resolved = eval_driver(rca.drivers[0]);
-                    resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-                } else {
-                    resolved = eval_driver(rca.drivers[0]);
-                    resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-                    NetKind kind = engine.netlist[rca.target.net_id].kind;
-                    for (size_t i = 1; i < rca.drivers.size(); ++i) {
-                        LogicVal d_val = eval_driver(rca.drivers[i]);
-                        d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-                        resolved = LogicOps::resolve_net(kind, resolved, d_val);
-                    }
+        // 1. Drain and evaluate all dirty_rcas
+        if (!dirty_rcas.empty()) {
+            changed = true;
+            size_t rca_inner_guard = 0;
+            while (!dirty_rcas.empty() && rca_inner_guard < 100) {
+                rca_inner_guard++;
+                std::vector<uint32_t> current_batch;
+                current_batch.swap(dirty_rcas);
+                for (uint32_t idx : current_batch) {
+                    if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
                 }
 
-                LogicVal cur = engine.evaluator.read_slice(rca.target);
-                if (cur != resolved) {
-                    size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+                for (uint32_t rca_idx : current_batch) {
+                    if (rca_idx >= engine.resolved_continuous_assigns.size()) continue;
+                    auto& rca = engine.resolved_continuous_assigns[rca_idx];
+                    if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
 
-                    bool has_path_delay = false;
-                    uint64_t min_delay = UINT64_MAX;
-                    for (const auto& mpd : engine.module_path_delays) {
-                        if (mpd.dst_net_id == target_id) {
-                            if (engine.netlist[mpd.src_net_id].changed_in_current_sim_time) {
-                                bool cond_met = true;
-                                if (mpd.cond_expr) {
-                                    LogicVal cval = engine.evaluator.eval_expr(mpd.cond_expr, mpd.scope);
-                                    cond_met = cval.to_bool();
+                    auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
+                        if (drv.is_gate) {
+                            return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
+                        } else {
+                            if (auto ucat = dynamic_cast<UnpackedConcatNode*>(drv.rhs)) {
+                                std::string tname = engine.netlist[rca.target.net_id].type_name;
+                                if (tname.empty()) {
+                                    std::string nname = engine.netlist[rca.target.net_id].name;
+                                    if (engine.var_to_struct_type.count(nname)) tname = engine.var_to_struct_type.at(nname);
                                 }
-                                if (cond_met) {
-                                    has_path_delay = true;
-                                    if (mpd.delay_ticks < min_delay) {
-                                        min_delay = mpd.delay_ticks;
+                                if (!tname.empty()) {
+                                    if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
+                                        return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
+                                    }
+                                }
+                            }
+                            return engine.evaluator.eval_expr(drv.rhs, drv.scope);
+                        }
+                    };
+
+                    LogicVal resolved;
+                    if (rca.drivers.empty()) {
+                        resolved = LogicVal::make_z(rca.target.width);
+                    } else if (rca.drivers.size() == 1) {
+                        resolved = eval_driver(rca.drivers[0]);
+                        resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                    } else {
+                        resolved = eval_driver(rca.drivers[0]);
+                        resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                        NetKind kind = engine.netlist[rca.target.net_id].kind;
+                        for (size_t i = 1; i < rca.drivers.size(); ++i) {
+                            LogicVal d_val = eval_driver(rca.drivers[i]);
+                            d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                            resolved = LogicOps::resolve_net(kind, resolved, d_val);
+                        }
+                    }
+
+                    LogicVal cur = engine.evaluator.read_slice(rca.target);
+                    if (cur != resolved) {
+                        size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+
+                        bool has_path_delay = false;
+                        uint64_t min_delay = UINT64_MAX;
+                        for (const auto& mpd : engine.module_path_delays) {
+                            if (mpd.dst_net_id == target_id) {
+                                if (engine.netlist[mpd.src_net_id].changed_in_current_sim_time) {
+                                    bool cond_met = true;
+                                    if (mpd.cond_expr) {
+                                        LogicVal cval = engine.evaluator.eval_expr(mpd.cond_expr, mpd.scope);
+                                        cond_met = cval.to_bool();
+                                    }
+                                    if (cond_met) {
+                                        has_path_delay = true;
+                                        if (mpd.delay_ticks < min_delay) {
+                                            min_delay = mpd.delay_ticks;
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (has_path_delay && min_delay > 0) {
-                        uint64_t target_time = current_sim_time + min_delay;
-                        pending_specify_events[target_id] = {target_id, resolved, target_time};
-                        time_wheel.schedule(target_time, UINT32_MAX);
-                        continue;
-                    }
+                        if (has_path_delay && min_delay > 0) {
+                            uint64_t target_time = current_sim_time + min_delay;
+                            pending_specify_events[target_id] = {target_id, resolved, target_time};
+                            time_wheel.schedule(target_time, UINT32_MAX);
+                            continue;
+                        }
 
-                    if (pending_specify_events.find(target_id) != pending_specify_events.end()) {
-                        continue;
-                    }
+                        if (pending_specify_events.find(target_id) != pending_specify_events.end()) {
+                            continue;
+                        }
 
-                    engine.evaluator.write_slice(rca.target, resolved);
-                    changed = true;
-                    notify_net_changed(target_id);
-                } else {
-                    size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
-                    pending_specify_events.erase(target_id);
+                        engine.evaluator.write_slice(rca.target, resolved);
+                        notify_net_changed(target_id);
+                    } else {
+                        size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+                        pending_specify_events.erase(target_id);
+                    }
                 }
             }
-        }
-        if (rca_inner_guard >= 100) {
-            for (uint32_t idx : dirty_rcas) {
-                if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
+            if (rca_inner_guard >= 100) {
+                for (uint32_t idx : dirty_rcas) {
+                    if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
+                }
+                dirty_rcas.clear();
             }
-            dirty_rcas.clear();
         }
         auto t3 = std::chrono::high_resolution_clock::now();
         t_rca_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
 
-        // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignments propagate whenever operands change
+        // 4. Procedural Continuous Assignments
         for (size_t net_idx = 0; net_idx < engine.netlist.size(); ++net_idx) {
             auto& net = engine.netlist[net_idx];
             if (net.has_procedural_assign && net.procedural_assign_rhs) {
@@ -670,72 +697,47 @@ void StratifiedScheduler::propagate_comb() {
                 LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
                 if (net.value != casted) {
                     net.set(casted);
-                    changed = true;
                     notify_net_changed(net_idx);
+                    changed = true;
                 }
             }
         }
 
+        // 5. Drain and evaluate all dirty_comb_procs
         auto t4 = std::chrono::high_resolution_clock::now();
-        static std::vector<size_t> comb_target_nets;
-        static std::vector<size_t> comb_pids;
-        static bool comb_init_done = false;
-        if (!comb_init_done) {
-            comb_init_done = true;
-            for (size_t nid : engine.comb_target_net_ids) {
-                if (nid < engine.netlist.size()) comb_target_nets.push_back(nid);
+        if (!dirty_comb_procs.empty()) {
+            changed = true;
+            std::vector<uint32_t> current_comb_batch;
+            current_comb_batch.swap(dirty_comb_procs);
+            for (uint32_t pid : current_comb_batch) {
+                if (pid < comb_proc_enqueued.size()) comb_proc_enqueued[pid] = 0;
             }
-            for (size_t i = 0; i < engine.processes.size(); ++i) {
-                if (engine.processes[i].proc->type == ProcessType::COMBINATIONAL) {
-                    comb_pids.push_back(i);
+
+            for (uint32_t pid : current_comb_batch) {
+                if (pid >= engine.processes.size()) continue;
+                auto& bp = engine.processes[pid];
+                for (auto& stmt : bp.proc->body) {
+                    engine.evaluator.execute_statement(stmt.get(), bp);
                 }
-            }
-        }
-
-        struct FastVal {
-            uint64_t aval, bval;
-            uint64_t w1_a, w1_b;
-        };
-        static std::vector<FastVal> comb_fast_snap;
-        if (comb_fast_snap.size() != comb_target_nets.size()) {
-            comb_fast_snap.resize(comb_target_nets.size());
-        }
-        for (size_t k = 0; k < comb_target_nets.size(); ++k) {
-            const auto& v = engine.netlist[comb_target_nets[k]].value;
-            comb_fast_snap[k].aval = v.aval;
-            comb_fast_snap[k].bval = v.bval;
-            if (v.wide_aval.size() > 1) {
-                comb_fast_snap[k].w1_a = v.wide_aval[1];
-                comb_fast_snap[k].w1_b = v.wide_bval[1];
-            } else {
-                comb_fast_snap[k].w1_a = 0;
-                comb_fast_snap[k].w1_b = 0;
-            }
-        }
-
-        for (size_t pid : comb_pids) {
-            auto& bp = engine.processes[pid];
-            for (auto& stmt : bp.proc->body) {
-                engine.evaluator.execute_statement(stmt.get(), bp);
-            }
-        }
-
-        for (size_t k = 0; k < comb_target_nets.size(); ++k) {
-            const auto& v = engine.netlist[comb_target_nets[k]].value;
-            bool net_toggled = (v.aval != comb_fast_snap[k].aval || v.bval != comb_fast_snap[k].bval);
-            if (!net_toggled && v.wide_aval.size() > 1) {
-                if (v.wide_aval[1] != comb_fast_snap[k].w1_a || v.wide_bval[1] != comb_fast_snap[k].w1_b) {
-                    net_toggled = true;
-                }
-            }
-            if (net_toggled) {
-                changed = true;
-                notify_net_changed(comb_target_nets[k]);
             }
         }
         auto t5 = std::chrono::high_resolution_clock::now();
         t_proc_ms += std::chrono::duration<double, std::milli>(t5 - t4).count();
-        iters++;
+
+        if (!dirty_rcas.empty() || !dirty_comb_procs.empty()) {
+            changed = true;
+        }
+    }
+
+    if (iters >= 200) {
+        for (uint32_t idx : dirty_rcas) {
+            if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
+        }
+        dirty_rcas.clear();
+        for (uint32_t pid : dirty_comb_procs) {
+            if (pid < comb_proc_enqueued.size()) comb_proc_enqueued[pid] = 0;
+        }
+        dirty_comb_procs.clear();
     }
     comb_dirty = false;
 }
@@ -1395,7 +1397,10 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
     if (net_id != (size_t)-1) {
         auto& net = engine.netlist[net_id];
         LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
-        net.set(casted);
+        if (net.value != casted) {
+            net.set(casted);
+            notify_net_changed(net_id);
+        }
     }
 }
 
@@ -2524,6 +2529,17 @@ void StratifiedScheduler::run_simulation() {
     dirty_rcas.reserve(engine.resolved_continuous_assigns.size());
     for (uint32_t i = 0; i < engine.resolved_continuous_assigns.size(); ++i) {
         dirty_rcas.push_back(i);
+    }
+
+    comb_proc_enqueued.assign(engine.processes.size(), 0);
+    dirty_comb_procs.clear();
+    for (uint32_t i = 0; i < engine.processes.size(); ++i) {
+        if (engine.processes[i].proc && (engine.processes[i].proc->type == ProcessType::COMBINATIONAL ||
+                                         engine.processes[i].proc->is_always_comb ||
+                                         engine.processes[i].proc->is_always_latch)) {
+            comb_proc_enqueued[i] = 1;
+            dirty_comb_procs.push_back(i);
+        }
     }
     comb_dirty = true;
 

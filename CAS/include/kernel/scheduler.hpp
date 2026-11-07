@@ -127,12 +127,16 @@ private:
     std::vector<uint32_t> dirty_rcas;
     std::vector<uint8_t> rca_enqueued;
 
+    std::vector<uint32_t> dirty_comb_procs;
+    std::vector<uint8_t> comb_proc_enqueued;
+
 public:
     explicit StratifiedScheduler(Engine& eng);
 
     void notify_net_changed(size_t net_id);
     void notify_mem_changed();
     void enqueue_rca(uint32_t rca_idx);
+    void enqueue_comb_proc(uint32_t proc_id);
 
     void step_process(size_t pid);
     void schedule_event(uint64_t wake_time, uint32_t pid);
