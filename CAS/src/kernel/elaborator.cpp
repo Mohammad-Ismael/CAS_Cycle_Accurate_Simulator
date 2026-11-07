@@ -2778,7 +2778,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                         slice.width = m_len;
                     }
                 }
-                result.continuous_assigns.push_back({scope, slice, ca->rhs.get()});
+                auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
+                auto rhs_ptr = new_ca->rhs.get();
+                result.generated_continuous_assigns.push_back(std::move(new_ca));
+                result.continuous_assigns.push_back({scope, slice, rhs_ptr});
             } else {
                 result.memory_continuous_assigns.push_back({scope, ca->target_name, ca->target_index_expr->clone(), ca->rhs->clone(), ca->member_name});
             }
@@ -2832,7 +2835,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (!effective_member.empty()) {
                 resolve_struct_member_slice(target_id, effective_member, scope, off, len);
             }
-            result.continuous_assigns.push_back({scope, {target_id, off, len}, ca->rhs.get()});
+            auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
+            auto rhs_ptr = new_ca->rhs.get();
+            result.generated_continuous_assigns.push_back(std::move(new_ca));
+            result.continuous_assigns.push_back({scope, {target_id, off, len}, rhs_ptr});
         } else {
             auto mem_it = result.memory_map.find(scoped_target);
             if (mem_it == result.memory_map.end()) mem_it = result.memory_map.find(ca->target_name);
@@ -3115,12 +3121,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& proc : mod->processes) {
-        BoundProcess bp(scope, proc.get(), 0, false);
+        auto proc_copy = proc->clone();
+        BoundProcess bp(scope, proc_copy.get(), 0, false);
         bp.pid = result.processes.size();
         if (mod->is_program) {
             bp.is_reactive = true;
             bp.is_program_process = true;
         }
+        result.generated_processes.push_back(std::move(proc_copy));
+        bp.proc = result.generated_processes.back().get();
         result.processes.push_back(std::move(bp));
     }
 

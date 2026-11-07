@@ -137,6 +137,8 @@ public:
     uint64_t max_cycles = 0;
     FanoutGraph fanout;
 
+    bool is_excluded_from_net_binding(const std::string& name, const std::string& scope) const;
+    void bind_all_ast_nodes();
     void build_fanout_graph();
     size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
     const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }

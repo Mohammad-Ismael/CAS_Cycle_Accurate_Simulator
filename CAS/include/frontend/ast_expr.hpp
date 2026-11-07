@@ -37,11 +37,16 @@ struct NumberNode : public ExpressionNode {
 
 struct IdentifierNode : public ExpressionNode {
     std::string name;
+    mutable uint32_t cached_net_id = UINT32_MAX;
+    mutable bool is_bound = false;
 
-    explicit IdentifierNode(std::string n) : name(std::move(n)) {}
+    explicit IdentifierNode(std::string n) : name(std::move(n)), cached_net_id(UINT32_MAX), is_bound(false) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<IdentifierNode>(name);
+        auto node = std::make_unique<IdentifierNode>(name);
+        node->cached_net_id = cached_net_id;
+        node->is_bound = is_bound;
+        return node;
     }
 };
 

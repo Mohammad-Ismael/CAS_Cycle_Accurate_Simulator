@@ -2887,6 +2887,32 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
 
+        // FAST PATH: bound net identifier
+        if (ident->is_bound && ident->cached_net_id != UINT32_MAX && ident->cached_net_id < engine.netlist.size()) {
+            bool is_shadowed = false;
+            if (current_sva_local_vars && current_sva_local_vars->count(ident->name)) {
+                is_shadowed = true;
+            } else if (context.has_active_frame() && context.lookup_local(ident->name)) {
+                is_shadowed = true;
+            } else if (current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    if (it->local_frame.get_var(ident->name)) { is_shadowed = true; break; }
+                }
+            } else if (current_this && (current_this->has_virtual_interface(ident->name) || current_this->has_property(ident->name))) {
+                is_shadowed = true;
+            }
+            if (!is_shadowed) {
+                if (preponed_override && ident->cached_net_id < preponed_override->size()) {
+                    LogicVal res = (*preponed_override)[ident->cached_net_id];
+                    res.is_signed = engine.netlist[ident->cached_net_id].is_signed;
+                    return res;
+                }
+                LogicVal res = engine.netlist[ident->cached_net_id].value;
+                res.is_signed = engine.netlist[ident->cached_net_id].is_signed;
+                return res;
+            }
+        }
+
         // Check SVA thread local variables
         if (current_sva_local_vars) {
             auto it = current_sva_local_vars->find(ident->name);

@@ -2767,6 +2767,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        // FAST PATH: bound non-blocking assignment without bit-select, intra-event, or delay
+        if (nassign->is_bound && nassign->cached_net_id != UINT32_MAX && !nassign->bit_idx && !nassign->has_intra_event && nassign->intra_delay == 0) {
+            bool is_shadowed = false;
+            if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(nassign->target)) {
+                is_shadowed = true;
+            } else if (!bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    if (it->local_frame.get_var(nassign->target)) { is_shadowed = true; break; }
+                }
+            }
+            if (!is_shadowed) {
+                uint32_t net_id = nassign->cached_net_id;
+                if (!engine.netlist[net_id].has_procedural_assign) {
+                    LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+                    LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string)
+                        ? rhs_val
+                        : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    engine.scheduler.queue_nba(net_id, casted);
+                }
+                return;
+            }
+        }
+
         std::string target_name = nassign->target;
         std::string base_var = target_name;
         std::string member_name = "";
@@ -3393,6 +3416,42 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (assign->intra_delay > 0) {
             return;
+        }
+
+        // FAST PATH: bound blocking assignment without bit-select or multi-target
+        if (assign->is_bound && assign->cached_net_id != UINT32_MAX && !assign->bit_idx && assign->lhs_targets.size() == 1) {
+            bool is_shadowed = false;
+            if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(assign->lhs_targets[0])) {
+                is_shadowed = true;
+            } else if (!bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    if (it->local_frame.get_var(assign->lhs_targets[0])) { is_shadowed = true; break; }
+                }
+            } else if (dynamic_cast<ClassNewNode*>(assign->rhs.get())) {
+                is_shadowed = true;
+            }
+            if (!is_shadowed) {
+                uint32_t target_id = assign->cached_net_id;
+                if (!engine.netlist[target_id].has_procedural_assign) {
+                    LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+                    LogicVal old_v = engine.netlist[target_id].value;
+                    LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string)
+                        ? rhs_val
+                        : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                    engine.netlist[target_id].set(casted);
+                    if (target_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[target_id]) {
+                            if (other_id != target_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(casted);
+                            }
+                        }
+                    }
+                    if (engine.netlist[target_id].value != old_v) {
+                        engine.scheduler.notify_net_changed(target_id);
+                    }
+                }
+                return;
+            }
         }
 
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);

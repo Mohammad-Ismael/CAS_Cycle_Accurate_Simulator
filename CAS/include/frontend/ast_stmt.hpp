@@ -145,6 +145,8 @@ struct BlockingAssignNode : public StatementNode {
     bool has_intra_event = false;
     EdgeType intra_edge = EdgeType::LEVEL;
     std::string intra_signal = std::string();
+    mutable uint32_t cached_net_id = UINT32_MAX;
+    mutable bool is_bound = false;
 
     void set_intra_event(EdgeType edge, std::string sig) {
         has_intra_event = true;
@@ -172,6 +174,8 @@ struct BlockingAssignNode : public StatementNode {
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;
+        node->cached_net_id = cached_net_id;
+        node->is_bound = is_bound;
         return node;
     }
 };
@@ -192,6 +196,8 @@ struct NonBlockingAssignNode : public StatementNode {
     bool has_intra_event = false;
     EdgeType intra_edge = EdgeType::LEVEL;
     std::string intra_signal = std::string();
+    mutable uint32_t cached_net_id = UINT32_MAX;
+    mutable bool is_bound = false;
 
     void set_intra_event(EdgeType edge, std::string sig) {
         has_intra_event = true;
@@ -216,6 +222,8 @@ struct NonBlockingAssignNode : public StatementNode {
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;
+        node->cached_net_id = cached_net_id;
+        node->is_bound = is_bound;
         return node;
     }
 };

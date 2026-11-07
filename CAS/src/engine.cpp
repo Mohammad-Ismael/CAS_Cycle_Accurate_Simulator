@@ -112,6 +112,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     active_scope_name = elab_res.top_scope;
     DpiRegistry::set_active_scope_by_name(active_scope_name);
     DpiRegistry::set_active_engine(this);
+    bind_all_ast_nodes();
     build_fanout_graph();
 }
 
@@ -125,6 +126,10 @@ static void collect_read_nets(const ExpressionNode* expr, const std::string& sco
     if (!expr) return;
 
     if (auto id = dynamic_cast<const IdentifierNode*>(expr)) {
+        if (id->is_bound && id->cached_net_id != UINT32_MAX) {
+            out_net_ids.push_back(id->cached_net_id);
+            return;
+        }
         if (engine.is_memory(scope, id->name)) {
             out_reads_mem = true;
         }
@@ -471,6 +476,429 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
 static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids) {
     bool dummy = false;
     collect_stmt_read_nets(stmt, scope, engine, out_net_ids, dummy);
+}
+
+bool Engine::is_excluded_from_net_binding(const std::string& name, const std::string& scope) const {
+    if (name.empty() || name[0] == '$') return true;
+    if (name.find('.') != std::string::npos || name.find("::") != std::string::npos) return true;
+
+    std::string scoped = scope.empty() ? name : (scope + "." + name);
+
+    // 1. Enum constants
+    if (enum_constant_map.find(scoped) != enum_constant_map.end() ||
+        enum_constant_map.find(name) != enum_constant_map.end()) {
+        return true;
+    }
+
+    // 2. Parameters
+    if (param_val_map.find(scoped) != param_val_map.end() ||
+        param_map.find(scoped) != param_map.end() ||
+        param_val_map.find(name) != param_val_map.end() ||
+        param_map.find(name) != param_map.end()) {
+        return true;
+    }
+
+    std::string cur_s = scope;
+    while (!cur_s.empty()) {
+        std::string s_id = cur_s + "." + name;
+        if (param_val_map.find(s_id) != param_val_map.end() ||
+            param_map.find(s_id) != param_map.end()) {
+            return true;
+        }
+        auto d = cur_s.rfind('.');
+        if (d == std::string::npos) break;
+        cur_s = cur_s.substr(0, d);
+    }
+
+    for (const auto& pkg : package_defs) {
+        if (pkg.second && pkg.second->param_constants.count(name)) {
+            return true;
+        }
+    }
+
+    // 3. Memories
+    if (is_memory(scope, name)) return true;
+
+    // 4. Dynamic arrays, queues, associative arrays
+    if (is_dynamic_array(name, scope) || is_queue(name, scope) || is_assoc_array(name, scope)) {
+        return true;
+    }
+
+    // 5. Interface instances
+    if (interface_instances.find(scoped) != interface_instances.end() ||
+        interface_instances.find(name) != interface_instances.end() ||
+        virtual_interface_names.find(name) != virtual_interface_names.end()) {
+        return true;
+    }
+
+    return false;
+}
+
+static void bind_ast_stmt(StatementNode* stmt, const std::string& scope, const Engine& engine);
+
+static void bind_ast_expr(ExpressionNode* expr, const std::string& scope, const Engine& engine) {
+    if (!expr) return;
+
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        if (!engine.is_excluded_from_net_binding(id->name, scope)) {
+            size_t raw_nid = engine.get_net_id(scope, id->name);
+            if (raw_nid != (size_t)-1) {
+                size_t canon = engine.get_canonical_net_id(raw_nid);
+                id->cached_net_id = (uint32_t)canon;
+                id->is_bound = true;
+            }
+        }
+        return;
+    }
+
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        if (idx->msb_expr) bind_ast_expr(idx->msb_expr.get(), scope, engine);
+        if (idx->lsb_expr) bind_ast_expr(idx->lsb_expr.get(), scope, engine);
+        if (idx->bit_msb_expr) bind_ast_expr(idx->bit_msb_expr.get(), scope, engine);
+        if (idx->bit_lsb_expr) bind_ast_expr(idx->bit_lsb_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto mem = dynamic_cast<MemberAccessNode*>(expr)) {
+        if (mem->index_expr) bind_ast_expr(mem->index_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        bind_ast_expr(un->operand.get(), scope, engine);
+        return;
+    }
+
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        bind_ast_expr(bin->lhs.get(), scope, engine);
+        bind_ast_expr(bin->rhs.get(), scope, engine);
+        return;
+    }
+
+    if (auto tern = dynamic_cast<TernaryOpNode*>(expr)) {
+        bind_ast_expr(tern->condition.get(), scope, engine);
+        bind_ast_expr(tern->true_expr.get(), scope, engine);
+        bind_ast_expr(tern->false_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        for (const auto& elem : cat->elements) {
+            bind_ast_expr(elem.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        for (const auto& elem : ucat->elements) {
+            bind_ast_expr(elem.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto pm = dynamic_cast<PatternMemberNode*>(expr)) {
+        if (pm->value) bind_ast_expr(pm->value.get(), scope, engine);
+        return;
+    }
+
+    if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
+        bind_ast_expr(rep->count_expr.get(), scope, engine);
+        bind_ast_expr(rep->target_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
+        if (sc->slice_size) bind_ast_expr(sc->slice_size.get(), scope, engine);
+        for (const auto& elem : sc->stream_items) {
+            bind_ast_expr(elem.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto fn = dynamic_cast<FunctionCallNode*>(expr)) {
+        for (const auto& arg : fn->args) {
+            bind_ast_expr(arg.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto mc = dynamic_cast<MethodCallNode*>(expr)) {
+        for (const auto& arg : mc->args) bind_ast_expr(arg.get(), scope, engine);
+        if (mc->with_expr) bind_ast_expr(mc->with_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto cast_expr = dynamic_cast<CastNode*>(expr)) {
+        bind_ast_expr(cast_expr->expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto scast = dynamic_cast<StaticCastExprNode*>(expr)) {
+        bind_ast_expr(scast->expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto sys_cast = dynamic_cast<SysCastCallNode*>(expr)) {
+        if (sys_cast->dest_expr) bind_ast_expr(sys_cast->dest_expr.get(), scope, engine);
+        if (sys_cast->src_expr) bind_ast_expr(sys_cast->src_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto ins = dynamic_cast<InsideNode*>(expr)) {
+        if (ins->target) bind_ast_expr(ins->target.get(), scope, engine);
+        for (const auto& r : ins->ranges) {
+            if (r.low) bind_ast_expr(r.low.get(), scope, engine);
+            if (r.high) bind_ast_expr(r.high.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto clog = dynamic_cast<Clog2Node*>(expr)) {
+        bind_ast_expr(clog->operand.get(), scope, engine);
+        return;
+    }
+
+    if (auto cb = dynamic_cast<CountBitsNode*>(expr)) {
+        if (cb->target_expr) bind_ast_expr(cb->target_expr.get(), scope, engine);
+        for (const auto& c : cb->control_bits) {
+            bind_ast_expr(c.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto vi = dynamic_cast<VectorIntrinsicNode*>(expr)) {
+        bind_ast_expr(vi->operand.get(), scope, engine);
+        return;
+    }
+
+    if (auto sf = dynamic_cast<SFormatfNode*>(expr)) {
+        for (const auto& arg : sf->args) {
+            bind_ast_expr(arg.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto aq = dynamic_cast<ArrayQueryNode*>(expr)) {
+        if (aq->array_expr) bind_ast_expr(aq->array_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto adq = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
+        if (adq->target) bind_ast_expr(adq->target.get(), scope, engine);
+        return;
+    }
+
+    if (auto abq = dynamic_cast<ArrayBoundQueryNode*>(expr)) {
+        if (abq->target) bind_ast_expr(abq->target.get(), scope, engine);
+        if (abq->dimension_expr) bind_ast_expr(abq->dimension_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto lc = dynamic_cast<LetCallNode*>(expr)) {
+        for (const auto& a : lc->args) bind_ast_expr(a.get(), scope, engine);
+        return;
+    }
+}
+
+static void bind_ast_stmt(StatementNode* stmt, const std::string& scope, const Engine& engine) {
+    if (!stmt) return;
+
+    if (auto if_s = dynamic_cast<IfStatementNode*>(stmt)) {
+        bind_ast_expr(if_s->condition.get(), scope, engine);
+        for (const auto& s : if_s->then_branch) bind_ast_stmt(s.get(), scope, engine);
+        for (const auto& s : if_s->else_branch) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        for (const auto& s : blk->statements) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto cs = dynamic_cast<CaseStatementNode*>(stmt)) {
+        bind_ast_expr(cs->selector.get(), scope, engine);
+        for (const auto& item : cs->items) {
+            if (item.match_expr) bind_ast_expr(item.match_expr.get(), scope, engine);
+            for (const auto& me : item.match_exprs) bind_ast_expr(me.get(), scope, engine);
+            for (const auto& s : item.statements) bind_ast_stmt(s.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto for_s = dynamic_cast<ForStatementNode*>(stmt)) {
+        bind_ast_stmt(for_s->init_stmt.get(), scope, engine);
+        bind_ast_expr(for_s->condition.get(), scope, engine);
+        bind_ast_stmt(for_s->step_stmt.get(), scope, engine);
+        for (const auto& s : for_s->body) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto fe = dynamic_cast<ForeachStatementNode*>(stmt)) {
+        for (const auto& s : fe->body) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto wh = dynamic_cast<WhileStatementNode*>(stmt)) {
+        bind_ast_expr(wh->condition.get(), scope, engine);
+        for (const auto& s : wh->body) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto rep = dynamic_cast<RepeatStatementNode*>(stmt)) {
+        bind_ast_expr(rep->count_expr.get(), scope, engine);
+        for (const auto& s : rep->body) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto fo = dynamic_cast<ForeverStatementNode*>(stmt)) {
+        for (const auto& s : fo->body) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        bind_ast_expr(ba->rhs.get(), scope, engine);
+        if (ba->bit_idx) bind_ast_expr(ba->bit_idx.get(), scope, engine);
+        if (ba->bit_lsb) bind_ast_expr(ba->bit_lsb.get(), scope, engine);
+        if (ba->bit_idx2) bind_ast_expr(ba->bit_idx2.get(), scope, engine);
+        if (ba->bit_lsb2) bind_ast_expr(ba->bit_lsb2.get(), scope, engine);
+
+        if (ba->lhs_targets.size() == 1 && !ba->bit_idx && !ba->stream_lhs && ba->intra_delay == 0) {
+            const std::string& tname = ba->lhs_targets[0];
+            if (!engine.is_excluded_from_net_binding(tname, scope)) {
+                size_t raw_nid = engine.get_net_id(scope, tname);
+                if (raw_nid != (size_t)-1) {
+                    size_t canon = engine.get_canonical_net_id(raw_nid);
+                    ba->cached_net_id = (uint32_t)canon;
+                    ba->is_bound = true;
+                }
+            }
+        }
+        return;
+    }
+
+    if (auto nba = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
+        bind_ast_expr(nba->rhs.get(), scope, engine);
+        if (nba->bit_idx) bind_ast_expr(nba->bit_idx.get(), scope, engine);
+        if (nba->bit_lsb) bind_ast_expr(nba->bit_lsb.get(), scope, engine);
+        if (nba->bit_idx2) bind_ast_expr(nba->bit_idx2.get(), scope, engine);
+        if (nba->bit_lsb2) bind_ast_expr(nba->bit_lsb2.get(), scope, engine);
+
+        if (!nba->bit_idx && !nba->has_intra_event && nba->intra_delay == 0 && !nba->stream_lhs) {
+            const std::string& tname = nba->target;
+            if (!engine.is_excluded_from_net_binding(tname, scope)) {
+                size_t raw_nid = engine.get_net_id(scope, tname);
+                if (raw_nid != (size_t)-1) {
+                    size_t canon = engine.get_canonical_net_id(raw_nid);
+                    nba->cached_net_id = (uint32_t)canon;
+                    nba->is_bound = true;
+                }
+            }
+        }
+        return;
+    }
+
+    if (auto mem = dynamic_cast<MemAssignNode*>(stmt)) {
+        bind_ast_expr(mem->addr_expr.get(), scope, engine);
+        bind_ast_expr(mem->rhs.get(), scope, engine);
+        return;
+    }
+
+    if (auto pa = dynamic_cast<ProceduralAssignNode*>(stmt)) {
+        bind_ast_expr(pa->rhs.get(), scope, engine);
+        return;
+    }
+
+    if (auto ret = dynamic_cast<ReturnStatementNode*>(stmt)) {
+        if (ret->expr) bind_ast_expr(ret->expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto tc = dynamic_cast<TaskCallNode*>(stmt)) {
+        for (const auto& arg : tc->args) bind_ast_expr(arg.get(), scope, engine);
+        return;
+    }
+
+    if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
+        for (const auto& arg : disp->arg_exprs) bind_ast_expr(arg.get(), scope, engine);
+        return;
+    }
+
+    if (auto sev = dynamic_cast<SeverityTaskStatementNode*>(stmt)) {
+        if (sev->finish_number) bind_ast_expr(sev->finish_number.get(), scope, engine);
+        for (const auto& arg : sev->arg_exprs) bind_ast_expr(arg.get(), scope, engine);
+        return;
+    }
+
+    if (auto ev_ctl = dynamic_cast<EventControlStatementNode*>(stmt)) {
+        return;
+    }
+
+    if (auto fork_s = dynamic_cast<ForkStatementNode*>(stmt)) {
+        for (const auto& s : fork_s->branches) bind_ast_stmt(s.get(), scope, engine);
+        return;
+    }
+
+    if (auto delay_s = dynamic_cast<DelayStatementNode*>(stmt)) {
+        if (delay_s->delay_expr) bind_ast_expr(delay_s->delay_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto vd = dynamic_cast<VarDeclStatementNode*>(stmt)) {
+        if (vd->init_expr) bind_ast_expr(vd->init_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto sf = dynamic_cast<SFormatStatementNode*>(stmt)) {
+        if (sf->target_expr) bind_ast_expr(sf->target_expr.get(), scope, engine);
+        if (sf->format_expr) bind_ast_expr(sf->format_expr.get(), scope, engine);
+        for (const auto& arg : sf->arg_exprs) bind_ast_expr(arg.get(), scope, engine);
+        return;
+    }
+
+    if (auto vc = dynamic_cast<VoidCastStatementNode*>(stmt)) {
+        if (vc->expr) bind_ast_expr(vc->expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto sc = dynamic_cast<SysCastStatementNode*>(stmt)) {
+        if (sc->dest_expr) bind_ast_expr(sc->dest_expr.get(), scope, engine);
+        if (sc->src_expr) bind_ast_expr(sc->src_expr.get(), scope, engine);
+        return;
+    }
+
+    if (auto r = dynamic_cast<RandomizeStatementNode*>(stmt)) {
+        if (r->call) bind_ast_expr(r->call.get(), scope, engine);
+        return;
+    }
+}
+
+void Engine::bind_all_ast_nodes() {
+    for (auto& rca : resolved_continuous_assigns) {
+        for (auto& drv : rca.drivers) {
+            if (drv.is_gate) {
+                if (drv.gate_idx < gates.size()) {
+                    auto& g = gates[drv.gate_idx];
+                    for (auto in_expr : g.in_exprs) {
+                        bind_ast_expr(in_expr, g.scope, *this);
+                    }
+                }
+            } else if (drv.rhs) {
+                bind_ast_expr(drv.rhs, drv.scope, *this);
+            }
+        }
+    }
+
+    for (auto& mca : memory_continuous_assigns) {
+        if (mca.rhs) bind_ast_expr(mca.rhs.get(), mca.scope, *this);
+        if (mca.index_expr) bind_ast_expr(mca.index_expr.get(), mca.scope, *this);
+    }
+
+    for (auto& bp : processes) {
+        if (!bp.proc) continue;
+        for (auto& s : bp.proc->body) {
+            bind_ast_stmt(s.get(), bp.scope, *this);
+        }
+    }
 }
 
 void Engine::build_fanout_graph() {
