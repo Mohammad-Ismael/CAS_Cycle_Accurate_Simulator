@@ -17,6 +17,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o.d"
   "CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o"
   "CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o.d"
+  "CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o"
+  "CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o.d"
   "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o"
   "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o.d"
   "CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o"

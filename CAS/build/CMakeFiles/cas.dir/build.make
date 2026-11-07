@@ -167,10 +167,24 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/kernel/evaluator.cpp -o CMakeFiles/cas.dir/src/kernel/evaluator.cpp.s
 
+CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o: CMakeFiles/cas.dir/flags.make
+CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o: /app/CAS/src/kernel/bytecode_compiler.cpp
+CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o -MF CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o.d -o CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o -c /app/CAS/src/kernel/bytecode_compiler.cpp
+
+CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /app/CAS/src/kernel/bytecode_compiler.cpp > CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.i
+
+CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /app/CAS/src/kernel/bytecode_compiler.cpp -o CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.s
+
 CMakeFiles/cas.dir/src/engine.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/engine.cpp.o: /app/CAS/src/engine.cpp
 CMakeFiles/cas.dir/src/engine.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/cas.dir/src/engine.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/cas.dir/src/engine.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/engine.cpp.o -MF CMakeFiles/cas.dir/src/engine.cpp.o.d -o CMakeFiles/cas.dir/src/engine.cpp.o -c /app/CAS/src/engine.cpp
 
 CMakeFiles/cas.dir/src/engine.cpp.i: cmake_force
@@ -184,7 +198,7 @@ CMakeFiles/cas.dir/src/engine.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: /app/CAS/src/profiler/profiler.cpp
 CMakeFiles/cas.dir/src/profiler/profiler.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/cas.dir/src/profiler/profiler.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/cas.dir/src/profiler/profiler.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/profiler/profiler.cpp.o -MF CMakeFiles/cas.dir/src/profiler/profiler.cpp.o.d -o CMakeFiles/cas.dir/src/profiler/profiler.cpp.o -c /app/CAS/src/profiler/profiler.cpp
 
 CMakeFiles/cas.dir/src/profiler/profiler.cpp.i: cmake_force
@@ -198,7 +212,7 @@ CMakeFiles/cas.dir/src/profiler/profiler.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: /app/CAS/src/tracer/vcd_dumper.cpp
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o -MF CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o.d -o CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o -c /app/CAS/src/tracer/vcd_dumper.cpp
 
 CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.i: cmake_force
@@ -212,7 +226,7 @@ CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: /app/CAS/src/kernel/scheduler.cpp
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o -MF CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o.d -o CMakeFiles/cas.dir/src/kernel/scheduler.cpp.o -c /app/CAS/src/kernel/scheduler.cpp
 
 CMakeFiles/cas.dir/src/kernel/scheduler.cpp.i: cmake_force
@@ -226,7 +240,7 @@ CMakeFiles/cas.dir/src/kernel/scheduler.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: /app/CAS/src/frontend/number_parser.cpp
 CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o -MF CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o.d -o CMakeFiles/cas.dir/src/frontend/number_parser.cpp.o -c /app/CAS/src/frontend/number_parser.cpp
 
 CMakeFiles/cas.dir/src/frontend/number_parser.cpp.i: cmake_force
@@ -240,7 +254,7 @@ CMakeFiles/cas.dir/src/frontend/number_parser.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: /app/CAS/src/kernel/expr_evaluator.cpp
 CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o -MF CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o.d -o CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.o -c /app/CAS/src/kernel/expr_evaluator.cpp
 
 CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.i: cmake_force
@@ -254,7 +268,7 @@ CMakeFiles/cas.dir/src/kernel/expr_evaluator.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: /app/CAS/src/kernel/execution_context.cpp
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o -MF CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o.d -o CMakeFiles/cas.dir/src/kernel/execution_context.cpp.o -c /app/CAS/src/kernel/execution_context.cpp
 
 CMakeFiles/cas.dir/src/kernel/execution_context.cpp.i: cmake_force
@@ -268,7 +282,7 @@ CMakeFiles/cas.dir/src/kernel/execution_context.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: /app/CAS/src/frontend/parser_function.cpp
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o -MF CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o.d -o CMakeFiles/cas.dir/src/frontend/parser_function.cpp.o -c /app/CAS/src/frontend/parser_function.cpp
 
 CMakeFiles/cas.dir/src/frontend/parser_function.cpp.i: cmake_force
@@ -282,7 +296,7 @@ CMakeFiles/cas.dir/src/frontend/parser_function.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: /app/CAS/src/frontend/parser_task.cpp
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o -MF CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o.d -o CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o -c /app/CAS/src/frontend/parser_task.cpp
 
 CMakeFiles/cas.dir/src/frontend/parser_task.cpp.i: cmake_force
@@ -296,7 +310,7 @@ CMakeFiles/cas.dir/src/frontend/parser_task.cpp.s: cmake_force
 CMakeFiles/cas.dir/src/main.cpp.o: CMakeFiles/cas.dir/flags.make
 CMakeFiles/cas.dir/src/main.cpp.o: /app/CAS/src/main.cpp
 CMakeFiles/cas.dir/src/main.cpp.o: CMakeFiles/cas.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/cas.dir/src/main.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/cas.dir/src/main.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/cas.dir/src/main.cpp.o -MF CMakeFiles/cas.dir/src/main.cpp.o.d -o CMakeFiles/cas.dir/src/main.cpp.o -c /app/CAS/src/main.cpp
 
 CMakeFiles/cas.dir/src/main.cpp.i: cmake_force
@@ -316,6 +330,7 @@ cas_OBJECTS = \
 "CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o" \
 "CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o" \
 "CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o" \
+"CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o" \
 "CMakeFiles/cas.dir/src/engine.cpp.o" \
 "CMakeFiles/cas.dir/src/profiler/profiler.cpp.o" \
 "CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o" \
@@ -337,6 +352,7 @@ cas: CMakeFiles/cas.dir/src/frontend/parser_stmt.cpp.o
 cas: CMakeFiles/cas.dir/src/frontend/parser_module.cpp.o
 cas: CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o
 cas: CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o
+cas: CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o
 cas: CMakeFiles/cas.dir/src/engine.cpp.o
 cas: CMakeFiles/cas.dir/src/profiler/profiler.cpp.o
 cas: CMakeFiles/cas.dir/src/tracer/vcd_dumper.cpp.o
@@ -349,7 +365,7 @@ cas: CMakeFiles/cas.dir/src/frontend/parser_task.cpp.o
 cas: CMakeFiles/cas.dir/src/main.cpp.o
 cas: CMakeFiles/cas.dir/build.make
 cas: CMakeFiles/cas.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Linking CXX executable cas"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/app/CAS/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Linking CXX executable cas"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/cas.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

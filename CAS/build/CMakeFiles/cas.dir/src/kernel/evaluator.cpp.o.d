@@ -173,6 +173,7 @@ CMakeFiles/cas.dir/src/kernel/evaluator.cpp.o: \
  /app/CAS/src/kernel/../../include/engine.hpp \
  /app/CAS/src/kernel/../../include/ast.hpp \
  /app/CAS/src/kernel/../../include/kernel/elaborator.hpp \
+ /app/CAS/src/kernel/../../include/kernel/bytecode.hpp \
  /app/CAS/src/kernel/../../include/kernel/scheduler.hpp \
  /app/CAS/include/kernel/time_wheel.hpp /usr/include/c++/13.2.1/queue \
  /usr/include/c++/13.2.1/bits/stl_queue.h \

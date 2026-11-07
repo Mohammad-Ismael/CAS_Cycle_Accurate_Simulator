@@ -345,6 +345,30 @@ src/frontend/parser_task.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/frontend/parser_task.cpp.s
 .PHONY : src/frontend/parser_task.cpp.s
 
+src/kernel/bytecode_compiler.o: src/kernel/bytecode_compiler.cpp.o
+.PHONY : src/kernel/bytecode_compiler.o
+
+# target to build an object file
+src/kernel/bytecode_compiler.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.o
+.PHONY : src/kernel/bytecode_compiler.cpp.o
+
+src/kernel/bytecode_compiler.i: src/kernel/bytecode_compiler.cpp.i
+.PHONY : src/kernel/bytecode_compiler.i
+
+# target to preprocess a source file
+src/kernel/bytecode_compiler.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.i
+.PHONY : src/kernel/bytecode_compiler.cpp.i
+
+src/kernel/bytecode_compiler.s: src/kernel/bytecode_compiler.cpp.s
+.PHONY : src/kernel/bytecode_compiler.s
+
+# target to generate assembly for a file
+src/kernel/bytecode_compiler.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/cas.dir/build.make CMakeFiles/cas.dir/src/kernel/bytecode_compiler.cpp.s
+.PHONY : src/kernel/bytecode_compiler.cpp.s
+
 src/kernel/elaborator.o: src/kernel/elaborator.cpp.o
 .PHONY : src/kernel/elaborator.o
 
@@ -573,6 +597,9 @@ help:
 	@echo "... src/frontend/parser_task.o"
 	@echo "... src/frontend/parser_task.i"
 	@echo "... src/frontend/parser_task.s"
+	@echo "... src/kernel/bytecode_compiler.o"
+	@echo "... src/kernel/bytecode_compiler.i"
+	@echo "... src/kernel/bytecode_compiler.s"
 	@echo "... src/kernel/elaborator.o"
 	@echo "... src/kernel/elaborator.i"
 	@echo "... src/kernel/elaborator.s"

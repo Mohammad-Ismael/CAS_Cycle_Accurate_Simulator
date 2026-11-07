@@ -169,6 +169,7 @@ CMakeFiles/cas.dir/src/kernel/elaborator.cpp.o: \
  /app/CAS/src/kernel/../../include/kernel/../common/sva_types.hpp \
  /app/CAS/src/kernel/../../include/kernel/netlist.hpp \
  /app/CAS/src/kernel/../../include/kernel/execution_context.hpp \
+ /app/CAS/src/kernel/../../include/kernel/bytecode.hpp \
  /app/CAS/src/kernel/../../include/tracer/vcd_dumper.hpp \
  /usr/include/c++/13.2.1/fstream \
  /usr/include/c++/13.2.1/x86_64-alpine-linux-musl/bits/basic_file.h \
