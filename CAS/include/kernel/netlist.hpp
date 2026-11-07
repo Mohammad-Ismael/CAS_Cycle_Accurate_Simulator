@@ -154,6 +154,9 @@ struct FanoutGraph {
     // net_id -> vector of process IDs (for combinational processes sensitive to this net)
     std::vector<std::vector<uint32_t>> net_to_comb_proc;
 
+    // list of RCA indices that read from any memory array
+    std::vector<uint32_t> mem_reading_rcas;
+
     void resize(size_t net_count) {
         net_to_rca.resize(net_count);
         net_to_comb_proc.resize(net_count);

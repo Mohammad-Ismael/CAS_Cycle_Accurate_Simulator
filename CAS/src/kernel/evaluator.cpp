@@ -54,8 +54,12 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
     auto& target_net = engine.netlist[target_id];
     if (target_net.has_procedural_assign) return;
+    LogicVal old_v = target_net.value;
     if (val.is_string || target_net.type_name == "string") {
         target_net.set(val);
+        if (target_net.value != old_v) {
+            engine.scheduler.notify_net_changed(target_id);
+        }
         return;
     }
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
@@ -69,6 +73,9 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
                 engine.netlist[other_id].set(cur);
             }
         }
+    }
+    if (target_net.value != old_v) {
+        engine.scheduler.notify_net_changed(target_id);
     }
 }
 
@@ -95,6 +102,7 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
     if (nid != (size_t)-1) {
         size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
         if (!engine.netlist[target_id].has_procedural_assign) {
+            LogicVal old_v = engine.netlist[target_id].value;
             engine.netlist[target_id].set(val);
             if (target_id < engine.alias_members.size()) {
                 for (size_t other_id : engine.alias_members[target_id]) {
@@ -102,6 +110,9 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
                         engine.netlist[other_id].set(val);
                     }
                 }
+            }
+            if (engine.netlist[target_id].value != old_v) {
+                engine.scheduler.notify_net_changed(target_id);
             }
         }
     }
@@ -3306,6 +3317,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             } else {
                                 mem.set_word(addr, new_word);
+                                engine.scheduler.notify_mem_changed();
                             }
                             return;
                         }
@@ -3320,6 +3332,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 } else {
                     mem.set_word(addr, rhs_val);
+                    engine.scheduler.notify_mem_changed();
                 }
             } else {
                 size_t net_id = engine.get_net_id(bp.scope, mem_assign->mem_name);
@@ -4390,7 +4403,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     slice_w = 1;
                                 }
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
-                                auto cur = engine.netlist[target_id].value;
+                                auto old_v = engine.netlist[target_id].value;
+                                auto cur = old_v;
                                 cur.deposit_slice(lsb, slice_w, rhs_val);
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
@@ -4399,6 +4413,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                             engine.netlist[other_id].set(cur);
                                         }
                                     }
+                                }
+                                if (engine.netlist[target_id].value != old_v) {
+                                    engine.scheduler.notify_net_changed(target_id);
                                 }
                                 return;
                             }
@@ -4413,6 +4430,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                         if (!engine.netlist[target_id].has_procedural_assign) {
+                            LogicVal old_v = engine.netlist[target_id].value;
                             LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
                             engine.netlist[target_id].set(casted);
                             if (target_id < engine.alias_members.size()) {
@@ -4421,6 +4439,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                         engine.netlist[other_id].set(casted);
                                     }
                                 }
+                            }
+                            if (engine.netlist[target_id].value != old_v) {
+                                engine.scheduler.notify_net_changed(target_id);
                             }
                         }
                     }

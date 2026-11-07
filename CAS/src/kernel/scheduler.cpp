@@ -89,8 +89,12 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
 
             if (net_id != (size_t)-1) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
+                    LogicVal old_v = engine.netlist[net_id].value;
                     LogicVal casted = LogicOps::cast_width(item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
+                    if (engine.netlist[net_id].value != old_v) {
+                        notify_net_changed(net_id);
+                    }
                 }
             }
             if (item.pid < engine.processes.size()) {
@@ -448,8 +452,36 @@ static double t_proc_ms = 0;
 
 static bool comb_dirty = true;
 
+void StratifiedScheduler::enqueue_rca(uint32_t rca_idx) {
+    if (rca_enqueued.size() != engine.resolved_continuous_assigns.size()) {
+        rca_enqueued.assign(engine.resolved_continuous_assigns.size(), 0);
+    }
+    if (rca_idx < rca_enqueued.size() && !rca_enqueued[rca_idx]) {
+        rca_enqueued[rca_idx] = 1;
+        dirty_rcas.push_back(rca_idx);
+        comb_dirty = true;
+    }
+}
+
+void StratifiedScheduler::notify_net_changed(size_t net_id) {
+    if (net_id >= engine.netlist.size()) return;
+    size_t canon_nid = engine.get_canonical_net_id(net_id);
+    if (canon_nid < engine.fanout.net_to_rca.size()) {
+        const auto& rca_list = engine.fanout.net_to_rca[canon_nid];
+        for (uint32_t rca_idx : rca_list) {
+            enqueue_rca(rca_idx);
+        }
+    }
+}
+
+void StratifiedScheduler::notify_mem_changed() {
+    for (uint32_t rca_idx : engine.fanout.mem_reading_rcas) {
+        enqueue_rca(rca_idx);
+    }
+}
+
 void StratifiedScheduler::propagate_comb() {
-    if (!comb_dirty) return;
+    if (!comb_dirty && dirty_rcas.empty()) return;
     delta_cycles_count++;
     bool changed = true;
     size_t iters = 0;
@@ -468,6 +500,7 @@ void StratifiedScheduler::propagate_comb() {
             if (src_val != dst_val) {
                 engine.evaluator.write_slice(bind.dst, src_val);
                 changed = true;
+                notify_net_changed(bind.dst.net_id);
             }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -481,6 +514,7 @@ void StratifiedScheduler::propagate_comb() {
                     if (it_dst->second.words[i] != it_src->second.words[i]) {
                         it_dst->second.words[i] = it_src->second.words[i];
                         changed = true;
+                        notify_mem_changed();
                     }
                 }
             }
@@ -516,106 +550,128 @@ void StratifiedScheduler::propagate_comb() {
                     if (cur_val != rhs_val) {
                         it->second.set_word(addr, rhs_val);
                         changed = true;
+                        notify_mem_changed();
                     }
                 }
             }
         }
 
         auto t2 = std::chrono::high_resolution_clock::now();
-        // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution
-        for (auto& rca : engine.resolved_continuous_assigns) {
-            if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
-
-            auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
-                if (drv.is_gate) {
-                    return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
-                } else {
-                    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(drv.rhs)) {
-                        std::string tname = engine.netlist[rca.target.net_id].type_name;
-                        if (tname.empty()) {
-                            std::string nname = engine.netlist[rca.target.net_id].name;
-                            if (engine.var_to_struct_type.count(nname)) tname = engine.var_to_struct_type.at(nname);
-                        }
-                        if (!tname.empty()) {
-                            if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
-                                return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
-                            }
-                        }
-                    }
-                    return engine.evaluator.eval_expr(drv.rhs, drv.scope);
-                }
-            };
-
-            LogicVal resolved;
-            if (rca.drivers.empty()) {
-                resolved = LogicVal::make_z(rca.target.width);
-            } else if (rca.drivers.size() == 1) {
-                resolved = eval_driver(rca.drivers[0]);
-                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-            } else {
-                resolved = eval_driver(rca.drivers[0]);
-                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-                NetKind kind = engine.netlist[rca.target.net_id].kind;
-                for (size_t i = 1; i < rca.drivers.size(); ++i) {
-                    LogicVal d_val = eval_driver(rca.drivers[i]);
-                    d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
-                    resolved = LogicOps::resolve_net(kind, resolved, d_val);
-                }
+        // IEEE 1800-2023 §6.5, §10.3, §10.4.1, §28 & §29: Multi-Driver Continuous Assignment & Gate Resolution (Event-Driven)
+        std::vector<uint32_t> current_batch;
+        size_t rca_inner_guard = 0;
+        while (!dirty_rcas.empty() && rca_inner_guard < 100) {
+            rca_inner_guard++;
+            current_batch.swap(dirty_rcas);
+            for (uint32_t idx : current_batch) {
+                if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
             }
 
-            LogicVal cur = engine.evaluator.read_slice(rca.target);
-            if (cur != resolved) {
-                size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+            for (uint32_t rca_idx : current_batch) {
+                if (rca_idx >= engine.resolved_continuous_assigns.size()) continue;
+                auto& rca = engine.resolved_continuous_assigns[rca_idx];
+                if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
 
-                bool has_path_delay = false;
-                uint64_t min_delay = UINT64_MAX;
-                for (const auto& mpd : engine.module_path_delays) {
-                    if (mpd.dst_net_id == target_id) {
-                        if (engine.netlist[mpd.src_net_id].changed_in_current_sim_time) {
-                            bool cond_met = true;
-                            if (mpd.cond_expr) {
-                                LogicVal cval = engine.evaluator.eval_expr(mpd.cond_expr, mpd.scope);
-                                cond_met = cval.to_bool();
+                auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
+                    if (drv.is_gate) {
+                        return engine.evaluator.eval_gate(engine.gates[drv.gate_idx]);
+                    } else {
+                        if (auto ucat = dynamic_cast<UnpackedConcatNode*>(drv.rhs)) {
+                            std::string tname = engine.netlist[rca.target.net_id].type_name;
+                            if (tname.empty()) {
+                                std::string nname = engine.netlist[rca.target.net_id].name;
+                                if (engine.var_to_struct_type.count(nname)) tname = engine.var_to_struct_type.at(nname);
                             }
-                            if (cond_met) {
-                                has_path_delay = true;
-                                if (mpd.delay_ticks < min_delay) {
-                                    min_delay = mpd.delay_ticks;
+                            if (!tname.empty()) {
+                                if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
+                                    return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
+                                }
+                            }
+                        }
+                        return engine.evaluator.eval_expr(drv.rhs, drv.scope);
+                    }
+                };
+
+                LogicVal resolved;
+                if (rca.drivers.empty()) {
+                    resolved = LogicVal::make_z(rca.target.width);
+                } else if (rca.drivers.size() == 1) {
+                    resolved = eval_driver(rca.drivers[0]);
+                    resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                } else {
+                    resolved = eval_driver(rca.drivers[0]);
+                    resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                    NetKind kind = engine.netlist[rca.target.net_id].kind;
+                    for (size_t i = 1; i < rca.drivers.size(); ++i) {
+                        LogicVal d_val = eval_driver(rca.drivers[i]);
+                        d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                        resolved = LogicOps::resolve_net(kind, resolved, d_val);
+                    }
+                }
+
+                LogicVal cur = engine.evaluator.read_slice(rca.target);
+                if (cur != resolved) {
+                    size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+
+                    bool has_path_delay = false;
+                    uint64_t min_delay = UINT64_MAX;
+                    for (const auto& mpd : engine.module_path_delays) {
+                        if (mpd.dst_net_id == target_id) {
+                            if (engine.netlist[mpd.src_net_id].changed_in_current_sim_time) {
+                                bool cond_met = true;
+                                if (mpd.cond_expr) {
+                                    LogicVal cval = engine.evaluator.eval_expr(mpd.cond_expr, mpd.scope);
+                                    cond_met = cval.to_bool();
+                                }
+                                if (cond_met) {
+                                    has_path_delay = true;
+                                    if (mpd.delay_ticks < min_delay) {
+                                        min_delay = mpd.delay_ticks;
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if (has_path_delay && min_delay > 0) {
-                    uint64_t target_time = current_sim_time + min_delay;
-                    pending_specify_events[target_id] = {target_id, resolved, target_time};
-                    time_wheel.schedule(target_time, UINT32_MAX);
-                    continue;
-                }
+                    if (has_path_delay && min_delay > 0) {
+                        uint64_t target_time = current_sim_time + min_delay;
+                        pending_specify_events[target_id] = {target_id, resolved, target_time};
+                        time_wheel.schedule(target_time, UINT32_MAX);
+                        continue;
+                    }
 
-                if (pending_specify_events.find(target_id) != pending_specify_events.end()) {
-                    continue;
-                }
+                    if (pending_specify_events.find(target_id) != pending_specify_events.end()) {
+                        continue;
+                    }
 
-                engine.evaluator.write_slice(rca.target, resolved);
-                changed = true;
-            } else {
-                size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
-                pending_specify_events.erase(target_id);
+                    engine.evaluator.write_slice(rca.target, resolved);
+                    changed = true;
+                    notify_net_changed(target_id);
+                } else {
+                    size_t target_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+                    pending_specify_events.erase(target_id);
+                }
             }
+        }
+        if (rca_inner_guard >= 100) {
+            for (uint32_t idx : dirty_rcas) {
+                if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
+            }
+            dirty_rcas.clear();
         }
         auto t3 = std::chrono::high_resolution_clock::now();
         t_rca_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
 
         // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignments propagate whenever operands change
-        for (auto& net : engine.netlist) {
+        for (size_t net_idx = 0; net_idx < engine.netlist.size(); ++net_idx) {
+            auto& net = engine.netlist[net_idx];
             if (net.has_procedural_assign && net.procedural_assign_rhs) {
                 LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
                 LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
                 if (net.value != casted) {
                     net.set(casted);
                     changed = true;
+                    notify_net_changed(net_idx);
                 }
             }
         }
@@ -666,15 +722,15 @@ void StratifiedScheduler::propagate_comb() {
 
         for (size_t k = 0; k < comb_target_nets.size(); ++k) {
             const auto& v = engine.netlist[comb_target_nets[k]].value;
-            if (v.aval != comb_fast_snap[k].aval || v.bval != comb_fast_snap[k].bval) {
-                changed = true;
-                break;
-            }
-            if (v.wide_aval.size() > 1) {
+            bool net_toggled = (v.aval != comb_fast_snap[k].aval || v.bval != comb_fast_snap[k].bval);
+            if (!net_toggled && v.wide_aval.size() > 1) {
                 if (v.wide_aval[1] != comb_fast_snap[k].w1_a || v.wide_bval[1] != comb_fast_snap[k].w1_b) {
-                    changed = true;
-                    break;
+                    net_toggled = true;
                 }
+            }
+            if (net_toggled) {
+                changed = true;
+                notify_net_changed(comb_target_nets[k]);
             }
         }
         auto t5 = std::chrono::high_resolution_clock::now();
@@ -946,6 +1002,7 @@ bool StratifiedScheduler::commit_nba_updates() {
     for (const auto& update : nba_queue) {
         size_t target_id = (update.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[update.net_id] : update.net_id;
         if (!engine.netlist[target_id].has_procedural_assign) {
+            LogicVal old_val = engine.netlist[target_id].value;
             if (update.is_slice) {
                 auto& net = engine.netlist[target_id];
                 LogicVal new_val = net.value;
@@ -968,6 +1025,9 @@ bool StratifiedScheduler::commit_nba_updates() {
                     }
                 }
             }
+            if (engine.netlist[target_id].value != old_val) {
+                notify_net_changed(target_id);
+            }
         }
     }
     nba_queue.clear();
@@ -975,12 +1035,16 @@ bool StratifiedScheduler::commit_nba_updates() {
     for (const auto& mem_up : nba_mem_queue) {
         if (engine.memory_map.find(mem_up.mem_scoped_name) != engine.memory_map.end()) {
             auto& mem = engine.memory_map.at(mem_up.mem_scoped_name);
+            LogicVal old_v = mem.get_word(mem_up.addr);
             if (mem_up.is_slice) {
-                LogicVal cur = mem.get_word(mem_up.addr);
+                LogicVal cur = old_v;
                 cur.deposit_slice(mem_up.offset, mem_up.slice_width, mem_up.val);
                 mem.set_word(mem_up.addr, cur);
             } else {
                 mem.set_word(mem_up.addr, mem_up.val);
+            }
+            if (mem.get_word(mem_up.addr) != old_v) {
+                notify_mem_changed();
             }
         }
     }
@@ -2455,6 +2519,14 @@ void StratifiedScheduler::run_simulation() {
     current_sim_time = 0;
     simulation_active = true;
 
+    rca_enqueued.assign(engine.resolved_continuous_assigns.size(), 1);
+    dirty_rcas.clear();
+    dirty_rcas.reserve(engine.resolved_continuous_assigns.size());
+    for (uint32_t i = 0; i < engine.resolved_continuous_assigns.size(); ++i) {
+        dirty_rcas.push_back(i);
+    }
+    comb_dirty = true;
+
     for (auto& n : engine.netlist) {
         n.prev_value = n.value;
         n.modified = false;
@@ -2599,6 +2671,7 @@ void StratifiedScheduler::run_simulation() {
                 std::string scoped_target = b_item.scope + "." + b_item.target_name;
                 if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
                     size_t net_id = engine.net_map.at(scoped_target);
+                    LogicVal old_v = engine.netlist[net_id].value;
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
                     if (net_id < engine.alias_members.size()) {
@@ -2607,6 +2680,9 @@ void StratifiedScheduler::run_simulation() {
                                 engine.netlist[other_id].set(casted);
                             }
                         }
+                    }
+                    if (engine.netlist[net_id].value != old_v) {
+                        notify_net_changed(net_id);
                     }
                 }
                 if (b_item.pid < engine.processes.size()) {

@@ -140,6 +140,18 @@ public:
     void build_fanout_graph();
     size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
     const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }
+    bool is_memory(const std::string& scope, const std::string& name) const {
+        std::string cur_s = scope;
+        while (true) {
+            std::string scoped = cur_s.empty() ? name : (cur_s + "." + name);
+            if (memory_map.find(scoped) != memory_map.end()) return true;
+            if (cur_s.empty()) break;
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+        return memory_map.find(name) != memory_map.end();
+    }
     void set_max_cycles(uint64_t m) { max_cycles = m; }
     void set_top_param_override(const std::string& name, const LogicVal& val) { top_param_overrides[name] = val; }
     void add_plusarg(const std::string& pa) { plusargs.push_back(pa); }

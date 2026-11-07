@@ -124,8 +124,15 @@ private:
     void trigger_named_event(const std::string& ev_name, const std::string& scope, bool is_nonblocking);
     void trigger_named_event_id(size_t ev_id);
 
+    std::vector<uint32_t> dirty_rcas;
+    std::vector<uint8_t> rca_enqueued;
+
 public:
     explicit StratifiedScheduler(Engine& eng);
+
+    void notify_net_changed(size_t net_id);
+    void notify_mem_changed();
+    void enqueue_rca(uint32_t rca_idx);
 
     void step_process(size_t pid);
     void schedule_event(uint64_t wake_time, uint32_t pid);
