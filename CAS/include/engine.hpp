@@ -135,7 +135,11 @@ public:
     std::unordered_map<std::string, LogicVal> top_param_overrides;
     std::vector<std::string> plusargs;
     uint64_t max_cycles = 0;
+    FanoutGraph fanout;
 
+    void build_fanout_graph();
+    size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
+    const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }
     void set_max_cycles(uint64_t m) { max_cycles = m; }
     void set_top_param_override(const std::string& name, const LogicVal& val) { top_param_overrides[name] = val; }
     void add_plusarg(const std::string& pa) { plusargs.push_back(pa); }

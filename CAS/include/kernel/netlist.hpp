@@ -146,3 +146,16 @@ struct RuntimeTimingCheck {
     uint64_t last_ref_change_counter = (uint64_t)-1;
     uint64_t last_data_change_counter = (uint64_t)-1;
 };
+
+struct FanoutGraph {
+    // net_id -> vector of indices into engine.resolved_continuous_assigns
+    std::vector<std::vector<uint32_t>> net_to_rca;
+
+    // net_id -> vector of process IDs (for combinational processes sensitive to this net)
+    std::vector<std::vector<uint32_t>> net_to_comb_proc;
+
+    void resize(size_t net_count) {
+        net_to_rca.resize(net_count);
+        net_to_comb_proc.resize(net_count);
+    }
+};
