@@ -1,3 +1,0 @@
-/app/CAS/build/CMakeFiles/cas.dir
-/app/CAS/build/CMakeFiles/edit_cache.dir
-/app/CAS/build/CMakeFiles/rebuild_cache.dir

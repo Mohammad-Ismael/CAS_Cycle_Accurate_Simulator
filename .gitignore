@@ -7,3 +7,7 @@ requested_code.txt
 **/*.so
 projects/ibex/
 *.log
+CAS/build/
+build/
+*.o
+*.d
