@@ -291,6 +291,8 @@ private:
     std::unordered_set<std::string> valid_instance_paths;
     std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> defparam_overrides;
     std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
+    const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
+    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width) const;
 
 public:
     std::unordered_map<std::string, LogicVal> top_param_overrides;

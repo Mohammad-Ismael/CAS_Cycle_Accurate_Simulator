@@ -93,7 +93,17 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
     }
     size_t nid = engine.get_net_id(bp.scope, var_name);
     if (nid != (size_t)-1) {
-        engine.netlist[nid].set(val);
+        size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
+        if (!engine.netlist[target_id].has_procedural_assign) {
+            engine.netlist[target_id].set(val);
+            if (target_id < engine.alias_members.size()) {
+                for (size_t other_id : engine.alias_members[target_id]) {
+                    if (other_id != target_id && other_id < engine.netlist.size()) {
+                        engine.netlist[other_id].set(val);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4353,9 +4363,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     slice_w = msb - lsb + 1;
                                 }
                                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
-                                auto cur = engine.netlist[net_id].value;
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto cur = engine.netlist[target_id].value;
                                 cur.deposit_slice(lsb, slice_w, rhs_val);
-                                engine.netlist[net_id].set(cur);
+                                engine.netlist[target_id].set(cur);
+                                if (target_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_id]) {
+                                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(cur);
+                                        }
+                                    }
+                                }
                                 return;
                             }
                         } else {
@@ -4371,9 +4389,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     lsb = elem_idx;
                                     slice_w = 1;
                                 }
-                                auto cur = engine.netlist[net_id].value;
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto cur = engine.netlist[target_id].value;
                                 cur.deposit_slice(lsb, slice_w, rhs_val);
-                                engine.netlist[net_id].set(cur);
+                                engine.netlist[target_id].set(cur);
+                                if (target_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_id]) {
+                                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(cur);
+                                        }
+                                    }
+                                }
                                 return;
                             }
                         }
@@ -4385,8 +4411,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 throw std::runtime_error("[CAS-DTINPCIL] Incompatible class assignment: '" + rhs_obj->class_type_name + "' is not a subtype of '" + net_type + "' per IEEE 1800-2023 section 8.26");
                             }
                         }
-                        LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
-                        engine.netlist[net_id].set(casted);
+                        size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                        if (!engine.netlist[target_id].has_procedural_assign) {
+                            LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                            engine.netlist[target_id].set(casted);
+                            if (target_id < engine.alias_members.size()) {
+                                for (size_t other_id : engine.alias_members[target_id]) {
+                                    if (other_id != target_id && other_id < engine.netlist.size()) {
+                                        engine.netlist[other_id].set(casted);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

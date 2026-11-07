@@ -3630,6 +3630,90 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
         return res;
     }
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
+        std::vector<std::string> named_members;
+        for (const auto& elem : ucat->elements) {
+            if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                if (!pm->member_name.empty() && pm->member_name != "default") {
+                    named_members.push_back(pm->member_name);
+                }
+            }
+        }
+
+        const StructTypeNode* st = nullptr;
+        if (!named_members.empty()) {
+            auto matches = [&](const StructTypeNode* s) -> bool {
+                if (!s) return false;
+                for (const auto& nm : named_members) {
+                    bool found = false;
+                    for (const auto& m : s->members) {
+                        if (m.name == nm) { found = true; break; }
+                    }
+                    if (!found) return false;
+                }
+                return true;
+            };
+
+            if (current_parsing_package) {
+                for (const auto& pair : current_parsing_package->struct_typedefs) {
+                    if (matches(pair.second.get())) { st = pair.second.get(); break; }
+                }
+            }
+            if (!st && current_parsing_module) {
+                for (const auto& pair : current_parsing_module->struct_typedefs) {
+                    if (matches(pair.second.get())) { st = pair.second.get(); break; }
+                }
+            }
+            if (!st) {
+                for (const auto& kv : global_packages) {
+                    for (const auto& pair : kv.second->struct_typedefs) {
+                        if (matches(pair.second.get())) { st = pair.second.get(); break; }
+                    }
+                    if (st) break;
+                }
+            }
+        }
+
+        if (st) {
+            size_t n = st->members.size();
+            std::vector<uint32_t> offsets(n, 0);
+            uint32_t running_offset = 0;
+            for (int i = (int)n - 1; i >= 0; --i) {
+                offsets[i] = running_offset;
+                running_offset += st->members[i].width;
+            }
+            uint64_t total = 0;
+            size_t pos_idx = 0;
+            for (const auto& elem : ucat->elements) {
+                if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                    if (pm->member_name == "default") continue;
+                    if (!pm->member_name.empty()) {
+                        for (size_t i = 0; i < n; ++i) {
+                            if (st->members[i].name == pm->member_name) {
+                                uint64_t v = eval_const_expr_with_params(pm->value.get(), params);
+                                uint32_t w = st->members[i].width;
+                                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                                total |= ((v & mask) << offsets[i]);
+                                break;
+                            }
+                        }
+                    } else if (pos_idx < n) {
+                        uint64_t v = eval_const_expr_with_params(pm->value.get(), params);
+                        uint32_t w = st->members[pos_idx].width;
+                        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                        total |= ((v & mask) << offsets[pos_idx]);
+                        pos_idx++;
+                    }
+                } else if (pos_idx < n) {
+                    uint64_t v = eval_const_expr_with_params(elem.get(), params);
+                    uint32_t w = st->members[pos_idx].width;
+                    uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                    total |= ((v & mask) << offsets[pos_idx]);
+                    pos_idx++;
+                }
+            }
+            return total;
+        }
+
         uint64_t total = 0;
         for (auto& el : ucat->elements) {
             uint64_t v = eval_const_expr_with_params(el.get(), params);
