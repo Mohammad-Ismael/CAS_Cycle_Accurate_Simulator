@@ -5,6 +5,7 @@
 #include "kernel/codegen.hpp"
 
 typedef void (*NativeEvalFn)(uint64_t* __restrict);
+typedef void (*NativeSeqEvalFn)(const uint64_t* __restrict cur, uint64_t* __restrict next, uint8_t* __restrict modified_mask);
 
 struct NativeDispatchTable {
     void* dl_handle = nullptr;
@@ -12,6 +13,7 @@ struct NativeDispatchTable {
     size_t rca_count = 0;
     NativeEvalFn* proc_table = nullptr;
     size_t proc_count = 0;
+    NativeSeqEvalFn seq_clock_fn = nullptr;
     bool is_active = false;
 
     NativeDispatchTable() = default;

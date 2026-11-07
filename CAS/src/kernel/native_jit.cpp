@@ -20,6 +20,7 @@ NativeDispatchTable::~NativeDispatchTable() {
     rca_count = 0;
     proc_table = nullptr;
     proc_count = 0;
+    seq_clock_fn = nullptr;
     is_active = false;
 }
 
@@ -29,12 +30,14 @@ NativeDispatchTable::NativeDispatchTable(NativeDispatchTable&& other) noexcept
       rca_count(other.rca_count),
       proc_table(other.proc_table),
       proc_count(other.proc_count),
+      seq_clock_fn(other.seq_clock_fn),
       is_active(other.is_active) {
     other.dl_handle = nullptr;
     other.rca_table = nullptr;
     other.rca_count = 0;
     other.proc_table = nullptr;
     other.proc_count = 0;
+    other.seq_clock_fn = nullptr;
     other.is_active = false;
 }
 
@@ -48,6 +51,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         rca_count = other.rca_count;
         proc_table = other.proc_table;
         proc_count = other.proc_count;
+        seq_clock_fn = other.seq_clock_fn;
         is_active = other.is_active;
 
         other.dl_handle = nullptr;
@@ -55,6 +59,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         other.rca_count = 0;
         other.proc_table = nullptr;
         other.proc_count = 0;
+        other.seq_clock_fn = nullptr;
         other.is_active = false;
     }
     return *this;
@@ -86,7 +91,7 @@ bool NativeJIT::compile_and_load(
     }
 
     // 3. Look up table discovery function
-    typedef void (*GetTableFn)(NativeEvalFn**, size_t*, NativeEvalFn**, size_t*);
+    typedef void (*GetTableFn)(NativeEvalFn**, size_t*, NativeEvalFn**, size_t*, NativeSeqEvalFn*);
     dlerror(); // Clear error
     GetTableFn get_tbl = (GetTableFn)dlsym(handle, "get_native_eval_table");
     const char* dlsym_err = dlerror();
@@ -102,13 +107,15 @@ bool NativeJIT::compile_and_load(
     size_t rca_cnt = 0;
     NativeEvalFn* proc_tbl = nullptr;
     size_t proc_cnt = 0;
-    get_tbl(&rca_tbl, &rca_cnt, &proc_tbl, &proc_cnt);
+    NativeSeqEvalFn seq_fn = nullptr;
+    get_tbl(&rca_tbl, &rca_cnt, &proc_tbl, &proc_cnt, &seq_fn);
 
     out_table.dl_handle = handle;
     out_table.rca_table = rca_tbl;
     out_table.rca_count = rca_cnt;
     out_table.proc_table = proc_tbl;
     out_table.proc_count = proc_cnt;
+    out_table.seq_clock_fn = seq_fn;
     out_table.is_active = true;
 
     return true;

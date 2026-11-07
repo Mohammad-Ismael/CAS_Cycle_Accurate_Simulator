@@ -987,9 +987,13 @@ void Engine::bind_all_ast_nodes() {
                 for (size_t i = 0; i < scheduler.native_dispatch.proc_count; ++i) {
                     if (scheduler.native_dispatch.proc_table[i] != nullptr) active_procs++;
                 }
+                size_t native_seq_count = 0;
+                for (const auto& bp : processes) {
+                    if (bp.is_native_seq) native_seq_count++;
+                }
                 std::cout << "[Native JIT] Successfully compiled and dynamically linked "
-                          << active_rcas << " RCAs and " << active_procs
-                          << " Comb Procs into execution kernel.\n";
+                          << active_rcas << " RCAs, " << active_procs
+                          << " Comb Procs, and " << native_seq_count << " Seq Procs into execution kernel.\n";
             } else {
                 std::cout << "[Native JIT] Warning: compile_and_load failed, falling back to bytecode engine.\n";
             }

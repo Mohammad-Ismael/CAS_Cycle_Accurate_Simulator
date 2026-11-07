@@ -168,6 +168,8 @@ struct BoundProcess {
     bool is_bytecode_compiled = false;
     std::vector<uint32_t> comb_target_nets;
 
+    bool is_native_seq = false;
+
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
         : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}

@@ -13,14 +13,14 @@ public:
     static bool generate_comb_source(
         const std::string& output_cpp_path,
         const std::vector<ResolvedContinuousAssign>& rcas,
-        const std::vector<BoundProcess>& procs,
-        const Engine& engine
+        std::vector<BoundProcess>& procs,
+        Engine& engine
     );
 
     static bool generate_comb_source(
         const std::string& output_cpp_path,
         const std::vector<ResolvedContinuousAssign>& rcas,
-        const std::vector<BoundProcess>& procs,
+        std::vector<BoundProcess>& procs,
         size_t num_nets
     );
 };

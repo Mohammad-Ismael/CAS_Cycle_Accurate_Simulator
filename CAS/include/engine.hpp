@@ -144,6 +144,12 @@ public:
     void build_fanout_graph();
     size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
     const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }
+    const std::vector<Net>& get_netlist() const { return netlist; }
+    std::vector<Net>& get_netlist() { return netlist; }
+    const std::vector<BoundProcess>& get_processes() const { return processes; }
+    std::vector<BoundProcess>& get_processes() { return processes; }
+    Evaluator& get_evaluator() { return evaluator; }
+    const Evaluator& get_evaluator() const { return evaluator; }
     bool is_memory(const std::string& scope, const std::string& name) const {
         std::string cur_s = scope;
         while (true) {
