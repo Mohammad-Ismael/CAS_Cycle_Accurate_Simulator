@@ -8,6 +8,7 @@
 #include "kernel/netlist.hpp"
 #include "kernel/evaluator.hpp"
 #include "kernel/bytecode.hpp"
+#include "kernel/native_jit.hpp"
 #include "kernel/time_wheel.hpp"
 #include "tracer/vcd_dumper.hpp"
 
@@ -138,6 +139,10 @@ private:
 
 public:
     explicit StratifiedScheduler(Engine& eng);
+
+    NativeDispatchTable native_dispatch;
+    std::vector<uint64_t> native_nets_u64;
+    void sync_all_native_nets();
 
     void notify_net_changed(size_t net_id);
     void notify_mem_changed();

@@ -1,6 +1,7 @@
 #include "../include/engine.hpp"
 #include "../include/kernel/logic_ops.hpp"
 #include "../include/kernel/codegen.hpp"
+#include "../include/kernel/native_jit.hpp"
 
 #include <algorithm>
 
@@ -969,14 +970,28 @@ void Engine::bind_all_ast_nodes() {
         }
         bool gen_ok = NativeCodeGen::generate_comb_source(out_path, resolved_continuous_assigns, processes, *this);
         if (gen_ok) {
-            std::cout << "[NativeCodeGen] Successfully generated " << out_path << "\n";
-            std::string obj_path = out_path + ".o";
-            std::string cmd = "g++ -c " + out_path + " -O2 -fPIC -o " + obj_path + " 2>&1";
-            int ret = std::system(cmd.c_str());
-            if (ret == 0) {
-                std::cout << "[NativeCodeGen] Test compilation passed (" << obj_path << ")\n";
+            std::string so_path = "/tmp/cas_native_comb.so";
+#ifdef _WIN32
+            so_path = "cas_native_comb.so";
+#endif
+            if (const char* env_so = std::getenv("CAS_NATIVE_SO_PATH")) {
+                so_path = env_so;
+            }
+            bool jit_ok = NativeJIT::compile_and_load(out_path, so_path, scheduler.native_dispatch);
+            if (jit_ok) {
+                size_t active_rcas = 0;
+                for (size_t i = 0; i < scheduler.native_dispatch.rca_count; ++i) {
+                    if (scheduler.native_dispatch.rca_table[i] != nullptr) active_rcas++;
+                }
+                size_t active_procs = 0;
+                for (size_t i = 0; i < scheduler.native_dispatch.proc_count; ++i) {
+                    if (scheduler.native_dispatch.proc_table[i] != nullptr) active_procs++;
+                }
+                std::cout << "[Native JIT] Successfully compiled and dynamically linked "
+                          << active_rcas << " RCAs and " << active_procs
+                          << " Comb Procs into execution kernel.\n";
             } else {
-                std::cout << "[NativeCodeGen] Warning: g++ test compilation failed with code " << ret << "\n";
+                std::cout << "[Native JIT] Warning: compile_and_load failed, falling back to bytecode engine.\n";
             }
         } else {
             std::cout << "[NativeCodeGen] Failed to generate " << out_path << "\n";

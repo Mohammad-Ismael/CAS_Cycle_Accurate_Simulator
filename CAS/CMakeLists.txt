@@ -16,6 +16,7 @@ add_executable(cas
     src/kernel/evaluator.cpp
     src/kernel/bytecode_compiler.cpp
     src/kernel/codegen.cpp
+    src/kernel/native_jit.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

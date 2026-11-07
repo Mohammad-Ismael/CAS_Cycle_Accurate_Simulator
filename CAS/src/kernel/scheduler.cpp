@@ -336,7 +336,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
         engine.evaluator.get_expr_eval().set_current_clock_history(nullptr);
         engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
 
-        // REACTIVE REGION: execute pending sequence match subroutines (§16.11)
+        // REACTIVE REGION: execute pending sequence match subroutines (Â§16.11)
         for (const auto& sub : pending_subroutines) {
             engine.execute_sva_subroutine(sub.name, sub.args, sub.scope);
             activity = true;
@@ -474,9 +474,31 @@ void StratifiedScheduler::enqueue_comb_proc(uint32_t proc_id) {
     }
 }
 
+void StratifiedScheduler::sync_all_native_nets() {
+    native_nets_u64.resize(engine.netlist.size(), 0);
+    for (size_t i = 0; i < engine.netlist.size(); ++i) {
+        native_nets_u64[i] = engine.netlist[i].value.aval;
+    }
+}
+
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id >= engine.netlist.size()) return;
     size_t canon_nid = engine.get_canonical_net_id(net_id);
+    if (native_dispatch.is_active) {
+        if (net_id < native_nets_u64.size()) {
+            native_nets_u64[net_id] = engine.netlist[net_id].value.aval;
+        }
+        if (canon_nid < native_nets_u64.size()) {
+            native_nets_u64[canon_nid] = engine.netlist[canon_nid].value.aval;
+        }
+        if (canon_nid < engine.alias_members.size()) {
+            for (size_t m_id : engine.alias_members[canon_nid]) {
+                if (m_id < native_nets_u64.size()) {
+                    native_nets_u64[m_id] = engine.netlist[m_id].value.aval;
+                }
+            }
+        }
+    }
     if (canon_nid < engine.fanout.net_to_rca.size()) {
         const auto& rca_list = engine.fanout.net_to_rca[canon_nid];
         for (uint32_t rca_idx : rca_list) {
@@ -2135,7 +2157,7 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        // Continuous assignments targeting memory array words (IEEE 1800-2023 §27)
+        // Continuous assignments targeting memory array words (IEEE 1800-2023 Â§27)
         for (auto& mca : engine.memory_continuous_assigns) {
             std::string cur_s = mca.scope;
             auto it = engine.memory_map.end();
@@ -2188,6 +2210,38 @@ void StratifiedScheduler::propagate_comb() {
                     if (rca_idx >= engine.resolved_continuous_assigns.size()) continue;
                     auto& rca = engine.resolved_continuous_assigns[rca_idx];
                     if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
+
+                    // Native JIT Fast Path
+                    if (native_dispatch.is_active && rca_idx < native_dispatch.rca_count && native_dispatch.rca_table[rca_idx] != nullptr) {
+                        size_t canon_id = (rca.target.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[rca.target.net_id] : rca.target.net_id;
+                        bool has_mpd = false;
+                        if (!engine.module_path_delays.empty()) {
+                            for (const auto& mpd : engine.module_path_delays) {
+                                if (mpd.dst_net_id == canon_id) { has_mpd = true; break; }
+                            }
+                        }
+                        if (!has_mpd) {
+                            uint32_t target_net_id = rca.target.net_id;
+                            uint64_t old_u64 = native_nets_u64[target_net_id];
+                            native_dispatch.rca_table[rca_idx](native_nets_u64.data());
+                            uint64_t new_u64 = native_nets_u64[target_net_id];
+                            if (new_u64 != old_u64 || engine.netlist[target_net_id].value.bval != 0) {
+                                LogicVal lval = LogicVal::from_u64_2state(
+                                    new_u64, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
+                                engine.netlist[target_net_id].set(lval);
+                                if (target_net_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_net_id]) {
+                                        if (other_id != target_net_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(lval);
+                                            native_nets_u64[other_id] = new_u64;
+                                        }
+                                    }
+                                }
+                                notify_net_changed(canon_id);
+                            }
+                            continue;
+                        }
+                    }
 
                     auto eval_driver = [&](const ContinuousAssignDriver& drv) -> LogicVal {
                         if (drv.is_gate) {
@@ -2341,6 +2395,33 @@ void StratifiedScheduler::propagate_comb() {
             for (uint32_t pid : current_comb_batch) {
                 if (pid >= engine.processes.size()) continue;
                 auto& bp = engine.processes[pid];
+                if (native_dispatch.is_active && pid < native_dispatch.proc_count && native_dispatch.proc_table[pid] != nullptr) {
+                    uint64_t old_vals[32];
+                    size_t num_targets = std::min((size_t)32, bp.comb_target_nets.size());
+                    for (size_t k = 0; k < num_targets; ++k) {
+                        old_vals[k] = native_nets_u64[bp.comb_target_nets[k]];
+                    }
+                    native_dispatch.proc_table[pid](native_nets_u64.data());
+                    for (size_t k = 0; k < num_targets; ++k) {
+                        uint32_t tid = bp.comb_target_nets[k];
+                        uint64_t new_val = native_nets_u64[tid];
+                        if (new_val != old_vals[k] || engine.netlist[tid].value.bval != 0) {
+                            LogicVal lval = LogicVal::from_u64_2state(new_val, engine.netlist[tid].width, engine.netlist[tid].is_signed);
+                            engine.netlist[tid].set(lval);
+                            if (tid < engine.alias_members.size()) {
+                                for (size_t other_id : engine.alias_members[tid]) {
+                                    if (other_id != tid && other_id < engine.netlist.size()) {
+                                        engine.netlist[other_id].set(lval);
+                                        native_nets_u64[other_id] = new_val;
+                                    }
+                                }
+                            }
+                            size_t canon_id = (tid < engine.canonical_net_map.size()) ? engine.canonical_net_map[tid] : tid;
+                            notify_net_changed(canon_id);
+                        }
+                    }
+                    continue;
+                }
                 if (bp.is_pure_fast_proc) {
                     engine.evaluator.execute_fast_assignments(bp);
                 } else if (bp.is_bytecode_compiled) {
@@ -3212,7 +3293,7 @@ void StratifiedScheduler::notify_parent_child_completed(size_t child_pid) {
         }
     }
 
-    // 2. Check wait fork on ancestor chain (§9.6.3)
+    // 2. Check wait fork on ancestor chain (Â§9.6.3)
     size_t anc_pid = ppid;
     while (anc_pid != (size_t)-1 && anc_pid < engine.processes.size()) {
         auto& anc = engine.processes[anc_pid];
@@ -3389,14 +3470,14 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
-            // Event Trigger inside task: -> e or ->> e (IEEE 1800-2023 §15.4)
+            // Event Trigger inside task: -> e or ->> e (IEEE 1800-2023 Â§15.4)
             if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
                 cur_frame.pc++;
                 trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
                 continue;
             }
 
-            // wait(e.triggered) inside task: (IEEE 1800-2023 §15.5)
+            // wait(e.triggered) inside task: (IEEE 1800-2023 Â§15.5)
             if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
                 std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
                 size_t ev_id = (size_t)-1;
@@ -3481,7 +3562,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
-            // Fork inside task: IEEE 1800-2023 §9.3.2
+            // Fork inside task: IEEE 1800-2023 Â§9.3.2
             if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
                 cur_frame.pc++;
                 invoke_fork(pid, fork_stmt);
@@ -3491,14 +3572,14 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
-            // Disable fork inside task: IEEE 1800-2023 §9.6.2
+            // Disable fork inside task: IEEE 1800-2023 Â§9.6.2
             if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
                 cur_frame.pc++;
                 disable_fork(pid);
                 continue;
             }
 
-            // Wait fork inside task: IEEE 1800-2023 §9.6.3
+            // Wait fork inside task: IEEE 1800-2023 Â§9.6.3
             if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
                 cur_frame.pc++;
                 if (has_active_descendants(pid)) {
@@ -3568,14 +3649,14 @@ void StratifiedScheduler::step_process(size_t pid) {
                 break;
             }
 
-            // Event Trigger: -> e or ->> e (IEEE 1800-2023 §15.4)
+            // Event Trigger: -> e or ->> e (IEEE 1800-2023 Â§15.4)
             if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
                 bp.pc++;
                 trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
                 continue;
             }
 
-            // wait(e.triggered): (IEEE 1800-2023 §15.5)
+            // wait(e.triggered): (IEEE 1800-2023 Â§15.5)
             if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
                 std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
                 size_t ev_id = (size_t)-1;
@@ -3662,7 +3743,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
-            // 4. Nested Fork: IEEE 1800-2023 §9.3.2
+            // 4. Nested Fork: IEEE 1800-2023 Â§9.3.2
             if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
                 bp.pc++;
                 invoke_fork(pid, fork_stmt);
@@ -3672,14 +3753,14 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
-            // Disable fork in child: IEEE 1800-2023 §9.6.2
+            // Disable fork in child: IEEE 1800-2023 Â§9.6.2
             if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
                 bp.pc++;
                 disable_fork(pid);
                 continue;
             }
 
-            // Wait fork in child: IEEE 1800-2023 §9.6.3
+            // Wait fork in child: IEEE 1800-2023 Â§9.6.3
             if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
                 bp.pc++;
                 if (has_active_descendants(pid)) {
@@ -3848,14 +3929,14 @@ void StratifiedScheduler::step_process(size_t pid) {
             break;
         }
 
-        // Event Trigger: -> e or ->> e (IEEE 1800-2023 §15.4)
+        // Event Trigger: -> e or ->> e (IEEE 1800-2023 Â§15.4)
         if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
             bp.pc++;
             trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
             continue;
         }
 
-        // wait(e.triggered): (IEEE 1800-2023 §15.5)
+        // wait(e.triggered): (IEEE 1800-2023 Â§15.5)
         if (auto we = dynamic_cast<WaitEventTriggeredStatementNode*>(stmt)) {
             std::string scoped_ev = bp.scope.empty() ? we->event_name : (bp.scope + "." + we->event_name);
             size_t ev_id = (size_t)-1;
@@ -3963,7 +4044,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
-        // 4. Fork / Join Statements: IEEE 1800-2023 §9.3.2
+        // 4. Fork / Join Statements: IEEE 1800-2023 Â§9.3.2
         if (auto fork_stmt = dynamic_cast<ForkStatementNode*>(stmt)) {
             bp.pc++;
             invoke_fork(pid, fork_stmt);
@@ -3973,14 +4054,14 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
-        // Disable fork: IEEE 1800-2023 §9.6.2
+        // Disable fork: IEEE 1800-2023 Â§9.6.2
         if (auto df = dynamic_cast<DisableForkStatementNode*>(stmt)) {
             bp.pc++;
             disable_fork(pid);
             continue;
         }
 
-        // Wait fork: IEEE 1800-2023 §9.6.3
+        // Wait fork: IEEE 1800-2023 Â§9.6.3
         if (auto wf = dynamic_cast<WaitForkStatementNode*>(stmt)) {
             bp.pc++;
             if (has_active_descendants(pid)) {
@@ -4025,7 +4106,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
-        // IEEE 1800-2023 §10.6.2: Blocking Assignment with Intra-Assignment Event Control
+        // IEEE 1800-2023 Â§10.6.2: Blocking Assignment with Intra-Assignment Event Control
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->has_intra_event) {
                 LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
@@ -4045,7 +4126,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
         }
 
-        // 6. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
+        // 6. IEEE 1800-2023 Â§10.6.1: Blocking Assignment with Intra-Assignment Delay
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->intra_delay > 0) {
                 LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
@@ -4121,7 +4202,7 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
             propagate_comb();
         }
 
-        // 4. Reactive Region (IEEE 1800-2023 §24)
+        // 4. Reactive Region (IEEE 1800-2023 Â§24)
         bool reactive_activity = false;
         if (!due_reactive_pids.empty()) {
             auto pids = std::move(due_reactive_pids);
@@ -4177,6 +4258,9 @@ void StratifiedScheduler::run_simulation() {
         }
     }
     comb_dirty = true;
+    if (native_dispatch.is_active) {
+        sync_all_native_nets();
+    }
 
     for (auto& n : engine.netlist) {
         n.prev_value = n.value;

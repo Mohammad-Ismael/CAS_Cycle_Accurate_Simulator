@@ -166,6 +166,7 @@ struct BoundProcess {
 
     CompiledExpr compiled_body;
     bool is_bytecode_compiled = false;
+    std::vector<uint32_t> comb_target_nets;
 
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)

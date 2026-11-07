@@ -403,5 +403,13 @@ bool BytecodeCompiler::compile_process(BoundProcess& bp, Engine& engine) {
     bp.compiled_body.instructions = std::move(ctx.instructions);
     bp.compiled_body.is_compiled = true;
     bp.compiled_body.is_pure_2state_64 = ctx.is_pure_2state_64;
+    bp.comb_target_nets.clear();
+    for (const auto& inst : bp.compiled_body.instructions) {
+        if (inst.op == Opcode::STORE_NET_U64 || inst.op == Opcode::STORE_NET_VAL) {
+            if (std::find(bp.comb_target_nets.begin(), bp.comb_target_nets.end(), inst.arg0) == bp.comb_target_nets.end()) {
+                bp.comb_target_nets.push_back(inst.arg0);
+            }
+        }
+    }
     return true;
 }
