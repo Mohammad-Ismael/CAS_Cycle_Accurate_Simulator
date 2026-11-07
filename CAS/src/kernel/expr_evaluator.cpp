@@ -3557,6 +3557,43 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
         LogicVal val = eval(un->operand.get(), scope);
 
+        // 2-State fast path (<= 64-bit, known)
+        if (val.is_clean_2state_64()) {
+            uint64_t a = val.get_raw_u64();
+            uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
+            if (un->op == "!") {
+                return LogicVal::from_u64_2state((a == 0) ? 1 : 0, 1);
+            }
+            if (un->op == "~") {
+                return LogicVal::from_u64_2state((~a) & mask, val.width);
+            }
+            if (un->op == "+") {
+                return val;
+            }
+            if (un->op == "-") {
+                uint64_t neg_a = (~a + 1) & mask;
+                return LogicVal::from_u64_2state(neg_a, val.width, true);
+            }
+            if (un->op == "&") {
+                return LogicVal::from_u64_2state(((a & mask) == mask) ? 1 : 0, 1);
+            }
+            if (un->op == "~&") {
+                return LogicVal::from_u64_2state(((a & mask) == mask) ? 0 : 1, 1);
+            }
+            if (un->op == "|") {
+                return LogicVal::from_u64_2state((a != 0) ? 1 : 0, 1);
+            }
+            if (un->op == "~|") {
+                return LogicVal::from_u64_2state((a == 0) ? 1 : 0, 1);
+            }
+            if (un->op == "^") {
+                return LogicVal::from_u64_2state(__builtin_parityll(a & mask), 1);
+            }
+            if (un->op == "~^" || un->op == "^~") {
+                return LogicVal::from_u64_2state(!__builtin_parityll(a & mask), 1);
+            }
+        }
+
         // Logical and Bitwise Unary
         if (un->op == "!") {
             if (val.is_unknown()) return LogicVal::make_x(1);
@@ -3571,7 +3608,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal(val.width, neg_a, 0, true);
         }
 
-        // Unary Reductions (Â§11.4.3)
+        // Unary Reductions (§11.4.3)
         if (un->op == "&")  return LogicOps::reduce_and(val);
         if (un->op == "~&") return LogicOps::reduce_nand(val);
         if (un->op == "|")  return LogicOps::reduce_or(val);
@@ -3605,13 +3642,17 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         bool l_signed = l.is_signed;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
-            LocalVar* loc = context.lookup_local(id->name);
-            if (loc) {
-                l_signed = loc->is_signed;
+            if (id->is_bound && id->cached_net_id < engine.netlist.size()) {
+                l_signed = engine.netlist[id->cached_net_id].is_signed;
             } else {
-                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
-                if (engine.net_map.find(full) != engine.net_map.end()) {
-                    l_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                LocalVar* loc = context.lookup_local(id->name);
+                if (loc) {
+                    l_signed = loc->is_signed;
+                } else {
+                    std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+                    if (engine.net_map.find(full) != engine.net_map.end()) {
+                        l_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                    }
                 }
             }
         } else if (auto num = dynamic_cast<NumberNode*>(bin->lhs.get())) {
@@ -3619,13 +3660,17 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         bool r_signed = r.is_signed;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->rhs.get())) {
-            LocalVar* loc = context.lookup_local(id->name);
-            if (loc) {
-                r_signed = loc->is_signed;
+            if (id->is_bound && id->cached_net_id < engine.netlist.size()) {
+                r_signed = engine.netlist[id->cached_net_id].is_signed;
             } else {
-                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
-                if (engine.net_map.find(full) != engine.net_map.end()) {
-                    r_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                LocalVar* loc = context.lookup_local(id->name);
+                if (loc) {
+                    r_signed = loc->is_signed;
+                } else {
+                    std::string full = scope.empty() ? id->name : (scope + "." + id->name);
+                    if (engine.net_map.find(full) != engine.net_map.end()) {
+                        r_signed = engine.netlist[engine.net_map.at(full)].is_signed;
+                    }
                 }
             }
         } else if (auto num = dynamic_cast<NumberNode*>(bin->rhs.get())) {
@@ -3633,6 +3678,164 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         bool expr_signed = l_signed && r_signed;
+
+        // 2-State fast path (<= 64-bit, known)
+        if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
+            uint64_t a = l.get_raw_u64();
+            uint64_t b = r.get_raw_u64();
+
+            if (bin->op == "+") {
+                uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                if (expr_signed) {
+                    int64_t sa = l.to_signed();
+                    int64_t sb = r.to_signed();
+                    return LogicVal::from_u64_2state(static_cast<uint64_t>(sa + sb) & mask, w, true);
+                }
+                return LogicVal::from_u64_2state((a + b) & mask, w, false);
+            }
+            if (bin->op == "-") {
+                uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                if (expr_signed) {
+                    int64_t sa = l.to_signed();
+                    int64_t sb = r.to_signed();
+                    return LogicVal::from_u64_2state(static_cast<uint64_t>(sa - sb) & mask, w, true);
+                }
+                return LogicVal::from_u64_2state((a - b) & mask, w, false);
+            }
+            if (bin->op == "*") {
+                uint32_t w = std::min(64U, l.width + r.width);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                if (expr_signed) {
+                    int64_t sa = l.to_signed();
+                    int64_t sb = r.to_signed();
+                    return LogicVal::from_u64_2state(static_cast<uint64_t>(sa * sb) & mask, w, true);
+                }
+                return LogicVal::from_u64_2state((a * b) & mask, w, false);
+            }
+            if (bin->op == "/") {
+                uint32_t w = l.width;
+                if (b == 0) return LogicVal::make_x(w);
+                if (expr_signed) {
+                    int64_t sa = l.to_signed();
+                    int64_t sb = r.to_signed();
+                    if (sb == 0) return LogicVal::make_x(w);
+                    if (sa == INT64_MIN && sb == -1) return LogicVal::from_u64_2state(static_cast<uint64_t>(sa), w, true);
+                    return LogicVal::from_u64_2state(static_cast<uint64_t>(sa / sb), w, true);
+                }
+                return LogicVal::from_u64_2state(a / b, w, false);
+            }
+            if (bin->op == "%") {
+                uint32_t w = l.width;
+                if (b == 0) return LogicVal::make_x(w);
+                if (expr_signed) {
+                    int64_t sa = l.to_signed();
+                    int64_t sb = r.to_signed();
+                    if (sb == 0) return LogicVal::make_x(w);
+                    if (sa == INT64_MIN && sb == -1) return LogicVal::from_u64_2state(0, w, true);
+                    return LogicVal::from_u64_2state(static_cast<uint64_t>(sa % sb), w, true);
+                }
+                return LogicVal::from_u64_2state(a % b, w, false);
+            }
+            if (bin->op == "**") {
+                uint32_t w = l.width;
+                uint64_t base = a, exp = b, res = 1;
+                while (exp > 0) {
+                    if (exp & 1) res *= base;
+                    base *= base;
+                    exp >>= 1;
+                }
+                return LogicVal::from_u64_2state(res, w, expr_signed);
+            }
+            if (bin->op == "&") {
+                uint32_t max_w = std::max(l.width, r.width);
+                return LogicVal::from_u64_2state(a & b, max_w);
+            }
+            if (bin->op == "|") {
+                uint32_t max_w = std::max(l.width, r.width);
+                return LogicVal::from_u64_2state(a | b, max_w);
+            }
+            if (bin->op == "^") {
+                uint32_t max_w = std::max(l.width, r.width);
+                return LogicVal::from_u64_2state(a ^ b, max_w);
+            }
+            if (bin->op == "<<") {
+                uint64_t res = (b >= l.width) ? 0ULL : (a << b);
+                return LogicVal::from_u64_2state(res, l.width);
+            }
+            if (bin->op == ">>") {
+                uint64_t res = (b >= l.width) ? 0ULL : (a >> b);
+                return LogicVal::from_u64_2state(res, l.width);
+            }
+            if (bin->op == ">>>") {
+                if (!l_signed) {
+                    uint64_t res = (b >= l.width) ? 0ULL : (a >> b);
+                    return LogicVal::from_u64_2state(res, l.width);
+                }
+                if (l.width == 0) return l;
+                bool sign_bit = (a >> (l.width - 1)) & 1ULL;
+                if (b >= l.width) {
+                    uint64_t res = sign_bit ? ((l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1)) : 0ULL;
+                    return LogicVal::from_u64_2state(res, l.width, true);
+                }
+                uint64_t res = a >> b;
+                if (sign_bit) {
+                    uint64_t fill_mask = (~0ULL) << (l.width - b);
+                    uint64_t width_mask = (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1);
+                    res |= (fill_mask & width_mask);
+                }
+                return LogicVal::from_u64_2state(res, l.width, true);
+            }
+            if (bin->op == "==" || bin->op == "===") {
+                if (l.width == r.width) {
+                    return LogicVal::from_u64_2state((a == b) ? 1 : 0, 1);
+                }
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() == r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a == b) ? 1 : 0, 1);
+            }
+            if (bin->op == "!=" || bin->op == "!==") {
+                if (l.width == r.width) {
+                    return LogicVal::from_u64_2state((a != b) ? 1 : 0, 1);
+                }
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() != r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a != b) ? 1 : 0, 1);
+            }
+            if (bin->op == "<") {
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() < r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a < b) ? 1 : 0, 1);
+            }
+            if (bin->op == "<=") {
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() <= r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a <= b) ? 1 : 0, 1);
+            }
+            if (bin->op == ">") {
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() > r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a > b) ? 1 : 0, 1);
+            }
+            if (bin->op == ">=") {
+                if (expr_signed) {
+                    return LogicVal::from_u64_2state((l.to_signed() >= r.to_signed()) ? 1 : 0, 1);
+                }
+                return LogicVal::from_u64_2state((a >= b) ? 1 : 0, 1);
+            }
+            if (bin->op == "&&") {
+                return LogicVal::from_u64_2state((a != 0 && b != 0) ? 1 : 0, 1);
+            }
+            if (bin->op == "||") {
+                return LogicVal::from_u64_2state((a != 0 || b != 0) ? 1 : 0, 1);
+            }
+        }
 
         if (bin->op == "+") {
             uint32_t w = std::min(64U, std::max(l.width, r.width) + 1);
@@ -3759,6 +3962,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto tern = dynamic_cast<TernaryOpNode*>(expr)) {
         LogicVal cond = eval(tern->condition.get(), scope);
+        if (cond.is_clean_2state_64()) {
+            return (cond.get_raw_u64() != 0) ? eval(tern->true_expr.get(), scope) : eval(tern->false_expr.get(), scope);
+        }
         LogicVal t_val = eval(tern->true_expr.get(), scope);
         LogicVal f_val = eval(tern->false_expr.get(), scope);
         return LogicOps::ternary(cond, t_val, f_val);

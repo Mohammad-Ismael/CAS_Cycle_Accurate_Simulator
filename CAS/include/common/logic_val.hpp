@@ -229,6 +229,28 @@ struct LogicVal {
         return false;
     }
 
+    inline bool is_2state() const {
+        if (is_real) return true;
+        if (width <= 64) return bval == 0;
+        for (uint64_t b : wide_bval) {
+            if (b != 0) return false;
+        }
+        return true;
+    }
+
+    inline bool is_clean_2state_64() const {
+        return width <= 64 && !is_real && !is_string && !is_unpacked && (bval == 0);
+    }
+
+    inline uint64_t get_raw_u64() const {
+        return aval;
+    }
+
+    inline static LogicVal from_u64_2state(uint64_t val, uint32_t w, bool s = false) {
+        uint64_t m = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        return LogicVal(w, val & m, 0, s);
+    }
+
     bool to_bool() const {
         if (is_real) return real_val != 0.0;
         if (is_string) return !str_val.empty();
