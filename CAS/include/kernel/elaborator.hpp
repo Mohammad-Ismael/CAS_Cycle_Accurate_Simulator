@@ -3,6 +3,7 @@
 #include "../common/sva_types.hpp"
 #include "netlist.hpp"
 #include "execution_context.hpp"
+#include "bytecode.hpp"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -37,6 +38,7 @@ struct ContinuousAssignDriver {
 struct ResolvedContinuousAssign {
     NetSliceRef target;
     std::vector<ContinuousAssignDriver> drivers;
+    CompiledExpr compiled_expr;
 };
 
 struct MemoryArray {

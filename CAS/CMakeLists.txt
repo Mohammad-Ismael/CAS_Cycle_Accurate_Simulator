@@ -14,6 +14,7 @@ add_executable(cas
     src/frontend/parser_module.cpp
     src/kernel/elaborator.cpp
     src/kernel/evaluator.cpp
+    src/kernel/bytecode_compiler.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

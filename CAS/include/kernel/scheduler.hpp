@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include "kernel/netlist.hpp"
 #include "kernel/evaluator.hpp"
+#include "kernel/bytecode.hpp"
 #include "kernel/time_wheel.hpp"
 #include "tracer/vcd_dumper.hpp"
 
@@ -105,6 +106,8 @@ private:
     size_t nba_commits_count = 0;
 
     void propagate_comb();
+    bool execute_bytecode_2state_64(const CompiledExpr& expr, uint64_t& out_val);
+    LogicVal execute_bytecode_logicval(const CompiledExpr& expr);
     bool evaluate_timing_checks();
     void evaluate_sequential_blocks();
     bool commit_nba_updates();

@@ -933,6 +933,11 @@ void Engine::bind_all_ast_nodes() {
                 bind_ast_expr(drv.rhs, drv.scope, *this);
             }
         }
+        if (rca.drivers.size() == 1 && !rca.drivers[0].is_gate && rca.drivers[0].rhs) {
+            uint32_t target_w = rca.target.width;
+            bool target_s = (rca.target.net_id < netlist.size()) ? netlist[rca.target.net_id].is_signed : false;
+            rca.compiled_expr = BytecodeCompiler::compile(rca.drivers[0].rhs, rca.drivers[0].scope, *this, target_w, target_s);
+        }
     }
 
     for (auto& mca : memory_continuous_assigns) {
@@ -1296,6 +1301,16 @@ void Engine::run(std::ostream* debug_out) {
         }
         *debug_out << "  -> Static Fanout Extracted      : " << total_rca_edges << " RCA edges (" << nets_with_rca << " nets, max deg " << max_rca << "), "
                    << total_proc_edges << " Comb Proc edges (" << nets_with_proc << " nets, max deg " << max_proc << ")\n";
+        size_t compiled_rcas = 0;
+        size_t pure_2state_rcas = 0;
+        for (const auto& rca : resolved_continuous_assigns) {
+            if (rca.compiled_expr.is_compiled) {
+                compiled_rcas++;
+                if (rca.compiled_expr.is_pure_2state_64) pure_2state_rcas++;
+            }
+        }
+        *debug_out << "  -> Bytecode Compiled RCAs       : " << compiled_rcas << " / " << resolved_continuous_assigns.size()
+                   << " (" << pure_2state_rcas << " pure 2-state 64-bit)\n";
         *debug_out << "[PHASE 5: Simulation Runtime (Modular IEEE 1800 Kernel)]\n";
         *debug_out << "--------------------------------------------------------\n";
     }

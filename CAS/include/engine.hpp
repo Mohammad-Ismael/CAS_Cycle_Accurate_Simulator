@@ -34,6 +34,7 @@ class Engine {
     friend class Evaluator;
     friend class ExprEvaluator;
     friend class StratifiedScheduler;
+    friend class BytecodeCompiler;
 
 private:
     std::vector<Net> netlist;
