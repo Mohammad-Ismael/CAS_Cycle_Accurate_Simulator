@@ -1209,6 +1209,891 @@ LogicVal StratifiedScheduler::execute_bytecode_logicval(const CompiledExpr& expr
     return LogicVal::make_x(1);
 }
 
+bool StratifiedScheduler::execute_process_bytecode_2state_64(BoundProcess& bp) {
+    const auto& instructions = bp.compiled_body.instructions;
+    U64StackItem stack[64];
+    int sp = 0;
+
+    struct UndoEntry {
+        uint32_t net_id;
+        LogicVal old_value;
+    };
+    UndoEntry undo_log[32];
+    int num_undos = 0;
+
+    size_t pc = 0;
+    while (pc < instructions.size()) {
+        const auto& inst = instructions[pc];
+        switch (inst.op) {
+            case Opcode::PUSH_NET_VAL:
+            case Opcode::PUSH_NET_U64: {
+                if (inst.arg0 >= engine.netlist.size() || sp >= 64) goto fail;
+                const auto& net = engine.netlist[inst.arg0];
+                if (__builtin_expect(net.value.bval != 0, 0)) goto fail;
+                stack[sp++] = {net.value.aval, net.width};
+                pc++;
+                break;
+            }
+            case Opcode::PUSH_CONST_VAL:
+            case Opcode::PUSH_CONST_U64: {
+                if (sp >= 64) goto fail;
+                stack[sp++] = {inst.imm64, inst.arg0};
+                pc++;
+                break;
+            }
+            case Opcode::ADD: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::min(64U, std::max(a.width, b.width) + 1);
+                stack[sp++] = {a.val + b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::SUB: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::min(64U, std::max(a.width, b.width) + 1);
+                stack[sp++] = {a.val - b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::MUL: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::min(64U, a.width + b.width);
+                stack[sp++] = {a.val * b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::DIV: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                if (b.val == 0) goto fail;
+                stack[sp++] = {a.val / b.val, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::MOD: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                if (b.val == 0) goto fail;
+                stack[sp++] = {a.val % b.val, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::AND: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::max(a.width, b.width);
+                stack[sp++] = {a.val & b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::OR: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::max(a.width, b.width);
+                stack[sp++] = {a.val | b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::XOR: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::max(a.width, b.width);
+                stack[sp++] = {a.val ^ b.val, w};
+                pc++;
+                break;
+            }
+            case Opcode::XNOR: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint32_t w = std::max(a.width, b.width);
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                stack[sp++] = {(~(a.val ^ b.val)) & mask, w};
+                pc++;
+                break;
+            }
+            case Opcode::SHL: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint64_t res = (b.val >= a.width) ? 0ULL : (a.val << b.val);
+                stack[sp++] = {res, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::SHR: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                uint64_t res = (b.val >= a.width) ? 0ULL : (a.val >> b.val);
+                stack[sp++] = {res, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::SRA: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                bool is_s = (inst.arg1 != 0);
+                if (!is_s) {
+                    uint64_t res = (b.val >= a.width) ? 0ULL : (a.val >> b.val);
+                    stack[sp++] = {res, a.width};
+                } else {
+                    if (a.width == 0) { stack[sp++] = {0, 0}; pc++; break; }
+                    bool sign_bit = (a.val >> (a.width - 1)) & 1ULL;
+                    if (b.val >= a.width) {
+                        uint64_t res = sign_bit ? ((a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1)) : 0ULL;
+                        stack[sp++] = {res, a.width};
+                    } else {
+                        uint64_t res = a.val >> b.val;
+                        if (sign_bit) {
+                            uint64_t fill_mask = (~0ULL) << (a.width - b.val);
+                            uint64_t width_mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                            res |= (fill_mask & width_mask);
+                        }
+                        stack[sp++] = {res, a.width};
+                    }
+                }
+                pc++;
+                break;
+            }
+            case Opcode::EQ:
+            case Opcode::CASE_EQ: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                stack[sp++] = {(a.val == b.val) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::NE:
+            case Opcode::CASE_NE: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                stack[sp++] = {(a.val != b.val) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::LT: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                bool is_s = (inst.arg1 != 0);
+                uint64_t res = is_s ? (static_cast<int64_t>(a.val) < static_cast<int64_t>(b.val) ? 1ULL : 0ULL)
+                                    : (a.val < b.val ? 1ULL : 0ULL);
+                stack[sp++] = {res, 1};
+                pc++;
+                break;
+            }
+            case Opcode::LE: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                bool is_s = (inst.arg1 != 0);
+                uint64_t res = is_s ? (static_cast<int64_t>(a.val) <= static_cast<int64_t>(b.val) ? 1ULL : 0ULL)
+                                    : (a.val <= b.val ? 1ULL : 0ULL);
+                stack[sp++] = {res, 1};
+                pc++;
+                break;
+            }
+            case Opcode::GT: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                bool is_s = (inst.arg1 != 0);
+                uint64_t res = is_s ? (static_cast<int64_t>(a.val) > static_cast<int64_t>(b.val) ? 1ULL : 0ULL)
+                                    : (a.val > b.val ? 1ULL : 0ULL);
+                stack[sp++] = {res, 1};
+                pc++;
+                break;
+            }
+            case Opcode::GE: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                bool is_s = (inst.arg1 != 0);
+                uint64_t res = is_s ? (static_cast<int64_t>(a.val) >= static_cast<int64_t>(b.val) ? 1ULL : 0ULL)
+                                    : (a.val >= b.val ? 1ULL : 0ULL);
+                stack[sp++] = {res, 1};
+                pc++;
+                break;
+            }
+            case Opcode::LOGIC_AND: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                stack[sp++] = {(a.val != 0 && b.val != 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::LOGIC_OR: {
+                if (sp < 2) goto fail;
+                auto b = stack[--sp];
+                auto a = stack[--sp];
+                stack[sp++] = {(a.val != 0 || b.val != 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::NOT: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                stack[sp++] = {(a.val == 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::BIT_NOT: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {(~a.val) & mask, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::NEG: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {((~a.val + 1)) & mask, a.width};
+                pc++;
+                break;
+            }
+            case Opcode::RED_AND: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {((a.val & mask) == mask && a.width > 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::RED_NAND: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {((a.val & mask) == mask && a.width > 0) ? 0ULL : 1ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::RED_OR: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {((a.val & mask) != 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::RED_NOR: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                stack[sp++] = {((a.val & mask) == 0) ? 1ULL : 0ULL, 1};
+                pc++;
+                break;
+            }
+            case Opcode::RED_XOR: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                uint64_t v = a.val & mask;
+                stack[sp++] = {static_cast<uint64_t>(__builtin_parityll(v)), 1};
+                pc++;
+                break;
+            }
+            case Opcode::RED_XNOR: {
+                if (sp < 1) goto fail;
+                auto a = stack[--sp];
+                uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                uint64_t v = a.val & mask;
+                stack[sp++] = {static_cast<uint64_t>(__builtin_parityll(v) ^ 1), 1};
+                pc++;
+                break;
+            }
+            case Opcode::TERNARY_MUX: {
+                if (sp < 3) goto fail;
+                auto f = stack[--sp];
+                auto t = stack[--sp];
+                auto c = stack[--sp];
+                stack[sp++] = (c.val != 0) ? t : f;
+                pc++;
+                break;
+            }
+            case Opcode::CONCAT: {
+                uint32_t count = inst.arg0;
+                uint32_t tot_w = inst.arg1;
+                if ((uint32_t)sp < count || tot_w > 64) goto fail;
+                uint64_t res = 0;
+                int start_idx = sp - (int)count;
+                for (int i = 0; i < (int)count; ++i) {
+                    const auto& elem = stack[start_idx + i];
+                    uint64_t m = (elem.width >= 64) ? ~0ULL : ((1ULL << elem.width) - 1);
+                    res = (res << elem.width) | (elem.val & m);
+                }
+                sp = start_idx;
+                stack[sp++] = {res, tot_w};
+                pc++;
+                break;
+            }
+            case Opcode::STORE_NET_U64: {
+                if (sp < 1) goto fail;
+                auto val_item = stack[--sp];
+                uint32_t target_id = inst.arg0;
+                if (target_id >= engine.netlist.size()) goto fail;
+                auto& target_net = engine.netlist[target_id];
+                if (!target_net.has_procedural_assign) {
+                    uint64_t mask = (target_net.width >= 64) ? ~0ULL : ((1ULL << target_net.width) - 1);
+                    uint64_t new_aval = val_item.val & mask;
+                    if (target_net.is_signed && val_item.width < target_net.width && val_item.width > 0) {
+                        bool sign_bit = (val_item.val >> (val_item.width - 1)) & 1ULL;
+                        if (sign_bit) {
+                            uint64_t sign_ext = (~0ULL) << val_item.width;
+                            new_aval = (val_item.val | sign_ext) & mask;
+                        }
+                    }
+                    bool already_recorded = false;
+                    for (int i = 0; i < num_undos; ++i) {
+                        if (undo_log[i].net_id == target_id) {
+                            already_recorded = true;
+                            break;
+                        }
+                    }
+                    if (!already_recorded) {
+                        if (num_undos >= 32) goto fail;
+                        undo_log[num_undos++] = {target_id, target_net.value};
+                    }
+                    target_net.value.aval = new_aval;
+                    target_net.value.bval = 0;
+                }
+                pc++;
+                break;
+            }
+            case Opcode::STORE_NET_VAL: {
+                goto fail;
+            }
+            case Opcode::JUMP: {
+                int32_t offset = (int32_t)inst.arg0;
+                pc = (size_t)((int64_t)pc + offset);
+                break;
+            }
+            case Opcode::JUMP_IF_ZERO: {
+                if (sp < 1) goto fail;
+                auto cond = stack[--sp];
+                if (cond.val == 0) {
+                    int32_t offset = (int32_t)inst.arg0;
+                    pc = (size_t)((int64_t)pc + offset);
+                } else {
+                    pc++;
+                }
+                break;
+            }
+            case Opcode::DONE: {
+                pc = instructions.size();
+                break;
+            }
+            default:
+                goto fail;
+        }
+    }
+
+    // Success! Commit all stores
+    for (int i = 0; i < num_undos; ++i) {
+        uint32_t tid = undo_log[i].net_id;
+        auto& target_net = engine.netlist[tid];
+        if (target_net.value.aval != undo_log[i].old_value.aval ||
+            target_net.value.bval != undo_log[i].old_value.bval) {
+            LogicVal final_val = target_net.value;
+            target_net.value = undo_log[i].old_value;
+            target_net.set(final_val);
+            if (tid < engine.alias_members.size()) {
+                for (size_t other_id : engine.alias_members[tid]) {
+                    if (other_id != tid && other_id < engine.netlist.size()) {
+                        engine.netlist[other_id].set(final_val);
+                    }
+                }
+            }
+            notify_net_changed(tid);
+        }
+    }
+    return true;
+
+fail:
+    for (int i = 0; i < num_undos; ++i) {
+        engine.netlist[undo_log[i].net_id].value = undo_log[i].old_value;
+    }
+    return false;
+}
+
+void StratifiedScheduler::execute_process_bytecode_logicval(BoundProcess& bp) {
+    const auto& instructions = bp.compiled_body.instructions;
+    LogicVal stack[128];
+    int sp = 0;
+
+    size_t pc = 0;
+    while (pc < instructions.size()) {
+        const auto& inst = instructions[pc];
+        switch (inst.op) {
+            case Opcode::PUSH_NET_VAL:
+            case Opcode::PUSH_NET_U64: {
+                if (inst.arg0 >= engine.netlist.size() || sp >= 128) return;
+                stack[sp++] = engine.netlist[inst.arg0].value;
+                pc++;
+                break;
+            }
+            case Opcode::PUSH_CONST_VAL:
+            case Opcode::PUSH_CONST_U64: {
+                if (sp >= 128) return;
+                stack[sp++] = inst.imm_val;
+                pc++;
+                break;
+            }
+            case Opcode::ADD: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                bool expr_signed = (inst.arg1 != 0);
+                uint32_t w = std::max(a.width, b.width);
+                LogicVal ext_a = (a.width != w) ? LogicOps::cast_width(a, w, expr_signed) : a;
+                LogicVal ext_b = (b.width != w) ? LogicOps::cast_width(b, w, expr_signed) : b;
+                if (ext_a.is_unknown() || ext_b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(w);
+                } else {
+                    stack[sp++] = LogicVal::make_known(w, ext_a.aval + ext_b.aval, expr_signed);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::SUB: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                bool expr_signed = (inst.arg1 != 0);
+                uint32_t w = std::max(a.width, b.width);
+                LogicVal ext_a = (a.width != w) ? LogicOps::cast_width(a, w, expr_signed) : a;
+                LogicVal ext_b = (b.width != w) ? LogicOps::cast_width(b, w, expr_signed) : b;
+                if (ext_a.is_unknown() || ext_b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(w);
+                } else {
+                    stack[sp++] = LogicVal::make_known(w, ext_a.aval - ext_b.aval, expr_signed);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::MUL: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                bool expr_signed = (inst.arg1 != 0);
+                uint32_t w = std::min(64U, a.width + b.width);
+                if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(w);
+                } else {
+                    stack[sp++] = LogicVal::make_known(w, a.aval * b.aval, expr_signed);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::DIV: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown() || b.aval == 0) {
+                    stack[sp++] = LogicVal::make_x(a.width);
+                } else {
+                    stack[sp++] = LogicVal::make_known(a.width, a.aval / b.aval, inst.arg1 != 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::MOD: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown() || b.aval == 0) {
+                    stack[sp++] = LogicVal::make_x(a.width);
+                } else {
+                    stack[sp++] = LogicVal::make_known(a.width, a.aval % b.aval, inst.arg1 != 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::AND: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::bitwise_and(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::OR: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::bitwise_or(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::XOR: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::bitwise_xor(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::XNOR: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::bitwise_not(LogicOps::bitwise_xor(a, b));
+                pc++;
+                break;
+            }
+            case Opcode::SHL: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::shift_left(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::SHR: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::shift_right(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::SRA: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::arith_shift_right(a, b, inst.arg1 != 0);
+                pc++;
+                break;
+            }
+            case Opcode::EQ: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                uint32_t w = std::max(a.width, b.width);
+                LogicVal ea = (a.width != w) ? LogicOps::cast_width(a, w, false) : a;
+                LogicVal eb = (b.width != w) ? LogicOps::cast_width(b, w, false) : b;
+                stack[sp++] = LogicOps::logical_eq(ea, eb);
+                pc++;
+                break;
+            }
+            case Opcode::NE: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                uint32_t w = std::max(a.width, b.width);
+                LogicVal ea = (a.width != w) ? LogicOps::cast_width(a, w, false) : a;
+                LogicVal eb = (b.width != w) ? LogicOps::cast_width(b, w, false) : b;
+                stack[sp++] = LogicOps::logical_neq(ea, eb);
+                pc++;
+                break;
+            }
+            case Opcode::CASE_EQ: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::case_eq(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::CASE_NE: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::case_neq(a, b);
+                pc++;
+                break;
+            }
+            case Opcode::LT: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else if (inst.arg1 != 0) {
+                    stack[sp++] = LogicVal::make_known(1, (a.to_signed() < b.to_signed()) ? 1 : 0);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, (a.aval < b.aval) ? 1 : 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::LE: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else if (inst.arg1 != 0) {
+                    stack[sp++] = LogicVal::make_known(1, (a.to_signed() <= b.to_signed()) ? 1 : 0);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, (a.aval <= b.aval) ? 1 : 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::GT: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else if (inst.arg1 != 0) {
+                    stack[sp++] = LogicVal::make_known(1, (a.to_signed() > b.to_signed()) ? 1 : 0);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, (a.aval > b.aval) ? 1 : 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::GE: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else if (inst.arg1 != 0) {
+                    stack[sp++] = LogicVal::make_known(1, (a.to_signed() >= b.to_signed()) ? 1 : 0);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, (a.aval >= b.aval) ? 1 : 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::LOGIC_AND: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (!a.is_unknown() && a.aval == 0) {
+                    stack[sp++] = LogicVal::make_known(1, 0);
+                } else if (!b.is_unknown() && b.aval == 0) {
+                    stack[sp++] = LogicVal::make_known(1, 0);
+                } else if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, 1);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::LOGIC_OR: {
+                if (sp < 2) return;
+                LogicVal b = std::move(stack[--sp]);
+                LogicVal a = std::move(stack[--sp]);
+                if (!a.is_unknown() && a.aval != 0) {
+                    stack[sp++] = LogicVal::make_known(1, 1);
+                } else if (!b.is_unknown() && b.aval != 0) {
+                    stack[sp++] = LogicVal::make_known(1, 1);
+                } else if (a.is_unknown() || b.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::NOT: {
+                if (sp < 1) return;
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(1);
+                } else {
+                    stack[sp++] = LogicVal::make_known(1, (a.aval == 0) ? 1 : 0);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::BIT_NOT: {
+                if (sp < 1) return;
+                LogicVal a = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::bitwise_not(a);
+                pc++;
+                break;
+            }
+            case Opcode::NEG: {
+                if (sp < 1) return;
+                LogicVal a = std::move(stack[--sp]);
+                if (a.is_unknown()) {
+                    stack[sp++] = LogicVal::make_x(a.width);
+                } else {
+                    uint64_t mask = (a.width >= 64) ? ~0ULL : ((1ULL << a.width) - 1);
+                    uint64_t neg_a = (~a.aval + 1) & mask;
+                    stack[sp++] = LogicVal(a.width, neg_a, 0, true);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::RED_AND: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_and(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::RED_NAND: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_nand(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::RED_OR: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_or(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::RED_NOR: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_nor(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::RED_XOR: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_xor(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::RED_XNOR: {
+                if (sp < 1) return;
+                stack[sp - 1] = LogicOps::reduce_xnor(stack[sp - 1]);
+                pc++;
+                break;
+            }
+            case Opcode::TERNARY_MUX: {
+                if (sp < 3) return;
+                LogicVal f_val = std::move(stack[--sp]);
+                LogicVal t_val = std::move(stack[--sp]);
+                LogicVal cond  = std::move(stack[--sp]);
+                stack[sp++] = LogicOps::ternary(cond, t_val, f_val);
+                pc++;
+                break;
+            }
+            case Opcode::EXTRACT_SLICE: {
+                if (sp < 1) return;
+                LogicVal v = std::move(stack[--sp]);
+                uint32_t slice_w = inst.arg0;
+                uint32_t lsb = inst.arg1;
+                stack[sp++] = v.extract_slice(lsb, slice_w);
+                pc++;
+                break;
+            }
+            case Opcode::CONCAT: {
+                uint32_t count = inst.arg0;
+                if ((uint32_t)sp < count) return;
+                uint32_t total_w = 0;
+                for (uint32_t i = 0; i < count; ++i) {
+                    total_w += stack[sp - count + i].width;
+                }
+                if (total_w <= 64) {
+                    uint64_t new_a = 0;
+                    uint64_t new_b = 0;
+                    int shift = (int)total_w;
+                    for (uint32_t i = 0; i < count; ++i) {
+                        const auto& v = stack[sp - count + i];
+                        shift -= v.width;
+                        uint64_t mask = (v.width >= 64) ? ~0ULL : ((1ULL << v.width) - 1);
+                        if (shift >= 0) {
+                            new_a |= ((v.aval & mask) << shift);
+                            new_b |= ((v.bval & mask) << shift);
+                        }
+                    }
+                    sp -= count;
+                    stack[sp++] = LogicVal(total_w, new_a, new_b);
+                } else {
+                    LogicVal res(total_w, 0, 0);
+                    uint32_t cur_offset = 0;
+                    for (int i = (int)count - 1; i >= 0; --i) {
+                        const auto& v = stack[sp - count + i];
+                        res.deposit_slice(cur_offset, v.width, v);
+                        cur_offset += v.width;
+                    }
+                    sp -= count;
+                    stack[sp++] = std::move(res);
+                }
+                pc++;
+                break;
+            }
+            case Opcode::STORE_NET_U64:
+            case Opcode::STORE_NET_VAL: {
+                if (sp < 1) return;
+                LogicVal rhs_val = std::move(stack[--sp]);
+                uint32_t target_id = inst.arg0;
+                if (target_id < engine.netlist.size()) {
+                    auto& target_net = engine.netlist[target_id];
+                    if (!target_net.has_procedural_assign) {
+                        LogicVal old_v = target_net.value;
+                        LogicVal casted = (target_net.type_name == "string" || rhs_val.is_string)
+                            ? rhs_val
+                            : (target_net.width == rhs_val.width && target_net.is_signed == rhs_val.is_signed)
+                                ? rhs_val
+                                : LogicOps::cast_width(rhs_val, target_net.width, target_net.is_signed);
+                        target_net.set(casted);
+                        if (target_id < engine.alias_members.size()) {
+                            for (size_t other_id : engine.alias_members[target_id]) {
+                                if (other_id != target_id && other_id < engine.netlist.size()) {
+                                    engine.netlist[other_id].set(casted);
+                                }
+                            }
+                        }
+                        if (target_net.value != old_v) {
+                            notify_net_changed(target_id);
+                        }
+                    }
+                }
+                pc++;
+                break;
+            }
+            case Opcode::JUMP: {
+                int32_t offset = (int32_t)inst.arg0;
+                pc = (size_t)((int64_t)pc + offset);
+                break;
+            }
+            case Opcode::JUMP_IF_ZERO: {
+                if (sp < 1) return;
+                LogicVal cond = std::move(stack[--sp]);
+                if (!cond.to_bool()) {
+                    int32_t offset = (int32_t)inst.arg0;
+                    pc = (size_t)((int64_t)pc + offset);
+                } else {
+                    pc++;
+                }
+                break;
+            }
+            case Opcode::DONE: {
+                return;
+            }
+            default:
+                pc++;
+                break;
+        }
+    }
+}
+
+void StratifiedScheduler::execute_comb_proc_bytecode(BoundProcess& bp) {
+    if (bp.compiled_body.is_pure_2state_64) {
+        if (execute_process_bytecode_2state_64(bp)) {
+            return;
+        }
+    }
+    execute_process_bytecode_logicval(bp);
+}
+
 void StratifiedScheduler::propagate_comb() {
     if (!comb_dirty && dirty_rcas.empty() && dirty_comb_procs.empty()) return;
     delta_cycles_count++;
@@ -1458,6 +2343,8 @@ void StratifiedScheduler::propagate_comb() {
                 auto& bp = engine.processes[pid];
                 if (bp.is_pure_fast_proc) {
                     engine.evaluator.execute_fast_assignments(bp);
+                } else if (bp.is_bytecode_compiled) {
+                    execute_comb_proc_bytecode(bp);
                 } else {
                     for (auto& stmt : bp.proc->body) {
                         engine.evaluator.execute_statement(stmt.get(), bp);

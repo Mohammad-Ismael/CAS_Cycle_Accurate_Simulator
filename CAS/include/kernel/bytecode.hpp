@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <memory>
 #include "../common/logic_val.hpp"
 
 enum class Opcode : uint8_t {
@@ -20,6 +21,10 @@ enum class Opcode : uint8_t {
     TERNARY_MUX,       // cond ? true_val : false_val
     EXTRACT_SLICE,     // [msb:lsb]
     CONCAT,
+    STORE_NET_U64,     // Pop uint64_t from stack and write to netlist[net_id]
+    STORE_NET_VAL,     // Pop LogicVal from stack and write to netlist[net_id]
+    JUMP,              // Unconditional jump by relative offset
+    JUMP_IF_ZERO,      // Pop condition; if 0, jump by relative offset
     DONE
 };
 
@@ -45,11 +50,16 @@ struct CompiledExpr {
 
 class Engine;
 struct ExpressionNode;
+struct StatementNode;
+struct BoundProcess;
 
 class BytecodeCompiler {
 private:
     struct CompileContext;
     static bool compile_node(ExpressionNode* node, CompileContext& ctx, uint32_t& out_width, bool& out_signed);
+    static bool compile_statement(StatementNode* stmt, CompileContext& ctx);
+    static bool compile_statements(const std::vector<std::unique_ptr<StatementNode>>& stmts, CompileContext& ctx);
 public:
     static CompiledExpr compile(ExpressionNode* expr, const std::string& scope, Engine& engine, uint32_t target_width, bool target_signed);
+    static bool compile_process(BoundProcess& bp, Engine& engine);
 };

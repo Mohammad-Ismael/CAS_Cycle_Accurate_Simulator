@@ -164,6 +164,9 @@ struct BoundProcess {
     std::vector<FastNetAssign> fast_assignments;
     bool is_pure_fast_proc = false;
 
+    CompiledExpr compiled_body;
+    bool is_bytecode_compiled = false;
+
     BoundProcess() = default;
     BoundProcess(std::string s, ProcessNode* p, size_t pc_val = 0, bool comp = false)
         : scope(std::move(s)), proc(p), pc(pc_val), completed(comp) {}

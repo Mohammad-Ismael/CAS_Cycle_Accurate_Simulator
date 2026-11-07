@@ -1,6 +1,8 @@
 #include "../../include/kernel/bytecode.hpp"
 #include "../../include/engine.hpp"
 #include "../../include/frontend/ast_expr.hpp"
+#include "../../include/frontend/ast_stmt.hpp"
+#include "../../include/kernel/elaborator.hpp"
 #include <algorithm>
 
 struct BytecodeCompiler::CompileContext {
@@ -263,4 +265,143 @@ CompiledExpr BytecodeCompiler::compile(ExpressionNode* expr, const std::string& 
         res.result_signed = out_s;
     }
     return res;
+}
+
+bool BytecodeCompiler::compile_statements(const std::vector<std::unique_ptr<StatementNode>>& stmts, CompileContext& ctx) {
+    for (const auto& s : stmts) {
+        if (!compile_statement(s.get(), ctx)) return false;
+    }
+    return true;
+}
+
+bool BytecodeCompiler::compile_statement(StatementNode* stmt, CompileContext& ctx) {
+    if (!stmt) return true;
+
+    if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        return compile_statements(blk->statements, ctx);
+    }
+
+    if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
+        if (!ba->is_bound || ba->cached_net_id == UINT32_MAX || ba->cached_net_id >= ctx.engine.netlist.size()) {
+            return false;
+        }
+        if (ba->lhs_targets.size() != 1) return false;
+        if (ba->bit_idx || ba->bit_lsb || ba->bit_idx2 || ba->bit_lsb2) return false;
+        if (ba->stream_lhs || ba->intra_delay > 0 || ba->has_intra_event) return false;
+
+        const auto& target_net = ctx.engine.netlist[ba->cached_net_id];
+        if (target_net.has_procedural_assign) return false;
+
+        uint32_t rhs_w = 0;
+        bool rhs_s = false;
+        if (!compile_node(ba->rhs.get(), ctx, rhs_w, rhs_s)) return false;
+
+        if (target_net.width > 64) {
+            ctx.is_pure_2state_64 = false;
+        }
+        Opcode op = (ctx.is_pure_2state_64 && target_net.width <= 64) ? Opcode::STORE_NET_U64 : Opcode::STORE_NET_VAL;
+        ctx.instructions.emplace_back(op, ba->cached_net_id, target_net.width, target_net.is_signed ? 1 : 0);
+        return true;
+    }
+
+    if (auto if_s = dynamic_cast<IfStatementNode*>(stmt)) {
+        uint32_t cond_w = 0;
+        bool cond_s = false;
+        if (!compile_node(if_s->condition.get(), ctx, cond_w, cond_s)) return false;
+
+        size_t j_false = ctx.instructions.size();
+        ctx.instructions.emplace_back(Opcode::JUMP_IF_ZERO, 0);
+
+        if (!compile_statements(if_s->then_branch, ctx)) return false;
+
+        if (!if_s->else_branch.empty()) {
+            size_t j_end = ctx.instructions.size();
+            ctx.instructions.emplace_back(Opcode::JUMP, 0);
+
+            ctx.instructions[j_false].arg0 = static_cast<uint32_t>(ctx.instructions.size() - j_false);
+
+            if (!compile_statements(if_s->else_branch, ctx)) return false;
+
+            ctx.instructions[j_end].arg0 = static_cast<uint32_t>(ctx.instructions.size() - j_end);
+        } else {
+            ctx.instructions[j_false].arg0 = static_cast<uint32_t>(ctx.instructions.size() - j_false);
+        }
+        return true;
+    }
+
+    if (auto cs = dynamic_cast<CaseStatementNode*>(stmt)) {
+        if (cs->case_type != CaseType::CASE || !cs->selector) return false;
+
+        std::vector<size_t> exit_jumps;
+        const CaseItem* default_item = nullptr;
+
+        for (const auto& item : cs->items) {
+            if (item.is_default) {
+                default_item = &item;
+                continue;
+            }
+
+            std::vector<ExpressionNode*> match_list;
+            if (!item.match_exprs.empty()) {
+                for (const auto& me : item.match_exprs) {
+                    if (me) match_list.push_back(me.get());
+                }
+            } else if (item.match_expr) {
+                match_list.push_back(item.match_expr.get());
+            }
+
+            if (match_list.empty()) return false;
+
+            for (size_t i = 0; i < match_list.size(); ++i) {
+                uint32_t sw = 0; bool ss = false;
+                if (!compile_node(cs->selector.get(), ctx, sw, ss)) return false;
+                uint32_t mw = 0; bool ms = false;
+                if (!compile_node(match_list[i], ctx, mw, ms)) return false;
+                ctx.instructions.emplace_back(Opcode::CASE_EQ);
+                if (i > 0) {
+                    ctx.instructions.emplace_back(Opcode::LOGIC_OR);
+                }
+            }
+
+            size_t j_next = ctx.instructions.size();
+            ctx.instructions.emplace_back(Opcode::JUMP_IF_ZERO, 0);
+
+            if (!compile_statements(item.statements, ctx)) return false;
+
+            size_t j_exit = ctx.instructions.size();
+            ctx.instructions.emplace_back(Opcode::JUMP, 0);
+            exit_jumps.push_back(j_exit);
+
+            ctx.instructions[j_next].arg0 = static_cast<uint32_t>(ctx.instructions.size() - j_next);
+        }
+
+        if (default_item) {
+            if (!compile_statements(default_item->statements, ctx)) return false;
+        }
+
+        for (size_t j : exit_jumps) {
+            ctx.instructions[j].arg0 = static_cast<uint32_t>(ctx.instructions.size() - j);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool BytecodeCompiler::compile_process(BoundProcess& bp, Engine& engine) {
+    if (!bp.proc || bp.proc->body.empty()) return false;
+
+    CompileContext ctx{engine, bp.scope, {}, true};
+    if (!compile_statements(bp.proc->body, ctx)) {
+        return false;
+    }
+
+    if (ctx.instructions.empty()) return false;
+
+    ctx.instructions.emplace_back(Opcode::DONE);
+
+    bp.compiled_body.instructions = std::move(ctx.instructions);
+    bp.compiled_body.is_compiled = true;
+    bp.compiled_body.is_pure_2state_64 = ctx.is_pure_2state_64;
+    return true;
 }

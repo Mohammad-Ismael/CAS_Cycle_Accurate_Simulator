@@ -108,6 +108,9 @@ private:
     void propagate_comb();
     bool execute_bytecode_2state_64(const CompiledExpr& expr, uint64_t& out_val);
     LogicVal execute_bytecode_logicval(const CompiledExpr& expr);
+    bool execute_process_bytecode_2state_64(BoundProcess& bp);
+    void execute_process_bytecode_logicval(BoundProcess& bp);
+    void execute_comb_proc_bytecode(BoundProcess& bp);
     bool evaluate_timing_checks();
     void evaluate_sequential_blocks();
     bool commit_nba_updates();

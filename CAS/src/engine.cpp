@@ -955,6 +955,8 @@ void Engine::bind_all_ast_nodes() {
         if (extract_fast_assignments_from_stmts(bp.proc->body, fast_list)) {
             bp.fast_assignments = std::move(fast_list);
             bp.is_pure_fast_proc = true;
+        } else if (bp.proc->type == ProcessType::COMBINATIONAL || bp.proc->is_always_comb || bp.proc->is_always_latch) {
+            bp.is_bytecode_compiled = BytecodeCompiler::compile_process(bp, *this);
         }
     }
 }
@@ -1311,6 +1313,20 @@ void Engine::run(std::ostream* debug_out) {
         }
         *debug_out << "  -> Bytecode Compiled RCAs       : " << compiled_rcas << " / " << resolved_continuous_assigns.size()
                    << " (" << pure_2state_rcas << " pure 2-state 64-bit)\n";
+        size_t total_comb_procs = 0;
+        size_t compiled_procs = 0;
+        size_t pure_2state_procs = 0;
+        for (const auto& bp : processes) {
+            if (bp.proc && (bp.proc->type == ProcessType::COMBINATIONAL || bp.proc->is_always_comb || bp.proc->is_always_latch)) {
+                total_comb_procs++;
+                if (bp.is_bytecode_compiled) {
+                    compiled_procs++;
+                    if (bp.compiled_body.is_pure_2state_64) pure_2state_procs++;
+                }
+            }
+        }
+        *debug_out << "  -> Bytecode Compiled Comb Procs : " << compiled_procs << " / " << total_comb_procs
+                   << " (" << pure_2state_procs << " pure 2-state 64-bit)\n";
         *debug_out << "[PHASE 5: Simulation Runtime (Modular IEEE 1800 Kernel)]\n";
         *debug_out << "--------------------------------------------------------\n";
     }
