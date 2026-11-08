@@ -22,6 +22,7 @@ NativeDispatchTable::~NativeDispatchTable() {
     proc_count = 0;
     seq_clock_fn = nullptr;
     topological_comb_fn = nullptr;
+    whole_cycle_fn = nullptr;
     is_active = false;
 }
 
@@ -33,6 +34,7 @@ NativeDispatchTable::NativeDispatchTable(NativeDispatchTable&& other) noexcept
       proc_count(other.proc_count),
       seq_clock_fn(other.seq_clock_fn),
       topological_comb_fn(other.topological_comb_fn),
+      whole_cycle_fn(other.whole_cycle_fn),
       is_active(other.is_active) {
     other.dl_handle = nullptr;
     other.rca_table = nullptr;
@@ -41,6 +43,7 @@ NativeDispatchTable::NativeDispatchTable(NativeDispatchTable&& other) noexcept
     other.proc_count = 0;
     other.seq_clock_fn = nullptr;
     other.topological_comb_fn = nullptr;
+    other.whole_cycle_fn = nullptr;
     other.is_active = false;
 }
 
@@ -56,6 +59,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         proc_count = other.proc_count;
         seq_clock_fn = other.seq_clock_fn;
         topological_comb_fn = other.topological_comb_fn;
+        whole_cycle_fn = other.whole_cycle_fn;
         is_active = other.is_active;
 
         other.dl_handle = nullptr;
@@ -65,6 +69,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         other.proc_count = 0;
         other.seq_clock_fn = nullptr;
         other.topological_comb_fn = nullptr;
+        other.whole_cycle_fn = nullptr;
         other.is_active = false;
     }
     return *this;
@@ -126,6 +131,11 @@ bool NativeJIT::compile_and_load(
     dlerror();
     NativeTopologicalEvalFn topo_fn = (NativeTopologicalEvalFn)dlsym(handle, "eval_topological_comb_native");
     out_table.topological_comb_fn = topo_fn;
+
+    // Look up monolithic whole-cycle evaluation function if emitted
+    dlerror();
+    NativeWholeCycleFn whole_fn = (NativeWholeCycleFn)dlsym(handle, "eval_cycle_monolithic");
+    out_table.whole_cycle_fn = whole_fn;
 
     out_table.is_active = true;
 

@@ -1002,6 +1002,18 @@ bool NativeCodeGen::generate_comb_source(
     }
     out << "}\n\n";
 
+    out << "extern \"C\" void eval_cycle_monolithic(\n";
+    out << "    uint64_t* __restrict cur,\n";
+    out << "    uint64_t* __restrict next,\n";
+    out << "    uint8_t* __restrict modified_mask\n";
+    out << ") {\n";
+    out << "    eval_clock_posedge_native(cur, next, modified_mask);\n";
+    for (const auto& u : all_seq_updates) {
+        out << "    cur[" << u.dst_net_id << "] = next[" << u.dst_net_id << "];\n";
+    }
+    out << "    eval_topological_comb_native(cur);\n";
+    out << "}\n\n";
+
     size_t rca_tbl_size = rcas.empty() ? 1 : rcas.size();
     out << "static NativeEvalFn rca_table[" << rca_tbl_size << "] = {\n";
     if (rcas.empty()) {
@@ -1109,6 +1121,15 @@ bool NativeCodeGen::generate_comb_source(
             out << "    eval_native_rca_" << i << "(nets);\n";
         }
     }
+    out << "}\n\n";
+
+    out << "extern \"C\" void eval_cycle_monolithic(\n";
+    out << "    uint64_t* __restrict cur,\n";
+    out << "    uint64_t* __restrict next,\n";
+    out << "    uint8_t* __restrict modified_mask\n";
+    out << ") {\n";
+    out << "    eval_clock_posedge_native(cur, next, modified_mask);\n";
+    out << "    eval_topological_comb_native(cur);\n";
     out << "}\n\n";
 
     size_t rca_tbl_size = rcas.empty() ? 1 : rcas.size();

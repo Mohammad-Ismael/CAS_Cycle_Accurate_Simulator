@@ -2753,11 +2753,24 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
                 native_modified_mask.assign(native_nets_u64.size(), 0);
             }
 
-            seq_fn(
-                native_nets_u64.data(),
-                native_nets_next.data(),
-                native_modified_mask.data()
-            );
+            auto whole_fn = (native_dispatch.is_active && native_dispatch.whole_cycle_fn != nullptr)
+                            ? native_dispatch.whole_cycle_fn
+                            : nullptr;
+
+            if (whole_fn != nullptr) {
+                // Fused monolithic execution: posedge flops + bulk commit + topological comb!
+                whole_fn(
+                    native_nets_u64.data(),
+                    native_nets_next.data(),
+                    native_modified_mask.data()
+                );
+            } else {
+                seq_fn(
+                    native_nets_u64.data(),
+                    native_nets_next.data(),
+                    native_modified_mask.data()
+                );
+            }
 
             dirty_native_nets.clear();
             for (size_t i = 0; i < native_modified_mask.size(); ++i) {
@@ -2774,7 +2787,31 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
                 }
             }
 
-            comb_dirty = true;
+            if (whole_fn != nullptr) {
+                // Commit native clock updates to engine.netlist immediately
+                commit_native_clock_updates();
+
+                // Sync topological target nets to engine.netlist
+                for (const auto& rec : topological_target_records) {
+                    uint64_t val = native_nets_u64[rec.net_id];
+                    if (val != engine.netlist[rec.net_id].value.aval || engine.netlist[rec.net_id].value.bval != 0) {
+                        LogicVal lval = LogicVal::from_u64_2state(val, rec.width, rec.is_signed);
+                        engine.netlist[rec.net_id].set(lval);
+                        if (rec.net_id < engine.alias_members.size()) {
+                            for (size_t other_id : engine.alias_members[rec.net_id]) {
+                                if (other_id != rec.net_id && other_id < engine.netlist.size()) {
+                                    engine.netlist[other_id].set(lval);
+                                    native_nets_u64[other_id] = val;
+                                }
+                            }
+                        }
+                        notify_net_changed(rec.canon_id);
+                    }
+                }
+                comb_dirty = false;
+            } else {
+                comb_dirty = true;
+            }
             for (auto& bp : engine.processes) {
                 if (bp.is_native_seq) {
                     bp.fired_in_time_slot = true;
