@@ -14,6 +14,7 @@ add_executable(cas
     src/frontend/parser_module.cpp
     src/kernel/elaborator.cpp
     src/kernel/evaluator.cpp
+    src/kernel/dependency_graph.cpp
     src/kernel/bytecode_compiler.cpp
     src/kernel/codegen.cpp
     src/kernel/native_jit.cpp

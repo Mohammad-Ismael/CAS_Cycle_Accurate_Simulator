@@ -962,6 +962,8 @@ void Engine::bind_all_ast_nodes() {
         }
     }
 
+    topological_order = DependencyGraph::build_and_sort_rcas(resolved_continuous_assigns, *this);
+
     bool do_native_codegen = enable_native_codegen || (std::getenv("CAS_NATIVE_CODEGEN") != nullptr);
     if (do_native_codegen) {
         std::string out_path = native_codegen_output_path;

@@ -5,6 +5,7 @@
 #include "kernel/evaluator.hpp"
 #include "kernel/expr_evaluator.hpp"
 #include "kernel/scheduler.hpp"
+#include "kernel/dependency_graph.hpp"
 #include "profiler/profiler.hpp"
 #include "tracer/vcd_dumper.hpp"
 #include "common/constraint_solver.hpp"
@@ -36,6 +37,7 @@ class Engine {
     friend class StratifiedScheduler;
     friend class BytecodeCompiler;
     friend class NativeCodeGen;
+    friend class DependencyGraph;
 
 private:
     std::vector<Net> netlist;
@@ -138,12 +140,15 @@ public:
     std::vector<std::string> plusargs;
     uint64_t max_cycles = 0;
     FanoutGraph fanout;
+    TopologicalCombOrder topological_order;
 
     bool is_excluded_from_net_binding(const std::string& name, const std::string& scope) const;
     void bind_all_ast_nodes();
     void build_fanout_graph();
     size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
     const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }
+    const std::vector<std::vector<size_t>>& get_alias_members() const { return alias_members; }
+    const TopologicalCombOrder& get_topological_order() const { return topological_order; }
     const std::vector<Net>& get_netlist() const { return netlist; }
     std::vector<Net>& get_netlist() { return netlist; }
     const std::vector<BoundProcess>& get_processes() const { return processes; }
