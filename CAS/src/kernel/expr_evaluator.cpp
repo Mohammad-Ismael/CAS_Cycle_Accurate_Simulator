@@ -2,6 +2,7 @@
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/parser.hpp"
+#include "../../include/kernel/trace_buffer.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -2727,6 +2728,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (mode.find('b') != std::string::npos) om |= std::ios::binary;
             strm->open(filename, om);
             const_cast<Engine&>(engine).open_files[fd] = {strm, filename};
+            AsyncTraceBuffer::instance().register_fd(fd, strm);
             return LogicVal::make_known(32, static_cast<uint64_t>(fd));
         }
         if (fn_call->func_name == "$value$plusargs") {

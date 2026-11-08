@@ -2,6 +2,7 @@
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/parser.hpp"
+#include "../../include/kernel/trace_buffer.hpp"
 #include <iostream>
 #include <iomanip>
 #include <unordered_set>
@@ -1427,16 +1428,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (is_fdisp) ss << "\n";
 
             std::string out_str = ss.str();
-            if (out_stream) {
-                *out_stream << out_str;
-            }
-            if (out_stream != &std::cout) {
-                std::cout << out_str;
+            if (AsyncTraceBuffer::instance().is_running()) {
+                AsyncTraceBuffer::instance().log_string(fd, out_str);
+                if (fd != 1) {
+                    AsyncTraceBuffer::instance().log_string(1, out_str);
+                }
+            } else {
+                if (out_stream) {
+                    *out_stream << out_str;
+                }
+                if (out_stream != &std::cout) {
+                    std::cout << out_str;
+                }
             }
             return;
         }
 
         if (tcall->task_name == "$fflush") {
+            if (AsyncTraceBuffer::instance().is_running()) {
+                AsyncTraceBuffer::instance().flush();
+            }
             if (!tcall->args.empty()) {
                 LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
                 int fd = (int)fd_val.aval;
@@ -1455,6 +1466,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (!tcall->args.empty()) {
                 LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
                 int fd = (int)fd_val.aval;
+                AsyncTraceBuffer::instance().unregister_fd(fd);
                 auto it = engine.open_files.find(fd);
                 if (it != engine.open_files.end()) {
                     if (it->second.stream) it->second.stream->close();

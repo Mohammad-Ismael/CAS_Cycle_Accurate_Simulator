@@ -36,6 +36,7 @@ add_executable(cas
     src/kernel/codegen.cpp
     src/kernel/native_jit.cpp
     src/kernel/llvm_jit.cpp
+    src/kernel/trace_buffer.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

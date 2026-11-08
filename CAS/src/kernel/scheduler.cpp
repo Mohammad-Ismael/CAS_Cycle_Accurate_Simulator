@@ -2,6 +2,7 @@
 #include "../../include/engine.hpp"
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/lexer.hpp"
+#include "../../include/kernel/trace_buffer.hpp"
 #include <iostream>
 #include <algorithm>
 
@@ -4517,6 +4518,7 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
 }
 
 void StratifiedScheduler::run_simulation() {
+    AsyncTraceBuffer::instance().start();
     current_sim_time = 0;
     simulation_active = true;
 
@@ -4719,5 +4721,6 @@ void StratifiedScheduler::run_simulation() {
             n.commit_time_slot();
         }
     }
+    AsyncTraceBuffer::instance().stop();
     std::cout << "[PROFILE] slice_ms=" << t_slice_ms << " rca_ms=" << t_rca_ms << " proc_ms=" << t_proc_ms << std::endl;
 }
