@@ -6,6 +6,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include_directories(include)
 
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+check_cxx_compiler_flag("-mfma" COMPILER_SUPPORTS_FMA)
+if (COMPILER_SUPPORTS_AVX2)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    message(STATUS "AVX2 SIMD support enabled (-mavx2)")
+endif()
+if (COMPILER_SUPPORTS_FMA)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfma")
+endif()
+
 find_program(LLVM_CONFIG_EXE NAMES llvm-config llvm-config-17)
 if (LLVM_CONFIG_EXE)
     execute_process(COMMAND ${LLVM_CONFIG_EXE} --cxxflags OUTPUT_VARIABLE LLVM_CXXFLAGS OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -37,6 +48,7 @@ add_executable(cas
     src/kernel/native_jit.cpp
     src/kernel/llvm_jit.cpp
     src/kernel/trace_buffer.cpp
+    src/kernel/simd_ops.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

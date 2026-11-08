@@ -85,7 +85,12 @@ bool NativeJIT::compile_and_load(
     return false;
 #else
     // 1. Compile C++ into shared object (.so)
-    std::string cmd = "g++ -O3 -shared -fPIC \"" + cpp_path + "\" -o \"" + so_path + "\" 2>&1";
+#if defined(__AVX2__)
+    std::string avx_flags = "-mavx2 -mfma ";
+#else
+    std::string avx_flags = "";
+#endif
+    std::string cmd = "g++ -O3 " + avx_flags + "-shared -fPIC \"" + cpp_path + "\" -o \"" + so_path + "\" 2>&1";
     int ret = std::system(cmd.c_str());
     if (ret != 0) {
         std::cerr << "[NativeJIT] Shared object compilation failed with exit code " << ret << "\n";

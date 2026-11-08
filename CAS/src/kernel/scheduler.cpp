@@ -3,6 +3,7 @@
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/lexer.hpp"
 #include "../../include/kernel/trace_buffer.hpp"
+#include "../../include/kernel/simd_ops.hpp"
 #include <iostream>
 #include <algorithm>
 
@@ -2775,11 +2776,11 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
             }
 
             dirty_native_nets.clear();
-            for (size_t i = 0; i < native_modified_mask.size(); ++i) {
-                if (native_modified_mask[i]) {
-                    dirty_native_nets.push_back(static_cast<uint32_t>(i));
-                }
-            }
+            cas::simd::simd_extract_dirty_indices(
+                native_modified_mask.data(),
+                native_modified_mask.size(),
+                dirty_native_nets
+            );
             for (uint32_t dst : native_seq_dst_nets) {
                 if (dst < engine.netlist.size() && engine.netlist[dst].value.bval != 0) {
                     if (dst < native_modified_mask.size() && !native_modified_mask[dst]) {
