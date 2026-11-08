@@ -21,6 +21,7 @@ NativeDispatchTable::~NativeDispatchTable() {
     proc_table = nullptr;
     proc_count = 0;
     seq_clock_fn = nullptr;
+    topological_comb_fn = nullptr;
     is_active = false;
 }
 
@@ -31,6 +32,7 @@ NativeDispatchTable::NativeDispatchTable(NativeDispatchTable&& other) noexcept
       proc_table(other.proc_table),
       proc_count(other.proc_count),
       seq_clock_fn(other.seq_clock_fn),
+      topological_comb_fn(other.topological_comb_fn),
       is_active(other.is_active) {
     other.dl_handle = nullptr;
     other.rca_table = nullptr;
@@ -38,6 +40,7 @@ NativeDispatchTable::NativeDispatchTable(NativeDispatchTable&& other) noexcept
     other.proc_table = nullptr;
     other.proc_count = 0;
     other.seq_clock_fn = nullptr;
+    other.topological_comb_fn = nullptr;
     other.is_active = false;
 }
 
@@ -52,6 +55,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         proc_table = other.proc_table;
         proc_count = other.proc_count;
         seq_clock_fn = other.seq_clock_fn;
+        topological_comb_fn = other.topological_comb_fn;
         is_active = other.is_active;
 
         other.dl_handle = nullptr;
@@ -60,6 +64,7 @@ NativeDispatchTable& NativeDispatchTable::operator=(NativeDispatchTable&& other)
         other.proc_table = nullptr;
         other.proc_count = 0;
         other.seq_clock_fn = nullptr;
+        other.topological_comb_fn = nullptr;
         other.is_active = false;
     }
     return *this;
@@ -116,6 +121,12 @@ bool NativeJIT::compile_and_load(
     out_table.proc_table = proc_tbl;
     out_table.proc_count = proc_cnt;
     out_table.seq_clock_fn = seq_fn;
+
+    // Look up topological comb evaluation function if emitted
+    dlerror();
+    NativeTopologicalEvalFn topo_fn = (NativeTopologicalEvalFn)dlsym(handle, "eval_topological_comb_native");
+    out_table.topological_comb_fn = topo_fn;
+
     out_table.is_active = true;
 
     return true;

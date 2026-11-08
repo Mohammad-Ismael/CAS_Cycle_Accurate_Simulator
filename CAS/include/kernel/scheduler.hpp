@@ -149,6 +149,15 @@ public:
     std::vector<uint32_t> native_seq_dst_nets;
     bool native_seq_fired_in_time_slot = false;
 
+    struct TopoTargetRecord {
+        uint32_t net_id;
+        uint32_t canon_id;
+        uint32_t width;
+        bool is_signed;
+    };
+    std::vector<TopoTargetRecord> topological_target_records;
+    std::vector<uint8_t> is_topological_rca;
+
     void init_scheduler();
     void sync_all_native_nets();
     bool commit_native_clock_updates();

@@ -994,6 +994,14 @@ bool NativeCodeGen::generate_comb_source(
     }
     out << "}\n\n";
 
+    out << "extern \"C\" void eval_topological_comb_native(uint64_t* __restrict nets) {\n";
+    for (uint32_t rca_idx : engine.get_topological_order().topological_rca_order) {
+        if (rca_idx < rcas.size() && rca_fn_ptrs[rca_idx] != "nullptr") {
+            out << "    eval_native_rca_" << rca_idx << "(nets);\n";
+        }
+    }
+    out << "}\n\n";
+
     size_t rca_tbl_size = rcas.empty() ? 1 : rcas.size();
     out << "static NativeEvalFn rca_table[" << rca_tbl_size << "] = {\n";
     if (rcas.empty()) {
@@ -1093,6 +1101,14 @@ bool NativeCodeGen::generate_comb_source(
     out << "    uint64_t* __restrict next,\n";
     out << "    uint8_t* __restrict modified_mask\n";
     out << ") {\n";
+    out << "}\n\n";
+
+    out << "extern \"C\" void eval_topological_comb_native(uint64_t* __restrict nets) {\n";
+    for (size_t i = 0; i < rcas.size(); ++i) {
+        if (rca_fn_ptrs[i] != "nullptr") {
+            out << "    eval_native_rca_" << i << "(nets);\n";
+        }
+    }
     out << "}\n\n";
 
     size_t rca_tbl_size = rcas.empty() ? 1 : rcas.size();

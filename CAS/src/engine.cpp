@@ -994,8 +994,8 @@ void Engine::bind_all_ast_nodes() {
                     if (bp.is_native_seq) native_seq_count++;
                 }
                 std::cout << "[Native JIT] Successfully compiled and dynamically linked "
-                          << active_rcas << " RCAs, " << active_procs
-                          << " Comb Procs, and " << native_seq_count << " Seq Procs into execution kernel.\n";
+                          << active_rcas << " RCAs (" << (scheduler.native_dispatch.topological_comb_fn ? "Topologically Flattened" : "Individual") << "), "
+                          << active_procs << " Comb Procs, and " << native_seq_count << " Seq Procs into execution kernel.\n";
             } else {
                 std::cout << "[Native JIT] Warning: compile_and_load failed, falling back to bytecode engine.\n";
             }

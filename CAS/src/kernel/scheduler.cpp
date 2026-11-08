@@ -453,6 +453,12 @@ static double t_proc_ms = 0;
 static bool comb_dirty = true;
 
 void StratifiedScheduler::enqueue_rca(uint32_t rca_idx) {
+    if (native_dispatch.is_active && native_dispatch.topological_comb_fn != nullptr) {
+        if (rca_idx < is_topological_rca.size() && is_topological_rca[rca_idx]) {
+            comb_dirty = true;
+            return;
+        }
+    }
     if (rca_enqueued.size() != engine.resolved_continuous_assigns.size()) {
         rca_enqueued.assign(engine.resolved_continuous_assigns.size(), 0);
     }
@@ -531,6 +537,27 @@ void StratifiedScheduler::sync_all_native_nets() {
             }
         }
     }
+
+    // Populate topological RCA lookup and target records
+    is_topological_rca.assign(engine.resolved_continuous_assigns.size(), 0);
+    topological_target_records.clear();
+    for (uint32_t rca_idx : engine.get_topological_order().topological_rca_order) {
+        if (rca_idx < engine.resolved_continuous_assigns.size()) {
+            is_topological_rca[rca_idx] = 1;
+            uint32_t nid = engine.resolved_continuous_assigns[rca_idx].target.net_id;
+            if (nid < engine.netlist.size()) {
+                uint32_t cid = (nid < engine.canonical_net_map.size()) ?
+                               (uint32_t)engine.canonical_net_map[nid] : nid;
+                topological_target_records.push_back({nid, cid, engine.netlist[nid].width, engine.netlist[nid].is_signed});
+            }
+        }
+    }
+    std::sort(topological_target_records.begin(), topological_target_records.end(),
+        [](const TopoTargetRecord& a, const TopoTargetRecord& b) { return a.net_id < b.net_id; });
+    topological_target_records.erase(
+        std::unique(topological_target_records.begin(), topological_target_records.end(),
+            [](const TopoTargetRecord& a, const TopoTargetRecord& b) { return a.net_id == b.net_id; }),
+        topological_target_records.end());
 }
 
 void StratifiedScheduler::init_scheduler() {
@@ -2185,10 +2212,36 @@ void StratifiedScheduler::propagate_comb() {
     delta_cycles_count++;
     size_t iters = 0;
     bool changed = true;
+    const size_t max_delta_cycles = 100;
 
-    while (changed && iters < 200) {
+    while (changed && iters < max_delta_cycles) {
         changed = false;
         iters++;
+
+        // 0. Monolithic Topological RCA Execution (Acyclic JIT Fast Path)
+        if (native_dispatch.is_active && native_dispatch.topological_comb_fn != nullptr) {
+            auto t_topo_0 = std::chrono::high_resolution_clock::now();
+            native_dispatch.topological_comb_fn(native_nets_u64.data());
+            auto t_topo_1 = std::chrono::high_resolution_clock::now();
+            t_rca_ms += std::chrono::duration<double, std::milli>(t_topo_1 - t_topo_0).count();
+
+            for (const auto& rec : topological_target_records) {
+                uint64_t val = native_nets_u64[rec.net_id];
+                if (val != engine.netlist[rec.net_id].value.aval || engine.netlist[rec.net_id].value.bval != 0) {
+                    LogicVal lval = LogicVal::from_u64_2state(val, rec.width, rec.is_signed);
+                    engine.netlist[rec.net_id].set(lval);
+                    if (rec.net_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[rec.net_id]) {
+                            if (other_id != rec.net_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(lval);
+                                native_nets_u64[other_id] = val;
+                            }
+                        }
+                    }
+                    notify_net_changed(rec.canon_id);
+                }
+            }
+        }
 
         auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& bind : engine.slice_bindings) {
@@ -2505,7 +2558,9 @@ void StratifiedScheduler::propagate_comb() {
         }
     }
 
-    if (iters >= 200) {
+    if (iters >= max_delta_cycles) {
+        std::cerr << "[StratifiedScheduler] Warning: Delta cycle limit (" << max_delta_cycles
+                  << ") reached in propagate_comb(); breaking potential combinational loop.\n";
         for (uint32_t idx : dirty_rcas) {
             if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
         }
