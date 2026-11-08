@@ -11,6 +11,7 @@
 #include "kernel/native_jit.hpp"
 #include "kernel/llvm_jit.hpp"
 #include "kernel/time_wheel.hpp"
+#include "kernel/memory_fastpath.hpp"
 #include "tracer/vcd_dumper.hpp"
 
 class Engine;
@@ -143,6 +144,7 @@ public:
 
     NativeDispatchTable native_dispatch;
     LlvmDispatchTable llvm_dispatch;
+    cas::MemoryFastPath memory_fastpath;
     std::vector<uint64_t> native_nets_u64;
     std::vector<uint64_t> native_nets_next;
     std::vector<uint8_t> native_modified_mask;

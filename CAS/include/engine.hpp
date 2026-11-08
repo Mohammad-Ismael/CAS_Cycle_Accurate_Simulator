@@ -31,6 +31,8 @@ struct MonitorSession {
     size_t src_line = 0;
 };
 
+namespace cas { class MemoryFastPath; }
+
 class Engine {
     friend class Evaluator;
     friend class ExprEvaluator;
@@ -38,6 +40,7 @@ class Engine {
     friend class BytecodeCompiler;
     friend class NativeCodeGen;
     friend class DependencyGraph;
+    friend class cas::MemoryFastPath;
 
 private:
     std::vector<Net> netlist;

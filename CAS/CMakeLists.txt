@@ -49,6 +49,7 @@ add_executable(cas
     src/kernel/llvm_jit.cpp
     src/kernel/trace_buffer.cpp
     src/kernel/simd_ops.cpp
+    src/kernel/memory_fastpath.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp

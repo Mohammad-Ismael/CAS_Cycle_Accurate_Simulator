@@ -574,6 +574,7 @@ void StratifiedScheduler::init_scheduler() {
             }
         }
     }
+    memory_fastpath.init(engine);
 }
 
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
@@ -2250,6 +2251,10 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
+        if (memory_fastpath.bus.is_valid) {
+            memory_fastpath.post_comb_sync(engine, native_nets_u64.data());
+        }
+
         auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& bind : engine.slice_bindings) {
             if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
@@ -2790,9 +2795,28 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
                 }
             }
 
+            if (memory_fastpath.bus.is_valid) {
+                memory_fastpath.service_memory_cycle(
+                    engine,
+                    native_nets_u64.data(),
+                    native_nets_next.data(),
+                    native_modified_mask.data(),
+                    dirty_native_nets
+                );
+            }
+
             if (whole_fn != nullptr) {
                 // Commit native clock updates to engine.netlist immediately
                 commit_native_clock_updates();
+
+                if (memory_fastpath.bus.is_valid) {
+                    auto topo_fn = (llvm_dispatch.is_active && llvm_dispatch.topological_comb_fn != nullptr)
+                                   ? llvm_dispatch.topological_comb_fn
+                                   : (native_dispatch.is_active ? native_dispatch.topological_comb_fn : nullptr);
+                    if (topo_fn != nullptr) {
+                        topo_fn(native_nets_u64.data());
+                    }
+                }
 
                 // Sync topological target nets to engine.netlist
                 for (const auto& rec : topological_target_records) {
