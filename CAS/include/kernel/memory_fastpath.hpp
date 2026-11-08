@@ -5,6 +5,7 @@
 #include <string>
 
 class Engine;
+class StratifiedScheduler;
 struct MemoryArray;
 
 namespace cas {
@@ -67,9 +68,10 @@ public:
         std::vector<uint32_t>& dirty_native_nets
     );
 
-    void post_comb_sync(
+    bool post_comb_sync(
         Engine& engine,
-        uint64_t* __restrict cur_nets
+        uint64_t* __restrict cur_nets,
+        StratifiedScheduler* sched = nullptr
     );
 
 private:

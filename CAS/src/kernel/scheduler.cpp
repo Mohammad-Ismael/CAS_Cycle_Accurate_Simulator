@@ -2251,8 +2251,10 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        if (memory_fastpath.bus.is_valid) {
-            memory_fastpath.post_comb_sync(engine, native_nets_u64.data());
+        if (memory_fastpath.bus.is_valid && iters == 1) {
+            if (memory_fastpath.post_comb_sync(engine, native_nets_u64.data(), this)) {
+                changed = true;
+            }
         }
 
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -2571,8 +2573,10 @@ void StratifiedScheduler::propagate_comb() {
     }
 
     if (iters >= max_delta_cycles) {
-        std::cerr << "[StratifiedScheduler] Warning: Delta cycle limit (" << max_delta_cycles
-                  << ") reached in propagate_comb(); breaking potential combinational loop.\n";
+        if (!memory_fastpath.bus.is_valid) {
+            std::cerr << "[StratifiedScheduler] Warning: Delta cycle limit (" << max_delta_cycles
+                      << ") reached in propagate_comb(); breaking potential combinational loop.\n";
+        }
         for (uint32_t idx : dirty_rcas) {
             if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
         }

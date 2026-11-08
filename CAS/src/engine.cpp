@@ -476,6 +476,81 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
     }
 }
 
+static void collect_stmt_write_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::unordered_set<uint32_t>& out_written_nets) {
+    if (!stmt) return;
+
+    if (auto ba = dynamic_cast<const BlockingAssignNode*>(stmt)) {
+        for (const auto& t : ba->lhs_targets) {
+            size_t raw_nid = engine.get_net_id(scope, t);
+            if (raw_nid != (size_t)-1) {
+                out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
+            }
+        }
+        return;
+    }
+
+    if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(stmt)) {
+        size_t raw_nid = engine.get_net_id(scope, nba->target);
+        if (raw_nid != (size_t)-1) {
+            out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
+        }
+        return;
+    }
+
+    if (auto pa = dynamic_cast<const ProceduralAssignNode*>(stmt)) {
+        size_t raw_nid = engine.get_net_id(scope, pa->target);
+        if (raw_nid != (size_t)-1) {
+            out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
+        }
+        return;
+    }
+
+    if (auto blk = dynamic_cast<const BlockStatementNode*>(stmt)) {
+        for (const auto& s : blk->statements) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto if_s = dynamic_cast<const IfStatementNode*>(stmt)) {
+        for (const auto& s : if_s->then_branch) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        for (const auto& s : if_s->else_branch) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto cs = dynamic_cast<const CaseStatementNode*>(stmt)) {
+        for (const auto& item : cs->items) {
+            for (const auto& s : item.statements) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        }
+        return;
+    }
+
+    if (auto for_s = dynamic_cast<const ForStatementNode*>(stmt)) {
+        collect_stmt_write_nets(for_s->init_stmt.get(), scope, engine, out_written_nets);
+        collect_stmt_write_nets(for_s->step_stmt.get(), scope, engine, out_written_nets);
+        for (const auto& s : for_s->body) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto wh = dynamic_cast<const WhileStatementNode*>(stmt)) {
+        for (const auto& s : wh->body) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto rep = dynamic_cast<const RepeatStatementNode*>(stmt)) {
+        for (const auto& s : rep->body) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto fo = dynamic_cast<const ForeverStatementNode*>(stmt)) {
+        for (const auto& s : fo->body) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+
+    if (auto fork_s = dynamic_cast<const ForkStatementNode*>(stmt)) {
+        for (const auto& s : fork_s->branches) collect_stmt_write_nets(s.get(), scope, engine, out_written_nets);
+        return;
+    }
+}
+
 static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids) {
     bool dummy = false;
     collect_stmt_read_nets(stmt, scope, engine, out_net_ids, dummy);
@@ -1064,8 +1139,10 @@ void Engine::build_fanout_graph() {
                 read_nets.push_back((uint32_t)canon);
             }
         }
+        std::unordered_set<uint32_t> written_nets;
         for (const auto& s : bp.proc->body) {
             collect_stmt_read_nets(s.get(), bp.scope, *this, read_nets, reads_mem);
+            collect_stmt_write_nets(s.get(), bp.scope, *this, written_nets);
         }
         std::sort(read_nets.begin(), read_nets.end());
         read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
@@ -1075,6 +1152,8 @@ void Engine::build_fanout_graph() {
         }
 
         for (uint32_t nid : read_nets) {
+            // IEEE 1800-2023 9.2.2.2: Do not sensitize process to its own written targets
+            if (written_nets.count(nid)) continue;
             if (nid < fanout.net_to_comb_proc.size()) {
                 fanout.net_to_comb_proc[nid].push_back((uint32_t)pid);
             }
