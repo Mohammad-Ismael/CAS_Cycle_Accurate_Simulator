@@ -9,6 +9,7 @@
 #include "kernel/evaluator.hpp"
 #include "kernel/bytecode.hpp"
 #include "kernel/native_jit.hpp"
+#include "kernel/llvm_jit.hpp"
 #include "kernel/time_wheel.hpp"
 #include "tracer/vcd_dumper.hpp"
 
@@ -141,6 +142,7 @@ public:
     explicit StratifiedScheduler(Engine& eng);
 
     NativeDispatchTable native_dispatch;
+    LlvmDispatchTable llvm_dispatch;
     std::vector<uint64_t> native_nets_u64;
     std::vector<uint64_t> native_nets_next;
     std::vector<uint8_t> native_modified_mask;

@@ -453,7 +453,9 @@ static double t_proc_ms = 0;
 static bool comb_dirty = true;
 
 void StratifiedScheduler::enqueue_rca(uint32_t rca_idx) {
-    if (native_dispatch.is_active && native_dispatch.topological_comb_fn != nullptr) {
+    bool has_topo = (llvm_dispatch.is_active && llvm_dispatch.topological_comb_fn != nullptr) ||
+                    (native_dispatch.is_active && native_dispatch.topological_comb_fn != nullptr);
+    if (has_topo) {
         if (rca_idx < is_topological_rca.size() && is_topological_rca[rca_idx]) {
             comb_dirty = true;
             return;
@@ -575,7 +577,7 @@ void StratifiedScheduler::init_scheduler() {
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id >= engine.netlist.size()) return;
     size_t canon_nid = engine.get_canonical_net_id(net_id);
-    if (native_dispatch.is_active) {
+    if (native_dispatch.is_active || llvm_dispatch.is_active) {
         if (net_id < native_nets_u64.size()) {
             native_nets_u64[net_id] = engine.netlist[net_id].value.aval;
         }
@@ -2219,9 +2221,12 @@ void StratifiedScheduler::propagate_comb() {
         iters++;
 
         // 0. Monolithic Topological RCA Execution (Acyclic JIT Fast Path)
-        if (native_dispatch.is_active && native_dispatch.topological_comb_fn != nullptr) {
+        auto topo_fn = (llvm_dispatch.is_active && llvm_dispatch.topological_comb_fn != nullptr)
+                       ? llvm_dispatch.topological_comb_fn
+                       : (native_dispatch.is_active ? native_dispatch.topological_comb_fn : nullptr);
+        if (topo_fn != nullptr) {
             auto t_topo_0 = std::chrono::high_resolution_clock::now();
-            native_dispatch.topological_comb_fn(native_nets_u64.data());
+            topo_fn(native_nets_u64.data());
             auto t_topo_1 = std::chrono::high_resolution_clock::now();
             t_rca_ms += std::chrono::duration<double, std::milli>(t_topo_1 - t_topo_0).count();
 
@@ -2706,7 +2711,10 @@ bool StratifiedScheduler::evaluate_timing_checks() {
 }
 
 void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, EdgeType edge) {
-    if (!native_seq_fired_in_time_slot && native_dispatch.seq_clock_fn != nullptr) {
+    auto seq_fn = (llvm_dispatch.is_active && llvm_dispatch.seq_clock_fn != nullptr)
+                  ? llvm_dispatch.seq_clock_fn
+                  : (native_dispatch.is_active ? native_dispatch.seq_clock_fn : nullptr);
+    if (!native_seq_fired_in_time_slot && seq_fn != nullptr) {
         bool clock_triggered = false;
         if (triggered_net_id != UINT32_MAX) {
             if (edge == EdgeType::POSEDGE) {
@@ -2745,7 +2753,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
                 native_modified_mask.assign(native_nets_u64.size(), 0);
             }
 
-            native_dispatch.seq_clock_fn(
+            seq_fn(
                 native_nets_u64.data(),
                 native_nets_next.data(),
                 native_modified_mask.data()
@@ -2778,7 +2786,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
     for (auto& bp : engine.processes) {
         if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
         if (bp.fired_in_time_slot) continue;
-        if (native_dispatch.seq_clock_fn != nullptr && bp.is_native_seq) continue;
+        if (seq_fn != nullptr && bp.is_native_seq) continue;
 
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
@@ -4493,7 +4501,7 @@ void StratifiedScheduler::run_simulation() {
         }
     }
     comb_dirty = true;
-    if (native_dispatch.is_active) {
+    if (native_dispatch.is_active || llvm_dispatch.is_active) {
         init_scheduler();
     }
 

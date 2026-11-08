@@ -2,6 +2,7 @@
 #include "../include/kernel/logic_ops.hpp"
 #include "../include/kernel/codegen.hpp"
 #include "../include/kernel/native_jit.hpp"
+#include "../include/kernel/llvm_jit.hpp"
 
 #include <algorithm>
 
@@ -998,6 +999,13 @@ void Engine::bind_all_ast_nodes() {
                           << active_procs << " Comb Procs, and " << native_seq_count << " Seq Procs into execution kernel.\n";
             } else {
                 std::cout << "[Native JIT] Warning: compile_and_load failed, falling back to bytecode engine.\n";
+            }
+
+            if (LlvmJIT::is_available()) {
+                bool llvm_ok = LlvmJIT::compile_and_bind(resolved_continuous_assigns, processes, *this, scheduler.llvm_dispatch);
+                if (llvm_ok) {
+                    std::cout << "[LLVM ORC JIT] In-memory JIT execution kernel bound to StratifiedScheduler.\n";
+                }
             }
         } else {
             std::cout << "[NativeCodeGen] Failed to generate " << out_path << "\n";

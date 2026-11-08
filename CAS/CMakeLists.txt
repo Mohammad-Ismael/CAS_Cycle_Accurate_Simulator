@@ -6,6 +6,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include_directories(include)
 
+find_program(LLVM_CONFIG_EXE NAMES llvm-config llvm-config-17)
+if (LLVM_CONFIG_EXE)
+    execute_process(COMMAND ${LLVM_CONFIG_EXE} --cxxflags OUTPUT_VARIABLE LLVM_CXXFLAGS OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${LLVM_CONFIG_EXE} --ldflags OUTPUT_VARIABLE LLVM_LDFLAGS OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${LLVM_CONFIG_EXE} --libs core executionengine orcjit support native target OUTPUT_VARIABLE LLVM_LIBS OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${LLVM_CONFIG_EXE} --includedir OUTPUT_VARIABLE LLVM_INCDIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+    include_directories(${LLVM_INCDIR})
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXXFLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${LLVM_LDFLAGS}")
+    add_definitions(-DHAS_LLVM_ORC_JIT=1)
+    message(STATUS "LLVM ORC JIT found via ${LLVM_CONFIG_EXE}")
+else()
+    add_definitions(-DHAS_LLVM_ORC_JIT=0)
+    set(LLVM_LIBS "")
+    message(STATUS "LLVM not found, compiling with HAS_LLVM_ORC_JIT=0 fallback")
+endif()
+
 add_executable(cas
     src/frontend/lexer.cpp
     src/frontend/parser.cpp
@@ -18,6 +35,7 @@ add_executable(cas
     src/kernel/bytecode_compiler.cpp
     src/kernel/codegen.cpp
     src/kernel/native_jit.cpp
+    src/kernel/llvm_jit.cpp
     src/engine.cpp
     src/profiler/profiler.cpp
     src/tracer/vcd_dumper.cpp
@@ -30,7 +48,7 @@ add_executable(cas
     src/main.cpp
 )
 
-target_link_libraries(cas ${CMAKE_DL_LIBS})
+target_link_libraries(cas ${CMAKE_DL_LIBS} ${LLVM_LIBS})
 set_target_properties(cas PROPERTIES ENABLE_EXPORTS ON)
 if(NOT MSVC)
     target_link_options(cas PRIVATE -rdynamic)
