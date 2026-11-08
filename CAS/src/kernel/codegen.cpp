@@ -918,6 +918,9 @@ bool NativeCodeGen::generate_comb_source(
                     bp.is_native_seq = true;
                     for (auto& u : updates) {
                         claimed_dst_nets.insert(u.dst_net_id);
+                        bp.comb_target_nets.push_back(u.dst_net_id);
+                        std::cout << "[NATIVE SEQ FLOP " << all_seq_updates.size() << "] dst=" << engine.get_netlist()[u.dst_net_id].name
+                                  << " (id " << u.dst_net_id << ") rst_val=0x" << std::hex << u.rst_val << std::dec << "\n";
                         all_seq_updates.push_back(std::move(u));
                     }
                 }

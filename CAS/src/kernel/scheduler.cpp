@@ -476,8 +476,72 @@ void StratifiedScheduler::enqueue_comb_proc(uint32_t proc_id) {
 
 void StratifiedScheduler::sync_all_native_nets() {
     native_nets_u64.resize(engine.netlist.size(), 0);
+    native_nets_next.resize(engine.netlist.size(), 0);
+    native_modified_mask.assign(engine.netlist.size(), 0);
+    dirty_native_nets.clear();
     for (size_t i = 0; i < engine.netlist.size(); ++i) {
         native_nets_u64[i] = engine.netlist[i].value.aval;
+        native_nets_next[i] = engine.netlist[i].value.aval;
+    }
+
+    native_clk_net_ids.clear();
+    for (auto& bp : engine.processes) {
+        if (bp.is_native_seq && bp.proc) {
+            for (auto& sens : bp.proc->sensitivity_list) {
+                if (sens.edge == EdgeType::POSEDGE) {
+                    if (sens.net_id == (size_t)-1) {
+                        sens.net_id = engine.get_net_id(bp.scope, sens.signal_name);
+                    }
+                    if (sens.net_id < engine.netlist.size()) {
+                        uint32_t cid = (sens.net_id < engine.canonical_net_map.size()) ?
+                                       (uint32_t)engine.canonical_net_map[sens.net_id] : (uint32_t)sens.net_id;
+                        bool exists = false;
+                        for (uint32_t existing : native_clk_net_ids) {
+                            if (existing == cid) { exists = true; break; }
+                        }
+                        if (!exists) {
+                            native_clk_net_ids.push_back(cid);
+                        }
+                        if (sens.net_id != cid) {
+                            exists = false;
+                            for (uint32_t existing : native_clk_net_ids) {
+                                if (existing == (uint32_t)sens.net_id) { exists = true; break; }
+                            }
+                            if (!exists) {
+                                native_clk_net_ids.push_back((uint32_t)sens.net_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < engine.netlist.size(); ++i) {
+        const auto& nname = engine.netlist[i].name;
+        if (nname == "clk_i" || nname == "clk" || nname == "clk_sys" || nname == "IO_CLK") {
+            uint32_t cid = (i < engine.canonical_net_map.size()) ?
+                           (uint32_t)engine.canonical_net_map[i] : (uint32_t)i;
+            bool exists = false;
+            for (uint32_t existing : native_clk_net_ids) {
+                if (existing == cid) { exists = true; break; }
+            }
+            if (!exists) {
+                native_clk_net_ids.push_back(cid);
+            }
+        }
+    }
+}
+
+void StratifiedScheduler::init_scheduler() {
+    sync_all_native_nets();
+    native_seq_dst_nets.clear();
+    for (const auto& bp : engine.processes) {
+        if (bp.is_native_seq) {
+            for (uint32_t tid : bp.comb_target_nets) {
+                native_seq_dst_nets.push_back(tid);
+            }
+        }
     }
 }
 
@@ -2586,10 +2650,80 @@ bool StratifiedScheduler::evaluate_timing_checks() {
     return activity;
 }
 
-void StratifiedScheduler::evaluate_sequential_blocks() {
+void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, EdgeType edge) {
+    if (!native_seq_fired_in_time_slot && native_dispatch.seq_clock_fn != nullptr) {
+        bool clock_triggered = false;
+        if (triggered_net_id != UINT32_MAX) {
+            if (edge == EdgeType::POSEDGE) {
+                size_t canon_trig = (triggered_net_id < engine.canonical_net_map.size()) ?
+                                     engine.canonical_net_map[triggered_net_id] : triggered_net_id;
+                for (uint32_t cid : native_clk_net_ids) {
+                    if (cid == triggered_net_id || cid == canon_trig) {
+                        clock_triggered = true;
+                        break;
+                    }
+                }
+                if (!clock_triggered && triggered_net_id < engine.netlist.size()) {
+                    const auto& nname = engine.netlist[triggered_net_id].name;
+                    if (nname == "clk_i" || nname == "clk" || nname == "clk_sys" || nname == "IO_CLK") {
+                        clock_triggered = true;
+                    }
+                }
+            }
+        } else {
+            for (uint32_t cid : native_clk_net_ids) {
+                if (cid < engine.netlist.size() && engine.netlist[cid].is_posedge()) {
+                    clock_triggered = true;
+                    break;
+                }
+            }
+        }
+
+        if (clock_triggered) {
+            native_seq_fired_in_time_slot = true;
+            if (native_nets_next.size() < native_nets_u64.size()) {
+                native_nets_next.resize(native_nets_u64.size(), 0);
+            }
+            std::copy(native_nets_u64.begin(), native_nets_u64.end(), native_nets_next.begin());
+
+            if (native_modified_mask.size() < native_nets_u64.size()) {
+                native_modified_mask.assign(native_nets_u64.size(), 0);
+            }
+
+            native_dispatch.seq_clock_fn(
+                native_nets_u64.data(),
+                native_nets_next.data(),
+                native_modified_mask.data()
+            );
+
+            dirty_native_nets.clear();
+            for (size_t i = 0; i < native_modified_mask.size(); ++i) {
+                if (native_modified_mask[i]) {
+                    dirty_native_nets.push_back(static_cast<uint32_t>(i));
+                }
+            }
+            for (uint32_t dst : native_seq_dst_nets) {
+                if (dst < engine.netlist.size() && engine.netlist[dst].value.bval != 0) {
+                    if (dst < native_modified_mask.size() && !native_modified_mask[dst]) {
+                        native_modified_mask[dst] = 1;
+                        dirty_native_nets.push_back(dst);
+                    }
+                }
+            }
+
+            comb_dirty = true;
+            for (auto& bp : engine.processes) {
+                if (bp.is_native_seq) {
+                    bp.fired_in_time_slot = true;
+                }
+            }
+        }
+    }
+
     for (auto& bp : engine.processes) {
         if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
         if (bp.fired_in_time_slot) continue;
+        if (native_dispatch.seq_clock_fn != nullptr && bp.is_native_seq) continue;
 
         bool triggered = false;
         for (auto& sens : bp.proc->sensitivity_list) {
@@ -2712,43 +2846,89 @@ void StratifiedScheduler::evaluate_covergroup_events() {
     }
 }
 
-bool StratifiedScheduler::commit_nba_updates() {
-    if (nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
-    comb_dirty = true;
+bool StratifiedScheduler::commit_native_clock_updates() {
+    if (dirty_native_nets.empty()) return false;
 
+    comb_dirty = true;
     nba_commits_count++;
-    for (const auto& update : nba_queue) {
-        size_t target_id = (update.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[update.net_id] : update.net_id;
+
+    for (uint32_t dst : dirty_native_nets) {
+        if (dst >= engine.netlist.size()) continue;
+        native_modified_mask[dst] = 0;
+
+        uint64_t new_val = native_nets_next[dst];
+        native_nets_u64[dst] = new_val;
+
+        size_t target_id = (dst < engine.canonical_net_map.size()) ? engine.canonical_net_map[dst] : dst;
         if (!engine.netlist[target_id].has_procedural_assign) {
-            LogicVal old_val = engine.netlist[target_id].value;
-            if (update.is_slice) {
-                auto& net = engine.netlist[target_id];
-                LogicVal new_val = net.value;
-                new_val.deposit_slice(update.offset, update.slice_width, update.val);
-                net.set(new_val);
-                if (target_id < engine.alias_members.size()) {
-                    for (size_t other_id : engine.alias_members[target_id]) {
-                        if (other_id != target_id && other_id < engine.netlist.size()) {
-                            engine.netlist[other_id].set(new_val);
-                        }
-                    }
+            LogicVal lval = LogicVal::from_u64_2state(
+                new_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+            engine.netlist[target_id].set(lval);
+            if (dst != target_id) {
+                engine.netlist[dst].set(lval);
+                if (dst < native_nets_u64.size()) {
+                    native_nets_u64[dst] = new_val;
                 }
-            } else {
-                engine.netlist[target_id].set(update.val);
-                if (target_id < engine.alias_members.size()) {
-                    for (size_t other_id : engine.alias_members[target_id]) {
-                        if (other_id != target_id && other_id < engine.netlist.size()) {
-                            engine.netlist[other_id].set(update.val);
+            }
+
+            if (target_id < engine.alias_members.size()) {
+                for (size_t other_id : engine.alias_members[target_id]) {
+                    if (other_id != target_id && other_id < engine.netlist.size()) {
+                        engine.netlist[other_id].set(lval);
+                        if (other_id < native_nets_u64.size()) {
+                            native_nets_u64[other_id] = new_val;
                         }
                     }
                 }
             }
-            if (engine.netlist[target_id].value != old_val) {
-                notify_net_changed(target_id);
-            }
+            notify_net_changed(target_id);
         }
     }
-    nba_queue.clear();
+    dirty_native_nets.clear();
+    return true;
+}
+
+bool StratifiedScheduler::commit_nba_updates() {
+    bool native_committed = commit_native_clock_updates();
+
+    if (!native_committed && nba_queue.empty() && nba_mem_queue.empty() && nba_event_queue.empty()) return false;
+    comb_dirty = true;
+
+    if (!nba_queue.empty()) {
+        nba_commits_count++;
+        for (const auto& update : nba_queue) {
+            size_t target_id = (update.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[update.net_id] : update.net_id;
+            if (!engine.netlist[target_id].has_procedural_assign) {
+                LogicVal old_val = engine.netlist[target_id].value;
+                if (update.is_slice) {
+                    auto& net = engine.netlist[target_id];
+                    LogicVal new_val = net.value;
+                    new_val.deposit_slice(update.offset, update.slice_width, update.val);
+                    net.set(new_val);
+                    if (target_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[target_id]) {
+                            if (other_id != target_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(new_val);
+                            }
+                        }
+                    }
+                } else {
+                    engine.netlist[target_id].set(update.val);
+                    if (target_id < engine.alias_members.size()) {
+                        for (size_t other_id : engine.alias_members[target_id]) {
+                            if (other_id != target_id && other_id < engine.netlist.size()) {
+                                engine.netlist[other_id].set(update.val);
+                            }
+                        }
+                    }
+                }
+                if (engine.netlist[target_id].value != old_val) {
+                    notify_net_changed(target_id);
+                }
+            }
+        }
+        nba_queue.clear();
+    }
 
     for (const auto& mem_up : nba_mem_queue) {
         if (engine.memory_map.find(mem_up.mem_scoped_name) != engine.memory_map.end()) {
@@ -4259,7 +4439,7 @@ void StratifiedScheduler::run_simulation() {
     }
     comb_dirty = true;
     if (native_dispatch.is_active) {
-        sync_all_native_nets();
+        init_scheduler();
     }
 
     for (auto& n : engine.netlist) {
@@ -4271,6 +4451,7 @@ void StratifiedScheduler::run_simulation() {
     for (auto& bp : engine.processes) {
         bp.fired_in_time_slot = false;
     }
+    native_seq_fired_in_time_slot = false;
     for (auto& cb : engine.clocking_blocks) {
         cb.fired_in_time_slot = false;
     }
@@ -4345,6 +4526,7 @@ void StratifiedScheduler::run_simulation() {
         for (auto& bp : engine.processes) {
             bp.fired_in_time_slot = false;
         }
+        native_seq_fired_in_time_slot = false;
         for (auto& cb : engine.clocking_blocks) {
             cb.fired_in_time_slot = false;
         }

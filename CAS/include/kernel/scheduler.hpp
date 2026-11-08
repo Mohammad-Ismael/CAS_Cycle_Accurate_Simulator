@@ -113,7 +113,7 @@ private:
     void execute_process_bytecode_logicval(BoundProcess& bp);
     void execute_comb_proc_bytecode(BoundProcess& bp);
     bool evaluate_timing_checks();
-    void evaluate_sequential_blocks();
+    void evaluate_sequential_blocks(uint32_t triggered_net_id = UINT32_MAX, EdgeType edge = EdgeType::LEVEL);
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();
     bool resume_waiting_processes(bool for_reactive = false);
@@ -142,7 +142,16 @@ public:
 
     NativeDispatchTable native_dispatch;
     std::vector<uint64_t> native_nets_u64;
+    std::vector<uint64_t> native_nets_next;
+    std::vector<uint8_t> native_modified_mask;
+    std::vector<uint32_t> dirty_native_nets; // fast list of modified net IDs
+    std::vector<uint32_t> native_clk_net_ids;
+    std::vector<uint32_t> native_seq_dst_nets;
+    bool native_seq_fired_in_time_slot = false;
+
+    void init_scheduler();
     void sync_all_native_nets();
+    bool commit_native_clock_updates();
 
     void notify_net_changed(size_t net_id);
     void notify_mem_changed();
