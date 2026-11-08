@@ -2580,6 +2580,7 @@ void StratifiedScheduler::propagate_comb() {
 }
 
 bool StratifiedScheduler::evaluate_timing_checks() {
+    if (engine.timing_checks.empty()) return false;
     bool activity = false;
     uint64_t ratio = Lexer::get_timescale_ratio();
     if (ratio == 0) ratio = 1;
@@ -2855,6 +2856,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
 }
 
 void StratifiedScheduler::evaluate_clocking_blocks() {
+    if (engine.clocking_blocks.empty()) return;
     for (size_t cb_idx = 0; cb_idx < engine.clocking_blocks.size(); ++cb_idx) {
         auto& cb = engine.clocking_blocks[cb_idx];
         if (cb.fired_in_time_slot) continue;
@@ -2923,6 +2925,7 @@ void StratifiedScheduler::evaluate_clocking_blocks() {
 }
 
 void StratifiedScheduler::evaluate_covergroup_events() {
+    if (engine.event_triggered_covergroups.empty()) return;
     for (uint64_t hid : engine.event_triggered_covergroups) {
         auto inst = engine.get_covergroup_instance(hid);
         if (!inst || inst->fired_in_time_slot) continue;
@@ -4621,7 +4624,7 @@ void StratifiedScheduler::run_simulation() {
         }
 
         for (auto& n : engine.netlist) {
-            n.changed_in_current_sim_time = false;
+            if (n.changed_in_current_sim_time) n.changed_in_current_sim_time = false;
         }
         transfer_due_delayed_updates(slot_time);
 
@@ -4718,7 +4721,7 @@ void StratifiedScheduler::run_simulation() {
         engine.evaluator.check_monitor();
 
         for (auto& n : engine.netlist) {
-            n.commit_time_slot();
+            if (n.modified) n.commit_time_slot();
         }
     }
     AsyncTraceBuffer::instance().stop();
