@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <queue>
 #include <functional>
+#include <cmath>
 
 size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed, NetKind kind) {
     if (result.net_map.find(scoped_name) != result.net_map.end()) {
@@ -26,6 +27,8 @@ size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t wi
     result.net_map[scoped_name] = id;
     return id;
 }
+
+static uint32_t resolve_type_width(const std::string& type_name);
 
 LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal(0, 0, 0);
@@ -351,6 +354,130 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
         return LogicVal(0, 0, 0);
     }
+    if (auto scast = dynamic_cast<StaticCastExprNode*>(expr)) {
+        if (scast->kind == CastKind::SIZE) {
+            uint32_t width = scast->target_width;
+            if (width == 0 && !scast->target_type_name.empty()) {
+                std::string cur_scope = scope;
+                while (!cur_scope.empty()) {
+                    std::string scoped_name = cur_scope + "." + scast->target_type_name;
+                    if (result.param_map.count(scoped_name)) {
+                        width = (uint32_t)result.param_map.at(scoped_name);
+                        break;
+                    }
+                    auto dot = cur_scope.rfind('.');
+                    if (dot == std::string::npos) break;
+                    cur_scope = cur_scope.substr(0, dot);
+                }
+                if (width == 0 && result.param_map.count(scast->target_type_name)) {
+                    width = (uint32_t)result.param_map.at(scast->target_type_name);
+                }
+            }
+            LogicVal val = eval_const_logic_val(scast->expr.get(), scope);
+            if (width > 0) return LogicOps::cast_width(val, width, val.is_signed);
+            return val;
+        }
+        if (scast->kind == CastKind::SIGNED) {
+            LogicVal val = eval_const_logic_val(scast->expr.get(), scope);
+            val.is_signed = true;
+            return val;
+        }
+        if (scast->kind == CastKind::UNSIGNED) {
+            LogicVal val = eval_const_logic_val(scast->expr.get(), scope);
+            val.is_signed = false;
+            return val;
+        }
+        if (scast->kind == CastKind::TYPE) {
+            LogicVal val = eval_const_logic_val(scast->expr.get(), scope);
+            std::string target_type = scast->target_type_name;
+            if (target_type == "bit" || target_type == "logic" || target_type == "reg") {
+                return LogicOps::cast_width(val, 1, false);
+            }
+            if (target_type == "int" || target_type == "integer") {
+                if (val.is_real) {
+                    return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
+                res.is_signed = true;
+                return res;
+            }
+            if (target_type == "shortint") {
+                if (val.is_real) {
+                    return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
+                res.is_signed = true;
+                return res;
+            }
+            if (target_type == "byte") {
+                if (val.is_real) {
+                    return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
+                res.is_signed = true;
+                return res;
+            }
+            if (target_type == "longint" || target_type == "time") {
+                if (val.is_real) {
+                    return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
+                }
+                LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
+                res.is_signed = true;
+                return res;
+            }
+            uint32_t tw = resolve_type_width(target_type);
+            if (tw > 0) {
+                return LogicOps::cast_width(val, tw, false);
+            }
+            return val;
+        }
+    }
+    if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
+        LogicVal val = eval_const_logic_val(cast_node->expr.get(), scope);
+        if (cast_node->width > 0) {
+            return LogicOps::cast_width(val, cast_node->width, cast_node->is_signed);
+        }
+        if (cast_node->target_type == "bit" || cast_node->target_type == "logic") {
+            return LogicOps::cast_width(val, 1, false);
+        }
+        if (cast_node->target_type == "int" || cast_node->target_type == "integer") {
+            if (val.is_real) {
+                return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
+            }
+            LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
+            res.is_signed = true;
+            return res;
+        }
+        if (cast_node->target_type == "shortint") {
+            if (val.is_real) {
+                return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
+            }
+            LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
+            res.is_signed = true;
+            return res;
+        }
+        if (cast_node->target_type == "byte") {
+            if (val.is_real) {
+                return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
+            }
+            LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
+            res.is_signed = true;
+            return res;
+        }
+        if (cast_node->target_type == "longint" || cast_node->target_type == "time") {
+            if (val.is_real) {
+                return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
+            }
+            LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
+            res.is_signed = true;
+            return res;
+        }
+        uint32_t tw = resolve_type_width(cast_node->target_type);
+        if (tw > 0) {
+            return LogicOps::cast_width(val, tw, false);
+        }
+        return val;
+    }
     uint64_t val = eval_const_expr(expr, scope);
     return LogicVal::make_known(32, val);
 }
@@ -538,6 +665,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
     }
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
         return eval_const_logic_val(idx, scope).aval;
+    }
+    if (auto scst = dynamic_cast<StaticCastExprNode*>(expr)) {
+        return eval_const_logic_val(scst, scope).aval;
+    }
+    if (auto cst = dynamic_cast<CastNode*>(expr)) {
+        return eval_const_logic_val(cst, scope).aval;
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         uint64_t res = 0;
@@ -1178,7 +1311,6 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
-        uint32_t d1_width = 1;
         auto it_vdm = result.var_dimensions.find(full_name);
         if (it_vdm == result.var_dimensions.end()) {
             it_vdm = result.var_dimensions.find(idx->name);
@@ -1194,6 +1326,80 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                 if (it_vdm != result.var_dimensions.end()) break;
             }
         }
+
+        if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+            size_t M = it_vdm->second.dimensions.size();
+            std::vector<uint32_t> strides(M, 1);
+            for (int k = (int)M - 2; k >= 0; --k) {
+                strides[k] = strides[k + 1] * (uint32_t)it_vdm->second.dimensions[k + 1].size();
+            }
+
+            struct DimIndex {
+                ExpressionNode* msb = nullptr;
+                ExpressionNode* lsb = nullptr;
+                bool is_part_select = false;
+                bool is_plus_colon = false;
+                bool is_minus_colon = false;
+            };
+            std::vector<DimIndex> dims;
+            if (idx->msb_expr) {
+                dims.push_back({idx->msb_expr.get(), idx->lsb_expr ? idx->lsb_expr.get() : nullptr, idx->is_part_select, idx->is_plus_colon, idx->is_minus_colon});
+            }
+            if (idx->has_bit_select && idx->bit_msb_expr) {
+                bool is_part = (idx->bit_lsb_expr != nullptr) || idx->is_plus_colon || idx->is_minus_colon;
+                dims.push_back({idx->bit_msb_expr.get(), idx->bit_lsb_expr ? idx->bit_lsb_expr.get() : nullptr, is_part, idx->is_plus_colon, idx->is_minus_colon});
+            }
+            for (const auto& ei : idx->extra_indices) {
+                if (ei) {
+                    if (auto part = dynamic_cast<IndexSelectNode*>(ei.get())) {
+                        bool is_part = part->is_part_select || (part->lsb_expr != nullptr) || part->is_plus_colon || part->is_minus_colon;
+                        dims.push_back({part->msb_expr.get(), part->lsb_expr ? part->lsb_expr.get() : nullptr, is_part, part->is_plus_colon, part->is_minus_colon});
+                    } else {
+                        dims.push_back({ei.get(), nullptr, false, false, false});
+                    }
+                }
+            }
+
+            size_t N = dims.size();
+            if (N > 0 && N <= M) {
+                uint32_t total_off = struct_member_offset;
+                uint32_t slice_w = 0;
+                for (size_t d = 0; d < N; ++d) {
+                    int64_t dim_low = it_vdm->second.dimensions[d].low();
+                    if (d == 0 && base_low > 0 && dim_low == 0) dim_low = base_low;
+                    const auto& di = dims[d];
+                    if (di.is_part_select) {
+                        uint64_t b_msb = eval_const_expr(di.msb, scope);
+                        uint64_t b_lsb = 0;
+                        uint32_t count = 1;
+                        if (di.is_plus_colon) {
+                            count = di.lsb ? (uint32_t)eval_const_expr(di.lsb, scope) : 1;
+                            b_lsb = b_msb;
+                        } else if (di.is_minus_colon) {
+                            count = di.lsb ? (uint32_t)eval_const_expr(di.lsb, scope) : 1;
+                            b_lsb = (b_msb >= count - 1) ? (b_msb - count + 1) : 0;
+                        } else {
+                            b_lsb = di.lsb ? eval_const_expr(di.lsb, scope) : b_msb;
+                            count = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            b_lsb = std::min(b_msb, b_lsb);
+                        }
+                        if (dim_low > 0 && b_lsb >= (uint64_t)dim_low) b_lsb -= (uint64_t)dim_low;
+                        total_off += (uint32_t)b_lsb * strides[d];
+                        slice_w = count * strides[d];
+                    } else {
+                        uint64_t val = eval_const_expr(di.msb, scope);
+                        if (dim_low > 0 && val >= (uint64_t)dim_low) val -= (uint64_t)dim_low;
+                        total_off += (uint32_t)val * strides[d];
+                        if (d == N - 1) {
+                            slice_w = strides[d];
+                        }
+                    }
+                }
+                return {id, total_off, slice_w};
+            }
+        }
+
+        uint32_t d1_width = 1;
         int64_t d1_low = 0;
         if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             if (base_low == 0) base_low = it_vdm->second.dimensions[0].low();

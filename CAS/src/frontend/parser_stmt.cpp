@@ -1444,9 +1444,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                 auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
+                if (lsb_expr) {
+                    lhs_idx->lsb_expr = lsb_expr->clone();
+                    lhs_idx->is_part_select = true;
+                    lhs_idx->is_plus_colon = is_plus_c;
+                    lhs_idx->is_minus_colon = is_minus_c;
+                }
                 if (has_dim2 && idx_expr2) {
                     lhs_idx->has_bit_select = true;
                     lhs_idx->bit_msb_expr = idx_expr2->clone();
+                    if (lsb_expr2) {
+                        lhs_idx->bit_lsb_expr = lsb_expr2->clone();
+                        lhs_idx->is_plus_colon = is_plus_c2;
+                        lhs_idx->is_minus_colon = is_minus_c2;
+                    }
                 }
                 for (const auto& e : extra_indices) {
                     lhs_idx->extra_indices.push_back(e ? e->clone() : nullptr);

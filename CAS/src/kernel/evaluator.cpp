@@ -3232,7 +3232,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
                     base_low = it_vdm->second.dimensions[0].low();
                     if (it_vdm->second.dimensions.size() > 1) {
-                        d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                        uint32_t stride0 = 1;
+                        for (size_t k = 1; k < it_vdm->second.dimensions.size(); ++k) {
+                            stride0 *= (uint32_t)it_vdm->second.dimensions[k].size();
+                        }
+                        d1_width = stride0;
+                    } else {
+                        const PackedStructType* st = nullptr;
+                        std::string tname = engine.netlist[net_id].type_name;
+                        if (tname.empty()) {
+                            if (engine.var_to_struct_type.count(full_target_name)) {
+                                tname = engine.var_to_struct_type.at(full_target_name);
+                            } else if (engine.var_to_struct_type.count(nassign->target)) {
+                                tname = engine.var_to_struct_type.at(nassign->target);
+                            }
+                        }
+                        if (!tname.empty()) {
+                            std::string scoped_t = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                            if (engine.struct_types.count(scoped_t)) st = &engine.struct_types.at(scoped_t);
+                            else if (engine.struct_types.count(tname)) st = &engine.struct_types.at(tname);
+                        }
+                        if (st && st->total_width > 0) {
+                            d1_width = st->total_width;
+                        }
                     }
                 }
                 LogicVal idx_v = eval_expr(nassign->bit_idx.get(), bp.scope);
@@ -4617,7 +4639,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
                             base_low = it_vdm->second.dimensions[0].low();
                             if (it_vdm->second.dimensions.size() > 1) {
-                                d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                                uint32_t stride0 = 1;
+                                for (size_t k = 1; k < it_vdm->second.dimensions.size(); ++k) {
+                                    stride0 *= (uint32_t)it_vdm->second.dimensions[k].size();
+                                }
+                                d1_width = stride0;
+                            } else {
+                                const PackedStructType* st = nullptr;
+                                std::string tname = engine.netlist[net_id].type_name;
+                                if (tname.empty()) {
+                                    if (engine.var_to_struct_type.count(full_target_name)) {
+                                        tname = engine.var_to_struct_type.at(full_target_name);
+                                    } else if (engine.var_to_struct_type.count(target_name)) {
+                                        tname = engine.var_to_struct_type.at(target_name);
+                                    }
+                                }
+                                if (!tname.empty()) {
+                                    std::string scoped_t = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                                    if (engine.struct_types.count(scoped_t)) st = &engine.struct_types.at(scoped_t);
+                                    else if (engine.struct_types.count(tname)) st = &engine.struct_types.at(tname);
+                                }
+                                if (st && st->total_width > 0) {
+                                    d1_width = st->total_width;
+                                }
                             }
                         }
                         if (!assign->extra_indices.empty() && it_vdm != engine.var_dimensions.end() && it_vdm->second.dimensions.size() > 1) {

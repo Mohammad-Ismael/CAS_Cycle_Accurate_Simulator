@@ -2371,7 +2371,83 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     if (st) {
                         const StructMember* sm = st->get_member(member_node->member_name);
                         if (sm) {
-                            return cur_word.extract_slice(sm->offset, sm->width);
+                            uint32_t m_offset = sm->offset;
+                            uint32_t m_width = sm->width;
+                            if (member_node->has_member_select) {
+                                if (member_node->is_part_select) {
+                                    uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
+                                    uint64_t lsb = eval(member_node->member_lsb_expr.get(), scope).aval;
+                                    uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                                    uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                                    m_offset += eff_lsb;
+                                    m_width = w;
+                                } else {
+                                    uint64_t b_idx = eval(member_node->member_msb_expr.get(), scope).aval;
+                                    m_offset += (uint32_t)b_idx;
+                                    m_width = 1;
+                                }
+                            }
+                            return cur_word.extract_slice(m_offset, m_width);
+                        }
+                    }
+                }
+                size_t nid = engine.get_net_id(scope, member_node->var_name);
+                if (nid != (size_t)-1) {
+                    LogicVal net_val = engine.netlist[nid].value;
+                    std::string full_name = engine.netlist[nid].name;
+                    auto it_vdm = engine.var_dimensions.find(full_name);
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(scope.empty() ? member_node->var_name : (scope + "." + member_node->var_name));
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(member_node->var_name);
+
+                    int64_t base_low = 0;
+                    uint32_t elem_w = 1;
+                    if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                        base_low = it_vdm->second.dimensions[0].low();
+                        if (it_vdm->second.dimensions.size() > 1) {
+                            uint32_t stride0 = 1;
+                            for (size_t k = 1; k < it_vdm->second.dimensions.size(); ++k) {
+                                stride0 *= (uint32_t)it_vdm->second.dimensions[k].size();
+                            }
+                            elem_w = stride0;
+                        } else if (it_vdm->second.dimensions[0].size() > 0 && net_val.width > (uint32_t)it_vdm->second.dimensions[0].size()) {
+                            elem_w = (uint32_t)(net_val.width / it_vdm->second.dimensions[0].size());
+                        }
+                    }
+
+                    int64_t elem_idx = addr;
+                    if (base_low > 0 && elem_idx >= base_low) elem_idx -= base_low;
+                    if (elem_idx >= 0 && (elem_idx * elem_w) < net_val.width) {
+                        LogicVal cur_word = net_val.extract_slice((uint32_t)(elem_idx * elem_w), elem_w);
+                        std::string type_name = engine.netlist[nid].type_name;
+                        if (type_name.empty()) {
+                            if (engine.var_to_struct_type.count(full_name)) {
+                                type_name = engine.var_to_struct_type.at(full_name);
+                            } else if (engine.var_to_struct_type.count(member_node->var_name)) {
+                                type_name = engine.var_to_struct_type.at(member_node->var_name);
+                            }
+                        }
+                        const PackedStructType* st = find_struct_type_by_member(type_name, member_node->member_name, cur_word.width, scope);
+                        if (st) {
+                            const StructMember* sm = st->get_member(member_node->member_name);
+                            if (sm) {
+                                uint32_t m_offset = sm->offset;
+                                uint32_t m_width = sm->width;
+                                if (member_node->has_member_select) {
+                                    if (member_node->is_part_select) {
+                                        uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
+                                        uint64_t lsb = eval(member_node->member_lsb_expr.get(), scope).aval;
+                                        uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                                        uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                                        m_offset += eff_lsb;
+                                        m_width = w;
+                                    } else {
+                                        uint64_t b_idx = eval(member_node->member_msb_expr.get(), scope).aval;
+                                        m_offset += (uint32_t)b_idx;
+                                        m_width = 1;
+                                    }
+                                }
+                                return cur_word.extract_slice(m_offset, m_width);
+                            }
                         }
                     }
                 }
@@ -2556,7 +2632,23 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (st) {
             const StructMember* sm = st->get_member(member_name);
             if (sm) {
-                return var_val.extract_slice(sm->offset, sm->width);
+                uint32_t m_offset = sm->offset;
+                uint32_t m_width = sm->width;
+                if (member_node->has_member_select) {
+                    if (member_node->is_part_select) {
+                        uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
+                        uint64_t lsb = eval(member_node->member_lsb_expr.get(), scope).aval;
+                        uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                        uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                        m_offset += eff_lsb;
+                        m_width = w;
+                    } else {
+                        uint64_t b_idx = eval(member_node->member_msb_expr.get(), scope).aval;
+                        m_offset += (uint32_t)b_idx;
+                        m_width = 1;
+                    }
+                }
+                return var_val.extract_slice(m_offset, m_width);
             }
         }
 
@@ -3685,7 +3777,24 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (vdm && !vdm->dimensions.empty()) {
             base_low = vdm->dimensions[0].low();
             if (vdm->dimensions.size() > 1) {
-                elem_w = static_cast<uint32_t>(vdm->dimensions[1].size());
+                uint32_t stride0 = 1;
+                for (size_t k = 1; k < vdm->dimensions.size(); ++k) {
+                    stride0 *= (uint32_t)vdm->dimensions[k].size();
+                }
+                elem_w = stride0;
+            } else {
+                std::string tname = "";
+                size_t tnid = engine.get_net_id(scope, idx_node->name);
+                if (tnid != (size_t)-1) tname = engine.netlist[tnid].type_name;
+                if (tname.empty() && engine.var_to_struct_type.count(idx_node->name)) {
+                    tname = engine.var_to_struct_type.at(idx_node->name);
+                }
+                if (!tname.empty()) {
+                    const PackedStructType* st = find_struct_type(tname, scope);
+                    if (st && st->total_width > 0) {
+                        elem_w = st->total_width;
+                    }
+                }
             }
         }
 
