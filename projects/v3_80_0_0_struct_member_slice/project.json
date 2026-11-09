@@ -1,0 +1,8 @@
+{
+  "name": "v3_80_0_0_struct_member_slice",
+  "version": "v3.80.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§7.2",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_80_0_regression"
+}

@@ -119,13 +119,13 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     build_fanout_graph();
 }
 
-static void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem);
+void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem);
 
 static void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids) {
     bool dummy = false;
     collect_read_nets(expr, scope, engine, out_net_ids, dummy);
 }
-static void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem) {
+void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem) {
     if (!expr) return;
 
     if (auto id = dynamic_cast<const IdentifierNode*>(expr)) {
@@ -149,6 +149,16 @@ static void collect_read_nets(const ExpressionNode* expr, const std::string& sco
             out_reads_mem = true;
         }
         size_t raw_nid = engine.get_net_id(scope, idx->name);
+        if (raw_nid == (size_t)-1 && idx->name.find('.') != std::string::npos) {
+            std::string iname = idx->name;
+            size_t dpos = iname.rfind('.');
+            while (dpos != std::string::npos) {
+                std::string base = iname.substr(0, dpos);
+                raw_nid = engine.get_net_id(scope, base);
+                if (raw_nid != (size_t)-1) break;
+                dpos = iname.rfind('.', dpos - 1);
+            }
+        }
         if (raw_nid != (size_t)-1) {
             size_t canon = engine.get_canonical_net_id(raw_nid);
             out_net_ids.push_back((uint32_t)canon);
@@ -429,11 +439,27 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
     }
 
     if (auto ev_ctl = dynamic_cast<const EventControlStatementNode*>(stmt)) {
-        size_t raw_nid = engine.get_net_id(scope, ev_ctl->signal_name);
-        if (raw_nid != (size_t)-1) {
-            size_t canon = engine.get_canonical_net_id(raw_nid);
-            out_net_ids.push_back((uint32_t)canon);
+        if (!ev_ctl->events.empty()) {
+            for (const auto& ev : ev_ctl->events) {
+                size_t raw_nid = engine.get_net_id(scope, ev.second);
+                if (raw_nid != (size_t)-1) {
+                    size_t canon = engine.get_canonical_net_id(raw_nid);
+                    out_net_ids.push_back((uint32_t)canon);
+                }
+            }
+        } else {
+            size_t raw_nid = engine.get_net_id(scope, ev_ctl->signal_name);
+            if (raw_nid != (size_t)-1) {
+                size_t canon = engine.get_canonical_net_id(raw_nid);
+                out_net_ids.push_back((uint32_t)canon);
+            }
         }
+        return;
+    }
+
+    if (auto wc = dynamic_cast<const WaitConditionStatementNode*>(stmt)) {
+        if (wc->condition) collect_read_nets(wc->condition.get(), scope, engine, out_net_ids, out_reads_mem);
+        if (wc->body) collect_stmt_read_nets(wc->body.get(), scope, engine, out_net_ids, out_reads_mem);
         return;
     }
 
@@ -911,6 +937,12 @@ static void bind_ast_stmt(StatementNode* stmt, const std::string& scope, const E
         return;
     }
 
+    if (auto wc = dynamic_cast<WaitConditionStatementNode*>(stmt)) {
+        if (wc->condition) bind_ast_expr(wc->condition.get(), scope, engine);
+        if (wc->body) bind_ast_stmt(wc->body.get(), scope, engine);
+        return;
+    }
+
     if (auto fork_s = dynamic_cast<ForkStatementNode*>(stmt)) {
         for (const auto& s : fork_s->branches) bind_ast_stmt(s.get(), scope, engine);
         return;
@@ -1092,6 +1124,7 @@ void Engine::build_fanout_graph() {
     fanout.resize(netlist.size());
     fanout.mem_reading_rcas.clear();
     fanout.mem_reading_comb_procs.clear();
+    fanout.mem_reading_mcas.clear();
 
     // 1. Build net_to_rca
     for (size_t rca_idx = 0; rca_idx < resolved_continuous_assigns.size(); ++rca_idx) {
@@ -1144,6 +1177,14 @@ void Engine::build_fanout_graph() {
             collect_stmt_read_nets(s.get(), bp.scope, *this, read_nets, reads_mem);
             collect_stmt_write_nets(s.get(), bp.scope, *this, written_nets);
         }
+        for (uint32_t tid : bp.comb_target_nets) {
+            written_nets.insert((uint32_t)get_canonical_net_id(tid));
+            if (tid < alias_members.size()) {
+                for (size_t aid : alias_members[tid]) {
+                    written_nets.insert((uint32_t)aid);
+                }
+            }
+        }
         std::sort(read_nets.begin(), read_nets.end());
         read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
 
@@ -1167,6 +1208,9 @@ void Engine::build_fanout_graph() {
         bool reads_mem = false;
         if (mca.rhs) collect_read_nets(mca.rhs.get(), mca.scope, *this, read_nets, reads_mem);
         if (mca.index_expr) collect_read_nets(mca.index_expr.get(), mca.scope, *this, read_nets, reads_mem);
+        if (reads_mem) {
+            fanout.mem_reading_mcas.push_back((uint32_t)mca_idx);
+        }
         std::sort(read_nets.begin(), read_nets.end());
         read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
         for (uint32_t nid : read_nets) {
@@ -1353,9 +1397,15 @@ void* svGetArrayPtr(const void* h) {
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
                        const std::string& top_module_name,
                        std::ostream* debug_out) {
+    auto t_start = std::chrono::high_resolution_clock::now();
     Elaborator elaborator;
     elaborator.top_param_overrides = top_param_overrides;
-    load_elaboration(elaborator.elaborate(modules, top_module_name, debug_out));
+    auto elab_res = elaborator.elaborate(modules, top_module_name, debug_out);
+    auto t_elab = std::chrono::high_resolution_clock::now();
+    load_elaboration(std::move(elab_res));
+    auto t_load = std::chrono::high_resolution_clock::now();
+    std::cout << "[TIMING] elaborator.elaborate=" << std::chrono::duration<double, std::milli>(t_elab - t_start).count() << " ms"
+              << " load_elaboration=" << std::chrono::duration<double, std::milli>(t_load - t_elab).count() << " ms" << std::endl;
 }
 
 std::string Engine::resolve_scoped_name(const std::string& scope, const std::string& name) const {

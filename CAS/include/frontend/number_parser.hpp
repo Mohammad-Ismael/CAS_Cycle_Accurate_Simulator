@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 struct ParsedNumber {
     uint64_t aval = 0;
@@ -8,6 +9,8 @@ struct ParsedNumber {
     uint32_t width = 32;
     bool is_signed = false;
     std::string text;
+    std::vector<uint64_t> wide_aval;
+    std::vector<uint64_t> wide_bval;
 };
 
 class NumberParser {

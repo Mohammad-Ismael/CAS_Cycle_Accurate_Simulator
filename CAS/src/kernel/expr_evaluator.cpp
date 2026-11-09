@@ -1016,8 +1016,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (num->is_real) {
             return LogicVal::make_real(num->real_val);
         }
-        LogicVal lv(num->width, num->aval, num->bval);
-        lv.is_signed = num->is_signed;
+        LogicVal lv(num->width, num->aval, num->bval, num->is_signed);
+        if (!num->wide_aval.empty()) {
+            lv.wide_aval = num->wide_aval;
+            lv.wide_bval = num->wide_bval;
+            lv.mask();
+        }
         return lv;
     }
 
@@ -1128,6 +1132,31 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             found = true;
                             break;
                         }
+                    }
+                }
+                if (!found) {
+                    std::string memb = scast->target_type_name;
+                    if (memb.rfind('.') != std::string::npos) memb = memb.substr(memb.rfind('.') + 1);
+                    if (Lexer::global_defines.count("RV_" + memb)) {
+                        try {
+                            width = static_cast<uint32_t>(std::stoul(Lexer::global_defines["RV_" + memb], nullptr, 0));
+                            if (width > 0) found = true;
+                        } catch (...) {}
+                    } else if (Lexer::global_defines.count(memb)) {
+                        try {
+                            width = static_cast<uint32_t>(std::stoul(Lexer::global_defines[memb], nullptr, 0));
+                            if (width > 0) found = true;
+                        } catch (...) {}
+                    } else if (Lexer::global_defines.count("RV_" + scast->target_type_name)) {
+                        try {
+                            width = static_cast<uint32_t>(std::stoul(Lexer::global_defines["RV_" + scast->target_type_name], nullptr, 0));
+                            if (width > 0) found = true;
+                        } catch (...) {}
+                    } else if (Lexer::global_defines.count(scast->target_type_name)) {
+                        try {
+                            width = static_cast<uint32_t>(std::stoul(Lexer::global_defines[scast->target_type_name], nullptr, 0));
+                            if (width > 0) found = true;
+                        } catch (...) {}
                     }
                 }
             }
@@ -2338,22 +2367,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     } else if (engine.var_to_struct_type.find(member_node->var_name) != engine.var_to_struct_type.end()) {
                         type_name = engine.var_to_struct_type.at(member_node->var_name);
                     }
-                    const PackedStructType* st = nullptr;
-                    std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
-                    if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
-                        st = &engine.struct_types.at(scoped_type);
-                    } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
-                        st = &engine.struct_types.at(type_name);
-                    }
+                    const PackedStructType* st = find_struct_type_by_member(type_name, member_node->member_name, cur_word.width, scope);
                     if (st) {
                         const StructMember* sm = st->get_member(member_node->member_name);
                         if (sm) {
-                            uint32_t w = sm->width;
-                            uint32_t off = sm->offset;
-                            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                            uint64_t val_a = (cur_word.aval >> off) & mask;
-                            uint64_t val_b = (cur_word.bval >> off) & mask;
-                            return LogicVal(w, val_a, val_b);
+                            return cur_word.extract_slice(sm->offset, sm->width);
                         }
                     }
                 }
@@ -2527,35 +2545,62 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
-        const PackedStructType* st = nullptr;
-        std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
-        if (!type_name.empty()) {
-            if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
-                st = &engine.struct_types.at(scoped_type);
-            } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
-                st = &engine.struct_types.at(type_name);
-            }
+        const PackedStructType* st = find_struct_type_by_member(type_name, member_name, var_val.width, scope);
+        if (!st && !scoped_var.empty()) {
+            st = find_struct_type_by_member(scoped_var, member_name, var_val.width, scope);
         }
-        if (!st) {
-            if (engine.struct_types.find(scoped_var) != engine.struct_types.end()) {
-                st = &engine.struct_types.at(scoped_var);
-            } else if (engine.struct_types.find(var_name) != engine.struct_types.end()) {
-                st = &engine.struct_types.at(var_name);
-            }
+        if (!st && !var_name.empty()) {
+            st = find_struct_type_by_member(var_name, member_name, var_val.width, scope);
         }
 
-        if (!st) return LogicVal::make_x(1);
+        if (st) {
+            const StructMember* sm = st->get_member(member_name);
+            if (sm) {
+                return var_val.extract_slice(sm->offset, sm->width);
+            }
+        }
 
-        const StructMember* sm = st->get_member(member_name);
-        if (!sm) return LogicVal::make_x(1);
+        // Upward scope search in param_val_map and param_map
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string scoped_id = cur_s + "." + var_name + "." + member_name;
+            if (engine.param_val_map.count(scoped_id)) {
+                return engine.param_val_map.at(scoped_id);
+            }
+            if (engine.param_map.count(scoped_id)) {
+                return LogicVal::make_known(32, engine.param_map.at(scoped_id));
+            }
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+        std::string plain_id = var_name + "." + member_name;
+        if (engine.param_val_map.count(plain_id)) {
+            return engine.param_val_map.at(plain_id);
+        }
+        if (engine.param_map.count(plain_id)) {
+            return LogicVal::make_known(32, engine.param_map.at(plain_id));
+        }
+        if (engine.param_val_map.count(member_name)) {
+            return engine.param_val_map.at(member_name);
+        }
+        if (engine.param_map.count(member_name)) {
+            return LogicVal::make_known(32, engine.param_map.at(member_name));
+        }
+        if (Lexer::global_defines.count("RV_" + member_name)) {
+            try {
+                uint64_t v = std::stoull(Lexer::global_defines.at("RV_" + member_name), nullptr, 0);
+                return LogicVal::make_known(32, v);
+            } catch (...) {}
+        }
+        if (Lexer::global_defines.count(member_name)) {
+            try {
+                uint64_t v = std::stoull(Lexer::global_defines.at(member_name), nullptr, 0);
+                return LogicVal::make_known(32, v);
+            } catch (...) {}
+        }
 
-        uint32_t w = sm->width;
-        uint32_t off = sm->offset;
-        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-        uint64_t val_a = (var_val.aval >> off) & mask;
-        uint64_t val_b = (var_val.bval >> off) & mask;
-        LogicVal res(w, val_a, val_b);
-        return res;
+        return LogicVal::make_x(1);
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
@@ -2724,6 +2769,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             int fd = const_cast<Engine&>(engine).next_file_descriptor++;
             auto strm = std::make_shared<std::ofstream>();
             std::ios_base::openmode om = std::ios::out;
+            if (mode.find('w') != std::string::npos) om |= std::ios::trunc;
             if (mode.find('a') != std::string::npos) om |= std::ios::app;
             if (mode.find('b') != std::string::npos) om |= std::ios::binary;
             strm->open(filename, om);
@@ -3085,11 +3131,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto rep = dynamic_cast<ReplicateNode*>(expr)) {
         LogicVal count_val = eval(rep->count_expr.get(), scope);
-        uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
+        int64_t scount = (int64_t)count_val.aval;
+        if (count_val.is_signed && count_val.width < 64) {
+            if (count_val.aval & (1ULL << (count_val.width - 1))) {
+                scount |= (~0ULL << count_val.width);
+            }
+        } else if (count_val.width <= 32 && (count_val.aval & 0x80000000ULL)) {
+            scount = (int32_t)count_val.aval;
+        } else if (count_val.width == 33 && (count_val.aval & 0x100000000ULL)) {
+            scount = (int64_t)(count_val.aval | (~0ULL << 33));
+        }
+        if (count_val.is_unknown() || scount <= 0) return LogicVal(1, 0, 0);
+        uint64_t count = (uint64_t)scount;
+        if (count > 65536) return LogicVal(1, 0, 0);
+
         LogicVal t_val = eval(rep->target_expr.get(), scope);
 
         if (count == 0 || t_val.width == 0) return LogicVal(1, 0, 0);
-        uint32_t total_w = t_val.width * (uint32_t)count;
+        uint64_t total_w_64 = (uint64_t)t_val.width * count;
+        if (total_w_64 > 65536) return LogicVal(1, 0, 0);
+        uint32_t total_w = (uint32_t)total_w_64;
         if (total_w <= 64) {
             uint64_t new_a = 0;
             uint64_t new_b = 0;
@@ -3341,6 +3402,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         LogicVal target_val = LogicVal::make_x(1);
         size_t nid = (size_t)-1;
+        bool found_struct_member = false;
+        int64_t struct_member_lsb = 0;
 
         LocalVar* local = nullptr;
         bool found_sva_local = false;
@@ -3423,6 +3486,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
                         w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
                     }
+                    if (b_lsb >= (uint64_t)mem.packed_lsb) {
+                        b_lsb -= (uint64_t)mem.packed_lsb;
+                    }
                     uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
                     uint64_t val = (elem.aval >> b_lsb) & mask;
                     return LogicVal::make_known(w, val);
@@ -3443,12 +3509,115 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (nid == (size_t)-1) {
                 nid = engine.get_net_id(scope, idx_node->name);
             }
+            if (nid == (size_t)-1 && dot_p != std::string::npos) {
+                std::string iname = idx_node->name;
+                size_t dpos = iname.rfind('.');
+                std::string memb = "";
+                size_t base_id = (size_t)-1;
+                while (dpos != std::string::npos) {
+                    std::string base = iname.substr(0, dpos);
+                    memb = iname.substr(dpos + 1) + (memb.empty() ? "" : ("." + memb));
+                    base_id = engine.get_net_id(scope, base);
+                    if (base_id != (size_t)-1) break;
+                    dpos = iname.rfind('.', dpos - 1);
+                }
+                if (base_id != (size_t)-1 && !memb.empty()) {
+                    LogicVal base_val = (preponed_override && base_id < preponed_override->size()) ?
+                                        (*preponed_override)[base_id] : engine.netlist[base_id].value;
+                    std::string type_name = engine.netlist[base_id].type_name;
+                    std::string base_name = engine.netlist[base_id].name;
+                    if (type_name.empty()) {
+                        if (engine.var_to_struct_type.count(base_name)) {
+                            type_name = engine.var_to_struct_type.at(base_name);
+                        }
+                    }
+                    const PackedStructType* st = find_struct_type_by_member(type_name, memb, engine.netlist[base_id].width, scope);
+                    if (!st && !type_name.empty()) {
+                        std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
+                        st = find_struct_type_by_member(scoped_type, memb, engine.netlist[base_id].width, scope);
+                    }
+                    if (st) {
+                        const StructMember* sm = st->get_member(memb);
+                        if (sm) {
+                            target_val = base_val.extract_slice(sm->offset, sm->width);
+                            found_struct_member = true;
+                            struct_member_lsb = sm->lsb;
+                        }
+                    }
+                } else if (base_id == (size_t)-1 && !memb.empty()) {
+                    LocalVar* local_base = nullptr;
+                    if (context.has_active_frame()) local_base = context.lookup_local(iname.substr(0, iname.rfind('.')));
+                    if (!local_base && current_bp && !current_bp->call_stack.empty()) {
+                        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                            local_base = it->local_frame.get_var(iname.substr(0, iname.rfind('.')));
+                            if (local_base) break;
+                        }
+                    }
+                    if (local_base) {
+                        LogicVal base_val = local_base->value;
+                        const PackedStructType* st = find_struct_type_by_member(local_base->type_name, memb, base_val.width, scope);
+                        if (st) {
+                            const StructMember* sm = st->get_member(memb);
+                            if (sm) {
+                                target_val = base_val.extract_slice(sm->offset, sm->width);
+                                found_struct_member = true;
+                                struct_member_lsb = sm->lsb;
+                            }
+                        }
+                    } else {
+                        std::string base = iname.substr(0, iname.rfind('.'));
+                        LogicVal base_val;
+                        bool found_param = false;
+                        std::string scoped_base = scope.empty() ? base : (scope + "." + base);
+                        if (engine.param_val_map.count(scoped_base)) {
+                            base_val = engine.param_val_map.at(scoped_base);
+                            found_param = true;
+                        } else if (engine.param_val_map.count(base)) {
+                            base_val = engine.param_val_map.at(base);
+                            found_param = true;
+                        } else {
+                            std::string cur_s = scope;
+                            while (!cur_s.empty()) {
+                                std::string cand = cur_s + "." + base;
+                                if (engine.param_val_map.count(cand)) {
+                                    base_val = engine.param_val_map.at(cand);
+                                    found_param = true;
+                                    break;
+                                }
+                                auto dot = cur_s.rfind('.');
+                                if (dot == std::string::npos) cur_s = "";
+                                else cur_s = cur_s.substr(0, dot);
+                            }
+                        }
+                        if (found_param) {
+                            std::string tname = engine.var_to_struct_type.count(scoped_base) ? engine.var_to_struct_type.at(scoped_base) :
+                                               (engine.var_to_struct_type.count(base) ? engine.var_to_struct_type.at(base) : "");
+                            const PackedStructType* st = find_struct_type_by_member(tname, memb, base_val.width, scope);
+                            if (st) {
+                                const StructMember* sm = st->get_member(memb);
+                                if (sm) {
+                                    target_val = base_val.extract_slice(sm->offset, sm->width);
+                                    found_struct_member = true;
+                                    struct_member_lsb = sm->lsb;
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
             if (nid != (size_t)-1) {
                 if (preponed_override && nid < preponed_override->size()) {
                     target_val = (*preponed_override)[nid];
                 } else {
                     target_val = engine.netlist[nid].value;
                 }
+            } else if (found_struct_member) {
+                // target_val already extracted above
+            } else if (engine.param_val_map.count(idx_node->name)) {
+                target_val = engine.param_val_map.at(idx_node->name);
+            } else if (!scope.empty() && engine.param_val_map.count(scope + "." + idx_node->name)) {
+                target_val = engine.param_val_map.at(scope + "." + idx_node->name);
             } else if (engine.param_map.count(idx_node->name)) {
                 target_val = LogicVal::make_known(64, engine.param_map.at(idx_node->name));
             } else if (!scope.empty() && engine.param_map.count(scope + "." + idx_node->name)) {
@@ -3490,7 +3659,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
         }
-        int64_t base_low = 0;
+        int64_t base_low = found_struct_member ? struct_member_lsb : 0;
         uint32_t elem_w = 1;
         if (vdm && !vdm->dimensions.empty()) {
             base_low = vdm->dimensions[0].low();
@@ -3499,10 +3668,50 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
+        if ((!idx_node->extra_indices.empty() || idx_node->has_bit_select) && vdm && vdm->dimensions.size() > 1) {
+            std::vector<ExpressionNode*> all_indices;
+            if (idx_node->msb_expr) all_indices.push_back(idx_node->msb_expr.get());
+            if (idx_node->has_bit_select && idx_node->bit_msb_expr) all_indices.push_back(idx_node->bit_msb_expr.get());
+            for (const auto& ei : idx_node->extra_indices) {
+                if (ei) all_indices.push_back(ei.get());
+            }
+            size_t M = vdm->dimensions.size();
+            size_t N = all_indices.size();
+            std::vector<uint32_t> strides(M, 1);
+            for (int k = (int)M - 2; k >= 0; --k) {
+                strides[k] = strides[k + 1] * (uint32_t)vdm->dimensions[k + 1].size();
+            }
+            uint32_t total_off = 0;
+            uint32_t part_w = 0;
+            for (size_t d = 0; d < N && d < M; ++d) {
+                if (auto part = dynamic_cast<IndexSelectNode*>(all_indices[d])) {
+                    if (part->is_part_select) {
+                        uint64_t msb = eval(part->msb_expr.get(), scope).aval;
+                        uint64_t lsb = eval(part->lsb_expr.get(), scope).aval;
+                        uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                        uint32_t eff_lsb = std::min(msb, lsb);
+                        int64_t low = vdm->dimensions[d].low();
+                        if (eff_lsb >= (uint64_t)low) eff_lsb -= (uint64_t)low;
+                        total_off += eff_lsb * strides[d];
+                        part_w = w;
+                        continue;
+                    }
+                }
+                LogicVal iv = eval(all_indices[d], scope);
+                if (iv.is_unknown()) return LogicVal::make_x(1);
+                int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                int64_t low = vdm->dimensions[d].low();
+                if (val >= low) val -= low;
+                total_off += (uint32_t)val * strides[d];
+            }
+            uint32_t out_w = part_w > 0 ? part_w : ((N <= M) ? (N == M ? 1 : strides[N - 1]) : 1);
+            return target_val.extract_slice(total_off, out_w);
+        }
+
         if (!idx_node->is_part_select) {
             LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
             if (idx_val.is_unknown()) return LogicVal::make_x(elem_w);
-            int64_t raw_idx = idx_val.to_signed();
+            int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
             if (base_low > 0 && raw_idx >= base_low) raw_idx -= base_low;
             if (raw_idx < 0 || (raw_idx * elem_w) >= target_val.width) return LogicVal::make_x(elem_w);
             uint32_t sh = (uint32_t)(raw_idx * elem_w);
@@ -4663,6 +4872,26 @@ const PackedStructType* ExprEvaluator::find_struct_type(const std::string& type_
     }
 
     return nullptr;
+}
+
+const PackedStructType* ExprEvaluator::find_struct_type_by_member(
+    const std::string& type_name,
+    const std::string& member_name,
+    uint32_t width,
+    const std::string& scope
+) const {
+    const PackedStructType* st = find_struct_type(type_name, scope);
+    if (st && (!member_name.empty() ? (st->get_member(member_name) != nullptr) : true)) {
+        return st;
+    }
+    if (!member_name.empty()) {
+        for (const auto& pair : engine.struct_types) {
+            if ((width == 0 || pair.second.total_width == width) && pair.second.get_member(member_name)) {
+                return &pair.second;
+            }
+        }
+    }
+    return st;
 }
 
 const PackedStructType* ExprEvaluator::infer_struct_for_pattern(UnpackedConcatNode* ucat, const std::string& scope) const {
@@ -5995,10 +6224,10 @@ std::string ExprEvaluator::format_systemverilog_string(
             const LogicVal& val = args[arg_idx++];
 
             if (spec == 's') {
+                std::string s;
                 if (val.is_string) {
-                    result += val.str_val;
+                    s = val.str_val;
                 } else {
-                    std::string s;
                     for (int b = (int)val.width - 8; b >= 0; b -= 8) {
                         char ch = (char)((val.aval >> b) & 0xFF);
                         if (ch != 0 || !s.empty()) s += ch;
@@ -6006,8 +6235,11 @@ std::string ExprEvaluator::format_systemverilog_string(
                     if (s.empty() && val.width <= 32) {
                         s = std::to_string(val.aval);
                     }
-                    result += s;
                 }
+                if (width > 0) {
+                    while (s.size() < (size_t)width) s = " " + s;
+                }
+                result += s;
             } else if (spec == 'd') {
                 std::string s;
                 if (val.is_unknown()) {
@@ -6044,6 +6276,9 @@ std::string ExprEvaluator::format_systemverilog_string(
                     while (s.size() < (size_t)width) s = "0" + s;
                 } else if (!pad_zero && width > 0) {
                     while (s.size() < (size_t)width) s = " " + s;
+                } else if (!pad_zero && width == 0) {
+                    size_t hex_digits = (val.width + 3) / 4;
+                    while (s.size() < hex_digits) s = "0" + s;
                 }
                 result += s;
             } else if (spec == 'b') {
@@ -6083,12 +6318,22 @@ std::string ExprEvaluator::format_systemverilog_string(
                     while (s.size() < (size_t)width) s = " " + s;
                 }
                 result += s;
+            } else if (spec == 'c') {
+                char ch = (char)(val.aval & 0xFF);
+                result += ch;
             } else {
                 result += val.is_string ? val.str_val : std::to_string(val.aval);
             }
         } else {
             result += fmt[i];
         }
+    }
+    while (arg_idx < args.size()) {
+        const auto& val = args[arg_idx++];
+        if (val.is_string) result += val.str_val;
+        else if (val.is_real) result += std::to_string(val.real_val);
+        else if (val.is_signed) result += std::to_string(val.to_signed());
+        else result += std::to_string(val.aval);
     }
     return result;
 }

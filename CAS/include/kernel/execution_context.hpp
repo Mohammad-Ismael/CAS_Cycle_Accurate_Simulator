@@ -43,7 +43,13 @@ struct LocalVar {
           value(LogicVal::make_x(w)), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc) {
         if (is_queue) queue_data = QueueObject(name, width, is_signed);
         if (is_dynamic_array) dyn_array_data = DynamicArrayObject(name, width, is_signed);
-        if (is_associative_array) assoc_array_data = AssociativeArrayObject(name, width, is_signed, key_t, key_w);
+        if (is_associative_array) {
+            bool is_2st = (type_name == "bit" || type_name == "int" || type_name == "byte" || type_name == "shortint" || type_name == "longint");
+            assoc_array_data = AssociativeArrayObject(name, width, is_signed, key_t, key_w, is_2st);
+        }
+        if (type_name == "bit" || type_name == "int" || type_name == "byte" || type_name == "shortint" || type_name == "longint") {
+            value = LogicVal(w, 0, 0, is_signed);
+        }
         if (type_name == "chandle") {
             is_chandle = true;
             value = LogicVal(64, 0, 0);

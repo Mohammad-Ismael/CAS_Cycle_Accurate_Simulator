@@ -1,0 +1,9 @@
+{
+  "name": "v3_83_0_0_assoc_mem_readmemh",
+  "version": "3.83.0.0",
+  "top_module": "tb_v3_83_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

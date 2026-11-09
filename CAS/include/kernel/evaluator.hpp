@@ -20,6 +20,7 @@ public:
     void set_current_process(BoundProcess* bp);
     BoundProcess* get_current_process() const { return current_bp; }
     ExprEvaluator& get_expr_eval() { return expr_eval; }
+    bool has_returned(const BoundProcess& bp) const;
 
     void set_current_this(ClassObject* obj) { expr_eval.set_current_this(obj); }
     ClassObject* get_current_this() const { return expr_eval.get_current_this(); }

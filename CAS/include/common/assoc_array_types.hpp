@@ -12,13 +12,14 @@ struct AssociativeArrayObject {
     std::string key_type = "logic";
     uint32_t key_width = 32;
     bool is_string_key = false;
+    bool is_2state = false;
 
     std::map<uint64_t, LogicVal> elements;
     std::map<std::string, LogicVal> str_elements;
 
     AssociativeArrayObject() = default;
-    AssociativeArrayObject(std::string n, uint32_t w = 32, bool s = false, std::string kt = "logic", uint32_t kw = 32)
-        : name(std::move(n)), val_width(w), is_signed(s), key_type(std::move(kt)), key_width(kw) {
+    AssociativeArrayObject(std::string n, uint32_t w = 32, bool s = false, std::string kt = "logic", uint32_t kw = 32, bool is_2st = false)
+        : name(std::move(n)), val_width(w), is_signed(s), key_type(std::move(kt)), key_width(kw), is_2state(is_2st) {
         if (key_type == "string") {
             is_string_key = true;
         }
@@ -124,12 +125,18 @@ struct AssociativeArrayObject {
         if (it != elements.end()) {
             return it->second;
         }
+        if (is_2state) {
+            return LogicVal(val_width, 0, 0, is_signed);
+        }
         return LogicVal::make_x(val_width);
     }
     LogicVal get(const std::string& key) const {
         auto it = str_elements.find(key);
         if (it != str_elements.end()) {
             return it->second;
+        }
+        if (is_2state) {
+            return LogicVal(val_width, 0, 0, is_signed);
         }
         return LogicVal::make_x(val_width);
     }

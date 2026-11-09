@@ -375,8 +375,30 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     auto it = delayed_nba_queue.find(target_time);
     if (it != delayed_nba_queue.end()) {
         for (const auto& item : it->second) {
-            if (!engine.netlist[item.net_id].has_procedural_assign) {
-                engine.netlist[item.net_id].set(item.val);
+            size_t target_id = (item.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[item.net_id] : item.net_id;
+            if (!engine.netlist[target_id].has_procedural_assign) {
+                LogicVal old_v = engine.netlist[target_id].value;
+                if (item.is_slice) {
+                    auto cur = old_v;
+                    cur.deposit_slice(item.offset, item.slice_width, item.val);
+                    engine.netlist[target_id].set(cur);
+                } else {
+                    engine.netlist[target_id].set(item.val);
+                }
+                if (target_id < native_nets_u64.size()) {
+                    native_nets_u64[target_id] = engine.netlist[target_id].value.aval;
+                }
+                if (target_id < engine.alias_members.size()) {
+                    for (size_t other_id : engine.alias_members[target_id]) {
+                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                            engine.netlist[other_id].set(engine.netlist[target_id].value);
+                            if (other_id < native_nets_u64.size()) native_nets_u64[other_id] = engine.netlist[target_id].value.aval;
+                        }
+                    }
+                }
+                if (engine.netlist[target_id].value != old_v) {
+                    notify_net_changed(target_id);
+                }
             }
             nba_commits_count++;
         }
@@ -398,25 +420,25 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     auto bit = delayed_blocking_queue.find(target_time);
     if (bit != delayed_blocking_queue.end()) {
         for (const auto& b_item : bit->second) {
-            std::string scoped_target = b_item.scope + "." + b_item.target_name;
-            if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
-                size_t net_id = engine.net_map.at(scoped_target);
+            size_t net_id = engine.get_net_id(b_item.scope, b_item.target_name);
+            if (net_id != (size_t)-1) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
+                    LogicVal old_v = engine.netlist[net_id].value;
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
-                    if (net_id < engine.alias_members.size()) {
-                        for (size_t other_id : engine.alias_members[net_id]) {
-                            if (other_id != net_id && other_id < engine.netlist.size()) {
-                                engine.netlist[other_id].set(casted);
-                            }
-                        }
+                    if (net_id < native_nets_u64.size()) {
+                        native_nets_u64[net_id] = casted.aval;
                     }
                     if (net_id < engine.alias_members.size()) {
                         for (size_t other_id : engine.alias_members[net_id]) {
                             if (other_id != net_id && other_id < engine.netlist.size()) {
                                 engine.netlist[other_id].set(casted);
+                                if (other_id < native_nets_u64.size()) native_nets_u64[other_id] = casted.aval;
                             }
                         }
+                    }
+                    if (engine.netlist[net_id].value != old_v) {
+                        notify_net_changed(net_id);
                     }
                 }
             }
@@ -480,6 +502,28 @@ void StratifiedScheduler::enqueue_comb_proc(uint32_t proc_id) {
     if (proc_id < comb_proc_enqueued.size() && !comb_proc_enqueued[proc_id]) {
         comb_proc_enqueued[proc_id] = 1;
         dirty_comb_procs.push_back(proc_id);
+        comb_dirty = true;
+    }
+}
+
+void StratifiedScheduler::enqueue_slice_binding(uint32_t slice_idx) {
+    if (slice_binding_enqueued.size() != engine.slice_bindings.size()) {
+        slice_binding_enqueued.assign(engine.slice_bindings.size(), 0);
+    }
+    if (slice_idx < slice_binding_enqueued.size() && !slice_binding_enqueued[slice_idx]) {
+        slice_binding_enqueued[slice_idx] = 1;
+        dirty_slice_bindings.push_back(slice_idx);
+        comb_dirty = true;
+    }
+}
+
+void StratifiedScheduler::enqueue_mca(uint32_t mca_idx) {
+    if (mca_enqueued.size() != engine.memory_continuous_assigns.size()) {
+        mca_enqueued.assign(engine.memory_continuous_assigns.size(), 0);
+    }
+    if (mca_idx < mca_enqueued.size() && !mca_enqueued[mca_idx]) {
+        mca_enqueued[mca_idx] = 1;
+        dirty_mcas.push_back(mca_idx);
         comb_dirty = true;
     }
 }
@@ -574,7 +618,33 @@ void StratifiedScheduler::init_scheduler() {
             }
         }
     }
+    net_to_slice_bindings.assign(engine.netlist.size(), {});
+    for (size_t s_idx = 0; s_idx < engine.slice_bindings.size(); ++s_idx) {
+        const auto& bind = engine.slice_bindings[s_idx];
+        if (bind.src.net_id < engine.netlist.size()) {
+            size_t canon_src = engine.get_canonical_net_id(bind.src.net_id);
+            net_to_slice_bindings[canon_src].push_back((uint32_t)s_idx);
+            if (bind.src.net_id != canon_src) {
+                net_to_slice_bindings[bind.src.net_id].push_back((uint32_t)s_idx);
+            }
+        }
+    }
+    slice_binding_enqueued.assign(engine.slice_bindings.size(), 0);
+    dirty_slice_bindings.clear();
+    for (uint32_t i = 0; i < engine.slice_bindings.size(); ++i) {
+        enqueue_slice_binding(i);
+    }
+    mca_enqueued.assign(engine.memory_continuous_assigns.size(), 0);
+    dirty_mcas.clear();
+    for (uint32_t i = 0; i < engine.memory_continuous_assigns.size(); ++i) {
+        enqueue_mca(i);
+    }
     memory_fastpath.init(engine);
+    std::cout << "[INIT_SCHEDULER] slice_bindings=" << engine.slice_bindings.size()
+              << " memory_bindings=" << engine.memory_bindings.size()
+              << " memory_continuous_assigns=" << engine.memory_continuous_assigns.size()
+              << " resolved_continuous_assigns=" << engine.resolved_continuous_assigns.size()
+              << " processes=" << engine.processes.size() << std::endl;
 }
 
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
@@ -604,11 +674,31 @@ void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (canon_nid < engine.fanout.net_to_comb_proc.size()) {
         const auto& proc_list = engine.fanout.net_to_comb_proc[canon_nid];
         for (uint32_t proc_id : proc_list) {
+            if (current_running_comb_proc != UINT32_MAX && proc_id == current_running_comb_proc) {
+                continue;
+            }
             enqueue_comb_proc(proc_id);
         }
     }
-    if (canon_nid < engine.fanout.net_to_mca.size() && !engine.fanout.net_to_mca[canon_nid].empty()) {
-        comb_dirty = true;
+    if (canon_nid < net_to_slice_bindings.size()) {
+        for (uint32_t s_idx : net_to_slice_bindings[canon_nid]) {
+            enqueue_slice_binding(s_idx);
+        }
+    }
+    if (net_id < net_to_slice_bindings.size() && net_id != canon_nid) {
+        for (uint32_t s_idx : net_to_slice_bindings[net_id]) {
+            enqueue_slice_binding(s_idx);
+        }
+    }
+    if (canon_nid < engine.fanout.net_to_mca.size()) {
+        for (uint32_t m_idx : engine.fanout.net_to_mca[canon_nid]) {
+            enqueue_mca(m_idx);
+        }
+    }
+    if (net_id < engine.fanout.net_to_mca.size() && net_id != canon_nid) {
+        for (uint32_t m_idx : engine.fanout.net_to_mca[net_id]) {
+            enqueue_mca(m_idx);
+        }
     }
 }
 
@@ -619,6 +709,9 @@ void StratifiedScheduler::notify_mem_changed() {
     }
     for (uint32_t proc_id : engine.fanout.mem_reading_comb_procs) {
         enqueue_comb_proc(proc_id);
+    }
+    for (uint32_t mca_idx : engine.fanout.mem_reading_mcas) {
+        enqueue_mca(mca_idx);
     }
 }
 
@@ -2213,7 +2306,7 @@ void StratifiedScheduler::execute_comb_proc_bytecode(BoundProcess& bp) {
 }
 
 void StratifiedScheduler::propagate_comb() {
-    if (!comb_dirty && dirty_rcas.empty() && dirty_comb_procs.empty()) return;
+    if (!comb_dirty && dirty_rcas.empty() && dirty_comb_procs.empty() && dirty_slice_bindings.empty() && dirty_mcas.empty()) return;
     delta_cycles_count++;
     size_t iters = 0;
     bool changed = true;
@@ -2236,6 +2329,11 @@ void StratifiedScheduler::propagate_comb() {
             for (const auto& rec : topological_target_records) {
                 uint64_t val = native_nets_u64[rec.net_id];
                 if (val != engine.netlist[rec.net_id].value.aval || engine.netlist[rec.net_id].value.bval != 0) {
+                    if (iters == 50 || iters == 90) {
+                        std::cerr << "[OscillatingTopo] net=" << engine.netlist[rec.net_id].name
+                                  << " old=0x" << std::hex << engine.netlist[rec.net_id].value.aval
+                                  << " new=0x" << val << std::dec << "\n";
+                    }
                     LogicVal lval = LogicVal::from_u64_2state(val, rec.width, rec.is_signed);
                     engine.netlist[rec.net_id].set(lval);
                     if (rec.net_id < engine.alias_members.size()) {
@@ -2258,29 +2356,60 @@ void StratifiedScheduler::propagate_comb() {
         }
 
         auto t0 = std::chrono::high_resolution_clock::now();
-        for (auto& bind : engine.slice_bindings) {
-            if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
-            LogicVal src_val = engine.evaluator.read_slice(bind.src);
-            if (src_val.width != bind.dst.width && !src_val.is_string) {
-                src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
+        if (!dirty_slice_bindings.empty()) {
+            std::vector<uint32_t> current_slice_batch;
+            current_slice_batch.swap(dirty_slice_bindings);
+            for (uint32_t s_idx : current_slice_batch) {
+                if (s_idx < slice_binding_enqueued.size()) slice_binding_enqueued[s_idx] = 0;
             }
-            LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
-            if (src_val != dst_val) {
-                engine.evaluator.write_slice(bind.dst, src_val);
-                notify_net_changed(bind.dst.net_id);
-                changed = true;
+            for (uint32_t s_idx : current_slice_batch) {
+                if (s_idx >= engine.slice_bindings.size()) continue;
+                auto& bind = engine.slice_bindings[s_idx];
+                if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
+                LogicVal src_val = engine.evaluator.read_slice(bind.src);
+                if (src_val.width != bind.dst.width && !src_val.is_string) {
+                    src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
+                }
+                LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
+                if (src_val != dst_val) {
+                    if (iters == 50) {
+                        std::cerr << "[OscillatingSlice] src=" << engine.netlist[bind.src.net_id].name
+                                  << "[" << bind.src.offset << "+:" << bind.src.width << "]=0x" << std::hex << src_val.aval
+                                  << " -> dst=" << engine.netlist[bind.dst.net_id].name
+                                  << "[" << bind.dst.offset << "+:" << bind.dst.width << "] old=0x" << dst_val.aval << std::dec << "\n";
+                    }
+                    size_t tid = (bind.dst.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[bind.dst.net_id] : bind.dst.net_id;
+                    LogicVal old_target_v = engine.netlist[tid].value;
+                    engine.evaluator.write_slice(bind.dst, src_val);
+                    if (engine.netlist[tid].value != old_target_v) {
+                        notify_net_changed(bind.dst.net_id);
+                        changed = true;
+                    }
+                }
             }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
         t_slice_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
 
         for (auto& mbind : engine.memory_bindings) {
-            auto it_src = engine.memory_map.find(mbind.src);
-            auto it_dst = engine.memory_map.find(mbind.dst);
-            if (it_src != engine.memory_map.end() && it_dst != engine.memory_map.end()) {
-                for (size_t i = 0; i < it_src->second.words.size() && i < it_dst->second.words.size(); ++i) {
-                    if (it_dst->second.words[i] != it_src->second.words[i]) {
-                        it_dst->second.words[i] = it_src->second.words[i];
+            if (!mbind.resolved) {
+                auto it_src = engine.memory_map.find(mbind.src);
+                auto it_dst = engine.memory_map.find(mbind.dst);
+                if (it_src != engine.memory_map.end()) mbind.cached_src = &it_src->second;
+                if (it_dst != engine.memory_map.end()) mbind.cached_dst = &it_dst->second;
+                mbind.resolved = true;
+            }
+            if (mbind.cached_src && mbind.cached_dst) {
+                auto* src_mem = mbind.cached_src;
+                auto* dst_mem = mbind.cached_dst;
+                for (size_t i = 0; i < src_mem->words.size() && i < dst_mem->words.size(); ++i) {
+                    if (dst_mem->words[i] != src_mem->words[i]) {
+                        if (iters == 50 || iters == 90) {
+                            std::cerr << "[OscillatingMBind] src=" << mbind.src << " dst=" << mbind.dst
+                                      << " [" << i << "] old=0x" << std::hex << dst_mem->words[i].aval
+                                      << " new=0x" << src_mem->words[i].aval << std::dec << "\n";
+                        }
+                        dst_mem->words[i] = src_mem->words[i];
                         notify_mem_changed();
                         changed = true;
                     }
@@ -2288,37 +2417,87 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        // Continuous assignments targeting memory array words (IEEE 1800-2023 Â§27)
-        for (auto& mca : engine.memory_continuous_assigns) {
-            std::string cur_s = mca.scope;
-            auto it = engine.memory_map.end();
-            while (true) {
-                std::string scoped = cur_s.empty() ? mca.mem_name : (cur_s + "." + mca.mem_name);
-                it = engine.memory_map.find(scoped);
-                if (it != engine.memory_map.end()) break;
-                if (cur_s.empty()) break;
-                auto dot = cur_s.rfind('.');
-                if (dot == std::string::npos) cur_s = "";
-                else cur_s = cur_s.substr(0, dot);
+        // Continuous assignments targeting memory array words (IEEE 1800-2023 §27)
+        if (!dirty_mcas.empty()) {
+            std::vector<uint32_t> current_mca_batch;
+            current_mca_batch.swap(dirty_mcas);
+            for (uint32_t m_idx : current_mca_batch) {
+                if (m_idx < mca_enqueued.size()) mca_enqueued[m_idx] = 0;
             }
-            if (it == engine.memory_map.end()) {
-                it = engine.memory_map.find(mca.mem_name);
-            }
-            if (it != engine.memory_map.end()) {
-                LogicVal idx_val;
-                if (auto idx_node = dynamic_cast<IndexSelectNode*>(mca.index_expr.get())) {
-                    idx_val = engine.evaluator.eval_expr(idx_node->msb_expr.get(), mca.scope);
-                } else {
-                    idx_val = engine.evaluator.eval_expr(mca.index_expr.get(), mca.scope);
+            for (uint32_t m_idx : current_mca_batch) {
+                if (m_idx >= engine.memory_continuous_assigns.size()) continue;
+                auto& mca = engine.memory_continuous_assigns[m_idx];
+                if (!mca.mem_resolved) {
+                    std::string cur_s = mca.scope;
+                    while (true) {
+                        std::string scoped = cur_s.empty() ? mca.mem_name : (cur_s + "." + mca.mem_name);
+                        auto it = engine.memory_map.find(scoped);
+                        if (it != engine.memory_map.end()) {
+                            mca.cached_mem = &it->second;
+                            break;
+                        }
+                        if (cur_s.empty()) break;
+                        auto dot = cur_s.rfind('.');
+                        if (dot == std::string::npos) cur_s = "";
+                        else cur_s = cur_s.substr(0, dot);
+                    }
+                    if (!mca.cached_mem) {
+                        auto it = engine.memory_map.find(mca.mem_name);
+                        if (it != engine.memory_map.end()) {
+                            mca.cached_mem = &it->second;
+                        }
+                    }
+                    mca.mem_resolved = true;
                 }
-                if (!idx_val.is_unknown()) {
-                    int64_t addr = (int64_t)idx_val.aval;
-                    LogicVal rhs_val = engine.evaluator.eval_expr(mca.rhs.get(), mca.scope);
-                    LogicVal cur_val = it->second.get_word(addr);
-                    if (cur_val != rhs_val) {
-                        it->second.set_word(addr, rhs_val);
-                        notify_mem_changed();
-                        changed = true;
+                MemoryArray* target_mem = mca.cached_mem;
+                if (target_mem != nullptr) {
+                    LogicVal idx_val;
+                    if (auto idx_node = dynamic_cast<IndexSelectNode*>(mca.index_expr.get())) {
+                        idx_val = engine.evaluator.eval_expr(idx_node->msb_expr.get(), mca.scope);
+                    } else {
+                        idx_val = engine.evaluator.eval_expr(mca.index_expr.get(), mca.scope);
+                    }
+                    if (!idx_val.is_unknown()) {
+                        int64_t addr = (int64_t)idx_val.aval;
+                        if (!target_mem->is_valid_index(addr)) continue;
+                        LogicVal rhs_val = engine.evaluator.eval_expr(mca.rhs.get(), mca.scope);
+                        LogicVal cur_val = target_mem->get_word(addr);
+                        if (cur_val.width != target_mem->word_width) {
+                            cur_val = LogicOps::cast_width(cur_val, target_mem->word_width, false);
+                        }
+                        if (mca.bit_width > 0) {
+                            uint32_t eff_offset = (mca.bit_offset >= (uint32_t)target_mem->packed_lsb)
+                                                ? (mca.bit_offset - (uint32_t)target_mem->packed_lsb)
+                                                : mca.bit_offset;
+                            LogicVal casted_rhs = LogicOps::cast_width(rhs_val, mca.bit_width, false);
+                            LogicVal old_slice = cur_val.extract_slice(eff_offset, mca.bit_width);
+                            if (old_slice == casted_rhs) {
+                                continue;
+                            }
+                            if (iters == 50 || iters == 90) {
+                                std::cerr << "[OscillatingMCA] (slice) mem=" << mca.mem_name << "[" << addr << "]["
+                                          << eff_offset << "+:" << mca.bit_width << "] old=0x"
+                                          << std::hex << old_slice.aval << " new=0x" << casted_rhs.aval << std::dec << "\n";
+                            }
+                            cur_val.deposit_slice(eff_offset, mca.bit_width, casted_rhs);
+                            target_mem->set_word(addr, cur_val);
+                            notify_mem_changed();
+                            changed = true;
+                        } else {
+                            LogicVal casted_rhs = (rhs_val.width != target_mem->word_width)
+                                                ? LogicOps::cast_width(rhs_val, target_mem->word_width, false)
+                                                : rhs_val;
+                            if (cur_val == casted_rhs) {
+                                continue;
+                            }
+                            if (iters == 50 || iters == 90) {
+                                std::cerr << "[OscillatingMCA] (word) mem=" << mca.mem_name << "[" << addr << "] old=0x"
+                                          << std::hex << cur_val.aval << " new=0x" << casted_rhs.aval << std::dec << "\n";
+                            }
+                            target_mem->set_word(addr, casted_rhs);
+                            notify_mem_changed();
+                            changed = true;
+                        }
                     }
                 }
             }
@@ -2357,6 +2536,10 @@ void StratifiedScheduler::propagate_comb() {
                             native_dispatch.rca_table[rca_idx](native_nets_u64.data());
                             uint64_t new_u64 = native_nets_u64[target_net_id];
                             if (new_u64 != old_u64 || engine.netlist[target_net_id].value.bval != 0) {
+                                if (iters == 50 || iters == 90) {
+                                    std::cerr << "[OscillatingNativeRCA] rca_idx=" << rca_idx << " target=" << engine.netlist[target_net_id].name
+                                              << " old=0x" << std::hex << old_u64 << " new=0x" << new_u64 << std::dec << "\n";
+                                }
                                 LogicVal lval = LogicVal::from_u64_2state(
                                     new_u64, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
                                 engine.netlist[target_net_id].set(lval);
@@ -2481,6 +2664,10 @@ void StratifiedScheduler::propagate_comb() {
                             continue;
                         }
 
+                        if (iters == 50 || iters == 90) {
+                            std::cerr << "[OscillatingInterpRCA] rca_idx=" << rca_idx << " target=" << engine.netlist[rca.target.net_id].name
+                                      << " old=0x" << std::hex << cur.aval << " new=0x" << resolved.aval << std::dec << "\n";
+                        }
                         engine.evaluator.write_slice(rca.target, resolved);
                         notify_net_changed(target_id);
                     } else {
@@ -2500,15 +2687,17 @@ void StratifiedScheduler::propagate_comb() {
         t_rca_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
 
         // 4. Procedural Continuous Assignments
-        for (size_t net_idx = 0; net_idx < engine.netlist.size(); ++net_idx) {
-            auto& net = engine.netlist[net_idx];
-            if (net.has_procedural_assign && net.procedural_assign_rhs) {
-                LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
-                LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
-                if (net.value != casted) {
-                    net.set(casted);
-                    notify_net_changed(net_idx);
-                    changed = true;
+        if (!engine.procedural_assign_active_nets.empty()) {
+            for (size_t net_idx : engine.procedural_assign_active_nets) {
+                auto& net = engine.netlist[net_idx];
+                if (net.has_procedural_assign && net.procedural_assign_rhs) {
+                    LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
+                    LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+                    if (net.value != casted) {
+                        net.set(casted);
+                        notify_net_changed(net_idx);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -2525,6 +2714,7 @@ void StratifiedScheduler::propagate_comb() {
 
             for (uint32_t pid : current_comb_batch) {
                 if (pid >= engine.processes.size()) continue;
+                current_running_comb_proc = pid;
                 auto& bp = engine.processes[pid];
                 if (native_dispatch.is_active && pid < native_dispatch.proc_count && native_dispatch.proc_table[pid] != nullptr) {
                     uint64_t old_vals[32];
@@ -2551,6 +2741,7 @@ void StratifiedScheduler::propagate_comb() {
                             notify_net_changed(canon_id);
                         }
                     }
+                    current_running_comb_proc = UINT32_MAX;
                     continue;
                 }
                 if (bp.is_pure_fast_proc) {
@@ -2562,20 +2753,41 @@ void StratifiedScheduler::propagate_comb() {
                         engine.evaluator.execute_statement(stmt.get(), bp);
                     }
                 }
+                current_running_comb_proc = UINT32_MAX;
             }
         }
         auto t5 = std::chrono::high_resolution_clock::now();
         t_proc_ms += std::chrono::duration<double, std::milli>(t5 - t4).count();
 
-        if (!dirty_rcas.empty() || !dirty_comb_procs.empty()) {
+        if (!dirty_rcas.empty() || !dirty_comb_procs.empty() || !dirty_slice_bindings.empty() || !dirty_mcas.empty()) {
             changed = true;
         }
     }
 
+    if (iters > 10) {
+        std::cerr << "[COMB_ITERS] T=" << current_sim_time << " iters=" << iters << "\n";
+    }
+
+    static uint64_t last_hang_check_time = UINT64_MAX;
+    static size_t consecutive_delta_limits = 0;
+
     if (iters >= max_delta_cycles) {
+        if (current_sim_time == last_hang_check_time) {
+            consecutive_delta_limits++;
+            if (consecutive_delta_limits >= 5) {
+                std::cerr << "\n[CAS-FATAL-WATCHDOG] Simulation deadlocked at time " 
+                          << current_sim_time << " ns! 5 consecutive delta cycle limits reached without time progression.\n";
+                std::cerr << "Aborting simulation to prevent hang.\n";
+                std::exit(2);
+            }
+        } else {
+            last_hang_check_time = current_sim_time;
+            consecutive_delta_limits = 1;
+        }
+
         if (!memory_fastpath.bus.is_valid) {
             std::cerr << "[StratifiedScheduler] Warning: Delta cycle limit (" << max_delta_cycles
-                      << ") reached in propagate_comb(); breaking potential combinational loop.\n";
+                      << ") reached in propagate_comb() at T=" << current_sim_time << " ns; breaking potential combinational loop.\n";
         }
         for (uint32_t idx : dirty_rcas) {
             if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
@@ -2585,6 +2797,14 @@ void StratifiedScheduler::propagate_comb() {
             if (pid < comb_proc_enqueued.size()) comb_proc_enqueued[pid] = 0;
         }
         dirty_comb_procs.clear();
+        for (uint32_t s_idx : dirty_slice_bindings) {
+            if (s_idx < slice_binding_enqueued.size()) slice_binding_enqueued[s_idx] = 0;
+        }
+        dirty_slice_bindings.clear();
+    } else {
+        if (current_sim_time != last_hang_check_time) {
+            consecutive_delta_limits = 0;
+        }
     }
     comb_dirty = false;
 }
@@ -2864,10 +3084,20 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
             size_t net_id = sens.net_id;
             if (net_id == (size_t)-1) continue;
             const auto& net = engine.netlist[net_id];
+            size_t canon_id = engine.get_canonical_net_id(net_id);
+            const auto& canon_net = engine.netlist[canon_id];
 
-            if (sens.edge == EdgeType::POSEDGE && net.is_posedge()) { triggered = true; break; }
-            else if (sens.edge == EdgeType::NEGEDGE && net.is_negedge()) { triggered = true; break; }
-            else if (sens.edge == EdgeType::LEVEL && (net.modified || net.changed_in_current_sim_time || net.value != net.prev_value)) { triggered = true; break; }
+            bool is_active_low_rst_at_t0 = (current_sim_time == 0 && 
+                                            bp.proc->sensitivity_list.size() > 1 && 
+                                            sens.edge == EdgeType::NEGEDGE && 
+                                            ((net.value.bval == 0 && (net.value.aval & 1) == 0) || 
+                                             (canon_net.value.bval == 0 && (canon_net.value.aval & 1) == 0)));
+
+
+
+            if (sens.edge == EdgeType::POSEDGE && (net.is_posedge() || canon_net.is_posedge())) { triggered = true; break; }
+            else if (sens.edge == EdgeType::NEGEDGE && (net.is_negedge() || canon_net.is_negedge() || is_active_low_rst_at_t0)) { triggered = true; break; }
+            else if (sens.edge == EdgeType::LEVEL && (net.modified || canon_net.modified || net.changed_in_current_sim_time || net.value != net.prev_value)) { triggered = true; break; }
         }
 
         if (triggered) {
@@ -3101,15 +3331,18 @@ bool StratifiedScheduler::resume_waiting_processes(bool for_reactive) {
         if (bp.is_reactive != for_reactive) continue;
 
         const auto& net = engine.netlist[bp.wait_target.net_id];
-        if (net.change_counter <= bp.wait_target.initial_change_counter) continue;
+        size_t canon_id = engine.get_canonical_net_id(bp.wait_target.net_id);
+        const auto& canon_net = engine.netlist[canon_id];
+        uint64_t current_cc = std::max(net.change_counter, canon_net.change_counter);
+        if (current_cc <= bp.wait_target.initial_change_counter) continue;
 
         bool event_matched = false;
 
-        if (bp.wait_target.edge == EdgeType::POSEDGE && net.is_posedge()) {
+        if (bp.wait_target.edge == EdgeType::POSEDGE && (net.is_posedge() || canon_net.is_posedge())) {
             event_matched = true;
-        } else if (bp.wait_target.edge == EdgeType::NEGEDGE && net.is_negedge()) {
+        } else if (bp.wait_target.edge == EdgeType::NEGEDGE && (net.is_negedge() || canon_net.is_negedge())) {
             event_matched = true;
-        } else if (bp.wait_target.edge == EdgeType::LEVEL && net.modified) {
+        } else if (bp.wait_target.edge == EdgeType::LEVEL) {
             event_matched = true;
         }
 
@@ -3154,6 +3387,16 @@ static void flatten_task_statements(StatementNode* stmt, std::vector<StatementNo
 }
 
 void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
+    if (!tcall->task_name.empty() && tcall->task_name[0] == '$') {
+        engine.evaluator.execute_statement(tcall, bp);
+        if (!bp.call_stack.empty()) {
+            bp.call_stack.back().pc++;
+        } else {
+            bp.pc++;
+        }
+        return;
+    }
+
     std::string scoped_tname = bp.scope.empty() ? tcall->task_name : (bp.scope + "." + tcall->task_name);
     if (engine.dpi_import_map.find(scoped_tname) != engine.dpi_import_map.end() ||
         engine.dpi_import_map.find(tcall->task_name) != engine.dpi_import_map.end()) {
@@ -3625,6 +3868,7 @@ static bool stmt_has_timing_control(const StatementNode* stmt) {
     if (dynamic_cast<const DelayStatementNode*>(stmt)) return true;
     if (dynamic_cast<const CycleDelayStatementNode*>(stmt)) return true;
     if (dynamic_cast<const WaitEventTriggeredStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitConditionStatementNode*>(stmt)) return true;
     if (auto blk = dynamic_cast<const BlockStatementNode*>(stmt)) {
         for (const auto& s : blk->statements) {
             if (stmt_has_timing_control(s.get())) return true;
@@ -3679,7 +3923,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (cur_frame.this_obj) {
                 engine.evaluator.set_current_this(cur_frame.this_obj);
             }
-            if (cur_frame.pc >= cur_frame.flattened_body.size()) {
+            if (cur_frame.pc >= cur_frame.flattened_body.size() || cur_frame.returned) {
                 // Task body finished: write back output bindings and pop frame
                 for (const auto& binding : cur_frame.output_bindings) {
                     LocalVar* lv = cur_frame.local_frame.get_var(binding.first);
@@ -3813,6 +4057,33 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
+            if (auto wc = dynamic_cast<WaitConditionStatementNode*>(stmt)) {
+                LogicVal cval = engine.evaluator.eval_expr(wc->condition.get(), bp.scope);
+                if (cval.to_bool()) {
+                    cur_frame.pc++;
+                    if (wc->body) {
+                        engine.evaluator.execute_statement(wc->body.get(), bp);
+                    }
+                    continue;
+                } else {
+                    std::vector<uint32_t> cond_nets;
+                    bool reads_mem = false;
+                    collect_read_nets(wc->condition.get(), bp.scope, engine, cond_nets, reads_mem);
+                    if (!cond_nets.empty()) {
+                        bp.wait_target.active = true;
+                        bp.wait_target.edge = EdgeType::LEVEL;
+                        bp.wait_target.net_id = cond_nets[0];
+                        size_t canon_id = engine.get_canonical_net_id(cond_nets[0]);
+                        bp.wait_target.initial_change_counter = std::max(engine.netlist[cond_nets[0]].change_counter, engine.netlist[canon_id].change_counter);
+                    } else {
+                        uint64_t wake_time = current_sim_time + 1;
+                        bp.is_delayed = true;
+                        time_wheel.schedule(wake_time, (uint32_t)pid);
+                    }
+                    break;
+                }
+            }
+
             // Sub-task invocation inside task
             if (auto sub_tcall = dynamic_cast<TaskCallNode*>(stmt)) {
                 std::string tname = sub_tcall->task_name;
@@ -3905,6 +4176,9 @@ void StratifiedScheduler::step_process(size_t pid) {
             // Standard statement execution inside task
             engine.evaluator.execute_statement(stmt, bp);
             if (bp.is_waiting_sync) break;
+            if (cur_frame.returned) {
+                continue;
+            }
             cur_frame.pc++;
             continue;
         }
@@ -3990,6 +4264,33 @@ void StratifiedScheduler::step_process(size_t pid) {
                     }
                 }
                 continue;
+            }
+
+            if (auto wc = dynamic_cast<WaitConditionStatementNode*>(stmt)) {
+                LogicVal cval = engine.evaluator.eval_expr(wc->condition.get(), bp.scope);
+                if (cval.to_bool()) {
+                    bp.pc++;
+                    if (wc->body) {
+                        engine.evaluator.execute_statement(wc->body.get(), bp);
+                    }
+                    continue;
+                } else {
+                    std::vector<uint32_t> cond_nets;
+                    bool reads_mem = false;
+                    collect_read_nets(wc->condition.get(), bp.scope, engine, cond_nets, reads_mem);
+                    if (!cond_nets.empty()) {
+                        bp.wait_target.active = true;
+                        bp.wait_target.edge = EdgeType::LEVEL;
+                        bp.wait_target.net_id = cond_nets[0];
+                        size_t canon_id = engine.get_canonical_net_id(cond_nets[0]);
+                        bp.wait_target.initial_change_counter = std::max(engine.netlist[cond_nets[0]].change_counter, engine.netlist[canon_id].change_counter);
+                    } else {
+                        uint64_t wake_time = current_sim_time + 1;
+                        bp.is_delayed = true;
+                        time_wheel.schedule(wake_time, (uint32_t)pid);
+                    }
+                    break;
+                }
             }
 
             // 2. Procedural Delay: #delay
@@ -4270,6 +4571,33 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
             }
             continue;
+        }
+
+        if (auto wc = dynamic_cast<WaitConditionStatementNode*>(stmt)) {
+            LogicVal cval = engine.evaluator.eval_expr(wc->condition.get(), bp.scope);
+            if (cval.to_bool()) {
+                bp.pc++;
+                if (wc->body) {
+                    engine.evaluator.execute_statement(wc->body.get(), bp);
+                }
+                continue;
+            } else {
+                std::vector<uint32_t> cond_nets;
+                bool reads_mem = false;
+                collect_read_nets(wc->condition.get(), bp.scope, engine, cond_nets, reads_mem);
+                if (!cond_nets.empty()) {
+                    bp.wait_target.active = true;
+                    bp.wait_target.edge = EdgeType::LEVEL;
+                    bp.wait_target.net_id = cond_nets[0];
+                    size_t canon_id = engine.get_canonical_net_id(cond_nets[0]);
+                    bp.wait_target.initial_change_counter = std::max(engine.netlist[cond_nets[0]].change_counter, engine.netlist[canon_id].change_counter);
+                } else {
+                    uint64_t wake_time = current_sim_time + 1;
+                    bp.is_delayed = true;
+                    time_wheel.schedule(wake_time, (uint32_t)pid);
+                }
+                break;
+            }
         }
 
         // Cycle Delay Statement: ##N
@@ -4571,10 +4899,14 @@ void StratifiedScheduler::run_simulation() {
             dirty_comb_procs.push_back(i);
         }
     }
-    comb_dirty = true;
-    if (native_dispatch.is_active || llvm_dispatch.is_active) {
-        init_scheduler();
+    init_scheduler();
+    slice_binding_enqueued.assign(engine.slice_bindings.size(), 1);
+    dirty_slice_bindings.clear();
+    dirty_slice_bindings.reserve(engine.slice_bindings.size());
+    for (uint32_t i = 0; i < engine.slice_bindings.size(); ++i) {
+        dirty_slice_bindings.push_back(i);
     }
+    comb_dirty = true;
 
     for (auto& n : engine.netlist) {
         n.prev_value = n.value;
@@ -4719,16 +5051,19 @@ void StratifiedScheduler::run_simulation() {
         auto bit = delayed_blocking_queue.find(slot_time);
         if (bit != delayed_blocking_queue.end()) {
             for (const auto& b_item : bit->second) {
-                std::string scoped_target = b_item.scope + "." + b_item.target_name;
-                if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
-                    size_t net_id = engine.net_map.at(scoped_target);
+                size_t net_id = engine.get_net_id(b_item.scope, b_item.target_name);
+                if (net_id != (size_t)-1) {
                     LogicVal old_v = engine.netlist[net_id].value;
                     LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
+                    if (net_id < native_nets_u64.size()) {
+                        native_nets_u64[net_id] = casted.aval;
+                    }
                     if (net_id < engine.alias_members.size()) {
                         for (size_t other_id : engine.alias_members[net_id]) {
                             if (other_id != net_id && other_id < engine.netlist.size()) {
                                 engine.netlist[other_id].set(casted);
+                                if (other_id < native_nets_u64.size()) native_nets_u64[other_id] = casted.aval;
                             }
                         }
                     }
@@ -4754,5 +5089,10 @@ void StratifiedScheduler::run_simulation() {
         }
     }
     AsyncTraceBuffer::instance().stop();
+    for (auto& pair : engine.open_files) {
+        if (pair.second.stream) {
+            pair.second.stream->flush();
+        }
+    }
     std::cout << "[PROFILE] slice_ms=" << t_slice_ms << " rca_ms=" << t_rca_ms << " proc_ms=" << t_proc_ms << std::endl;
 }

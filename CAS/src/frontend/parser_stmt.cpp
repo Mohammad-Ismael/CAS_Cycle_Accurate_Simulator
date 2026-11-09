@@ -155,10 +155,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         advance();
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        std::unique_ptr<ExpressionNode> init_expr = nullptr;
+        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+            init_expr = parse_expression();
+        }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
         auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, cg_type);
         var_stmt->is_covergroup_handle = true;
         var_stmt->covergroup_type_name = cg_type;
+        var_stmt->init_expr = std::move(init_expr);
         return var_stmt;
     }
 
@@ -623,39 +628,50 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
 
-    // 3. Procedural Event Control: @(posedge clk), @(negedge clk), @(signal), @event
+    // 3. Procedural Event Control: @(posedge clk), @(negedge clk), @(signal), @event, @(a or b)
     if (match(TokenType::TOKEN_AT)) {
-        EdgeType edge = EdgeType::LEVEL;
-        std::string sig;
+        std::vector<std::pair<EdgeType, std::string>> events;
         if (match(TokenType::TOKEN_LPAREN)) {
-            if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
-            else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+            while (true) {
+                EdgeType edge = EdgeType::LEVEL;
+                if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+                else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
 
-            sig = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
-            while (match(TokenType::TOKEN_DOT)) {
-                sig += "." + current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
+                std::string sig = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
+                while (match(TokenType::TOKEN_DOT)) {
+                    sig += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
+                }
+                events.push_back({edge, sig});
+                if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
+                break;
             }
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event control");
         } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
-            sig = current.text;
+            std::string sig = current.text;
             advance();
             while (match(TokenType::TOKEN_DOT)) {
                 sig += "." + current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
             }
+            events.push_back({EdgeType::LEVEL, sig});
         } else {
             throw std::runtime_error("Expected identifier or '(' after '@'");
         }
 
+        EdgeType primary_edge = events.empty() ? EdgeType::LEVEL : events[0].first;
+        std::string primary_sig = events.empty() ? "" : events[0].second;
+        auto ev_node = std::make_unique<EventControlStatementNode>(primary_edge, primary_sig);
+        ev_node->events = std::move(events);
+
         if (match(TokenType::TOKEN_SEMICOLON)) {
-            return std::make_unique<EventControlStatementNode>(edge, sig);
+            return ev_node;
         }
 
         auto target_stmt = parse_statement();
         std::vector<std::unique_ptr<StatementNode>> stmts;
-        stmts.push_back(std::make_unique<EventControlStatementNode>(edge, sig));
+        stmts.push_back(std::move(ev_node));
         stmts.push_back(std::move(target_stmt));
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }
@@ -706,21 +722,26 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<DisableForkStatementNode>();
     }
 
-    // wait fork (IEEE 1800-2023 §9.6.3) or wait (e.triggered) (IEEE 1800-2023 §15.5)
+    // wait fork (IEEE 1800-2023 §9.6.3), wait (e.triggered) (IEEE 1800-2023 §15.5), or wait (expr) [stmt] (IEEE 1800-2023 §9.4.3)
     if (match(TokenType::TOKEN_WAIT)) {
         if (match(TokenType::TOKEN_FORK)) {
             match(TokenType::TOKEN_SEMICOLON);
             return std::make_unique<WaitForkStatementNode>();
         }
         if (match(TokenType::TOKEN_LPAREN)) {
-            std::string ev_name = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier in wait(...)");
-            expect(TokenType::TOKEN_DOT, "Expected '.' in wait(event.triggered)");
-            std::string prop = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected 'triggered' property after '.'");
+            auto cond = parse_expression();
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing wait(...)");
-            match(TokenType::TOKEN_SEMICOLON);
-            return std::make_unique<WaitEventTriggeredStatementNode>(ev_name);
+            if (auto ma = dynamic_cast<MemberAccessNode*>(cond.get())) {
+                if (ma->member_name == "triggered") {
+                    match(TokenType::TOKEN_SEMICOLON);
+                    return std::make_unique<WaitEventTriggeredStatementNode>(ma->var_name);
+                }
+            }
+            std::unique_ptr<StatementNode> body = nullptr;
+            if (!match(TokenType::TOKEN_SEMICOLON)) {
+                body = parse_statement();
+            }
+            return std::make_unique<WaitConditionStatementNode>(std::move(cond), std::move(body));
         }
         throw std::runtime_error("Expected 'fork' or '(' after 'wait'");
     }
@@ -1062,6 +1083,44 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ProceduralDeassignNode>(target);
     }
 
+    if (match(TokenType::TOKEN_FORCE)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected target variable identifier in force");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in force target");
+        }
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto idx = parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                auto lsb = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in force target");
+        }
+        expect(TokenType::TOKEN_EQUAL, "Expected '=' in force");
+        auto rhs = parse_expression();
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after force");
+        return std::make_unique<ProceduralAssignNode>(target, std::move(rhs));
+    }
+
+    if (match(TokenType::TOKEN_RELEASE)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected target variable identifier in release");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in release target");
+        }
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto idx = parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                auto lsb = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in release target");
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after release");
+        return std::make_unique<ProceduralDeassignNode>(target);
+    }
+
     auto parse_intra_timing = [&](uint64_t& intra_delay, bool& has_intra_ev, EdgeType& intra_edge, std::string& intra_sig) {
         if (match(TokenType::TOKEN_HASH)) {
             intra_delay = current.num_val;
@@ -1151,9 +1210,44 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
 
         std::vector<std::string> targets;
+        std::vector<std::unique_ptr<ExpressionNode>> target_exprs;
         while (true) {
-            targets.push_back(current.text);
+            std::string t = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in concatenation target list");
+            while (match(TokenType::TOKEN_DOT)) {
+                t += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in concatenation target");
+            }
+            std::unique_ptr<ExpressionNode> target_expr = nullptr;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto idx_expr = parse_expression();
+                if (match(TokenType::TOKEN_PLUS_COLON)) {
+                    auto w_expr = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                    auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
+                    inode->is_plus_colon = true;
+                    target_expr = std::move(inode);
+                } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                    auto w_expr = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                    auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
+                    inode->is_minus_colon = true;
+                    target_expr = std::move(inode);
+                } else if (match(TokenType::TOKEN_COLON)) {
+                    auto lsb_expr = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                    auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(lsb_expr));
+                    inode->is_part_select = true;
+                    target_expr = std::move(inode);
+                } else {
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                    target_expr = std::make_unique<IndexSelectNode>(t, std::move(idx_expr));
+                }
+            } else {
+                target_expr = std::make_unique<IdentifierNode>(t);
+            }
+            targets.push_back(t);
+            target_exprs.push_back(std::move(target_expr));
             if (match(TokenType::TOKEN_COMMA)) continue;
             break;
         }
@@ -1169,6 +1263,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         auto rhs = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after concatenation assignment");
         auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
+        node->lhs_target_exprs = std::move(target_exprs);
         if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
         return node;
     }
@@ -1250,6 +1345,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
             }
 
+            std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto extra_idx = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
+                extra_indices.push_back(std::move(extra_idx));
+            }
+
             std::string post_member_name = "";
             if (match(TokenType::TOKEN_DOT)) {
                 post_member_name = current.text;
@@ -1257,6 +1359,19 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 while (match(TokenType::TOKEN_DOT)) {
                     post_member_name += "." + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+                std::unique_ptr<ExpressionNode> mem_msb = nullptr;
+                std::unique_ptr<ExpressionNode> mem_lsb = nullptr;
+                bool has_mem_sel = false;
+                bool is_part_sel = false;
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    has_mem_sel = true;
+                    mem_msb = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        is_part_sel = true;
+                        mem_lsb = parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index in member select");
                 }
                 if (match(TokenType::TOKEN_EQUAL)) {
                     uint64_t intra_delay = 0;
@@ -1269,6 +1384,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                     auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), false, intra_delay);
                     node->member_name = post_member_name;
+                    node->has_member_select = has_mem_sel;
+                    node->is_part_select = is_part_sel;
+                    node->member_msb_expr = std::move(mem_msb);
+                    node->member_lsb_expr = std::move(mem_lsb);
                     if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
                     return node;
                 }
@@ -1283,6 +1402,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
                     auto node = std::make_unique<MemAssignNode>(ident, std::move(idx_expr), std::move(rhs), true, intra_delay);
                     node->member_name = post_member_name;
+                    node->has_member_select = has_mem_sel;
+                    node->is_part_select = is_part_sel;
+                    node->member_msb_expr = std::move(mem_msb);
+                    node->member_lsb_expr = std::move(mem_lsb);
                     if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
                     return node;
                 }
@@ -1306,6 +1429,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 node->bit_lsb2 = std::move(lsb_expr2);
                 node->is_plus_colon2 = is_plus_c2;
                 node->is_minus_colon2 = is_minus_c2;
+                node->extra_indices = std::move(extra_indices);
                 if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
                 return node;
             }
@@ -1320,6 +1444,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                 auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
+                if (has_dim2 && idx_expr2) {
+                    lhs_idx->has_bit_select = true;
+                    lhs_idx->bit_msb_expr = idx_expr2->clone();
+                }
+                for (const auto& e : extra_indices) {
+                    lhs_idx->extra_indices.push_back(e ? e->clone() : nullptr);
+                }
                 auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_idx), std::move(rhs));
                 auto node = std::make_unique<BlockingAssignNode>(ident, std::move(op_expr), std::move(idx_expr));
                 node->bit_lsb = std::move(lsb_expr);
@@ -1329,6 +1460,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 node->bit_lsb2 = std::move(lsb_expr2);
                 node->is_plus_colon2 = is_plus_c2;
                 node->is_minus_colon2 = is_minus_c2;
+                node->extra_indices = std::move(extra_indices);
                 return node;
             }
             if (match(TokenType::TOKEN_LE)) {
@@ -1340,7 +1472,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after non-blocking assignment");
-                if (lsb_expr || has_dim2) {
+                if (lsb_expr || has_dim2 || !extra_indices.empty()) {
                     auto node = std::make_unique<NonBlockingAssignNode>(ident, std::move(rhs), intra_delay);
                     node->bit_idx = std::move(idx_expr);
                     node->bit_lsb = std::move(lsb_expr);
@@ -1350,6 +1482,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     node->bit_lsb2 = std::move(lsb_expr2);
                     node->is_plus_colon2 = is_plus_c2;
                     node->is_minus_colon2 = is_minus_c2;
+                    node->extra_indices = std::move(extra_indices);
                     if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
                     return node;
                 } else {

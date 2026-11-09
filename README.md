@@ -107,9 +107,9 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
-## Milestone Regression Pass Matrix (78 / 78 PASS)
+## Milestone Regression Pass Matrix (83 / 83 PASS)
 
-All 78 milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
+All 83 milestone regression testbenches are self-checking and verified against Synopsys VCS 2025.06-SP1 golden reference simulation runs:
 
 | Milestone | Benchmark Suite | Focus & Standard Target | Status | Parity |
 |:---:|:---|:---|:---:|:---:|
@@ -191,6 +191,11 @@ All 78 milestone regression testbenches are self-checking and verified against S
 | **v3.55.0.0** | `projects/v3_55_0_0_unpacked_concat` | Unpacked Array Concatenation & Dynamic Sizing (`{...}`, `'{...}`) (§10.10) | **PASS** | 100% VCS |
 | **v3.56.0.0** | `projects/v3_56_0_0_array_reduction_with` | Array Reduction Methods with `with` Clauses (`sum`, `product`, etc.) (§7.12) | **PASS** | 100% VCS |
 | **v3.57.0.0** | `projects/v3_57_0_0_string_format` | In-Memory Formatted String System Tasks & Functions (`$sformatf`, `$sformat`) (§20.14) | **PASS** | 100% VCS |
+| **v3.79.0.0** | `projects/v3_79_0_0_mca_rmw_slice` | Atomic Memory Continuous Assignment (MCA) slice Read-Modify-Write | **PASS** | 100% VCS |
+| **v3.80.0.0** | `projects/v3_80_0_0_struct_member_slice` | Packed struct member part-select assignment and extraction | **PASS** | 100% VCS |
+| **v3.81.0.0** | `projects/v3_81_0_0_nd_array_slice` | Multi-dimensional (3D) packed array indexing and slicing | **PASS** | 100% VCS |
+| **v3.82.0.0** | `projects/v3_82_0_0_wait_condition_handshake` | Level-sensitive `wait(expr)` process handshakes and wakeup | **PASS** | 100% VCS |
+| **v3.83.0.0** | `projects/v3_83_0_0_assoc_mem_readmemh` | Sparse associative array initialization with `$readmemh` | **PASS** | 100% VCS |
 
 ---
 
@@ -237,10 +242,10 @@ CAS_Cycle_Accurate_Simulator/
 │   │   ├── profiler/           # Runtime hardware resource profiler
 │   │   └── tracer/             # VCD trace dumper
 │   └── src/                    # Implementation sources
-├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.57.0.0)
-│   ├── run_regressions.py      # Automated 78-milestone regression runner script
+├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.83.0.0)
+│   ├── run_regressions.py      # Automated 83-milestone regression runner script
 │   └── v1.0.0.0/               # Initial golden regression reference
-├── projects/                   # Benchmark and application workspace (including 78 milestone test suites)
+├── projects/                   # Benchmark and application workspace (including 83 milestone test suites)
 ├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.57.0.0.md)
 ├── server.py                   # Containerized FastAPI simulation and IDE server
 ├── Dockerfile                  # Production container definition
@@ -280,7 +285,7 @@ docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c "apk add --no-cac
 
 ### 3. Run All Milestone Regressions
 
-The unified regression runner automatically executes all 78 milestone test suites (`v1.0.0.0` through `v3.57.0.0`), asserting 100% Synopsys VCS golden parity:
+The unified regression runner automatically executes all 83 milestone test suites (`v1.0.0.0` through `v3.83.0.0`), asserting 100% Synopsys VCS golden parity:
 
 ```bash
 # From repository root:
@@ -295,24 +300,25 @@ docker exec cas_dev python3 regressions/run_regressions.py
 
 ---
 
-## Phase 2: Real-World Silicon Verification (lowRISC Ibex)
+## Phase 2: Real-World Silicon Verification (lowRISC Ibex & WD VeeR EL2)
 
-With the completion of Milestone `v3.57.0.0`, CAS achieved 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 78 milestone test suites.
+With the expansion through Milestone `v3.83.0.0`, CAS maintains 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 83 milestone test suites (`TOTAL: 83 | PASSED: 83 | FAILED: 0`).
 
-Building upon this golden baseline, CAS has achieved **100% cycle-accurate execution parity** against Verilator on industrial-grade silicon RTL: the **lowRISC Ibex** 32-bit RISC-V core (`ibex_simple_system`).
+Building upon this golden baseline, CAS targets **100% cycle-accurate execution parity** against golden references on industrial-grade silicon RTL: the **lowRISC Ibex** 32-bit RISC-V core and the **Western Digital VeeR EL2** dual-issue 32-bit RISC-V core.
 
-### lowRISC Ibex RV32IMC Milestone Parity
-- **Target Core:** lowRISC Ibex (`ibex_core` / `ibex_top`), an industrial-grade 32-bit RISC-V core with 2-stage in-order pipeline, RV32IMC compressed instruction set, register file, and integrated memory-mapped peripherals (Timer, UART, Simulator Control).
-- **Golden Parity Against Verilator:** CAS executes `hello_test` firmware compiled for lowRISC Ibex with bit-level and cycle-accurate parity:
-  - Exact instruction-by-instruction RVFI trace parity across register writes, jumps, and ALU ops.
-  - Precise timer peripheral interrupt handling (`mtime` / `mtimecmp`) and `wfi` (Wait-For-Interrupt) core wakeup.
-  - Accurate memory-mapped I/O (MMIO) bus writes, streaming clean UART banner output:
-    ```text
-    Hello simple system
-    DEADBEEF
-    BAADF00D
-    ```
-- **Permanent Baseline Safeguard:** All 78 milestone regression suites (`regressions/run_regressions.py`) run continuously with 100.0% Synopsys VCS Golden Parity.
+### Processor Bring-Up Status
+
+- **lowRISC Ibex (RV32IMC):**
+  - Industrial-grade 32-bit RISC-V core (`ibex_simple_system`) with 2-stage in-order pipeline, RV32IMC compressed instruction set, register file, and integrated memory-mapped peripherals (Timer, UART, Simulator Control).
+  - **Full Software Lifecycle Confirmed:** Complete firmware execution (`hello_test.vmem`) verified under CAS to clean completion, including UART banner output (`Hello simple system`, `DEADBEEF`, `BAADF00D`), timer peripheral interrupt handling (`mtime` / `mtimecmp`), and all five `Tick!` / `Tock!` interrupt pulses.
+  - Exact instruction-by-instruction RVFI trace parity against Verilator across register writes, jumps, and ALU ops.
+
+- **Western Digital VeeR EL2 (RV32IMC, Dual-Issue):**
+  - High-performance, dual-issue, superscalar 4-stage pipelined 32-bit RISC-V core (`veer_el2` / `tb_top.sv`).
+  - **Initial Boot & Instruction Retirement Confirmed:** Initial boot sequence, reset deassertion at T=35 ns, 64-bit AXI/bus arbitration, and delta cycle loop oscillation elimination verified.
+  - Reached Checkpoint A: Successfully issued instruction fetch at Cycle 6 (`ifu_araddr=0x80000000`) and confirmed first instruction retirement at Cycle 12 (`0x80000000`), advancing through early execution.
+
+- **Permanent Baseline Safeguard:** All 83 milestone regression suites (`regressions/run_regressions.py`) run continuously with 100.0% Synopsys VCS Golden Parity (`TOTAL: 83 | PASSED: 83 | FAILED: 0`).
 
 ---
 
@@ -414,5 +420,5 @@ Execution benchmark across simulation runs of lowRISC Ibex (`hello_test.vmem`) r
 | **I/O & Trace Architecture** | Synchronous disk I/O | Synchronous disk I/O | Synchronous disk I/O | Synchronous disk I/O | Async Lock-Free Ring Buffer | **Async Lock-Free Ring Buffer** | Zero-copy non-blocking |
 | **Compiled Continuous Assigns** | 0 / 974 (0%) | 521 / 974 (53.5%) | 514 / 974 (52.8%) | 516 / 974 (53.0%) | 516 / 974 (53.0%) | **516 / 974 (53.0%) Inlined Topo** | Pure 2-state 64-bit |
 | **Compiled Sequential Flops** | 0 / 221 (0%) | 0 / 221 (0%) | 62 / 221 (103 flops) | 62 / 221 (103 flops) | 62 / 221 (103 flops) | **62 / 221 (103 flops)** | Double-buffered native |
-| **Milestone Regression Pass** | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | **78 / 78 (100.0%)** | **100% VCS Golden Parity** |
+| **Milestone Regression Pass** | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | 78 / 78 (100.0%) | **83 / 83 (100.0%)** | **100% VCS Golden Parity** |
 | **UART Firmware Output** | Hang at WFI | Exact Parity | Initial banner | Initial banner | Full Banner + 5x Tick/Tock! | **Full Banner + 5x Tick/Tock!** | **100% Complete Firmware Parity** |

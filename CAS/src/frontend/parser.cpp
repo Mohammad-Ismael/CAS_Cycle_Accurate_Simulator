@@ -53,7 +53,8 @@ void Parser::expect(TokenType t, const std::string& err) {
 
 void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
     if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
-        current.type == TokenType::TOKEN_WIRE || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "bit")) {
+        current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_BIT ||
+        (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "bit")) {
         key_type = current.text;
         advance();
         key_width = 1;
@@ -194,6 +195,12 @@ void Parser::parse_packages_only() {
         } else if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
             if (td) {
+                if (td->struct_type) {
+                    global_struct_typedefs[td->type_name] = td->struct_type;
+                }
+                if (td->enum_type) {
+                    global_enum_typedefs[td->type_name] = td->enum_type;
+                }
                 global_typedefs.push_back(std::move(td));
             }
         } else if (current.type == TokenType::TOKEN_MODULE) {

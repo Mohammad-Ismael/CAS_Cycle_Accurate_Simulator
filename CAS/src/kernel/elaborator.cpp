@@ -34,7 +34,13 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         if (num->is_real) return LogicVal::make_real(num->real_val);
-        return LogicVal(num->width, num->aval, num->bval);
+        LogicVal lv(num->width, num->aval, num->bval, num->is_signed);
+        if (num->width > 64 && !num->wide_aval.empty()) {
+            lv.wide_aval = num->wide_aval;
+            lv.wide_bval = num->wide_bval;
+            lv.mask();
+        }
+        return lv;
     }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
         std::string cur_scope = scope;
@@ -61,6 +67,13 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
         if (result.enum_constant_map.find(id->name) != result.enum_constant_map.end()) {
             return result.enum_constant_map.at(id->name);
+        }
+        auto dot_pos = id->name.rfind('.');
+        if (dot_pos != std::string::npos) {
+            std::string base_var = id->name.substr(0, dot_pos);
+            std::string mem_name = id->name.substr(dot_pos + 1);
+            MemberAccessNode man(base_var, mem_name);
+            return eval_const_logic_val(&man, scope);
         }
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
@@ -130,6 +143,211 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                 }
             }
             return res;
+        }
+        return LogicVal(0, 0, 0);
+    }
+    if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+        std::string var_name = ma->var_name;
+        std::string member_name = ma->member_name;
+
+        LogicVal var_val;
+        bool found_var = false;
+        std::string struct_type = "";
+
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string scoped_var = cur_s + "." + var_name;
+            if (result.param_val_map.find(scoped_var) != result.param_val_map.end()) {
+                var_val = result.param_val_map.at(scoped_var);
+                found_var = true;
+                if (result.var_to_struct_type.count(scoped_var)) {
+                    struct_type = result.var_to_struct_type.at(scoped_var);
+                }
+                break;
+            }
+            if (result.param_map.find(scoped_var) != result.param_map.end()) {
+                var_val = LogicVal::make_known(32, result.param_map.at(scoped_var));
+                found_var = true;
+                if (result.var_to_struct_type.count(scoped_var)) {
+                    struct_type = result.var_to_struct_type.at(scoped_var);
+                }
+                break;
+            }
+            if (result.net_map.find(scoped_var) != result.net_map.end()) {
+                size_t nid = result.net_map.at(scoped_var);
+                var_val = result.netlist[nid].value;
+                found_var = true;
+                if (result.var_to_struct_type.count(scoped_var)) {
+                    struct_type = result.var_to_struct_type.at(scoped_var);
+                } else {
+                    struct_type = result.netlist[nid].type_name;
+                }
+                break;
+            }
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+
+        if (!found_var) {
+            if (result.param_val_map.find(var_name) != result.param_val_map.end()) {
+                var_val = result.param_val_map.at(var_name);
+                found_var = true;
+                if (result.var_to_struct_type.count(var_name)) {
+                    struct_type = result.var_to_struct_type.at(var_name);
+                }
+            } else if (result.param_map.find(var_name) != result.param_map.end()) {
+                var_val = LogicVal::make_known(32, result.param_map.at(var_name));
+                found_var = true;
+                if (result.var_to_struct_type.count(var_name)) {
+                    struct_type = result.var_to_struct_type.at(var_name);
+                }
+            } else if (result.net_map.find(var_name) != result.net_map.end()) {
+                size_t nid = result.net_map.at(var_name);
+                var_val = result.netlist[nid].value;
+                found_var = true;
+                if (result.var_to_struct_type.count(var_name)) {
+                    struct_type = result.var_to_struct_type.at(var_name);
+                } else {
+                    struct_type = result.netlist[nid].type_name;
+                }
+            } else if (var_name.find('.') != std::string::npos) {
+                size_t last_dot = var_name.rfind('.');
+                std::string parent_var = var_name.substr(0, last_dot);
+                std::string sub_mem = var_name.substr(last_dot + 1);
+                MemberAccessNode parent_ma(parent_var, sub_mem);
+                var_val = eval_const_logic_val(&parent_ma, scope);
+                if (var_val.width > 0) {
+                    found_var = true;
+                }
+            }
+        }
+
+        const PackedStructType* st = nullptr;
+        if (!struct_type.empty()) {
+            st = find_struct_type(struct_type, scope);
+        }
+        if (!st) {
+            for (const auto& pair : result.struct_types) {
+                if ((var_val.width == 0 || pair.second.total_width == var_val.width) &&
+                    pair.second.get_member(member_name)) {
+                    st = &pair.second;
+                    break;
+                }
+            }
+        }
+        if (!st) {
+            for (const auto& pair : result.struct_types) {
+                if (pair.second.get_member(member_name)) {
+                    st = &pair.second;
+                    break;
+                }
+            }
+        }
+
+        if (st && found_var) {
+            const StructMember* sm = st->get_member(member_name);
+            if (sm) {
+                LogicVal m_val = var_val.extract_slice(sm->offset, sm->width);
+                if (ma->has_member_select) {
+                    if (ma->is_part_select && ma->member_msb_expr && ma->member_lsb_expr) {
+                        uint64_t msb = eval_const_expr(ma->member_msb_expr.get(), scope);
+                        uint64_t lsb = eval_const_expr(ma->member_lsb_expr.get(), scope);
+                        if (msb >= lsb) {
+                            uint32_t slen = (uint32_t)(msb - lsb + 1);
+                            m_val = m_val.extract_slice((uint32_t)lsb, slen);
+                        }
+                    } else if (ma->member_msb_expr) {
+                        uint64_t bit = eval_const_expr(ma->member_msb_expr.get(), scope);
+                        m_val = m_val.extract_slice((uint32_t)bit, 1);
+                    }
+                }
+                return m_val;
+            }
+        }
+
+        std::string full_id = var_name + "." + member_name;
+        cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string scoped_id = cur_s + "." + full_id;
+            if (result.param_val_map.count(scoped_id)) return result.param_val_map.at(scoped_id);
+            if (result.param_map.count(scoped_id)) return LogicVal::make_known(32, result.param_map.at(scoped_id));
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+        if (result.param_val_map.count(full_id)) return result.param_val_map.at(full_id);
+        if (result.param_map.count(full_id)) return LogicVal::make_known(32, result.param_map.at(full_id));
+        return LogicVal(0, 0, 0);
+    }
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        LogicVal base_val;
+        bool found_base = false;
+
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string scoped_id = cur_s + "." + idx->name;
+            if (result.param_val_map.count(scoped_id)) {
+                base_val = result.param_val_map.at(scoped_id);
+                found_base = true;
+                break;
+            }
+            if (result.param_map.count(scoped_id)) {
+                base_val = LogicVal::make_known(32, result.param_map.at(scoped_id));
+                found_base = true;
+                break;
+            }
+            if (result.net_map.count(scoped_id)) {
+                base_val = result.netlist[result.net_map.at(scoped_id)].value;
+                found_base = true;
+                break;
+            }
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+
+        if (!found_base) {
+            if (result.param_val_map.count(idx->name)) {
+                base_val = result.param_val_map.at(idx->name);
+                found_base = true;
+            } else if (result.param_map.count(idx->name)) {
+                base_val = LogicVal::make_known(32, result.param_map.at(idx->name));
+                found_base = true;
+            } else if (result.net_map.count(idx->name)) {
+                base_val = result.netlist[result.net_map.at(idx->name)].value;
+                found_base = true;
+            } else if (idx->name.find('.') != std::string::npos) {
+                size_t dot_pos = idx->name.rfind('.');
+                std::string var_part = idx->name.substr(0, dot_pos);
+                std::string mem_part = idx->name.substr(dot_pos + 1);
+                MemberAccessNode ma(var_part, mem_part);
+                base_val = eval_const_logic_val(&ma, scope);
+                found_base = (base_val.width > 0);
+            }
+        }
+
+        if (found_base) {
+            if (idx->is_plus_colon) {
+                uint64_t base = eval_const_expr(idx->msb_expr.get(), scope);
+                uint64_t w = idx->lsb_expr ? eval_const_expr(idx->lsb_expr.get(), scope) : 1;
+                return base_val.extract_slice((uint32_t)base, (uint32_t)w);
+            } else if (idx->is_minus_colon) {
+                uint64_t base = eval_const_expr(idx->msb_expr.get(), scope);
+                uint64_t w = idx->lsb_expr ? eval_const_expr(idx->lsb_expr.get(), scope) : 1;
+                uint64_t lsb = (base >= w - 1) ? (base - w + 1) : 0;
+                return base_val.extract_slice((uint32_t)lsb, (uint32_t)w);
+            } else if (idx->is_part_select) {
+                uint64_t msb = eval_const_expr(idx->msb_expr.get(), scope);
+                uint64_t lsb = eval_const_expr(idx->lsb_expr.get(), scope);
+                uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                uint64_t eff_lsb = std::min(msb, lsb);
+                return base_val.extract_slice((uint32_t)eff_lsb, w);
+            } else if (idx->msb_expr) {
+                uint64_t off = eval_const_expr(idx->msb_expr.get(), scope);
+                return base_val.extract_slice((uint32_t)off, 1);
+            }
+            return base_val;
         }
         return LogicVal(0, 0, 0);
     }
@@ -314,6 +532,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             return result.enum_constant_map.at(sma->member_name).aval;
         }
         return 0;
+    }
+    if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+        return eval_const_logic_val(ma, scope).aval;
+    }
+    if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        return eval_const_logic_val(idx, scope).aval;
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         uint64_t res = 0;
@@ -728,6 +952,13 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
     auto it = result.struct_types.find(type_name);
     if (it != result.struct_types.end()) return &it->second;
 
+    auto colon = type_name.rfind("::");
+    if (colon != std::string::npos) {
+        std::string bare = type_name.substr(colon + 2);
+        auto it_bare = result.struct_types.find(bare);
+        if (it_bare != result.struct_types.end()) return &it_bare->second;
+    }
+
     for (const auto& pair : result.struct_types) {
         if (pair.first.length() > type_name.length()) {
             if (pair.first.rfind("." + type_name) == pair.first.length() - (type_name.length() + 1) ||
@@ -739,8 +970,9 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
     return nullptr;
 }
 
-bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width) const {
+bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb) const {
     if (net_id >= result.netlist.size() || member_name.empty()) return false;
+    out_lsb = 0;
 
     const PackedStructType* st = nullptr;
     std::string tname = result.netlist[net_id].type_name;
@@ -791,6 +1023,7 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
         if (next_part.empty()) {
             out_offset = accum_off;
             out_width = cur_len;
+            out_lsb = sm->lsb;
             return true;
         }
         cur_st = find_struct_type(sm->type_name, scope);
@@ -875,6 +1108,8 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
         std::string full_name = scope.empty() ? idx->name : (scope + "." + idx->name);
         size_t id = (size_t)-1;
+        uint32_t struct_member_offset = 0;
+        int64_t base_low = 0;
         if (result.net_map.find(full_name) != result.net_map.end()) {
             id = result.net_map.at(full_name);
         } else {
@@ -895,7 +1130,50 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                     id = result.net_map.at(idx->name);
                     full_name = idx->name;
                 } else {
-                    throw std::runtime_error("Cannot resolve net slice reference for '" + idx->name + "' in scope '" + scope + "'");
+                    std::string iname = idx->name;
+                    size_t dot_pos = iname.rfind('.');
+                    std::string memb = "";
+                    while (dot_pos != std::string::npos) {
+                        std::string base = iname.substr(0, dot_pos);
+                        memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                        std::string full_base = scope.empty() ? base : (scope + "." + base);
+                        if (result.net_map.find(full_base) != result.net_map.end()) {
+                            id = result.net_map.at(full_base);
+                            full_name = full_base;
+                            break;
+                        }
+                        std::string cur_s2 = scope;
+                        while (!cur_s2.empty()) {
+                            auto dot = cur_s2.rfind('.');
+                            if (dot == std::string::npos) cur_s2 = "";
+                            else cur_s2 = cur_s2.substr(0, dot);
+                            std::string candidate = cur_s2.empty() ? base : (cur_s2 + "." + base);
+                            if (result.net_map.find(candidate) != result.net_map.end()) {
+                                id = result.net_map.at(candidate);
+                                full_name = candidate;
+                                break;
+                            }
+                        }
+                        if (id != (size_t)-1) break;
+                        if (result.net_map.find(base) != result.net_map.end()) {
+                            id = result.net_map.at(base);
+                            full_name = base;
+                            break;
+                        }
+                        dot_pos = iname.rfind('.', dot_pos - 1);
+                    }
+                    if (id != (size_t)-1 && !memb.empty()) {
+                        uint32_t off = 0;
+                        uint32_t len = result.netlist[id].width;
+                        int64_t memb_lsb = 0;
+                        if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb)) {
+                            struct_member_offset = off;
+                            base_low = memb_lsb;
+                        }
+                    }
+                    if (id == (size_t)-1) {
+                        throw std::runtime_error("Cannot resolve net slice reference for '" + idx->name + "' in scope '" + scope + "'");
+                    }
                 }
             }
         }
@@ -916,11 +1194,14 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                 if (it_vdm != result.var_dimensions.end()) break;
             }
         }
-        int64_t base_low = 0;
+        int64_t d1_low = 0;
         if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
-            base_low = it_vdm->second.dimensions[0].low();
+            if (base_low == 0) base_low = it_vdm->second.dimensions[0].low();
             if (it_vdm->second.dimensions.size() > 1) {
                 d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                d1_low = it_vdm->second.dimensions[1].low();
+            } else if (it_vdm->second.dimensions[0].size() > 0 && result.netlist[id].width > (uint32_t)it_vdm->second.dimensions[0].size()) {
+                d1_width = result.netlist[id].width / (uint32_t)it_vdm->second.dimensions[0].size();
             }
         }
 
@@ -930,23 +1211,28 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             if (idx->is_plus_colon) {
                 uint64_t b_base = eval_const_expr(idx->bit_msb_expr.get(), scope);
                 uint64_t b_width = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : 1;
-                uint64_t total_off = d0_idx * d1_width + b_base;
+                if (d1_low > 0 && b_base >= (uint64_t)d1_low) b_base -= (uint64_t)d1_low;
+                uint64_t total_off = struct_member_offset + d0_idx * d1_width + b_base;
                 return {id, (uint32_t)total_off, (uint32_t)b_width};
             } else if (idx->is_minus_colon) {
                 uint64_t b_base = eval_const_expr(idx->bit_msb_expr.get(), scope);
                 uint64_t b_width = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : 1;
                 uint64_t lsb = (b_base >= b_width - 1) ? (b_base - b_width + 1) : 0;
-                uint64_t total_off = d0_idx * d1_width + lsb;
+                if (d1_low > 0 && lsb >= (uint64_t)d1_low) lsb -= (uint64_t)d1_low;
+                uint64_t total_off = struct_member_offset + d0_idx * d1_width + lsb;
                 return {id, (uint32_t)total_off, (uint32_t)b_width};
             } else if (idx->bit_lsb_expr) {
                 uint64_t b_msb = eval_const_expr(idx->bit_msb_expr.get(), scope);
                 uint64_t b_lsb = eval_const_expr(idx->bit_lsb_expr.get(), scope);
                 uint32_t w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                uint64_t total_off = d0_idx * d1_width + std::min(b_msb, b_lsb);
+                uint64_t lsb = std::min(b_msb, b_lsb);
+                if (d1_low > 0 && lsb >= (uint64_t)d1_low) lsb -= (uint64_t)d1_low;
+                uint64_t total_off = struct_member_offset + d0_idx * d1_width + lsb;
                 return {id, (uint32_t)total_off, w};
             } else {
                 uint64_t b_idx = eval_const_expr(idx->bit_msb_expr.get(), scope);
-                uint64_t total_off = d0_idx * d1_width + b_idx;
+                if (d1_low > 0 && b_idx >= (uint64_t)d1_low) b_idx -= (uint64_t)d1_low;
+                uint64_t total_off = struct_member_offset + d0_idx * d1_width + b_idx;
                 return {id, (uint32_t)total_off, 1};
             }
         }
@@ -955,24 +1241,24 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             uint64_t base = eval_const_expr(idx->msb_expr.get(), scope);
             uint64_t width = idx->lsb_expr ? eval_const_expr(idx->lsb_expr.get(), scope) : 1;
             if (base_low > 0 && base >= (uint64_t)base_low) base -= (uint64_t)base_low;
-            return {id, (uint32_t)base, (uint32_t)width};
+            return {id, (uint32_t)(struct_member_offset + base), (uint32_t)width};
         } else if (idx->is_minus_colon) {
             uint64_t base = eval_const_expr(idx->msb_expr.get(), scope);
             uint64_t width = idx->lsb_expr ? eval_const_expr(idx->lsb_expr.get(), scope) : 1;
             uint64_t lsb = (base >= width - 1) ? (base - width + 1) : 0;
             if (base_low > 0 && lsb >= (uint64_t)base_low) lsb -= (uint64_t)base_low;
-            return {id, (uint32_t)lsb, (uint32_t)width};
+            return {id, (uint32_t)(struct_member_offset + lsb), (uint32_t)width};
         } else if (idx->is_part_select) {
             uint64_t msb = eval_const_expr(idx->msb_expr.get(), scope);
             uint64_t lsb = eval_const_expr(idx->lsb_expr.get(), scope);
             uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
             uint64_t eff_lsb = std::min(msb, lsb);
             if (base_low > 0 && eff_lsb >= (uint64_t)base_low) eff_lsb -= (uint64_t)base_low;
-            return {id, (uint32_t)eff_lsb, w};
+            return {id, (uint32_t)(struct_member_offset + eff_lsb), w};
         } else {
             uint64_t off = eval_const_expr(idx->msb_expr.get(), scope);
             if (base_low > 0 && off >= (uint64_t)base_low) off -= (uint64_t)base_low;
-            return {id, (uint32_t)(off * d1_width), d1_width};
+            return {id, (uint32_t)(struct_member_offset + off * d1_width), d1_width};
         }
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
@@ -980,36 +1266,16 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         std::string const_net_name = scope + ".__const_port_" + std::to_string(const_counter++);
         size_t id = get_or_create_net(const_net_name, num->width, false);
         LogicVal val(num->width, num->aval, num->bval);
+        if (num->width > 64 && !num->wide_aval.empty()) {
+            val.wide_aval = num->wide_aval;
+            val.wide_bval = num->wide_bval;
+            val.mask();
+        }
         result.netlist[id].set(val);
         return {id, 0, num->width};
     }
 
-    static size_t expr_port_counter = 0;
-    std::string temp_net_name = scope + ".__expr_port_" + std::to_string(expr_port_counter++);
-    
-    uint32_t synth_width = 8;
-    if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
-        synth_width = 0;
-        for (auto& el : cat->elements) {
-            if (auto n = dynamic_cast<NumberNode*>(el.get())) {
-                synth_width += n->width;
-            } else if (auto id = dynamic_cast<IdentifierNode*>(el.get())) {
-                std::string full = scope.empty() ? id->name : (scope + "." + id->name);
-                if (result.net_map.find(full) != result.net_map.end()) {
-                    synth_width += result.netlist[result.net_map[full]].width;
-                } else {
-                    synth_width += 1;
-                }
-            } else {
-                synth_width += 1;
-            }
-        }
-        if (synth_width == 0) synth_width = 32;
-    }
-
-    size_t id = get_or_create_net(temp_net_name, synth_width, false);
-    result.continuous_assigns.push_back({scope, {id, 0, synth_width}, expr});
-    return {id, 0, synth_width};
+    throw std::runtime_error("Cannot resolve net slice reference for non-slice expression");
 }
 
 static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode* expr, const std::string& gname, int64_t val) {
@@ -1232,14 +1498,27 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 if (pdim.right_expr) pdim.right_expr = substitute_genvar_in_expr(pdim.right_expr.get(), gname, gval);
             }
         }
-        uint32_t w = 1;
-        if (p.msb_expr && p.lsb_expr) {
+        uint32_t elem_w = 1;
+        if (!p.type_name.empty()) {
+            uint32_t tw = resolve_type_width(p.type_name);
+            if (tw > 0) elem_w = tw;
+        }
+        uint32_t w = elem_w;
+        bool has_explicit_packed = false;
+        if (!p.packed_dimensions.empty()) {
+            has_explicit_packed = true;
+            uint32_t packed_mult = 1;
+            for (const auto& pdim : p.packed_dimensions) {
+                int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), current_scope);
+                int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), current_scope) : 0;
+                packed_mult *= (uint32_t)(std::abs(b1 - b2) + 1);
+            }
+            w = elem_w * packed_mult;
+        } else if (p.msb_expr && p.lsb_expr) {
+            has_explicit_packed = true;
             uint64_t msb = eval_const_expr(p.msb_expr.get(), current_scope);
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), current_scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-        } else if (!p.type_name.empty()) {
-            uint32_t tw = resolve_type_width(p.type_name);
-            if (tw > 1) w = tw;
         }
 
         if (p.is_array) {
@@ -1315,6 +1594,12 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
+            for (const auto& d : all_dims) {
+                if (!d.is_unpacked) {
+                    marr.packed_lsb = std::min(d.left, d.right);
+                    break;
+                }
+            }
             result.memory_map[mem_scope] = marr;
 
             VariableDimMetadata vdm;
@@ -1334,6 +1619,36 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             size_t nid = get_or_create_net(full_name, w, p.is_signed, p.net_kind);
             result.netlist[nid].value = LogicVal::make_x(w);
             result.netlist[nid].prev_value = LogicVal::make_x(w);
+
+            VariableDimMetadata svdm;
+            svdm.name = full_name;
+            if (!p.packed_dimensions.empty()) {
+                for (const auto& pdim : p.packed_dimensions) {
+                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), current_scope);
+                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), current_scope) : 0;
+                    svdm.dimensions.push_back({b1, b2, false, false, false});
+                }
+                if (elem_w > 1) {
+                    svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+                }
+                svdm.is_vector_or_array = true;
+            } else if (p.msb_expr) {
+                int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), current_scope);
+                int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), current_scope) : 0;
+                svdm.dimensions.push_back({b1, b2, false, false, false});
+                if (elem_w > 1) {
+                    svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+                }
+                svdm.is_vector_or_array = true;
+            } else if (w > 1) {
+                svdm.dimensions.push_back({(int64_t)(w - 1), 0, false, false, false});
+                svdm.is_vector_or_array = true;
+            }
+            if (svdm.is_vector_or_array) {
+                result.var_dimensions[full_name] = svdm;
+                result.var_dimensions[p.name] = svdm;
+            }
+
             if (debug_out) {
                 *debug_out << "     * Generated Net allocated: " << full_name << " [" << w << "-bit]\n";
             }
@@ -1384,11 +1699,16 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                     size_t tid = resolve_gen_net_id(current_scope, tname);
                     if (tid == (size_t)-1) continue;
 
-                    uint32_t w = result.netlist[tid].width;
+                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    if (i < ca_copy->concat_target_exprs.size() && ca_copy->concat_target_exprs[i]) {
+                        try {
+                            t_slice = resolve_slice_ref(ca_copy->concat_target_exprs[i].get(), current_scope);
+                        } catch (...) {}
+                    }
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, concat_rhs->elements[i]->clone());
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
-                    result.continuous_assigns.push_back({current_scope, {tid, 0, w}, rhs_ptr});
+                    result.continuous_assigns.push_back({current_scope, t_slice, rhs_ptr});
                 }
             } else {
                 uint32_t cur_offset = 0;
@@ -1397,7 +1717,16 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                     size_t tid = resolve_gen_net_id(current_scope, tname);
                     if (tid == (size_t)-1) continue;
 
-                    uint32_t w = result.netlist[tid].width;
+                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    if ((size_t)i < ca_copy->concat_target_exprs.size() && ca_copy->concat_target_exprs[i]) {
+                        try {
+                            t_slice = resolve_slice_ref(ca_copy->concat_target_exprs[i].get(), current_scope);
+                        } catch (...) {}
+                    }
+                    tid = t_slice.net_id;
+                    uint32_t target_offset = t_slice.offset;
+                    uint32_t w = t_slice.width;
+
                     std::unique_ptr<ExpressionNode> elem_rhs = nullptr;
                     if (auto id_node = dynamic_cast<IdentifierNode*>(ca_copy->rhs.get())) {
                         if (w == 1) {
@@ -1420,13 +1749,23 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, std::move(elem_rhs));
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
-                    result.continuous_assigns.push_back({current_scope, {tid, 0, w}, rhs_ptr});
+                    result.continuous_assigns.push_back({current_scope, {tid, target_offset, w}, rhs_ptr});
                 }
             }
             continue;
         }
         if (ca_copy->target_index_expr) {
             size_t tid = resolve_gen_net_id(current_scope, ca_copy->target_name);
+            if (tid == (size_t)-1) {
+                std::string tname = ca_copy->target_name;
+                size_t dot_pos = tname.rfind('.');
+                while (dot_pos != std::string::npos) {
+                    std::string base = tname.substr(0, dot_pos);
+                    tid = resolve_gen_net_id(current_scope, base);
+                    if (tid != (size_t)-1) break;
+                    dot_pos = tname.rfind('.', dot_pos - 1);
+                }
+            }
             if (tid != (size_t)-1) {
                 NetSliceRef slice{tid, 0, 1};
                 uint32_t d1_width = 1;
@@ -1450,9 +1789,19 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 if (!ca_copy->member_name.empty()) {
                     uint32_t m_off = 0;
                     uint32_t m_len = slice.width;
-                    if (resolve_struct_member_slice(tid, ca_copy->member_name, current_scope, m_off, m_len)) {
+                    int64_t m_lsb = 0;
+                    if (resolve_struct_member_slice(tid, ca_copy->member_name, current_scope, m_off, m_len, m_lsb)) {
                         slice.offset += m_off;
                         slice.width = m_len;
+                        if (ca_copy->has_member_select && ca_copy->member_msb_expr) {
+                            uint64_t b_msb = eval_const_expr(ca_copy->member_msb_expr.get(), current_scope);
+                            uint64_t b_lsb = ca_copy->member_lsb_expr ? eval_const_expr(ca_copy->member_lsb_expr.get(), current_scope) : b_msb;
+                            uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                            if (m_lsb > 0 && sub_lsb >= (uint64_t)m_lsb) sub_lsb -= (uint64_t)m_lsb;
+                            uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            slice.offset += (uint32_t)sub_lsb;
+                            slice.width = sub_w;
+                        }
                     }
                 }
                 auto rhs_ptr = ca_copy->rhs.get();
@@ -1461,7 +1810,26 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             } else {
                 std::string mem_target = resolve_gen_mem_name(current_scope, ca_copy->target_name);
                 if (!mem_target.empty()) {
-                    result.memory_continuous_assigns.push_back({current_scope, ca_copy->target_name, std::move(ca_copy->target_index_expr), std::move(ca_copy->rhs), ca_copy->member_name});
+                    uint32_t bit_off = 0, bit_w = 0;
+                    if (auto idx = dynamic_cast<IndexSelectNode*>(ca_copy->target_index_expr.get())) {
+                        if (idx->has_bit_select && idx->bit_msb_expr) {
+                            try {
+                                uint64_t b_msb = eval_const_expr(idx->bit_msb_expr.get(), current_scope);
+                                uint64_t b_lsb = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), current_scope) : b_msb;
+                                if (idx->is_plus_colon) {
+                                    bit_off = (uint32_t)b_msb;
+                                    bit_w = (uint32_t)b_lsb;
+                                } else if (idx->is_minus_colon) {
+                                    bit_off = (uint32_t)(b_msb - b_lsb + 1);
+                                    bit_w = (uint32_t)b_lsb;
+                                } else {
+                                    bit_off = (uint32_t)std::min(b_msb, b_lsb);
+                                    bit_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                                }
+                            } catch (...) {}
+                        }
+                    }
+                    result.memory_continuous_assigns.push_back({current_scope, ca_copy->target_name, std::move(ca_copy->target_index_expr), std::move(ca_copy->rhs), ca_copy->member_name, bit_off, bit_w});
                 }
             }
         } else {
@@ -1485,8 +1853,18 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             if (tid != (size_t)-1) {
                 uint32_t off = 0;
                 uint32_t len = result.netlist[tid].width;
+                int64_t memb_lsb = 0;
                 if (!effective_member.empty()) {
-                    resolve_struct_member_slice(tid, effective_member, current_scope, off, len);
+                    resolve_struct_member_slice(tid, effective_member, current_scope, off, len, memb_lsb);
+                }
+                if (ca_copy->has_member_select && ca_copy->member_msb_expr) {
+                    uint64_t b_msb = eval_const_expr(ca_copy->member_msb_expr.get(), current_scope);
+                    uint64_t b_lsb = ca_copy->member_lsb_expr ? eval_const_expr(ca_copy->member_lsb_expr.get(), current_scope) : b_msb;
+                    uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                    if (memb_lsb > 0 && sub_lsb >= (uint64_t)memb_lsb) sub_lsb -= (uint64_t)memb_lsb;
+                    uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                    off += (uint32_t)sub_lsb;
+                    len = sub_w;
                 }
                 auto rhs_ptr = ca_copy->rhs.get();
                 result.generated_continuous_assigns.push_back(std::move(ca_copy));
@@ -1749,6 +2127,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sm.offset = offsets[i];
                 sm.is_signed = mn.is_signed;
                 sm.type_name = mn.type_name;
+                sm.msb = mn.msb;
+                sm.lsb = mn.lsb;
                 st.members.push_back(sm);
             }
             result.struct_types[td->type_name] = st;
@@ -1834,23 +2214,71 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
+        if (!p.type_name.empty()) {
+            result.var_to_struct_type[scope + "." + p.name] = p.type_name;
+            result.var_to_struct_type[p.name] = p.type_name;
+        }
+        if (overridden && overrides && !p.is_localparam) {
+            for (size_t oi = 0; oi < overrides->size(); ++oi) {
+                const auto& ov = (*overrides)[oi];
+                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == i)) {
+                    if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                        std::string ov_scoped = parent_scope.empty() ? ov_id->name : (parent_scope + "." + ov_id->name);
+                        if (result.var_to_struct_type.count(ov_scoped)) {
+                            result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(ov_scoped);
+                            result.var_to_struct_type[p.name] = result.var_to_struct_type.at(ov_scoped);
+                        } else if (result.var_to_struct_type.count(ov_id->name)) {
+                            result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(ov_id->name);
+                            result.var_to_struct_type[p.name] = result.var_to_struct_type.at(ov_id->name);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
 
+    auto get_type_width = [&](const std::string& tname, const std::string& sc) -> uint32_t {
+        if (tname.empty()) return 1;
+        if (const PackedStructType* st = find_struct_type(tname, sc)) {
+            return st->total_width;
+        }
+        auto it_enum = result.enum_types.find(tname);
+        if (it_enum != result.enum_types.end()) {
+            return it_enum->second.width;
+        }
+        return resolve_type_width(tname);
+    };
+
     for (auto& p : mod->ports) {
-        uint32_t w = 1;
-        if (p.msb_expr && p.lsb_expr) {
+        uint32_t elem_w = 1;
+        if (!p.type_name.empty()) {
+            uint32_t tw = get_type_width(p.type_name, scope);
+            if (tw > 0) elem_w = tw;
+        }
+        uint32_t w = elem_w;
+        bool has_explicit_packed = false;
+        if (!p.packed_dimensions.empty()) {
+            has_explicit_packed = true;
+            uint32_t packed_mult = 1;
+            for (const auto& pdim : p.packed_dimensions) {
+                int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
+                int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                packed_mult *= (uint32_t)(std::abs(b1 - b2) + 1);
+            }
+            w = elem_w * packed_mult;
+        } else if (p.msb_expr && p.lsb_expr) {
+            has_explicit_packed = true;
             uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
             uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
             w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-        } else if (!p.type_name.empty()) {
-            uint32_t tw = resolve_type_width(p.type_name);
-            if (tw > 1) w = tw;
         }
+
         const VariableDimMetadata* type_meta = nullptr;
         if (!p.type_name.empty()) {
             type_meta = Parser::find_type_dim_metadata(p.type_name);
         }
-        if (type_meta && p.msb_expr == nullptr && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
             uint32_t pw = 1;
             for (const auto& d : type_meta->dimensions) {
                 pw *= (uint32_t)d.size();
@@ -1930,6 +2358,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
+            for (const auto& d : all_dims) {
+                if (!d.is_unpacked) {
+                    marr.packed_lsb = std::min(d.left, d.right);
+                    break;
+                }
+            }
             result.memory_map[mem_scope] = marr;
 
             VariableDimMetadata vdm;
@@ -2005,11 +2439,17 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
                 pvdm.dimensions.push_back({b1, b2, false, false, false});
             }
+            if (elem_w > 1) {
+                pvdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+            }
             pvdm.is_vector_or_array = true;
         } else if (p.msb_expr) {
             int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
             int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
             pvdm.dimensions.push_back({b1, b2, false, false, false});
+            if (elem_w > 1) {
+                pvdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+            }
             pvdm.is_vector_or_array = true;
         } else if (p.type_name == "int" || p.type_name == "integer") {
             pvdm.dimensions.push_back({31, 0, false, false, false});
@@ -2034,33 +2474,34 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& s : mod->signals) {
-        uint32_t w = 1;
-        if (s.msb_expr && s.lsb_expr) {
-            uint64_t msb = eval_const_expr(s.msb_expr.get(), scope);
-            uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-        } else if (!s.type_name.empty()) {
-            uint32_t tw = resolve_type_width(s.type_name);
-            if (tw > 1) w = tw;
+        uint32_t elem_w = 1;
+        if (!s.type_name.empty()) {
+            uint32_t tw = get_type_width(s.type_name, scope);
+            if (tw > 0) elem_w = tw;
         }
+        uint32_t w = elem_w;
+        bool has_explicit_packed = false;
         if (!s.packed_dimensions.empty()) {
+            has_explicit_packed = true;
             uint32_t packed_mult = 1;
             for (const auto& pdim : s.packed_dimensions) {
                 int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
                 int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
                 packed_mult *= (uint32_t)(std::abs(b1 - b2) + 1);
             }
-            if (s.type_name.empty() || s.type_name == "logic" || s.type_name == "wire" || s.type_name == "bit") {
-                w = packed_mult;
-            } else {
-                w *= packed_mult;
-            }
+            w = elem_w * packed_mult;
+        } else if (s.msb_expr && s.lsb_expr) {
+            has_explicit_packed = true;
+            uint64_t msb = eval_const_expr(s.msb_expr.get(), scope);
+            uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
+            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
         }
+
         const VariableDimMetadata* type_meta = nullptr;
         if (!s.type_name.empty()) {
             type_meta = Parser::find_type_dim_metadata(s.type_name);
         }
-        if (type_meta && s.msb_expr == nullptr && s.packed_dimensions.empty() && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
             uint32_t pw = 1;
             for (const auto& d : type_meta->dimensions) {
                 pw *= (uint32_t)d.size();
@@ -2181,6 +2622,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
+            for (const auto& d : all_dims) {
+                if (!d.is_unpacked) {
+                    marr.packed_lsb = std::min(d.left, d.right);
+                    break;
+                }
+            }
             result.memory_map[mem_scope] = marr;
 
             VariableDimMetadata vdm;
@@ -2217,11 +2664,17 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
                     svdm.dimensions.push_back({b1, b2, false, false, false});
                 }
+                if (elem_w > 1) {
+                    svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+                }
                 svdm.is_vector_or_array = true;
             } else if (s.msb_expr) {
                 int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
                 int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
                 svdm.dimensions.push_back({b1, b2, false, false, false});
+                if (elem_w > 1) {
+                    svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
+                }
                 svdm.is_vector_or_array = true;
             } else if (s.type_name == "int" || s.type_name == "integer") {
                 svdm.dimensions.push_back({31, 0, false, false, false});
@@ -2379,7 +2832,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& ca : mod->continuous_assigns) {
-        if (ca->target_name.empty()) {
+        if (ca->target_name.empty() && ca->concat_targets.empty() && !ca->stream_target) {
             std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
                 if (!expr) return;
                 if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
@@ -2393,7 +2846,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             check_expr(ca->rhs.get());
             continue;
         }
-        std::string scoped_target = scope + "." + ca->target_name;
+        std::string scoped_target = ca->target_name.empty() ? "" : (scope + "." + ca->target_name);
+        if (!ca->target_name.empty()) {
         if (result.covergroup_handle_names.find(scoped_target) != result.covergroup_handle_names.end() ||
             result.covergroup_handle_names.find(ca->target_name) != result.covergroup_handle_names.end()) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment to covergroup handle '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 19");
@@ -2474,6 +2928,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (drives_external) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: continuous assignment in program '" + mod->name + "' driving external net '" + ca->target_name + "' is illegal per IEEE 1800-2023 section 24.3");
             }
+        }
         }
         std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
             if (!expr) return;
@@ -2693,11 +3148,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
                     if (tid == (size_t)-1) continue;
 
-                    uint32_t w = result.netlist[tid].width;
+                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    if (i < ca->concat_target_exprs.size() && ca->concat_target_exprs[i]) {
+                        try {
+                            t_slice = resolve_slice_ref(ca->concat_target_exprs[i].get(), scope);
+                        } catch (...) {}
+                    }
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, concat_rhs->elements[i]->clone());
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
-                    result.continuous_assigns.push_back({scope, {tid, 0, w}, rhs_ptr});
+                    result.continuous_assigns.push_back({scope, t_slice, rhs_ptr});
                 }
             } else {
                 uint32_t cur_offset = 0;
@@ -2709,7 +3169,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
                     if (tid == (size_t)-1) continue;
 
-                    uint32_t w = result.netlist[tid].width;
+                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    if ((size_t)i < ca->concat_target_exprs.size() && ca->concat_target_exprs[i]) {
+                        try {
+                            t_slice = resolve_slice_ref(ca->concat_target_exprs[i].get(), scope);
+                        } catch (...) {}
+                    }
+                    tid = t_slice.net_id;
+                    uint32_t target_offset = t_slice.offset;
+                    uint32_t w = t_slice.width;
+
                     std::unique_ptr<ExpressionNode> elem_rhs = nullptr;
                     if (auto id_node = dynamic_cast<IdentifierNode*>(ca->rhs.get())) {
                         if (w == 1) {
@@ -2732,7 +3201,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, std::move(elem_rhs));
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
-                    result.continuous_assigns.push_back({scope, {tid, 0, w}, rhs_ptr});
+                    result.continuous_assigns.push_back({scope, {tid, target_offset, w}, rhs_ptr});
                 }
             }
             continue;
@@ -2749,6 +3218,25 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 auto dot = cur_s.rfind('.');
                 if (dot == std::string::npos) cur_s = "";
                 else cur_s = cur_s.substr(0, dot);
+            }
+            if (tid == (size_t)-1) {
+                std::string tname = ca->target_name;
+                size_t dot_pos = tname.rfind('.');
+                while (dot_pos != std::string::npos) {
+                    std::string base = tname.substr(0, dot_pos);
+                    std::string cur_s2 = scope;
+                    while (true) {
+                        std::string cand2 = cur_s2.empty() ? base : (cur_s2 + "." + base);
+                        auto it2 = result.net_map.find(cand2);
+                        if (it2 != result.net_map.end()) { tid = it2->second; break; }
+                        if (cur_s2.empty()) break;
+                        auto dot2 = cur_s2.rfind('.');
+                        if (dot2 == std::string::npos) cur_s2 = "";
+                        else cur_s2 = cur_s2.substr(0, dot2);
+                    }
+                    if (tid != (size_t)-1) break;
+                    dot_pos = tname.rfind('.', dot_pos - 1);
+                }
             }
             if (tid != (size_t)-1) {
                 NetSliceRef slice{tid, 0, 1};
@@ -2773,9 +3261,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (!ca->member_name.empty()) {
                     uint32_t m_off = 0;
                     uint32_t m_len = slice.width;
-                    if (resolve_struct_member_slice(tid, ca->member_name, scope, m_off, m_len)) {
+                    int64_t m_lsb = 0;
+                    if (resolve_struct_member_slice(tid, ca->member_name, scope, m_off, m_len, m_lsb)) {
                         slice.offset += m_off;
                         slice.width = m_len;
+                        if (ca->has_member_select && ca->member_msb_expr) {
+                            uint64_t b_msb = eval_const_expr(ca->member_msb_expr.get(), scope);
+                            uint64_t b_lsb = ca->member_lsb_expr ? eval_const_expr(ca->member_lsb_expr.get(), scope) : b_msb;
+                            uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                            if (m_lsb > 0 && sub_lsb >= (uint64_t)m_lsb) sub_lsb -= (uint64_t)m_lsb;
+                            uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            slice.offset += (uint32_t)sub_lsb;
+                            slice.width = sub_w;
+                        }
                     }
                 }
                 auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
@@ -2783,7 +3281,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.generated_continuous_assigns.push_back(std::move(new_ca));
                 result.continuous_assigns.push_back({scope, slice, rhs_ptr});
             } else {
-                result.memory_continuous_assigns.push_back({scope, ca->target_name, ca->target_index_expr->clone(), ca->rhs->clone(), ca->member_name});
+                uint32_t bit_off = 0, bit_w = 0;
+                if (auto idx = dynamic_cast<IndexSelectNode*>(ca->target_index_expr.get())) {
+                    if (idx->has_bit_select && idx->bit_msb_expr) {
+                        try {
+                            uint64_t b_msb = eval_const_expr(idx->bit_msb_expr.get(), scope);
+                            uint64_t b_lsb = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : b_msb;
+                            if (idx->is_plus_colon) {
+                                bit_off = (uint32_t)b_msb;
+                                bit_w = (uint32_t)b_lsb;
+                            } else if (idx->is_minus_colon) {
+                                bit_off = (uint32_t)(b_msb - b_lsb + 1);
+                                bit_w = (uint32_t)b_lsb;
+                            } else {
+                                bit_off = (uint32_t)std::min(b_msb, b_lsb);
+                                bit_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            }
+                        } catch (...) {}
+                    }
+                }
+                result.memory_continuous_assigns.push_back({scope, ca->target_name, ca->target_index_expr->clone(), ca->rhs->clone(), ca->member_name, bit_off, bit_w});
             }
             continue;
         }
@@ -2832,8 +3349,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (target_id != (size_t)-1) {
             uint32_t off = 0;
             uint32_t len = result.netlist[target_id].width;
+            int64_t memb_lsb = 0;
             if (!effective_member.empty()) {
-                resolve_struct_member_slice(target_id, effective_member, scope, off, len);
+                resolve_struct_member_slice(target_id, effective_member, scope, off, len, memb_lsb);
+            }
+            if (ca->has_member_select && ca->member_msb_expr) {
+                uint64_t b_msb = eval_const_expr(ca->member_msb_expr.get(), scope);
+                uint64_t b_lsb = ca->member_lsb_expr ? eval_const_expr(ca->member_lsb_expr.get(), scope) : b_msb;
+                uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                if (memb_lsb > 0 && sub_lsb >= (uint64_t)memb_lsb) sub_lsb -= (uint64_t)memb_lsb;
+                uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                off += (uint32_t)sub_lsb;
+                len = sub_w;
             }
             auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
             auto rhs_ptr = new_ca->rhs.get();
@@ -3133,6 +3660,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.processes.push_back(std::move(bp));
     }
 
+    // Elaborate interface instances first so their internal nets are available for generate blocks and submodules
+    for (auto& inst : mod->instantiations) {
+        auto it = module_defs.find(inst->module_type);
+        if (it != module_defs.end() && it->second->is_interface) {
+            elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
+        }
+    }
+
     // IEEE 1800-2023 §27: Unroll generate blocks
     for (auto& gnode : mod->generate_nodes) {
         unroll_generate_node(gnode.get(), scope, "", 0, false, debug_out);
@@ -3210,7 +3745,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& inst : mod->instantiations) {
-        elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
+        auto it = module_defs.find(inst->module_type);
+        if (it == module_defs.end() || !it->second->is_interface) {
+            elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
+        }
     }
 }
 
@@ -3270,6 +3808,53 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
         }
 
         elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope, debug_out);
+
+        // Expand IEEE 1800-2023 §23.3.2.4 wildcard .* port connections
+        bool has_wildcard = false;
+        std::unordered_set<std::string> explicit_ports;
+        for (const auto& conn : inst->connections) {
+            if (conn.port_name == "*") {
+                has_wildcard = true;
+            } else {
+                explicit_ports.insert(conn.port_name);
+            }
+        }
+        if (has_wildcard) {
+            std::vector<PortConnection> expanded_conns;
+            for (auto& conn : inst->connections) {
+                if (conn.port_name != "*") {
+                    expanded_conns.push_back(std::move(conn));
+                }
+            }
+            auto candidate_exists = [&](const std::string& name) -> bool {
+                std::string cur_s = scope;
+                while (true) {
+                    std::string cand = cur_s.empty() ? name : (cur_s + "." + name);
+                    if (result.net_map.find(cand) != result.net_map.end() ||
+                        result.interface_instances.find(cand) != result.interface_instances.end() ||
+                        result.interface_port_map.find(cand) != result.interface_port_map.end() ||
+                        result.memory_map.find(cand) != result.memory_map.end() ||
+                        result.assoc_array_map.find(cand) != result.assoc_array_map.end() ||
+                        result.dynamic_array_map.find(cand) != result.dynamic_array_map.end()) {
+                        return true;
+                    }
+                    if (cur_s.empty()) break;
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) cur_s = "";
+                    else cur_s = cur_s.substr(0, dot);
+                }
+                return false;
+            };
+
+            for (const auto& p : submod->ports) {
+                if (explicit_ports.find(p.name) == explicit_ports.end()) {
+                    if (candidate_exists(p.name)) {
+                        expanded_conns.push_back({p.name, std::make_unique<IdentifierNode>(p.name)});
+                    }
+                }
+            }
+            inst->connections = std::move(expanded_conns);
+        }
 
         for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
             auto& conn = inst->connections[conn_idx];
@@ -3366,7 +3951,20 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                 std::string child_mem_key = child_scope + "." + target_port_name;
                 std::string parent_mem_key = "";
                 if (auto pid = dynamic_cast<IdentifierNode*>(conn.expr.get())) {
-                    parent_mem_key = scope.empty() ? pid->name : (scope + "." + pid->name);
+                    std::string cur_s = scope;
+                    while (!cur_s.empty()) {
+                        std::string cand = cur_s + "." + pid->name;
+                        if (result.memory_map.find(cand) != result.memory_map.end()) {
+                            parent_mem_key = cand;
+                            break;
+                        }
+                        auto dot = cur_s.rfind('.');
+                        if (dot == std::string::npos) cur_s = "";
+                        else cur_s = cur_s.substr(0, dot);
+                    }
+                    if (parent_mem_key.empty()) {
+                        parent_mem_key = scope.empty() ? pid->name : (scope + "." + pid->name);
+                    }
                 }
                 if (dir == "inout") {
                     result.memory_bindings.push_back({parent_mem_key, child_mem_key});
@@ -3380,11 +3978,23 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
             }
 
             bool is_mem_target = false;
+            std::string target_mem_name = "";
             if (auto idx = dynamic_cast<IndexSelectNode*>(conn.expr.get())) {
-                std::string mem_id = scope.empty() ? idx->name : (scope + "." + idx->name);
-                if (result.memory_map.find(mem_id) != result.memory_map.end() ||
-                    result.memory_map.find(idx->name) != result.memory_map.end()) {
+                std::string cur_s = scope;
+                while (!cur_s.empty()) {
+                    std::string cand = cur_s + "." + idx->name;
+                    if (result.memory_map.find(cand) != result.memory_map.end()) {
+                        is_mem_target = true;
+                        target_mem_name = cand;
+                        break;
+                    }
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) cur_s = "";
+                    else cur_s = cur_s.substr(0, dot);
+                }
+                if (!is_mem_target && result.memory_map.find(idx->name) != result.memory_map.end()) {
                     is_mem_target = true;
+                    target_mem_name = idx->name;
                 }
             }
             if (is_mem_target) {
@@ -3396,27 +4006,55 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
                     result.continuous_assigns.push_back({scope, {child_net_id, 0, result.netlist[child_net_id].width}, rhs_ptr});
                 } else if (dir == "output") {
-                    result.memory_continuous_assigns.push_back({scope, idx->name, idx->msb_expr->clone(), std::make_unique<IdentifierNode>(child_scope + "." + target_port_name), ""});
+                    uint32_t bit_off = 0, bit_w = 0;
+                    if (idx && idx->has_bit_select && idx->bit_msb_expr) {
+                        try {
+                            uint64_t b_msb = eval_const_expr(idx->bit_msb_expr.get(), scope);
+                            uint64_t b_lsb = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : b_msb;
+                            if (idx->is_plus_colon) {
+                                bit_off = (uint32_t)b_msb;
+                                bit_w = (uint32_t)b_lsb;
+                            } else if (idx->is_minus_colon) {
+                                bit_off = (uint32_t)(b_msb - b_lsb + 1);
+                                bit_w = (uint32_t)b_lsb;
+                            } else {
+                                bit_off = (uint32_t)std::min(b_msb, b_lsb);
+                                bit_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            }
+                        } catch (...) {}
+                    }
+                    result.memory_continuous_assigns.push_back({scope, target_mem_name, idx->msb_expr->clone(), std::make_unique<IdentifierNode>(child_scope + "." + target_port_name), "", bit_off, bit_w});
                 }
                 continue;
             }
 
             if (dir == "input") {
                 if (auto cat = dynamic_cast<ConcatNode*>(conn.expr.get())) {
-                    size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
-                    uint32_t total_w = result.netlist[child_net_id].width;
-                    uint32_t cur_offset = total_w;
+                    bool all_slices = true;
+                    std::vector<NetSliceRef> el_refs;
                     for (auto& el : cat->elements) {
-                        NetSliceRef el_ref = resolve_slice_ref(el.get(), scope);
-                        if (cur_offset >= el_ref.width) {
-                            cur_offset -= el_ref.width;
-                        } else {
-                            cur_offset = 0;
+                        try {
+                            el_refs.push_back(resolve_slice_ref(el.get(), scope));
+                        } catch (...) {
+                            all_slices = false;
+                            break;
                         }
-                        NetSliceRef child_slice = {child_net_id, cur_offset, el_ref.width};
-                        result.slice_bindings.push_back({el_ref, child_slice});
                     }
-                    continue;
+                    if (all_slices) {
+                        size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
+                        uint32_t total_w = result.netlist[child_net_id].width;
+                        uint32_t cur_offset = total_w;
+                        for (const auto& el_ref : el_refs) {
+                            if (cur_offset >= el_ref.width) {
+                                cur_offset -= el_ref.width;
+                            } else {
+                                cur_offset = 0;
+                            }
+                            NetSliceRef child_slice = {child_net_id, cur_offset, el_ref.width};
+                            result.slice_bindings.push_back({el_ref, child_slice});
+                        }
+                        continue;
+                    }
                 }
                 try {
                     NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
@@ -3522,6 +4160,8 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 sm.offset = offsets[i];
                 sm.is_signed = mn.is_signed;
                 sm.type_name = mn.type_name;
+                sm.msb = mn.msb;
+                sm.lsb = mn.lsb;
                 s.members.push_back(sm);
             }
 
@@ -4376,33 +5016,73 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         std::string name;
         int64_t lsb = -1;
         int64_t msb = -1;
+        int64_t lsb2 = -1;
+        int64_t msb2 = -1;
+        bool has_dim2 = false;
     };
 
-    std::function<void(StatementNode*, const std::string&, std::vector<TargetWriteInfo>&, std::vector<TargetWriteInfo>&)> collect_writes =
-        [&](StatementNode* stmt, const std::string& scope, std::vector<TargetWriteInfo>& norm_targets, std::vector<TargetWriteInfo>& pca_targets) {
+    auto get_base_var_name = [](const std::string& name) {
+        size_t pos = name.find_first_of(".[");
+        if (pos != std::string::npos) return name.substr(0, pos);
+        return name;
+    };
+
+    std::function<void(StatementNode*, std::unordered_set<std::string>&)> collect_local_vars =
+        [&](StatementNode* stmt, std::unordered_set<std::string>& local_vars) {
             if (!stmt) return;
             if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
-                for (auto& s : blk->statements) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                for (auto& s : blk->statements) collect_local_vars(s.get(), local_vars);
             } else if (auto if_s = dynamic_cast<IfStatementNode*>(stmt)) {
-                for (auto& s : if_s->then_branch) collect_writes(s.get(), scope, norm_targets, pca_targets);
-                for (auto& s : if_s->else_branch) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                for (auto& s : if_s->then_branch) collect_local_vars(s.get(), local_vars);
+                for (auto& s : if_s->else_branch) collect_local_vars(s.get(), local_vars);
             } else if (auto for_s = dynamic_cast<ForStatementNode*>(stmt)) {
-                collect_writes(for_s->init_stmt.get(), scope, norm_targets, pca_targets);
-                collect_writes(for_s->step_stmt.get(), scope, norm_targets, pca_targets);
-                for (auto& s : for_s->body) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                collect_local_vars(for_s->init_stmt.get(), local_vars);
+                collect_local_vars(for_s->step_stmt.get(), local_vars);
+                for (auto& s : for_s->body) collect_local_vars(s.get(), local_vars);
             } else if (auto wh_s = dynamic_cast<WhileStatementNode*>(stmt)) {
-                for (auto& s : wh_s->body) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                for (auto& s : wh_s->body) collect_local_vars(s.get(), local_vars);
             } else if (auto rep_s = dynamic_cast<RepeatStatementNode*>(stmt)) {
-                for (auto& s : rep_s->body) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                for (auto& s : rep_s->body) collect_local_vars(s.get(), local_vars);
             } else if (auto fo_s = dynamic_cast<ForeverStatementNode*>(stmt)) {
-                for (auto& s : fo_s->body) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                for (auto& s : fo_s->body) collect_local_vars(s.get(), local_vars);
             } else if (auto cs_s = dynamic_cast<CaseStatementNode*>(stmt)) {
                 for (auto& item : cs_s->items) {
-                    for (auto& s : item.statements) collect_writes(s.get(), scope, norm_targets, pca_targets);
+                    for (auto& s : item.statements) collect_local_vars(s.get(), local_vars);
+                }
+            } else if (auto fe_s = dynamic_cast<ForeachStatementNode*>(stmt)) {
+                if (!fe_s->loop_var.empty()) local_vars.insert(fe_s->loop_var);
+                for (auto& s : fe_s->body) collect_local_vars(s.get(), local_vars);
+            } else if (auto vd = dynamic_cast<VarDeclStatementNode*>(stmt)) {
+                if (!vd->var_name.empty()) local_vars.insert(vd->var_name);
+            }
+        };
+
+    std::function<void(StatementNode*, const std::string&, const std::unordered_set<std::string>&, std::vector<TargetWriteInfo>&, std::vector<TargetWriteInfo>&)> collect_writes =
+        [&](StatementNode* stmt, const std::string& scope, const std::unordered_set<std::string>& local_vars, std::vector<TargetWriteInfo>& norm_targets, std::vector<TargetWriteInfo>& pca_targets) {
+            if (!stmt) return;
+            if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+                for (auto& s : blk->statements) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto if_s = dynamic_cast<IfStatementNode*>(stmt)) {
+                for (auto& s : if_s->then_branch) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+                for (auto& s : if_s->else_branch) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto for_s = dynamic_cast<ForStatementNode*>(stmt)) {
+                collect_writes(for_s->init_stmt.get(), scope, local_vars, norm_targets, pca_targets);
+                collect_writes(for_s->step_stmt.get(), scope, local_vars, norm_targets, pca_targets);
+                for (auto& s : for_s->body) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto wh_s = dynamic_cast<WhileStatementNode*>(stmt)) {
+                for (auto& s : wh_s->body) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto rep_s = dynamic_cast<RepeatStatementNode*>(stmt)) {
+                for (auto& s : rep_s->body) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto fo_s = dynamic_cast<ForeverStatementNode*>(stmt)) {
+                for (auto& s : fo_s->body) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
+            } else if (auto cs_s = dynamic_cast<CaseStatementNode*>(stmt)) {
+                for (auto& item : cs_s->items) {
+                    for (auto& s : item.statements) collect_writes(s.get(), scope, local_vars, norm_targets, pca_targets);
                 }
             } else if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
                 for (const auto& t : ba->lhs_targets) {
-                    TargetWriteInfo tw{t, -1, -1};
+                    if (local_vars.count(t) || local_vars.count(get_base_var_name(t))) continue;
+                    TargetWriteInfo tw{t, -1, -1, -1, -1, false};
                     if (ba->bit_idx) {
                         try {
                             int64_t v = (int64_t)eval_const_expr(ba->bit_idx.get(), scope);
@@ -4419,53 +5099,99 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                             tw.msb = -1;
                         }
                     }
+                    if (ba->bit_idx2) {
+                        try {
+                            int64_t v = (int64_t)eval_const_expr(ba->bit_idx2.get(), scope);
+                            if (ba->bit_lsb2) {
+                                int64_t v2 = (int64_t)eval_const_expr(ba->bit_lsb2.get(), scope);
+                                tw.msb2 = std::max(v, v2);
+                                tw.lsb2 = std::min(v, v2);
+                            } else {
+                                tw.msb2 = v;
+                                tw.lsb2 = v;
+                            }
+                            tw.has_dim2 = true;
+                        } catch (...) {
+                            tw.lsb2 = -1;
+                            tw.msb2 = -1;
+                        }
+                    }
                     norm_targets.push_back(tw);
                 }
             } else if (auto nba = dynamic_cast<NonBlockingAssignNode*>(stmt)) {
-                TargetWriteInfo tw{nba->target, -1, -1};
-                if (nba->bit_idx) {
-                    try {
-                        int64_t v = (int64_t)eval_const_expr(nba->bit_idx.get(), scope);
-                        if (nba->bit_lsb) {
-                            int64_t v2 = (int64_t)eval_const_expr(nba->bit_lsb.get(), scope);
-                            tw.msb = std::max(v, v2);
-                            tw.lsb = std::min(v, v2);
-                        } else {
-                            tw.msb = v;
-                            tw.lsb = v;
+                if (!local_vars.count(nba->target) && !local_vars.count(get_base_var_name(nba->target))) {
+                    TargetWriteInfo tw{nba->target, -1, -1, -1, -1, false};
+                    if (nba->bit_idx) {
+                        try {
+                            int64_t v = (int64_t)eval_const_expr(nba->bit_idx.get(), scope);
+                            if (nba->bit_lsb) {
+                                int64_t v2 = (int64_t)eval_const_expr(nba->bit_lsb.get(), scope);
+                                tw.msb = std::max(v, v2);
+                                tw.lsb = std::min(v, v2);
+                            } else {
+                                tw.msb = v;
+                                tw.lsb = v;
+                            }
+                        } catch (...) {
+                            tw.lsb = -1;
+                            tw.msb = -1;
                         }
-                    } catch (...) {
-                        tw.lsb = -1;
-                        tw.msb = -1;
                     }
+                    if (nba->bit_idx2) {
+                        try {
+                            int64_t v = (int64_t)eval_const_expr(nba->bit_idx2.get(), scope);
+                            if (nba->bit_lsb2) {
+                                int64_t v2 = (int64_t)eval_const_expr(nba->bit_lsb2.get(), scope);
+                                tw.msb2 = std::max(v, v2);
+                                tw.lsb2 = std::min(v, v2);
+                            } else {
+                                tw.msb2 = v;
+                                tw.lsb2 = v;
+                            }
+                            tw.has_dim2 = true;
+                        } catch (...) {
+                            tw.lsb2 = -1;
+                            tw.msb2 = -1;
+                        }
+                    }
+                    norm_targets.push_back(tw);
                 }
-                norm_targets.push_back(tw);
             } else if (auto mem = dynamic_cast<MemAssignNode*>(stmt)) {
-                TargetWriteInfo tw{mem->mem_name, -1, -1};
-                if (mem->addr_expr) {
-                    try {
-                        int64_t v = (int64_t)eval_const_expr(mem->addr_expr.get(), scope);
-                        tw.lsb = v;
-                        tw.msb = v;
-                    } catch (...) {
-                        tw.lsb = -1;
-                        tw.msb = -1;
+                if (!local_vars.count(mem->mem_name) && !local_vars.count(get_base_var_name(mem->mem_name))) {
+                    TargetWriteInfo tw{mem->mem_name, -1, -1};
+                    if (mem->addr_expr) {
+                        try {
+                            int64_t v = (int64_t)eval_const_expr(mem->addr_expr.get(), scope);
+                            tw.lsb = v;
+                            tw.msb = v;
+                        } catch (...) {
+                            tw.lsb = -1;
+                            tw.msb = -1;
+                        }
                     }
+                    norm_targets.push_back(tw);
                 }
-                norm_targets.push_back(tw);
             } else if (auto pa = dynamic_cast<ProceduralAssignNode*>(stmt)) {
-                pca_targets.push_back({pa->target, -1, -1});
+                if (!local_vars.count(pa->target) && !local_vars.count(get_base_var_name(pa->target))) {
+                    pca_targets.push_back({pa->target, -1, -1});
+                }
             } else if (auto pda = dynamic_cast<ProceduralDeassignNode*>(stmt)) {
-                pca_targets.push_back({pda->target, -1, -1});
+                if (!local_vars.count(pda->target) && !local_vars.count(get_base_var_name(pda->target))) {
+                    pca_targets.push_back({pda->target, -1, -1});
+                }
             }
         };
 
     for (size_t i = 0; i < result.processes.size(); ++i) {
         auto& bp = result.processes[i];
         bool is_strict_proc = bp.proc->is_always_ff || bp.proc->is_always_comb || bp.proc->is_always_latch;
+        std::unordered_set<std::string> local_vars;
+        for (auto& s : bp.proc->body) {
+            collect_local_vars(s.get(), local_vars);
+        }
         std::vector<TargetWriteInfo> norm_targets, pca_targets;
         for (auto& s : bp.proc->body) {
-            collect_writes(s.get(), bp.scope, norm_targets, pca_targets);
+            collect_writes(s.get(), bp.scope, local_vars, norm_targets, pca_targets);
         }
 
         for (const auto& tw : norm_targets) {
@@ -4483,14 +5209,26 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 }
                 uint32_t w = result.netlist[nid].width > 0 ? result.netlist[nid].width : 1;
                 uint32_t elem_w = 1;
+                int64_t base_low = 0;
+                int64_t d1_low = 0;
                 auto it_vdm = result.var_dimensions.find(result.netlist[nid].name);
                 if (it_vdm == result.var_dimensions.end()) it_vdm = result.var_dimensions.find(tw.name);
                 if (it_vdm != result.var_dimensions.end() && it_vdm->second.dimensions.size() > 1) {
                     elem_w = (uint32_t)it_vdm->second.dimensions[1].size();
+                    base_low = it_vdm->second.dimensions[0].low();
+                    d1_low = it_vdm->second.dimensions[1].low();
                 }
                 if (tw.lsb >= 0 && tw.msb >= 0) {
-                    int64_t act_lsb = tw.lsb * (int64_t)elem_w;
-                    int64_t act_msb = tw.msb * (int64_t)elem_w + (int64_t)elem_w - 1;
+                    int64_t eff_lsb = tw.lsb >= base_low ? (tw.lsb - base_low) : tw.lsb;
+                    int64_t eff_msb = tw.msb >= base_low ? (tw.msb - base_low) : tw.msb;
+                    int64_t act_lsb = eff_lsb * (int64_t)elem_w;
+                    int64_t act_msb = eff_msb * (int64_t)elem_w + (int64_t)elem_w - 1;
+                    if (tw.has_dim2 && tw.lsb2 >= 0 && tw.msb2 >= 0) {
+                        int64_t eff_lsb2 = tw.lsb2 >= d1_low ? (tw.lsb2 - d1_low) : tw.lsb2;
+                        int64_t eff_msb2 = tw.msb2 >= d1_low ? (tw.msb2 - d1_low) : tw.msb2;
+                        act_lsb = eff_lsb * (int64_t)elem_w + eff_lsb2;
+                        act_msb = eff_msb * (int64_t)elem_w + eff_msb2;
+                    }
                     if (act_lsb < (int64_t)w) {
                         int64_t high = std::min(act_msb, (int64_t)w - 1);
                         for (int64_t b = act_lsb; b <= high; ++b) {
@@ -4570,6 +5308,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             if (net.kind == NetKind::VAR) {
                 if (bd.continuous_assign_count > 1) {
                     std::string var_name = net.name;
+                    std::cerr << "[CAS-MCD-DEBUG] Variable: " << var_name << " bit: " << b 
+                              << " driver count: " << bd.continuous_assign_count << "\n";
+                    for (const auto& ca : result.continuous_assigns) {
+                        size_t raw_n = ca.target.net_id;
+                        size_t cn = result.canonical_net_map.empty() ? raw_n : result.canonical_net_map[raw_n];
+                        if (cn == nid) {
+                            std::cerr << "   CA: scope=" << ca.scope << " off=" << ca.target.offset 
+                                      << " w=" << ca.target.width << "\n";
+                        }
+                    }
                     auto dot_pos = var_name.rfind('.');
                     if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);
                     throw std::runtime_error("[CAS-MCD] Illegal combination of continuous drivers: variable '" + 

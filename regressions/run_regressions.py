@@ -80,7 +80,12 @@ suites = [
     ("v3.54.0.0", "v3_54_0_0_array_bounds", ["design.sv", "testbench.sv"]),
     ("v3.55.0.0", "v3_55_0_0_unpacked_concat", ["design.sv", "testbench.sv"]),
     ("v3.56.0.0", "v3_56_0_0_array_reduction_with", ["design.sv", "testbench.sv"]),
-    ("v3.57.0.0", "v3_57_0_0_string_format", ["design.sv", "testbench.sv"])
+    ("v3.57.0.0", "v3_57_0_0_string_format", ["design.sv", "testbench.sv"]),
+    ("v3.79.0.0", "v3_79_0_0_mca_rmw_slice", ["design.sv", "testbench.sv"]),
+    ("v3.80.0.0", "v3_80_0_0_struct_member_slice", ["design.sv", "testbench.sv"]),
+    ("v3.81.0.0", "v3_81_0_0_nd_array_slice", ["design.sv", "testbench.sv"]),
+    ("v3.82.0.0", "v3_82_0_0_wait_condition_handshake", ["design.sv", "testbench.sv"]),
+    ("v3.83.0.0", "v3_83_0_0_assoc_mem_readmemh", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

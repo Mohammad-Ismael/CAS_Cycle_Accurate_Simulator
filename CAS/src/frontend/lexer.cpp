@@ -314,6 +314,8 @@ void Lexer::skip_whitespace_and_comments() {
                     }
                     while (std::isspace(peek()) && peek() != '\n') advance();
                     std::string mval = "";
+                    bool in_line_comment = false;
+                    bool in_block_comment = false;
                     while (peek() != '\0') {
                         if (peek() == '\\') {
                             size_t look = cur.cursor + 1;
@@ -322,15 +324,39 @@ void Lexer::skip_whitespace_and_comments() {
                             if (look < cur.src.size() && cur.src[look] == '\n') {
                                 cur.cursor = look + 1;
                                 cur.line++;
+                                in_line_comment = false;
                                 mval += ' ';
                                 continue;
                             }
                         }
                         if (peek() == '\n') break;
+                        if (!in_line_comment && !in_block_comment) {
+                            if (peek() == '/' && peek_next() == '/') {
+                                in_line_comment = true;
+                                advance(); advance();
+                                continue;
+                            }
+                            if (peek() == '/' && peek_next() == '*') {
+                                in_block_comment = true;
+                                advance(); advance();
+                                continue;
+                            }
+                        }
+                        if (in_line_comment) {
+                            advance();
+                            continue;
+                        }
+                        if (in_block_comment) {
+                            if (peek() == '*' && peek_next() == '/') {
+                                advance(); advance();
+                                in_block_comment = false;
+                                continue;
+                            }
+                            advance();
+                            continue;
+                        }
                         mval += advance();
                     }
-                    size_t cpos = mval.find("//");
-                    if (cpos != std::string::npos) mval = mval.substr(0, cpos);
                     while (!mval.empty() && (mval.back() == '\r' || mval.back() == ' ' || mval.back() == '\t')) {
                         mval.pop_back();
                     }
@@ -807,7 +833,10 @@ Token Lexer::next_token() {
                 }
 
                 auto pnum = NumberParser::parse_sized_literal(width, is_signed, base, digits);
-                return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval, false, 0.0, pnum.is_signed};
+                Token tok = {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval, false, 0.0, pnum.is_signed};
+                tok.wide_aval = std::move(pnum.wide_aval);
+                tok.wide_bval = std::move(pnum.wide_bval);
+                return tok;
             }
         }
 
@@ -1024,6 +1053,8 @@ Token Lexer::next_token() {
         if (ident == "let") return {TokenType::TOKEN_LET, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "untyped") return {TokenType::TOKEN_UNTYPED, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "type") return {TokenType::TOKEN_TYPE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "force") return {TokenType::TOKEN_FORCE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "release") return {TokenType::TOKEN_RELEASE, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

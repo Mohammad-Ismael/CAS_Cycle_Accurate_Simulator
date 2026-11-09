@@ -556,6 +556,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         uint64_t b = current.bval;
         uint32_t w = current.width;
         bool s = current.is_signed;
+        auto w_a = std::move(current.wide_aval);
+        auto w_b = std::move(current.wide_bval);
         advance();
         if (match(TokenType::TOKEN_APOSTROPHE)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
@@ -566,7 +568,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing size cast expression");
             return std::make_unique<StaticCastExprNode>(static_cast<uint32_t>(a), std::move(cast_expr));
         }
-        return std::make_unique<NumberNode>(a, b, w, s);
+        auto node = std::make_unique<NumberNode>(a, b, w, s);
+        node->wide_aval = std::move(w_a);
+        node->wide_bval = std::move(w_b);
+        return node;
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
@@ -832,8 +837,47 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                             idx_node->bit_lsb_expr = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing 2D bit select");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto extra = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(lsb));
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_plus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_minus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index select");
+                        idx_node->extra_indices.push_back(std::move(extra));
+                    }
+                }
                     }
                     return idx_node;
+                }
+                if (match(TokenType::TOKEN_APOSTROPHE)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+                    auto cast_expr = parse_expression();
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+                    std::string cast_name = path + "." + mem;
+                    uint32_t csize = 0;
+                    if (is_constant_size_param(cast_name, csize)) {
+                        auto node = std::make_unique<StaticCastExprNode>(csize, std::move(cast_expr));
+                        node->target_type_name = cast_name;
+                        return node;
+                    }
+                    auto node = std::make_unique<StaticCastExprNode>(csize > 0 ? csize : 32, std::move(cast_expr));
+                    node->target_type_name = cast_name;
+                    return node;
                 }
                 return std::make_unique<MemberAccessNode>(path, mem);
                 }
@@ -851,6 +895,30 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         idx_node->bit_lsb_expr = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing 2D bit select");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto extra = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(lsb));
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_plus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_minus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index select");
+                        idx_node->extra_indices.push_back(std::move(extra));
+                    }
+                }
                 }
                 return idx_node;
             } else {
@@ -910,8 +978,47 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                             idx_node->bit_lsb_expr = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing 2D bit select");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto extra = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(lsb));
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_plus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_minus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index select");
+                        idx_node->extra_indices.push_back(std::move(extra));
+                    }
+                }
                     }
                     return idx_node;
+                }
+                if (match(TokenType::TOKEN_APOSTROPHE)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+                    auto cast_expr = parse_expression();
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+                    std::string cast_name = path + "." + mem;
+                    uint32_t csize = 0;
+                    if (is_constant_size_param(cast_name, csize)) {
+                        auto node = std::make_unique<StaticCastExprNode>(csize, std::move(cast_expr));
+                        node->target_type_name = cast_name;
+                        return node;
+                    }
+                    auto node = std::make_unique<StaticCastExprNode>(csize > 0 ? csize : 32, std::move(cast_expr));
+                    node->target_type_name = cast_name;
+                    return node;
                 }
                 return std::make_unique<MemberAccessNode>(path, mem);
             }
@@ -982,6 +1089,35 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 auto ma = std::make_unique<MemberAccessNode>(name, mem);
                 ma->index_expr = std::move(msb);
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    auto msb_sub = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb_sub = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        ma->member_msb_expr = std::move(msb_sub);
+                        ma->member_lsb_expr = std::move(lsb_sub);
+                        ma->has_member_select = true;
+                        ma->is_part_select = true;
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto w_sub = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        ma->member_msb_expr = std::move(msb_sub);
+                        ma->member_lsb_expr = std::move(w_sub);
+                        ma->has_member_select = true;
+                        ma->is_plus_colon = true;
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto w_sub = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        ma->member_msb_expr = std::move(msb_sub);
+                        ma->member_lsb_expr = std::move(w_sub);
+                        ma->has_member_select = true;
+                        ma->is_minus_colon = true;
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                        ma->member_msb_expr = std::move(msb_sub);
+                        ma->has_member_select = true;
+                    }
+                }
                 return ma;
             }
             auto idx_node = std::make_unique<IndexSelectNode>(name, std::move(msb));
@@ -998,6 +1134,30 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     idx_node->bit_lsb_expr = parse_expression();
                 }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select range");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto extra = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(lsb));
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_plus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto w = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto part_node = std::make_unique<IndexSelectNode>("", std::move(extra), std::move(w));
+                        part_node->is_minus_colon = true;
+                        idx_node->extra_indices.push_back(std::move(part_node));
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index select");
+                        idx_node->extra_indices.push_back(std::move(extra));
+                    }
+                }
             }
             return idx_node;
         }

@@ -22,11 +22,13 @@ struct LogicVal {
     explicit LogicVal(uint32_t w = 1, uint64_t a = 0, uint64_t b = 0, bool s = false)
         : aval(a), bval(b), width(w), is_string(false), str_val(""), is_real(false), real_val(0.0), is_signed(s) {
         if (width > 64) {
-            size_t nwords = (width + 63) / 64;
+            size_t nwords = ((size_t)width + 63) / 64;
             wide_aval.assign(nwords, 0);
             wide_bval.assign(nwords, 0);
-            wide_aval[0] = a;
-            wide_bval[0] = b;
+            if (nwords > 0) {
+                wide_aval[0] = a;
+                wide_bval[0] = b;
+            }
         }
         mask();
     }
@@ -34,7 +36,7 @@ struct LogicVal {
     static LogicVal make_x(uint32_t w) {
         LogicVal v(w, ~0ULL, ~0ULL);
         if (w > 64) {
-            size_t nwords = (w + 63) / 64;
+            size_t nwords = ((size_t)w + 63) / 64;
             v.wide_aval.assign(nwords, ~0ULL);
             v.wide_bval.assign(nwords, ~0ULL);
             v.mask();
@@ -45,7 +47,7 @@ struct LogicVal {
     static LogicVal make_z(uint32_t w) {
         LogicVal v(w, 0ULL, ~0ULL);
         if (w > 64) {
-            size_t nwords = (w + 63) / 64;
+            size_t nwords = ((size_t)w + 63) / 64;
             v.wide_aval.assign(nwords, 0ULL);
             v.wide_bval.assign(nwords, ~0ULL);
             v.mask();
@@ -86,7 +88,7 @@ struct LogicVal {
                 wide_bval.clear();
             }
         } else {
-            size_t nwords = (width + 63) / 64;
+            size_t nwords = ((size_t)width + 63) / 64;
             if (wide_aval.size() != nwords) {
                 wide_aval.resize(nwords, 0);
                 wide_bval.resize(nwords, 0);
@@ -151,6 +153,9 @@ struct LogicVal {
 
     LogicVal extract_slice(uint32_t offset, uint32_t slice_w) const {
         if (slice_w == 0) return LogicVal(0, 0, 0);
+        if (slice_w > 1000000) {
+            return LogicVal(1, 0, 0);
+        }
         if (width <= 64 && offset < 64 && (offset + slice_w <= 64)) {
             uint64_t m = (slice_w == 64) ? ~0ULL : ((1ULL << slice_w) - 1);
             return LogicVal(slice_w, (aval >> offset) & m, (bval >> offset) & m);

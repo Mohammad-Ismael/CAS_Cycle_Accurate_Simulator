@@ -97,6 +97,17 @@ public:
 
         for (auto* expr : all_constraints) {
             if (!expr) continue;
+            if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+                LogicVal cval = eval_fn(ter->condition.get());
+                if (cval.aval != 0 && cval.bval == 0) {
+                    expr = ter->true_expr.get();
+                } else if (cval.aval == 0 && cval.bval == 0) {
+                    expr = ter->false_expr.get();
+                } else {
+                    continue;
+                }
+            }
+            if (!expr) continue;
             if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
                 std::string var_name;
                 bool var_on_lhs = false;

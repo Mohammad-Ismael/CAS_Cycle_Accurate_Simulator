@@ -53,10 +53,11 @@ struct MemoryArray {
     uint32_t unpacked_dims_count = 0;
     int64_t orig_left = 0;
     int64_t orig_right = 0;
+    int64_t packed_lsb = 0;
 
-    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), orig_left(0), orig_right(0) {}
+    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), orig_left(0), orig_right(0), packed_lsb(0) {}
     MemoryArray(std::string n, uint32_t w, uint32_t d, int64_t b1 = 0, int64_t b2 = 0)
-        : name(std::move(n)), word_width(w), depth(d), orig_left(b1), orig_right(b2) {
+        : name(std::move(n)), word_width(w), depth(d), orig_left(b1), orig_right(b2), packed_lsb(0) {
         if (b1 <= b2) {
             start_idx = b1;
             end_idx = b2;
@@ -113,6 +114,7 @@ struct TaskActivationFrame {
     ScopeFrame local_frame;
     std::vector<std::pair<std::string, std::string>> output_bindings;
     ClassObject* this_obj = nullptr;
+    bool returned = false;
 
     TaskActivationFrame(std::string name, TaskNode* node, ClassObject* obj = nullptr)
         : task_name(std::move(name)), task_node(node), local_frame(task_name), this_obj(obj) {}
@@ -274,6 +276,7 @@ private:
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false, NetKind kind = NetKind::WIRE);
     uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);
     uint64_t eval_bits(ExpressionNode* expr, const std::string& scope);
+    uint32_t deduce_expr_width(ExpressionNode* expr, const std::string& scope);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
 
     void elaborate_module(ModuleNode* mod, const std::string& scope,
@@ -303,13 +306,25 @@ private:
 
     const std::unordered_map<std::string, ModuleNode*>* current_module_defs = nullptr;
     ConfigNode* active_config = nullptr;
+    std::vector<std::pair<std::string, int64_t>> active_genvars;
+    std::unordered_map<std::string, int64_t> get_effective_genvars() const {
+        std::unordered_map<std::string, int64_t> eff;
+        for (const auto& gv : active_genvars) {
+            eff[gv.first] = gv.second;
+        }
+        return eff;
+    }
     std::unordered_map<std::string, std::string> active_instance_cell_map;
     std::unordered_map<std::string, std::string> active_cell_rebind_map;
     std::unordered_set<std::string> valid_instance_paths;
     std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> defparam_overrides;
     std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
     const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
-    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width) const;
+    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb) const;
+    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width) const {
+        int64_t dummy_lsb = 0;
+        return resolve_struct_member_slice(net_id, member_name, scope, out_offset, out_width, dummy_lsb);
+    }
 
 public:
     std::unordered_map<std::string, LogicVal> top_param_overrides;

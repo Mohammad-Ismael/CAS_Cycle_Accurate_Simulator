@@ -33,6 +33,9 @@ struct MonitorSession {
 
 namespace cas { class MemoryFastPath; }
 
+class Engine;
+void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem);
+
 class Engine {
     friend class Evaluator;
     friend class ExprEvaluator;
@@ -53,6 +56,7 @@ private:
     std::vector<SliceBinding> slice_bindings;
     std::vector<MemoryBinding> memory_bindings;
     std::vector<MemoryContinuousAssign> memory_continuous_assigns;
+    std::vector<size_t> procedural_assign_active_nets;
     std::vector<std::unique_ptr<ProcessNode>> generated_processes;
     std::vector<std::unique_ptr<ContinuousAssignNode>> generated_continuous_assigns;
     std::vector<ContinuousAssignBinding> continuous_assigns;

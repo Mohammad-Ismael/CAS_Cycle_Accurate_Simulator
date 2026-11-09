@@ -280,6 +280,44 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     }
 
     while (current.type != TokenType::TOKEN_ENDFUNCTION && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT ||
+            current.type == TokenType::TOKEN_INOUT || current.type == TokenType::TOKEN_REF) {
+            std::string dir = "input";
+            if (match(TokenType::TOKEN_INPUT)) dir = "input";
+            else if (match(TokenType::TOKEN_OUTPUT)) dir = "output";
+            else if (match(TokenType::TOKEN_INOUT)) dir = "inout";
+            else if (match(TokenType::TOKEN_REF)) dir = "ref";
+
+            bool is_s = false;
+            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
+                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT) {
+                advance();
+            }
+            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+
+            std::unique_ptr<ExpressionNode> msb = nullptr;
+            std::unique_ptr<ExpressionNode> lsb = nullptr;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                msb = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
+                lsb = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing port range");
+            }
+            while (true) {
+                std::string arg_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier");
+                auto p_msb = msb ? msb->clone() : nullptr;
+                auto p_lsb = lsb ? lsb->clone() : nullptr;
+                PortNode pnode(arg_name, dir, std::move(p_msb), std::move(p_lsb), is_s);
+                func->inputs.push_back(std::move(pnode));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after port declaration");
+            continue;
+        }
         func->body.push_back(parse_statement());
     }
     expect(TokenType::TOKEN_ENDFUNCTION, "Expected 'endfunction'");

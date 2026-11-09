@@ -94,9 +94,14 @@ struct SliceBinding {
     NetSliceRef dst;
 };
 
+struct MemoryArray;
+
 struct MemoryBinding {
     std::string src;
     std::string dst;
+    mutable MemoryArray* cached_src = nullptr;
+    mutable MemoryArray* cached_dst = nullptr;
+    mutable bool resolved = false;
 };
 
 struct MemoryContinuousAssign {
@@ -105,6 +110,10 @@ struct MemoryContinuousAssign {
     std::unique_ptr<ExpressionNode> index_expr;
     std::unique_ptr<ExpressionNode> rhs;
     std::string member_name;
+    uint32_t bit_offset = 0;
+    uint32_t bit_width = 0;
+    mutable MemoryArray* cached_mem = nullptr;
+    mutable bool mem_resolved = false;
 };
 
 struct NamedEvent {
@@ -159,6 +168,9 @@ struct FanoutGraph {
 
     // list of combinational process IDs that read from any memory array
     std::vector<uint32_t> mem_reading_comb_procs;
+
+    // list of MCA indices that read from any memory array
+    std::vector<uint32_t> mem_reading_mcas;
 
     // net_id -> vector of MCA indices
     std::vector<std::vector<uint32_t>> net_to_mca;

@@ -9,6 +9,8 @@ struct StructMember {
     uint32_t offset = 0; // bit offset from LSB
     bool is_signed = false;
     std::string type_name = "";
+    int64_t msb = 0;
+    int64_t lsb = 0;
 };
 
 struct PackedStructType {

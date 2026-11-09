@@ -72,6 +72,7 @@ public:
     bool get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits);
 
     const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
+    const PackedStructType* find_struct_type_by_member(const std::string& type_name, const std::string& member_name, uint32_t width, const std::string& scope) const;
     const PackedStructType* infer_struct_for_pattern(UnpackedConcatNode* ucat, const std::string& scope) const;
     LogicVal eval_struct_pattern(UnpackedConcatNode* ucat, const PackedStructType& st, const std::string& scope);
 

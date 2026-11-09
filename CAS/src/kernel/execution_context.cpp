@@ -48,5 +48,11 @@ bool ExecutionContext::set_local_value(const std::string& name, const LogicVal& 
         return true;
     }
     var->value = LogicOps::cast_width(val, var->width, var->is_signed);
+    if (var->type_name == "bit" || var->type_name == "int" || var->type_name == "byte" || var->type_name == "shortint" || var->type_name == "longint") {
+        var->value.bval = 0;
+        if (!var->value.wide_bval.empty()) {
+            std::fill(var->value.wide_bval.begin(), var->value.wide_bval.end(), 0ULL);
+        }
+    }
     return true;
 }

@@ -10,12 +10,15 @@
 struct EventControlStatementNode : public StatementNode {
     EdgeType edge = EdgeType::LEVEL;
     std::string signal_name;
+    std::vector<std::pair<EdgeType, std::string>> events;
 
     EventControlStatementNode(EdgeType e, std::string sig)
         : edge(e), signal_name(std::move(sig)) {}
 
     std::unique_ptr<StatementNode> clone() const override {
-        return std::make_unique<EventControlStatementNode>(edge, signal_name);
+        auto node = std::make_unique<EventControlStatementNode>(edge, signal_name);
+        node->events = events;
+        return node;
     }
 };
 
@@ -131,6 +134,7 @@ struct VarDeclStatementNode : public StatementNode {
 
 struct BlockingAssignNode : public StatementNode {
     std::vector<std::string> lhs_targets;
+    std::vector<std::unique_ptr<ExpressionNode>> lhs_target_exprs;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
     std::unique_ptr<ExpressionNode> bit_lsb = nullptr;
@@ -140,6 +144,7 @@ struct BlockingAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> bit_lsb2 = nullptr;
     bool is_plus_colon2 = false;
     bool is_minus_colon2 = false;
+    std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
     std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
@@ -162,6 +167,9 @@ struct BlockingAssignNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<BlockingAssignNode>(lhs_targets, rhs ? rhs->clone() : nullptr, intra_delay);
+        for (const auto& te : lhs_target_exprs) {
+            node->lhs_target_exprs.push_back(te ? te->clone() : nullptr);
+        }
         node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
         node->bit_lsb = bit_lsb ? bit_lsb->clone() : nullptr;
         node->is_plus_colon = is_plus_colon;
@@ -170,6 +178,9 @@ struct BlockingAssignNode : public StatementNode {
         node->bit_lsb2 = bit_lsb2 ? bit_lsb2->clone() : nullptr;
         node->is_plus_colon2 = is_plus_colon2;
         node->is_minus_colon2 = is_minus_colon2;
+        for (const auto& e : extra_indices) {
+            node->extra_indices.push_back(e ? e->clone() : nullptr);
+        }
         node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
@@ -191,6 +202,7 @@ struct NonBlockingAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> bit_lsb2 = nullptr;
     bool is_plus_colon2 = false;
     bool is_minus_colon2 = false;
+    std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
     std::unique_ptr<StreamingConcatNode> stream_lhs = nullptr;
     uint64_t intra_delay = 0;
     bool has_intra_event = false;
@@ -218,6 +230,9 @@ struct NonBlockingAssignNode : public StatementNode {
         node->bit_lsb2 = bit_lsb2 ? bit_lsb2->clone() : nullptr;
         node->is_plus_colon2 = is_plus_colon2;
         node->is_minus_colon2 = is_minus_colon2;
+        for (const auto& e : extra_indices) {
+            node->extra_indices.push_back(e ? e->clone() : nullptr);
+        }
         node->stream_lhs = stream_lhs ? std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_lhs->clone().release())) : nullptr;
         node->has_intra_event = has_intra_event;
         node->intra_edge = intra_edge;
@@ -238,6 +253,10 @@ struct MemAssignNode : public StatementNode {
     EdgeType intra_edge = EdgeType::LEVEL;
     std::string intra_signal = std::string();
     std::string member_name;
+    std::unique_ptr<ExpressionNode> member_msb_expr = nullptr;
+    std::unique_ptr<ExpressionNode> member_lsb_expr = nullptr;
+    bool has_member_select = false;
+    bool is_part_select = false;
 
     void set_intra_event(EdgeType edge, std::string sig) {
         has_intra_event = true;
@@ -257,6 +276,10 @@ struct MemAssignNode : public StatementNode {
         node->intra_edge = intra_edge;
         node->intra_signal = intra_signal;
         node->member_name = member_name;
+        node->has_member_select = has_member_select;
+        node->is_part_select = is_part_select;
+        if (member_msb_expr) node->member_msb_expr = member_msb_expr->clone();
+        if (member_lsb_expr) node->member_lsb_expr = member_lsb_expr->clone();
         return node;
     }
 };
@@ -477,6 +500,20 @@ struct WaitEventTriggeredStatementNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         return std::make_unique<WaitEventTriggeredStatementNode>(event_name);
+    }
+};
+
+struct WaitConditionStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> condition;
+    std::unique_ptr<StatementNode> body;
+
+    explicit WaitConditionStatementNode(std::unique_ptr<ExpressionNode> cond, std::unique_ptr<StatementNode> b = nullptr)
+        : condition(std::move(cond)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<WaitConditionStatementNode>(
+            condition ? condition->clone() : nullptr,
+            body ? body->clone() : nullptr);
     }
 };
 

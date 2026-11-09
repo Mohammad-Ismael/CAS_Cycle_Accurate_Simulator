@@ -12,6 +12,8 @@ struct NumberNode : public ExpressionNode {
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
+    std::vector<uint64_t> wide_aval;
+    std::vector<uint64_t> wide_bval;
 
     template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
     explicit NumberNode(T val, uint32_t w = 32, bool unk = false, bool s = false)
@@ -31,6 +33,8 @@ struct NumberNode : public ExpressionNode {
         auto node = std::make_unique<NumberNode>(aval, bval, width, is_signed);
         node->is_real = is_real;
         node->real_val = real_val;
+        node->wide_aval = wide_aval;
+        node->wide_bval = wide_bval;
         return node;
     }
 };
@@ -75,6 +79,7 @@ struct IndexSelectNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> bit_msb_expr = nullptr;
     std::unique_ptr<ExpressionNode> bit_lsb_expr = nullptr;
     bool has_bit_select = false;
+    std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
         : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) {}
@@ -98,6 +103,9 @@ struct IndexSelectNode : public ExpressionNode {
         node->has_bit_select = has_bit_select;
         node->bit_msb_expr = bit_msb_expr ? bit_msb_expr->clone() : nullptr;
         node->bit_lsb_expr = bit_lsb_expr ? bit_lsb_expr->clone() : nullptr;
+        for (const auto& e : extra_indices) {
+            node->extra_indices.push_back(e ? e->clone() : nullptr);
+        }
         return node;
     }
 };
@@ -261,6 +269,12 @@ struct MemberAccessNode : public ExpressionNode {
     std::string var_name;
     std::string member_name;
     std::unique_ptr<ExpressionNode> index_expr = nullptr;
+    std::unique_ptr<ExpressionNode> member_msb_expr = nullptr;
+    std::unique_ptr<ExpressionNode> member_lsb_expr = nullptr;
+    bool has_member_select = false;
+    bool is_part_select = false;
+    bool is_plus_colon = false;
+    bool is_minus_colon = false;
 
     MemberAccessNode(std::string v, std::string m)
         : var_name(std::move(v)), member_name(std::move(m)) {}
@@ -268,6 +282,12 @@ struct MemberAccessNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> clone() const override {
         auto n = std::make_unique<MemberAccessNode>(var_name, member_name);
         if (index_expr) n->index_expr = index_expr->clone();
+        if (member_msb_expr) n->member_msb_expr = member_msb_expr->clone();
+        if (member_lsb_expr) n->member_lsb_expr = member_lsb_expr->clone();
+        n->has_member_select = has_member_select;
+        n->is_part_select = is_part_select;
+        n->is_plus_colon = is_plus_colon;
+        n->is_minus_colon = is_minus_colon;
         return n;
     }
 };

@@ -1,0 +1,8 @@
+{
+  "name": "v3_79_0_0_mca_rmw_slice",
+  "version": "v3.79.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§10.3",
+  "files": ["design.sv", "testbench.sv"],
+  "top_module": "tb_v3_79_0_regression"
+}

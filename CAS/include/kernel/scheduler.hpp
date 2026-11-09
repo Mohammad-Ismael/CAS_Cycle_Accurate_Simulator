@@ -138,6 +138,16 @@ private:
 
     std::vector<uint32_t> dirty_comb_procs;
     std::vector<uint8_t> comb_proc_enqueued;
+    uint32_t current_running_comb_proc = UINT32_MAX;
+
+    std::vector<uint32_t> dirty_slice_bindings;
+    std::vector<uint8_t> slice_binding_enqueued;
+    std::vector<std::vector<uint32_t>> net_to_slice_bindings;
+    void enqueue_slice_binding(uint32_t slice_idx);
+
+    std::vector<uint32_t> dirty_mcas;
+    std::vector<uint8_t> mca_enqueued;
+    void enqueue_mca(uint32_t mca_idx);
 
 public:
     explicit StratifiedScheduler(Engine& eng);

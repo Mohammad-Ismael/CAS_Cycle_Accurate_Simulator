@@ -6,6 +6,7 @@ requested_code.txt
 *.so
 **/*.so
 projects/ibex/
+projects/veer_el2/
 *.log
 CAS/build/
 build/

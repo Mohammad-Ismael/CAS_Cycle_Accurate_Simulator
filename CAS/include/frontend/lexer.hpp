@@ -253,7 +253,9 @@ enum class TokenType {
     TOKEN_PRIORITY,
     TOKEN_LET,
     TOKEN_UNTYPED,
-    TOKEN_TYPE
+    TOKEN_TYPE,
+    TOKEN_FORCE,
+    TOKEN_RELEASE
 };
 
 struct Token {
@@ -267,6 +269,8 @@ struct Token {
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
+    std::vector<uint64_t> wide_aval;
+    std::vector<uint64_t> wide_bval;
 };
 
 struct SourceBuffer {

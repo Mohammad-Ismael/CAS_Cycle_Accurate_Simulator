@@ -57,16 +57,25 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     if (target_net.has_procedural_assign) return;
     LogicVal old_v = target_net.value;
     if (val.is_string || target_net.type_name == "string") {
+        if (val == old_v) return;
         target_net.set(val);
-        if (target_net.value != old_v) {
-            engine.scheduler.notify_net_changed(target_id);
-        }
+        engine.scheduler.notify_net_changed(target_id);
         return;
     }
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
 
+    // Strict Value-Change Gating:
+    // Mask both old and new values to the exact slice width before checking differences.
+    LogicVal old_slice = old_v.extract_slice(ref.offset, ref.width);
+    if (old_slice == casted) {
+        return;
+    }
+
     auto cur = target_net.value;
     cur.deposit_slice(ref.offset, ref.width, casted);
+    if (cur == old_v) {
+        return;
+    }
     target_net.set(cur);
     if (target_id < engine.alias_members.size()) {
         for (size_t other_id : engine.alias_members[target_id]) {
@@ -348,11 +357,21 @@ void Evaluator::check_monitor() {
     }
 }
 
+bool Evaluator::has_returned(const BoundProcess& bp) const {
+    if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().current_frame()->returned) {
+        return true;
+    }
+    if (!bp.call_stack.empty() && bp.call_stack.back().returned) {
+        return true;
+    }
+    return false;
+}
+
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (!stmt) return;
     set_current_process(&bp);
 
-    if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().current_frame()->returned) {
+    if (has_returned(bp)) {
         return;
     }
 
@@ -361,28 +380,31 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto ret_node = dynamic_cast<ReturnStatementNode*>(stmt)) {
+        LogicVal ret_val;
+        bool has_expr = (ret_node->expr != nullptr);
+        if (has_expr) {
+            ret_val = eval_expr(ret_node->expr.get(), bp.scope);
+        }
         if (expr_eval.get_context().has_active_frame()) {
-            if (ret_node->expr) {
-                LogicVal ret_val = eval_expr(ret_node->expr.get(), bp.scope);
-                ScopeFrame* frame = expr_eval.get_context().current_frame();
-                if (frame) {
+            ScopeFrame* frame = expr_eval.get_context().current_frame();
+            if (frame) {
+                frame->returned = true;
+                if (has_expr && !frame->func_return_name.empty()) {
                     expr_eval.get_context().set_local_value(frame->func_return_name, ret_val);
-                    frame->returned = true;
-                }
-            } else {
-                ScopeFrame* frame = expr_eval.get_context().current_frame();
-                if (frame) {
-                    frame->returned = true;
                 }
             }
+        }
+        if (!bp.call_stack.empty()) {
+            bp.call_stack.back().returned = true;
+            bp.call_stack.back().pc = bp.call_stack.back().flattened_body.size();
         }
         return;
     }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
-            if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+            if (has_returned(bp)) return;
             execute_statement(s.get(), bp);
-            if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+            if (has_returned(bp)) return;
             if (!engine.scheduler.is_active()) return;
         }
         return;
@@ -852,7 +874,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
         uint64_t for_iters = 0;
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
-            for (auto& s : for_stmt->body) execute_statement(s.get(), bp);
+            if (has_returned(bp)) break;
+            for (auto& s : for_stmt->body) {
+                if (has_returned(bp)) break;
+                execute_statement(s.get(), bp);
+            }
+            if (has_returned(bp)) break;
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
             for_iters++;
             if (for_iters > 100000) {
@@ -896,10 +923,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 expr_eval.get_context().set_local_value(fe_stmt->loop_var, LogicVal::make_known(32, (uint64_t)i));
             }
             for (auto& s : fe_stmt->body) {
-                if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                if (has_returned(bp)) break;
                 execute_statement(s.get(), bp);
             }
-            if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+            if (has_returned(bp)) break;
         }
         return;
     }
@@ -907,7 +934,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
         uint64_t while_iters = 0;
         while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
-            for (auto& s : while_stmt->body) execute_statement(s.get(), bp);
+            if (has_returned(bp)) break;
+            for (auto& s : while_stmt->body) {
+                if (has_returned(bp)) break;
+                execute_statement(s.get(), bp);
+            }
+            if (has_returned(bp)) break;
             while_iters++;
             if (while_iters > 100000) {
                 std::cout << "[ERROR WHILE LOOP] while loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -921,14 +953,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         LogicVal count_val = eval_expr(rep_stmt->count_expr.get(), bp.scope);
         uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
         for (uint64_t i = 0; i < count; ++i) {
-            for (auto& s : rep_stmt->body) execute_statement(s.get(), bp);
+            if (has_returned(bp)) break;
+            for (auto& s : rep_stmt->body) {
+                if (has_returned(bp)) break;
+                execute_statement(s.get(), bp);
+            }
+            if (has_returned(bp)) break;
         }
         return;
     }
 
     if (auto fv_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
         while (engine.scheduler.is_active() && !bp.completed && !bp.is_delayed && bp.waiting_event_id == (size_t)-1 && !bp.is_waiting_sync && !bp.is_waiting_cycle) {
+            if (has_returned(bp)) break;
             for (auto& s : fv_stmt->body) {
+                if (has_returned(bp)) break;
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active() || bp.completed || bp.is_delayed || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_sync || bp.is_waiting_cycle) break;
             }
@@ -941,15 +980,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
             if (cond.to_bool()) {
                 for (auto& s : if_stmt->then_branch) {
-                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    if (has_returned(bp)) return;
                     execute_statement(s.get(), bp);
-                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    if (has_returned(bp)) return;
                 }
             } else {
                 for (auto& s : if_stmt->else_branch) {
-                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    if (has_returned(bp)) return;
                     execute_statement(s.get(), bp);
-                    if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) return;
+                    if (has_returned(bp)) return;
                 }
             }
             return;
@@ -995,12 +1034,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (first_match >= 0) {
                 for (auto& s : *arms[first_match].body) {
+                    if (has_returned(bp)) return;
                     execute_statement(s.get(), bp);
+                    if (has_returned(bp)) return;
                     if (!engine.scheduler.is_active()) return;
                 }
             } else if (final_else) {
                 for (auto& s : *final_else) {
+                    if (has_returned(bp)) return;
                     execute_statement(s.get(), bp);
+                    if (has_returned(bp)) return;
                     if (!engine.scheduler.is_active()) return;
                 }
             } else if (!any_cond_unknown) {
@@ -1032,12 +1075,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (first_match >= 0) {
             for (auto& s : *arms[first_match].body) {
+                if (has_returned(bp)) return;
                 execute_statement(s.get(), bp);
+                if (has_returned(bp)) return;
                 if (!engine.scheduler.is_active()) return;
             }
         } else if (final_else) {
             for (auto& s : *final_else) {
+                if (has_returned(bp)) return;
                 execute_statement(s.get(), bp);
+                if (has_returned(bp)) return;
                 if (!engine.scheduler.is_active()) return;
             }
         }
@@ -1148,12 +1195,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (first_matched_item) {
             for (auto& s : first_matched_item->statements) {
+                if (has_returned(bp)) return;
                 execute_statement(s.get(), bp);
+                if (has_returned(bp)) return;
                 if (!engine.scheduler.is_active()) return;
             }
         } else if (default_item) {
             for (auto& s : default_item->statements) {
+                if (has_returned(bp)) return;
                 execute_statement(s.get(), bp);
+                if (has_returned(bp)) return;
                 if (!engine.scheduler.is_active()) return;
             }
         }
@@ -1222,8 +1273,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     for (auto& s : task_node->get_body()) {
-                        if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                        if (has_returned(bp)) break;
                         execute_statement(s.get(), bp);
+                        if (has_returned(bp)) break;
                     }
                     expr_eval.get_context().pop_frame();
                     expr_eval.set_current_class_def(prev_cd);
@@ -1251,9 +1303,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             std::string mem_name = "";
             if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[1].get())) {
                 mem_name = id->name;
+            } else if (auto ma = dynamic_cast<MemberAccessNode*>(tcall->args[1].get())) {
+                mem_name = ma->var_name + "." + ma->member_name;
             }
 
             MemoryArray* target_mem = nullptr;
+            AssociativeArrayObject* target_assoc = nullptr;
             std::string cur_s = bp.scope;
             while (!cur_s.empty()) {
                 std::string scoped_m = cur_s + "." + mem_name;
@@ -1281,8 +1336,35 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
             }
+            if (!target_mem) {
+                target_assoc = engine.get_assoc_array(mem_name, bp.scope);
+                if (!target_assoc) {
+                    for (auto& kv : engine.assoc_array_map) {
+                        if (kv.first.size() >= mem_name.size() &&
+                            kv.first.substr(kv.first.size() - mem_name.size()) == mem_name) {
+                            target_assoc = &kv.second;
+                            break;
+                        }
+                    }
+                }
+                if (!target_assoc) {
+                    if (expr_eval.get_context().has_active_frame()) {
+                        LocalVar* local = expr_eval.get_context().lookup_local(mem_name);
+                        if (local && local->is_associative_array) target_assoc = &local->assoc_array_data;
+                    }
+                    if (!target_assoc && !bp.call_stack.empty()) {
+                        for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(mem_name);
+                            if (local && local->is_associative_array) {
+                                target_assoc = &local->assoc_array_data;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
 
-            if (!target_mem) return;
+            if (!target_mem && !target_assoc) return;
 
             std::ifstream ifs(filename);
             if (!ifs.is_open()) {
@@ -1297,8 +1379,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (!ifs.is_open()) return;
 
-            int64_t start_addr = target_mem->start_idx;
+            int64_t start_addr = target_mem ? target_mem->start_idx : 0;
             int64_t cur_addr = start_addr;
+            uint32_t word_w = target_mem ? target_mem->word_width : target_assoc->val_width;
             std::string token;
             while (ifs >> token) {
                 if (token.rfind("//", 0) == 0) {
@@ -1335,8 +1418,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         aval |= (d & ((1 << bits_per_digit) - 1));
                     }
                 }
-                LogicVal word_val(target_mem->word_width, aval, bval);
-                target_mem->set_word(cur_addr++, word_val);
+                LogicVal word_val(word_w, aval, bval);
+                if (target_mem) {
+                    target_mem->set_word(cur_addr++, word_val);
+                } else if (target_assoc) {
+                    target_assoc->elements[target_assoc->mask_key((uint64_t)cur_addr++)] = word_val;
+                }
             }
             return;
         }
@@ -1366,68 +1453,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
 
-            std::stringstream ss;
-            size_t arg_idx = arg_start;
-            size_t fmt_len = fmt.size();
-            for (size_t i = 0; i < fmt_len; ++i) {
-                if (fmt[i] == '%' && i + 1 < fmt_len) {
-                    ++i;
-                    if (fmt[i] == '%') {
-                        ss << '%';
-                        continue;
-                    }
-                    bool pad_zero = false;
-                    int width = 0;
-                    if (fmt[i] == '0') {
-                        pad_zero = true;
-                        ++i;
-                    }
-                    while (i < fmt_len && std::isdigit((unsigned char)fmt[i])) {
-                        width = width * 10 + (fmt[i] - '0');
-                        ++i;
-                    }
-                    char spec = (i < fmt_len) ? fmt[i] : ' ';
-                    if (spec == 'm') {
-                        ss << bp.scope;
-                        continue;
-                    }
-                    if (arg_idx < tcall->args.size()) {
-                        LogicVal val = eval_expr(tcall->args[arg_idx++].get(), bp.scope);
-                        if (spec == 'c') {
-                            char ch = static_cast<char>(val.aval & 0xFF);
-                            ss << ch;
-                        } else if (spec == 's') {
-                            if (val.is_string) ss << val.str_val;
-                            else ss << val.aval;
-                        } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
-                            ss << "x";
-                        } else if (spec == 'd' || spec == 't') {
-                            if (val.is_real) ss << (int64_t)val.real_val;
-                            else if (val.is_signed) ss << val.to_signed();
-                            else ss << val.aval;
-                        } else if (spec == 'h' || spec == 'x') {
-                            std::string hx = val.to_hex_string(true);
-                            if (pad_zero && width > 0) {
-                                while (hx.size() < (size_t)width) hx = "0" + hx;
-                            }
-                            ss << hx;
-                        } else {
-                            ss << val.aval;
-                        }
-                    }
-                } else {
-                    ss << fmt[i];
-                }
+            std::vector<LogicVal> arg_vals;
+            for (size_t i = arg_start; i < tcall->args.size(); ++i) {
+                arg_vals.push_back(eval_expr(tcall->args[i].get(), bp.scope));
             }
-            while (arg_idx < tcall->args.size()) {
-                LogicVal val = eval_expr(tcall->args[arg_idx++].get(), bp.scope);
-                if (val.is_string) ss << val.str_val;
-                else ss << val.aval;
-                arg_idx++;
-            }
-            if (is_fdisp) ss << "\n";
 
-            std::string out_str = ss.str();
+            std::string out_str = expr_eval.format_systemverilog_string(fmt, arg_vals, engine.get_sim_time());
+            if (is_fdisp) out_str += "\n";
+
             if (AsyncTraceBuffer::instance().is_running()) {
                 AsyncTraceBuffer::instance().log_string(fd, out_str);
                 if (fd != 1) {
@@ -1436,6 +1469,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 if (out_stream) {
                     *out_stream << out_str;
+                    if (out_str.find('\n') != std::string::npos) {
+                        out_stream->flush();
+                    }
                 }
                 if (out_stream != &std::cout) {
                     std::cout << out_str;
@@ -1879,8 +1915,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     for (auto& s : task_node->get_body()) {
-                        if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                        if (has_returned(bp)) break;
                         execute_statement(s.get(), bp);
+                        if (has_returned(bp)) break;
                     }
                     std::vector<std::pair<std::string, LogicVal>> output_vals;
                     for (const auto& binding : output_bindings) {
@@ -1969,8 +2006,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     BoundProcess call_bp{frame_name, nullptr, 0, false};
                     expr_eval.set_current_process(&call_bp);
                     for (auto& s : func_node->get_body()) {
-                        if (expr_eval.get_context().current_frame() && expr_eval.get_context().current_frame()->returned) break;
+                        if (has_returned(call_bp)) break;
                         execute_statement(s.get(), call_bp);
+                        if (has_returned(call_bp)) break;
                     }
                     expr_eval.set_current_process(prev_bp);
 
@@ -2980,12 +3018,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 return;
             }
             if (!member_name.empty()) {
-                const PackedStructType* st = nullptr;
-                if (!local->type_name.empty()) {
-                    if (engine.struct_types.find(local->type_name) != engine.struct_types.end()) {
-                        st = &engine.struct_types.at(local->type_name);
-                    }
-                }
+                const PackedStructType* st = expr_eval.find_struct_type_by_member(local->type_name, member_name, local->width, bp.scope);
                 if (st) {
                     const StructMember* sm = st->get_member(member_name);
                     if (sm) {
@@ -2993,6 +3026,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         return;
                     }
                 }
+                return;
             }
             if (local->is_class_handle && rhs_val.aval != 0) {
                 auto rhs_obj = engine.get_class_object(rhs_val.aval);
@@ -3004,6 +3038,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 local->value = rhs_val;
             } else {
                 local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                    local->value.bval = 0;
+                    if (!local->value.wide_bval.empty()) {
+                        std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                    }
+                }
             }
             return;
         }
@@ -3148,7 +3188,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
 
             if (is_member) {
-                const PackedStructType* st = nullptr;
                 std::string type_name = engine.netlist[net_id].type_name;
                 if (type_name.empty()) {
                     std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
@@ -3158,13 +3197,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         type_name = engine.var_to_struct_type.at(base_var);
                     }
                 }
-                std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
-                if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
-                    st = &engine.struct_types.at(scoped_type);
-                } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
-                    st = &engine.struct_types.at(type_name);
-                }
-
+                const PackedStructType* st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
                 if (st) {
                     const StructMember* sm = st->get_member(member_name);
                     if (sm) {
@@ -3184,6 +3217,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         return;
                     }
                 }
+                return;
             }
 
             if (nassign->bit_idx) {
@@ -3370,11 +3404,34 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
                         st = &engine.struct_types.at(type_name);
                     }
+                    if (!st) {
+                        for (const auto& pair : engine.struct_types) {
+                            if (pair.second.get_member(mem_assign->member_name)) {
+                                st = &pair.second;
+                                break;
+                            }
+                        }
+                    }
                     if (st) {
                         const StructMember* sm = st->get_member(mem_assign->member_name);
                         if (sm) {
+                            uint32_t m_offset = sm->offset;
+                            uint32_t m_width = sm->width;
+                            if (mem_assign->has_member_select) {
+                                if (mem_assign->is_part_select) {
+                                    uint64_t msb = eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                                    uint64_t lsb = eval_expr(mem_assign->member_lsb_expr.get(), bp.scope).aval;
+                                    m_offset += (uint32_t)std::min(msb, lsb);
+                                    m_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                                } else {
+                                    uint64_t b_idx = eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                                    m_offset += (uint32_t)b_idx;
+                                    m_width = 1;
+                                }
+                            }
+                            LogicVal casted = LogicOps::cast_width(rhs_val, m_width, false);
                             LogicVal cur_word = mem.get_word(addr);
-                            cur_word.deposit_slice(sm->offset, sm->width, rhs_val);
+                            cur_word.deposit_slice(m_offset, m_width, casted);
                             LogicVal new_word = cur_word;
                             if (mem_assign->is_non_blocking) {
                                 if (mem_assign->intra_delay > 0) {
@@ -3415,12 +3472,62 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         base_low = it_vdm->second.dimensions[0].low();
                         if (it_vdm->second.dimensions.size() > 1) {
                             d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                        } else if (it_vdm->second.dimensions[0].size() > 0) {
+                            d1_width = (uint32_t)(engine.netlist[net_id].width / it_vdm->second.dimensions[0].size());
                         }
                     }
                     int64_t elem_idx = addr;
                     if (base_low > 0 && elem_idx >= base_low) elem_idx -= base_low;
                     uint32_t offset = (uint32_t)(elem_idx * d1_width);
                     uint32_t slice_w = d1_width;
+
+                    if (!mem_assign->member_name.empty()) {
+                        const PackedStructType* st = nullptr;
+                        std::string tname = engine.netlist[net_id].type_name;
+                        if (tname.empty()) {
+                            if (engine.var_to_struct_type.count(full_target_name)) {
+                                tname = engine.var_to_struct_type.at(full_target_name);
+                            } else if (engine.var_to_struct_type.count(mem_assign->mem_name)) {
+                                tname = engine.var_to_struct_type.at(mem_assign->mem_name);
+                            }
+                        }
+                        if (!tname.empty()) {
+                            std::string scoped_t = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                            if (engine.struct_types.count(scoped_t)) st = &engine.struct_types.at(scoped_t);
+                            else if (engine.struct_types.count(tname)) st = &engine.struct_types.at(tname);
+                        }
+                        if (!st) {
+                            for (const auto& pair : engine.struct_types) {
+                                if (pair.second.get_member(mem_assign->member_name)) {
+                                    st = &pair.second;
+                                    break;
+                                }
+                            }
+                        }
+                        if (st) {
+                            const StructMember* sm = st->get_member(mem_assign->member_name);
+                            if (sm) {
+                                offset += sm->offset;
+                                slice_w = sm->width;
+                            }
+                        }
+                    }
+
+                    if (mem_assign->has_member_select) {
+                        if (mem_assign->is_part_select) {
+                            uint64_t msb = eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                            uint64_t lsb = eval_expr(mem_assign->member_lsb_expr.get(), bp.scope).aval;
+                            uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                            uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                            offset += eff_lsb;
+                            slice_w = w;
+                        } else {
+                            uint64_t b_idx = eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                            offset += (uint32_t)b_idx;
+                            slice_w = 1;
+                        }
+                    }
+
                     LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, false);
                     if (mem_assign->is_non_blocking) {
                         if (mem_assign->intra_delay > 0) {
@@ -3551,6 +3658,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             int shift = 0;
             for (int i = (int)assign->lhs_targets.size() - 1; i >= 0; --i) {
                 std::string target_name = assign->lhs_targets[i];
+                ExpressionNode* target_expr = (i < (int)assign->lhs_target_exprs.size()) ? assign->lhs_target_exprs[i].get() : nullptr;
+                uint32_t slice_offset = 0;
+                uint32_t slice_width = 0;
+                bool is_sliced = false;
+
+                if (auto inode = dynamic_cast<IndexSelectNode*>(target_expr)) {
+                    target_name = inode->name;
+                    if (inode->is_part_select) {
+                        uint64_t msb = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t lsb = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)std::min(msb, lsb);
+                        slice_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                        is_sliced = true;
+                    } else if (inode->is_plus_colon) {
+                        uint64_t base = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t w = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)base;
+                        slice_width = (uint32_t)w;
+                        is_sliced = true;
+                    } else if (inode->is_minus_colon) {
+                        uint64_t base = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t w = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)(base >= w ? (base - w + 1) : 0);
+                        slice_width = (uint32_t)w;
+                        is_sliced = true;
+                    } else if (inode->msb_expr) {
+                        uint64_t b_idx = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)b_idx;
+                        slice_width = 1;
+                        is_sliced = true;
+                    }
+                }
+
                 LocalVar* local = nullptr;
                 if (expr_eval.get_context().has_active_frame()) {
                     local = expr_eval.get_context().lookup_local(target_name);
@@ -3562,22 +3702,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 if (local) {
-                    uint32_t width = local->width;
-                    local->value = rhs_val.extract_slice(shift, width);
+                    uint32_t width = is_sliced ? slice_width : local->width;
+                    LogicVal piece = rhs_val.extract_slice(shift, width);
+                    if (is_sliced) {
+                        local->value.deposit_slice(slice_offset, slice_width, piece);
+                    } else {
+                        local->value = piece;
+                    }
+                    if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                        local->value.bval = 0;
+                        if (!local->value.wide_bval.empty()) {
+                            std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                        }
+                    }
                     shift += width;
                 } else {
                     size_t net_id = engine.get_net_id(bp.scope, target_name);
                     if (net_id != (size_t)-1) {
                         size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
-                        uint32_t width = engine.netlist[target_id].width;
+                        uint32_t width = is_sliced ? slice_width : engine.netlist[target_id].width;
                         if (!engine.netlist[target_id].has_procedural_assign) {
                             LogicVal old_v = engine.netlist[target_id].value;
-                            LogicVal new_v = rhs_val.extract_slice(shift, width);
-                            engine.netlist[target_id].set(new_v);
+                            LogicVal piece = rhs_val.extract_slice(shift, width);
+                            if (is_sliced) {
+                                LogicVal new_v = old_v;
+                                new_v.deposit_slice(slice_offset, slice_width, piece);
+                                engine.netlist[target_id].set(new_v);
+                            } else {
+                                engine.netlist[target_id].set(piece);
+                            }
                             if (target_id < engine.alias_members.size()) {
                                 for (size_t other_id : engine.alias_members[target_id]) {
                                     if (other_id != target_id && other_id < engine.netlist.size()) {
-                                        engine.netlist[other_id].set(new_v);
+                                        engine.netlist[other_id].set(engine.netlist[target_id].value);
                                     }
                                 }
                             }
@@ -3587,7 +3744,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         shift += width;
                     } else {
-                        shift += 32;
+                        shift += is_sliced ? slice_width : 32;
                     }
                 }
             }
@@ -3831,12 +3988,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             if (local) {
                 if (!member_name.empty()) {
-                    const PackedStructType* st = nullptr;
-                    if (!local->type_name.empty()) {
-                        if (engine.struct_types.find(local->type_name) != engine.struct_types.end()) {
-                            st = &engine.struct_types.at(local->type_name);
-                        }
-                    }
+                    const PackedStructType* st = expr_eval.find_struct_type_by_member(local->type_name, member_name, local->width, bp.scope);
                     if (st) {
                         const StructMember* sm = st->get_member(member_name);
                         if (sm) {
@@ -3844,6 +3996,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             return;
                         }
                     }
+                    return;
                 }
                 if (local->is_associative_array) {
                     if (assign->bit_idx) {
@@ -4095,6 +4248,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 local->value = rhs_val;
             } else {
                 local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                    local->value.bval = 0;
+                    if (!local->value.wide_bval.empty()) {
+                        std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                    }
+                }
             }
                 }
             } else {
@@ -4331,6 +4490,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                         slice_w = 1;
                                         msb = lsb;
                                     }
+                                    if (lsb >= (uint32_t)mem.packed_lsb) {
+                                        lsb -= (uint32_t)mem.packed_lsb;
+                                    }
                                     word_val.deposit_slice(lsb, slice_w, rhs_val);
                                     mem.set_word(addr, word_val);
                                 }
@@ -4352,6 +4514,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     lsb = lsb_val.aval;
                                     if (msb < lsb) std::swap(msb, lsb);
                                     slice_w = msb - lsb + 1;
+                                }
+                                if (lsb >= (uint32_t)mem.packed_lsb) {
+                                    lsb -= (uint32_t)mem.packed_lsb;
                                 }
                                 word_val.deposit_slice(lsb, slice_w, rhs_val);
                                 mem.set_word(addr, word_val);
@@ -4407,7 +4572,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (net_id != (size_t)-1) {
                     if (engine.netlist[net_id].has_procedural_assign) return;
                     if (is_member) {
-                        const PackedStructType* st = nullptr;
                         std::string type_name = engine.netlist[net_id].type_name;
                         if (type_name.empty()) {
                             std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
@@ -4417,13 +4581,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 type_name = engine.var_to_struct_type.at(base_var);
                             }
                         }
-                        std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
-                        if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) {
-                            st = &engine.struct_types.at(scoped_type);
-                        } else if (engine.struct_types.find(type_name) != engine.struct_types.end()) {
-                            st = &engine.struct_types.at(type_name);
-                        }
-
+                        const PackedStructType* st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
                         if (st) {
                             const StructMember* sm = st->get_member(member_name);
                             if (sm) {
@@ -4445,6 +4603,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 return;
                             }
                         }
+                        return;
                     }
                     if (assign->bit_idx) {
                         uint32_t d1_width = 1;
@@ -4457,6 +4616,49 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             base_low = it_vdm->second.dimensions[0].low();
                             if (it_vdm->second.dimensions.size() > 1) {
                                 d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                            }
+                        }
+                        if (!assign->extra_indices.empty() && it_vdm != engine.var_dimensions.end() && it_vdm->second.dimensions.size() > 1) {
+                            std::vector<ExpressionNode*> all_indices;
+                            if (assign->bit_idx) all_indices.push_back(assign->bit_idx.get());
+                            if (assign->bit_idx2) all_indices.push_back(assign->bit_idx2.get());
+                            for (const auto& ei : assign->extra_indices) {
+                                if (ei) all_indices.push_back(ei.get());
+                            }
+                            size_t M = it_vdm->second.dimensions.size();
+                            size_t N = all_indices.size();
+                            std::vector<uint32_t> strides(M, 1);
+                            for (int k = (int)M - 2; k >= 0; --k) {
+                                strides[k] = strides[k + 1] * (uint32_t)it_vdm->second.dimensions[k + 1].size();
+                            }
+                            uint32_t total_off = 0;
+                            bool any_x = false;
+                            for (size_t d = 0; d < N && d < M; ++d) {
+                                LogicVal iv = eval_expr(all_indices[d], bp.scope);
+                                if (iv.is_unknown()) { any_x = true; break; }
+                                int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                                int64_t low = it_vdm->second.dimensions[d].low();
+                                if (val >= low) val -= low;
+                                total_off += (uint32_t)val * strides[d];
+                            }
+                            if (!any_x) {
+                                uint32_t slice_w = (N <= M) ? (N == M ? 1 : strides[N - 1]) : 1;
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto old_v = engine.netlist[target_id].value;
+                                auto cur = old_v;
+                                cur.deposit_slice(total_off, slice_w, rhs_val);
+                                engine.netlist[target_id].set(cur);
+                                if (target_id < engine.alias_members.size()) {
+                                    for (size_t other_id : engine.alias_members[target_id]) {
+                                        if (other_id != target_id && other_id < engine.netlist.size()) {
+                                            engine.netlist[other_id].set(cur);
+                                        }
+                                    }
+                                }
+                                if (engine.netlist[target_id].value != old_v) {
+                                    engine.scheduler.notify_net_changed(target_id);
+                                }
+                                return;
                             }
                         }
                         if (assign->bit_idx2) {
@@ -4492,8 +4694,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
+                                auto old_slice = old_v.extract_slice(lsb, slice_w);
+                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                if (old_slice == casted_slice) {
+                                    return;
+                                }
                                 auto cur = old_v;
-                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                cur.deposit_slice(lsb, slice_w, casted_slice);
+                                if (cur == old_v) {
+                                    return;
+                                }
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
                                     for (size_t other_id : engine.alias_members[target_id]) {
@@ -4529,8 +4739,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
+                                auto old_slice = old_v.extract_slice(lsb, slice_w);
+                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                if (old_slice == casted_slice) {
+                                    return;
+                                }
                                 auto cur = old_v;
-                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                cur.deposit_slice(lsb, slice_w, casted_slice);
+                                if (cur == old_v) {
+                                    return;
+                                }
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
                                     for (size_t other_id : engine.alias_members[target_id]) {
@@ -4559,8 +4777,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
+                                auto old_slice = old_v.extract_slice(lsb, slice_w);
+                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                if (old_slice == casted_slice) {
+                                    return;
+                                }
                                 auto cur = old_v;
-                                cur.deposit_slice(lsb, slice_w, rhs_val);
+                                cur.deposit_slice(lsb, slice_w, casted_slice);
+                                if (cur == old_v) {
+                                    return;
+                                }
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
                                     for (size_t other_id : engine.alias_members[target_id]) {
@@ -4629,6 +4855,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             auto connected = get_connected_nets(net_id);
             for (size_t cid : connected) {
                 auto& net = engine.netlist[cid];
+                if (!net.has_procedural_assign) {
+                    engine.procedural_assign_active_nets.push_back(cid);
+                }
                 net.has_procedural_assign = true;
                 net.procedural_assign_rhs = passign->rhs.get();
                 net.procedural_assign_scope = bp.scope;
@@ -4663,6 +4892,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 net.has_procedural_assign = false;
                 net.procedural_assign_rhs = nullptr;
                 net.procedural_assign_scope = "";
+                auto it = std::find(engine.procedural_assign_active_nets.begin(), engine.procedural_assign_active_nets.end(), cid);
+                if (it != engine.procedural_assign_active_nets.end()) {
+                    engine.procedural_assign_active_nets.erase(it);
+                }
             }
         }
         return;
@@ -4861,7 +5094,7 @@ void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNo
         if (auto idx_node = dynamic_cast<IndexSelectNode*>(item_expr.get())) {
             std::string tname = idx_node->name;
             LogicVal idx_val = eval_expr(idx_node->msb_expr.get(), bp.scope);
-            int64_t idx = (int64_t)idx_val.to_signed();
+            int64_t idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
             std::string scoped_tname = bp.scope.empty() ? tname : (bp.scope + "." + tname);
             auto it_mem = engine.memory_map.find(scoped_tname);
             if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(tname);

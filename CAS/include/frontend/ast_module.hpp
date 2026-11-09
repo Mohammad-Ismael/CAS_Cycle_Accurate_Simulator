@@ -93,19 +93,22 @@ struct ParameterDef {
     std::string name;
     std::unique_ptr<ExpressionNode> default_expr;
     bool is_localparam = false;
+    std::string type_name;
 
     ParameterDef() = default;
-    ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false)
-        : name(std::move(n)), default_expr(std::move(e)), is_localparam(is_local) {}
+    ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false, std::string t = "")
+        : name(std::move(n)), default_expr(std::move(e)), is_localparam(is_local), type_name(std::move(t)) {}
     ParameterDef(const ParameterDef& other)
         : name(other.name),
           default_expr(other.default_expr ? other.default_expr->clone() : nullptr),
-          is_localparam(other.is_localparam) {}
+          is_localparam(other.is_localparam),
+          type_name(other.type_name) {}
     ParameterDef& operator=(const ParameterDef& other) {
         if (this != &other) {
             name = other.name;
             default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
             is_localparam = other.is_localparam;
+            type_name = other.type_name;
         }
         return *this;
     }
@@ -279,10 +282,15 @@ struct InstantiationNode : public ASTNode {
 struct ContinuousAssignNode : public ASTNode {
     std::string target_name;
     std::vector<std::string> concat_targets;
+    std::vector<std::unique_ptr<ExpressionNode>> concat_target_exprs;
     std::unique_ptr<ExpressionNode> target_index_expr = nullptr;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<StreamingConcatNode> stream_target = nullptr;
     std::string member_name;
+    std::unique_ptr<ExpressionNode> member_msb_expr = nullptr;
+    std::unique_ptr<ExpressionNode> member_lsb_expr = nullptr;
+    bool has_member_select = false;
+    bool is_part_select = false;
 
     ContinuousAssignNode() = default;
     ContinuousAssignNode(std::string target, std::unique_ptr<ExpressionNode> r)
@@ -291,9 +299,16 @@ struct ContinuousAssignNode : public ASTNode {
     std::unique_ptr<ContinuousAssignNode> clone() const {
         auto node = std::make_unique<ContinuousAssignNode>(target_name, rhs ? rhs->clone() : nullptr);
         node->concat_targets = concat_targets;
+        for (const auto& e : concat_target_exprs) {
+            node->concat_target_exprs.push_back(e ? e->clone() : nullptr);
+        }
         if (target_index_expr) node->target_index_expr = target_index_expr->clone();
         if (stream_target) node->stream_target = std::unique_ptr<StreamingConcatNode>(static_cast<StreamingConcatNode*>(stream_target->clone().release()));
         node->member_name = member_name;
+        node->has_member_select = has_member_select;
+        node->is_part_select = is_part_select;
+        if (member_msb_expr) node->member_msb_expr = member_msb_expr->clone();
+        if (member_lsb_expr) node->member_lsb_expr = member_lsb_expr->clone();
         return node;
     }
 };
@@ -382,6 +397,8 @@ struct StructMemberNode : public ASTNode {
     uint32_t width = 1;
     bool is_signed = false;
     std::string type_name = "";
+    int64_t msb = 0;
+    int64_t lsb = 0;
 };
 
 struct StructTypeNode : public ASTNode {
@@ -790,6 +807,7 @@ struct CovergroupNode : public ASTNode {
     bool has_event_trigger = false;
     EdgeType event_edge = EdgeType::POSEDGE;
     std::string event_signal = "";
+    std::unique_ptr<ExpressionNode> iff_expr = nullptr;
     bool per_instance = false;
 
     explicit CovergroupNode(std::string n) : name(std::move(n)) {}

@@ -66,6 +66,8 @@ public:
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
     static std::unordered_map<std::string, std::shared_ptr<ConfigNode>> global_configs;
     static std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> global_udp_defs;
+    static inline std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> global_struct_typedefs;
+    static inline std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> global_enum_typedefs;
     static std::vector<std::string> global_wildcard_imports;
     static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
     static void clear_global_packages() {
@@ -75,6 +77,8 @@ public:
         global_configs.clear();
         global_udp_defs.clear();
         global_let_decls.clear();
+        global_struct_typedefs.clear();
+        global_enum_typedefs.clear();
         class_map.clear();
         global_classes.clear();
         global_forward_classes.clear();
@@ -128,6 +132,8 @@ public:
     bool is_known_class(const std::string& name) const;
 
     std::shared_ptr<EnumTypeNode> get_enum_typedef(const std::string& name) const {
+        auto git = global_enum_typedefs.find(name);
+        if (git != global_enum_typedefs.end()) return git->second;
         auto it = typedef_map.find(name);
         if (it != typedef_map.end()) return it->second;
 
@@ -170,6 +176,8 @@ public:
     }
 
     std::shared_ptr<StructTypeNode> get_struct_typedef(const std::string& name) const {
+        auto git = global_struct_typedefs.find(name);
+        if (git != global_struct_typedefs.end()) return git->second;
         auto it = struct_typedef_map.find(name);
         if (it != struct_typedef_map.end()) return it->second;
 
@@ -384,6 +392,33 @@ public:
     }
 
     bool is_constant_size_param(const std::string& name, uint32_t& out_size) const {
+        if (name.rfind('.') != std::string::npos) {
+            std::string memb = name.substr(name.rfind('.') + 1);
+            if (Lexer::global_defines.count("RV_" + memb)) {
+                try {
+                    out_size = static_cast<uint32_t>(std::stoul(Lexer::global_defines["RV_" + memb], nullptr, 0));
+                    if (out_size > 0) return true;
+                } catch (...) {}
+            }
+            if (Lexer::global_defines.count(memb)) {
+                try {
+                    out_size = static_cast<uint32_t>(std::stoul(Lexer::global_defines[memb], nullptr, 0));
+                    if (out_size > 0) return true;
+                } catch (...) {}
+            }
+        }
+        if (Lexer::global_defines.count("RV_" + name)) {
+            try {
+                out_size = static_cast<uint32_t>(std::stoul(Lexer::global_defines["RV_" + name], nullptr, 0));
+                if (out_size > 0) return true;
+            } catch (...) {}
+        }
+        if (Lexer::global_defines.count(name)) {
+            try {
+                out_size = static_cast<uint32_t>(std::stoul(Lexer::global_defines[name], nullptr, 0));
+                if (out_size > 0) return true;
+            } catch (...) {}
+        }
         if (current_parsing_module) {
             std::unordered_map<std::string, uint64_t> pmap;
             for (const auto& p : current_parsing_module->parameters) {
@@ -459,7 +494,7 @@ public:
     bool is_assoc_key_token(const Token& tok) const {
         if (tok.type == TokenType::TOKEN_LOGIC || tok.type == TokenType::TOKEN_REG ||
             tok.type == TokenType::TOKEN_WIRE || tok.type == TokenType::TOKEN_INTEGER ||
-            tok.type == TokenType::TOKEN_STAR) {
+            tok.type == TokenType::TOKEN_STAR || tok.type == TokenType::TOKEN_BIT) {
             return true;
         }
         if (tok.type == TokenType::TOKEN_IDENTIFIER) {
