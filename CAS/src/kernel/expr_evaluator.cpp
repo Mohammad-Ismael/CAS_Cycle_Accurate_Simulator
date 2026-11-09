@@ -3389,15 +3389,36 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (addr_val.is_unknown()) {
                 return LogicVal::make_x(assoc->val_width);
             }
+            LogicVal elem;
             if (assoc->is_string_key) {
-                return assoc->get(addr_val.str_val);
+                elem = assoc->get(addr_val.str_val);
             } else {
                 uint64_t key = addr_val.aval;
                 if (assoc->key_width < 64 && assoc->key_width > 0) {
                     key &= ((1ULL << assoc->key_width) - 1);
                 }
-                return assoc->get(key);
+                elem = assoc->get(key);
             }
+            if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                uint64_t b_lsb = 0;
+                uint32_t w = 1;
+                if (idx_node->is_plus_colon) {
+                    uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    b_lsb = b_msb;
+                    w = static_cast<uint32_t>(width);
+                } else if (idx_node->is_minus_colon) {
+                    uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
+                    w = static_cast<uint32_t>(width);
+                } else {
+                    b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
+                    w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                    b_lsb = std::min(b_msb, b_lsb);
+                }
+                return elem.extract_slice((uint32_t)b_lsb, w);
+            }
+            return elem;
         }
 
         LogicVal target_val = LogicVal::make_x(1);
@@ -3684,12 +3705,47 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             uint32_t total_off = 0;
             uint32_t part_w = 0;
             for (size_t d = 0; d < N && d < M; ++d) {
+                if (d == 1 && idx_node->has_bit_select) {
+                    if (idx_node->is_plus_colon || idx_node->is_minus_colon || idx_node->bit_lsb_expr) {
+                        uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                        uint64_t b_lsb = 0;
+                        uint32_t w = 1;
+                        if (idx_node->is_plus_colon) {
+                            uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                            b_lsb = b_msb;
+                            w = static_cast<uint32_t>(width);
+                        } else if (idx_node->is_minus_colon) {
+                            uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                            b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
+                            w = static_cast<uint32_t>(width);
+                        } else {
+                            b_lsb = eval(idx_node->bit_lsb_expr.get(), scope).aval;
+                            w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            b_lsb = std::min(b_msb, b_lsb);
+                        }
+                        int64_t low = vdm->dimensions[d].low();
+                        if (b_lsb >= (uint64_t)low) b_lsb -= (uint64_t)low;
+                        total_off += (uint32_t)b_lsb * strides[d];
+                        part_w = w;
+                        continue;
+                    }
+                }
                 if (auto part = dynamic_cast<IndexSelectNode*>(all_indices[d])) {
                     if (part->is_part_select) {
                         uint64_t msb = eval(part->msb_expr.get(), scope).aval;
                         uint64_t lsb = eval(part->lsb_expr.get(), scope).aval;
-                        uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
-                        uint32_t eff_lsb = std::min(msb, lsb);
+                        uint32_t w = 1;
+                        uint32_t eff_lsb = 0;
+                        if (part->is_plus_colon) {
+                            w = (uint32_t)lsb;
+                            eff_lsb = (uint32_t)msb;
+                        } else if (part->is_minus_colon) {
+                            w = (uint32_t)lsb;
+                            eff_lsb = (msb >= w - 1) ? (uint32_t)(msb - w + 1) : 0;
+                        } else {
+                            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                            eff_lsb = std::min(msb, lsb);
+                        }
                         int64_t low = vdm->dimensions[d].low();
                         if (eff_lsb >= (uint64_t)low) eff_lsb -= (uint64_t)low;
                         total_off += eff_lsb * strides[d];

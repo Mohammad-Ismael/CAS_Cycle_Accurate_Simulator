@@ -2512,10 +2512,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
         if (s.is_associative_array) {
             std::string aa_scope = scope + "." + s.name;
-            result.assoc_array_map[aa_scope] = AssociativeArrayObject(aa_scope, w, s.is_signed, s.assoc_key_type, s.assoc_key_width);
+            bool is_2st = (s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" || s.type_name == "shortint" || s.type_name == "longint");
+            result.assoc_array_map[aa_scope] = AssociativeArrayObject(aa_scope, w, s.is_signed, s.assoc_key_type, s.assoc_key_width, is_2st);
             if (debug_out) {
                 *debug_out << "     * Associative Array allocated: " << aa_scope 
-                           << " [" << w << "-bit, key=" << s.assoc_key_type << " (" << s.assoc_key_width << "-bit)]\n";
+                           << " [" << w << "-bit, key=" << s.assoc_key_type << " (" << s.assoc_key_width << "-bit), 2state=" << is_2st << "]\n";
             }
         } else if (s.is_dynamic_array) {
             std::string da_scope = scope + "." + s.name;

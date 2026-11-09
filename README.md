@@ -315,8 +315,8 @@ Building upon this golden baseline, CAS targets **100% cycle-accurate execution 
 
 - **Western Digital VeeR EL2 (RV32IMC, Dual-Issue):**
   - High-performance, dual-issue, superscalar 4-stage pipelined 32-bit RISC-V core (`veer_el2` / `tb_top.sv`).
-  - **Initial Boot & Instruction Retirement Confirmed:** Initial boot sequence, reset deassertion at T=35 ns, 64-bit AXI/bus arbitration, and delta cycle loop oscillation elimination verified.
-  - Reached Checkpoint A: Successfully issued instruction fetch at Cycle 6 (`ifu_araddr=0x80000000`) and confirmed first instruction retirement at Cycle 12 (`0x80000000`), advancing through early execution.
+  - **Early Execution & Instruction Retirement Parity Confirmed:** Initial boot sequence, reset deassertion at T=35 ns, 64-bit AXI/bus arbitration, and delta cycle loop oscillation elimination verified.
+  - Reached Checkpoint C: Successfully resolved 2-state associative array preloading and multi-dimensional packed array slicing (`ic_miss_buff_data`), confirming 100% golden parity against Verilator through Cycle 120 without divergence.
 
 - **Permanent Baseline Safeguard:** All 83 milestone regression suites (`regressions/run_regressions.py`) run continuously with 100.0% Synopsys VCS Golden Parity (`TOTAL: 83 | PASSED: 83 | FAILED: 0`).
 

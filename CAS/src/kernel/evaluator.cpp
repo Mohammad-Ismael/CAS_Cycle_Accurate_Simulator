@@ -425,7 +425,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (vdecl->is_associative_array) {
                     lv->is_associative_array = true;
-                    lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                    bool is_2st = (vdecl->type_name == "bit" || vdecl->type_name == "int" || vdecl->type_name == "byte" || vdecl->type_name == "shortint" || vdecl->type_name == "longint");
+                    lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width, is_2st);
                 }
                 if (vdecl->is_unpacked_array) {
                     lv->is_unpacked_array = true;
@@ -731,7 +732,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (vdecl->is_associative_array) {
                 lv->is_associative_array = true;
-                lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                bool is_2st = (vdecl->type_name == "bit" || vdecl->type_name == "int" || vdecl->type_name == "byte" || vdecl->type_name == "shortint" || vdecl->type_name == "longint");
+                lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width, is_2st);
             }
             if (vdecl->is_unpacked_array) {
                 lv->is_unpacked_array = true;
