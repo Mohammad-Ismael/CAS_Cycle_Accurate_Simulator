@@ -3075,6 +3075,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    // Elaborate interface instances first so their internal nets are available for generate blocks, continuous assigns, and submodules
+    for (auto& inst : mod->instantiations) {
+        auto it = module_defs.find(inst->module_type);
+        if (it != module_defs.end() && it->second->is_interface) {
+            elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
+        }
+    }
+
     for (auto& ca : mod->continuous_assigns) {
         if (ca->target_name.empty() && ca->concat_targets.empty() && !ca->stream_target) {
             std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
@@ -3879,14 +3887,6 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.generated_processes.push_back(std::move(proc_copy));
         bp.proc = result.generated_processes.back().get();
         result.processes.push_back(std::move(bp));
-    }
-
-    // Elaborate interface instances first so their internal nets are available for generate blocks and submodules
-    for (auto& inst : mod->instantiations) {
-        auto it = module_defs.find(inst->module_type);
-        if (it != module_defs.end() && it->second->is_interface) {
-            elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
-        }
     }
 
     // IEEE 1800-2023 §27: Unroll generate blocks
