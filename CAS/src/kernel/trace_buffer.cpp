@@ -137,6 +137,9 @@ void AsyncTraceBuffer::worker_loop() {
                     std::cout.write(pkt.text, pkt.text_len);
                 } else if (target_stream) {
                     target_stream->write(pkt.text, pkt.text_len);
+                    if (std::memchr(pkt.text, '\n', pkt.text_len) != nullptr) {
+                        target_stream->flush();
+                    }
                 }
             } else if (pkt.packet_type == TracePacketType::CORE_TRACE) {
                 if (target_stream) {
