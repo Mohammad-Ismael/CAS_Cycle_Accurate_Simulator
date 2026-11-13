@@ -1208,7 +1208,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (td && !td->base_type.empty()) {
                     mod->simple_typedefs[td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
                 }
-                mod->typedefs.push_back(std::move(td));
+                if (td) mod->typedefs.push_back(std::move(td));
                 continue;
             }
 
