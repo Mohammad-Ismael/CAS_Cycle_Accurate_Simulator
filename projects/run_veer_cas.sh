@@ -13,8 +13,10 @@ cd "${RV_ROOT}"
 cp -f "${FIRMWARE}" program.hex
 
 DEFINES=(
+  +define+DEBUG
   "+define+RV_OPENSOURCE"
   "+define+RV_FPGA_OPTIMIZE"
+  "+define+GTLSIM"
 )
 
 INCDIRS=(

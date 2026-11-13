@@ -541,12 +541,49 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
         return total;
     }
     if (auto tn = dynamic_cast<TypeNameNode*>(expr)) {
-        return resolve_type_width(tn->type_name_arg);
+        std::string name = tn->type_name_arg;
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string cand = cur_s + "." + name;
+            auto it_e = result.enum_types.find(cand);
+            if (it_e != result.enum_types.end()) return it_e->second.width;
+            auto it_s = result.struct_types.find(cand);
+            if (it_s != result.struct_types.end()) return it_s->second.total_width;
+            auto it_sim = result.simple_types.find(cand);
+            if (it_sim != result.simple_types.end()) return it_sim->second.width;
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
+        auto it_e = result.enum_types.find(name);
+        if (it_e != result.enum_types.end()) return it_e->second.width;
+        auto it_s = result.struct_types.find(name);
+        if (it_s != result.struct_types.end()) return it_s->second.total_width;
+        auto it_sim = result.simple_types.find(name);
+        if (it_sim != result.simple_types.end()) return it_sim->second.width;
+        return resolve_type_width(name);
     }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
         std::string name = id->name;
-        uint32_t tw = resolve_type_width(name);
-        if (tw > 1 || name == "bit" || name == "logic" || name == "reg") return tw;
+        if (name == "bit" || name == "logic" || name == "reg") return 1;
+        if (name == "byte") return 8;
+        if (name == "shortint") return 16;
+        if (name == "int" || name == "integer") return 32;
+        if (name == "longint" || name == "time" || name == "real" || name == "shortreal") return 64;
+
+        std::string cur_s = scope;
+        while (!cur_s.empty()) {
+            std::string cand = cur_s + "." + name;
+            auto it_e = result.enum_types.find(cand);
+            if (it_e != result.enum_types.end()) return it_e->second.width;
+            auto it_s = result.struct_types.find(cand);
+            if (it_s != result.struct_types.end()) return it_s->second.total_width;
+            auto it_sim = result.simple_types.find(cand);
+            if (it_sim != result.simple_types.end()) return it_sim->second.width;
+            auto dot = cur_s.rfind('.');
+            if (dot == std::string::npos) cur_s = "";
+            else cur_s = cur_s.substr(0, dot);
+        }
 
         std::string cur_scope = scope;
         while (!cur_scope.empty()) {
@@ -570,6 +607,13 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
             else cur_scope = cur_scope.substr(0, dot);
         }
 
+        auto it_e = result.enum_types.find(name);
+        if (it_e != result.enum_types.end()) return it_e->second.width;
+        auto it_s = result.struct_types.find(name);
+        if (it_s != result.struct_types.end()) return it_s->second.total_width;
+        auto it_sim = result.simple_types.find(name);
+        if (it_sim != result.simple_types.end()) return it_sim->second.width;
+
         auto it_v = result.var_dimensions.find(name);
         if (it_v != result.var_dimensions.end() && !it_v->second.dimensions.empty()) {
             uint64_t total = 1;
@@ -584,6 +628,8 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
         if (it_p != result.param_val_map.end()) {
             return it_p->second.width;
         }
+        uint32_t tw = resolve_type_width(name);
+        if (tw > 1) return tw;
         return tw;
     }
     if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
@@ -1165,6 +1211,57 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
     return false;
 }
 
+std::string Elaborator::resolve_scoped_name(const std::string& scope, const std::string& name) const {
+    size_t dot_pos = name.find('.');
+    while (dot_pos != std::string::npos) {
+        std::string prefix = name.substr(0, dot_pos);
+        std::string suffix = name.substr(dot_pos + 1);
+        std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
+
+        auto it = result.interface_port_map.find(scoped_prefix);
+        if (it != result.interface_port_map.end()) {
+            std::string bound = it->second;
+            while (result.interface_port_map.find(bound) != result.interface_port_map.end()) {
+                bound = result.interface_port_map.at(bound);
+            }
+            return bound + "." + suffix;
+        }
+        auto it2 = result.interface_port_map.find(prefix);
+        if (it2 != result.interface_port_map.end()) {
+            std::string bound = it2->second;
+            while (result.interface_port_map.find(bound) != result.interface_port_map.end()) {
+                bound = result.interface_port_map.at(bound);
+            }
+            return bound + "." + suffix;
+        }
+        dot_pos = name.find('.', dot_pos + 1);
+    }
+    return scope.empty() ? name : (scope + "." + name);
+}
+
+size_t Elaborator::get_net_id(const std::string& scope, const std::string& name) const {
+    std::string cur_scope = scope;
+    while (true) {
+        std::string resolved = resolve_scoped_name(cur_scope, name);
+        auto it = result.net_map.find(resolved);
+        if (it != result.net_map.end()) return it->second;
+
+        std::string scoped = cur_scope.empty() ? name : (cur_scope + "." + name);
+        auto it3 = result.net_map.find(scoped);
+        if (it3 != result.net_map.end()) return it3->second;
+
+        if (cur_scope.empty()) break;
+        auto dot = cur_scope.rfind('.');
+        if (dot == std::string::npos) cur_scope = "";
+        else cur_scope = cur_scope.substr(0, dot);
+    }
+
+    auto it2 = result.net_map.find(name);
+    if (it2 != result.net_map.end()) return it2->second;
+
+    return (size_t)-1;
+}
+
 NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
     if (!expr) {
         throw std::runtime_error("Cannot resolve null expression in resolve_slice_ref");
@@ -1174,140 +1271,62 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         return resolve_slice_ref(&id_node, scope);
     }
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
-        std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
-        size_t id = (size_t)-1;
-        if (result.net_map.find(full_name) != result.net_map.end()) {
-            id = result.net_map.at(full_name);
-        } else {
-            std::string cur_s = scope;
-            while (!cur_s.empty()) {
-                auto dot = cur_s.rfind('.');
-                if (dot == std::string::npos) cur_s = "";
-                else cur_s = cur_s.substr(0, dot);
-                std::string candidate = cur_s.empty() ? ident->name : (cur_s + "." + ident->name);
-                if (result.net_map.find(candidate) != result.net_map.end()) {
-                    id = result.net_map.at(candidate);
-                    full_name = candidate;
-                    break;
-                }
-            }
-            if (id == (size_t)-1) {
-                if (result.net_map.find(ident->name) != result.net_map.end()) {
-                    id = result.net_map.at(ident->name);
-                    full_name = ident->name;
-                } else {
-                    std::string iname = ident->name;
-                    size_t dot_pos = iname.rfind('.');
-                    std::string memb = "";
-                    while (dot_pos != std::string::npos) {
-                        std::string base = iname.substr(0, dot_pos);
-                        memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
-                        std::string full_base = scope.empty() ? base : (scope + "." + base);
-                        if (result.net_map.find(full_base) != result.net_map.end()) {
-                            id = result.net_map.at(full_base);
-                            break;
-                        }
-                        std::string cur_s2 = scope;
-                        while (!cur_s2.empty()) {
-                            auto dot = cur_s2.rfind('.');
-                            if (dot == std::string::npos) cur_s2 = "";
-                            else cur_s2 = cur_s2.substr(0, dot);
-                            std::string candidate = cur_s2.empty() ? base : (cur_s2 + "." + base);
-                            if (result.net_map.find(candidate) != result.net_map.end()) {
-                                id = result.net_map.at(candidate);
-                                break;
-                            }
-                        }
-                        if (id != (size_t)-1) break;
-                        if (result.net_map.find(base) != result.net_map.end()) {
-                            id = result.net_map.at(base);
-                            break;
-                        }
-                        dot_pos = iname.rfind('.', dot_pos - 1);
-                    }
-                    if (id != (size_t)-1 && !memb.empty()) {
-                        uint32_t off = 0;
-                        uint32_t len = result.netlist[id].width;
-                        if (resolve_struct_member_slice(id, memb, scope, off, len)) {
-                            return {id, off, len};
-                        }
-                    }
-                    throw std::runtime_error("Cannot resolve net reference for '" + ident->name + "' in scope '" + scope + "'");
-                }
-            }
+        size_t id = get_net_id(scope, ident->name);
+        if (id != (size_t)-1) {
+            return {id, 0, result.netlist[id].width};
         }
-        return {id, 0, result.netlist[id].width};
+        std::string iname = ident->name;
+        size_t dot_pos = iname.rfind('.');
+        std::string memb = "";
+        while (dot_pos != std::string::npos) {
+            std::string base = iname.substr(0, dot_pos);
+            memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+            size_t bid = get_net_id(scope, base);
+            if (bid != (size_t)-1) {
+                if (!memb.empty()) {
+                    uint32_t off = 0;
+                    uint32_t len = result.netlist[bid].width;
+                    if (resolve_struct_member_slice(bid, memb, scope, off, len)) {
+                        return {bid, off, len};
+                    }
+                }
+                return {bid, 0, result.netlist[bid].width};
+            }
+            dot_pos = iname.rfind('.', dot_pos - 1);
+        }
+        throw std::runtime_error("Cannot resolve net reference for '" + ident->name + "' in scope '" + scope + "'");
     }
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
-        std::string full_name = scope.empty() ? idx->name : (scope + "." + idx->name);
-        size_t id = (size_t)-1;
+        size_t id = get_net_id(scope, idx->name);
+        std::string full_name = (id != (size_t)-1) ? result.netlist[id].name : (scope.empty() ? idx->name : (scope + "." + idx->name));
         uint32_t struct_member_offset = 0;
         int64_t base_low = 0;
-        if (result.net_map.find(full_name) != result.net_map.end()) {
-            id = result.net_map.at(full_name);
-        } else {
-            std::string cur_s = scope;
-            while (!cur_s.empty()) {
-                auto dot = cur_s.rfind('.');
-                if (dot == std::string::npos) cur_s = "";
-                else cur_s = cur_s.substr(0, dot);
-                std::string candidate = cur_s.empty() ? idx->name : (cur_s + "." + idx->name);
-                if (result.net_map.find(candidate) != result.net_map.end()) {
-                    id = result.net_map.at(candidate);
-                    full_name = candidate;
+        if (id == (size_t)-1) {
+            std::string iname = idx->name;
+            size_t dot_pos = iname.rfind('.');
+            std::string memb = "";
+            while (dot_pos != std::string::npos) {
+                std::string base = iname.substr(0, dot_pos);
+                memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                size_t bid = get_net_id(scope, base);
+                if (bid != (size_t)-1) {
+                    id = bid;
+                    full_name = result.netlist[bid].name;
                     break;
+                }
+                dot_pos = iname.rfind('.', dot_pos - 1);
+            }
+            if (id != (size_t)-1 && !memb.empty()) {
+                uint32_t off = 0;
+                uint32_t len = result.netlist[id].width;
+                int64_t memb_lsb = 0;
+                if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb)) {
+                    struct_member_offset = off;
+                    base_low = memb_lsb;
                 }
             }
             if (id == (size_t)-1) {
-                if (result.net_map.find(idx->name) != result.net_map.end()) {
-                    id = result.net_map.at(idx->name);
-                    full_name = idx->name;
-                } else {
-                    std::string iname = idx->name;
-                    size_t dot_pos = iname.rfind('.');
-                    std::string memb = "";
-                    while (dot_pos != std::string::npos) {
-                        std::string base = iname.substr(0, dot_pos);
-                        memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
-                        std::string full_base = scope.empty() ? base : (scope + "." + base);
-                        if (result.net_map.find(full_base) != result.net_map.end()) {
-                            id = result.net_map.at(full_base);
-                            full_name = full_base;
-                            break;
-                        }
-                        std::string cur_s2 = scope;
-                        while (!cur_s2.empty()) {
-                            auto dot = cur_s2.rfind('.');
-                            if (dot == std::string::npos) cur_s2 = "";
-                            else cur_s2 = cur_s2.substr(0, dot);
-                            std::string candidate = cur_s2.empty() ? base : (cur_s2 + "." + base);
-                            if (result.net_map.find(candidate) != result.net_map.end()) {
-                                id = result.net_map.at(candidate);
-                                full_name = candidate;
-                                break;
-                            }
-                        }
-                        if (id != (size_t)-1) break;
-                        if (result.net_map.find(base) != result.net_map.end()) {
-                            id = result.net_map.at(base);
-                            full_name = base;
-                            break;
-                        }
-                        dot_pos = iname.rfind('.', dot_pos - 1);
-                    }
-                    if (id != (size_t)-1 && !memb.empty()) {
-                        uint32_t off = 0;
-                        uint32_t len = result.netlist[id].width;
-                        int64_t memb_lsb = 0;
-                        if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb)) {
-                            struct_member_offset = off;
-                            base_low = memb_lsb;
-                        }
-                    }
-                    if (id == (size_t)-1) {
-                        throw std::runtime_error("Cannot resolve net slice reference for '" + idx->name + "' in scope '" + scope + "'");
-                    }
-                }
+                throw std::runtime_error("Cannot resolve net slice reference for '" + idx->name + "' in scope '" + scope + "'");
             }
         }
 
@@ -2039,18 +2058,24 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 }
             }
         } else {
-            size_t tid = resolve_gen_net_id(current_scope, ca_copy->target_name);
+            size_t tid = (size_t)-1;
             std::string effective_member = ca_copy->member_name;
-            if (tid == (size_t)-1) {
-                std::string tname = ca_copy->target_name;
+            std::string full_combined = effective_member.empty() ? ca_copy->target_name : (ca_copy->target_name + "." + effective_member);
+            size_t direct_id = get_net_id(current_scope, full_combined);
+            if (direct_id != (size_t)-1) {
+                tid = direct_id;
+                effective_member = "";
+            } else {
+                std::string tname = full_combined;
                 size_t dot_pos = tname.rfind('.');
+                std::string memb = "";
                 while (dot_pos != std::string::npos) {
                     std::string base = tname.substr(0, dot_pos);
-                    std::string memb = tname.substr(dot_pos + 1);
-                    size_t id = resolve_gen_net_id(current_scope, base);
-                    if (id != (size_t)-1) {
-                        tid = id;
-                        effective_member = effective_member.empty() ? memb : (memb + "." + effective_member);
+                    memb = tname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                    size_t bid = get_net_id(current_scope, base);
+                    if (bid != (size_t)-1) {
+                        tid = bid;
+                        effective_member = memb;
                         break;
                     }
                     dot_pos = tname.rfind('.', dot_pos - 1);
@@ -2448,6 +2473,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (tname.empty()) return 1;
         if (const PackedStructType* st = find_struct_type(tname, sc)) {
             return st->total_width;
+        }
+        if (!sc.empty()) {
+            std::string cur_s = sc;
+            while (true) {
+                std::string scoped = cur_s.empty() ? tname : (cur_s + "." + tname);
+                auto it = result.enum_types.find(scoped);
+                if (it != result.enum_types.end()) return it->second.width;
+                if (cur_s.empty()) break;
+                auto dot = cur_s.rfind('.');
+                if (dot == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot);
+            }
         }
         auto it_enum = result.enum_types.find(tname);
         if (it_enum != result.enum_types.end()) {
@@ -2861,10 +2898,6 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.is_queue = true;
                 svdm.is_vector_or_array = true;
                 svdm.unpacked_dims = 1;
-            } else if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
-                svdm.dimensions = type_meta->dimensions;
-                svdm.unpacked_dims = 0;
-                svdm.is_vector_or_array = true;
             } else if (!s.packed_dimensions.empty()) {
                 for (const auto& pdim : s.packed_dimensions) {
                     int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
@@ -2874,6 +2907,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (elem_w > 1) {
                     svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
                 }
+                svdm.is_vector_or_array = true;
+            } else if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                svdm.dimensions = type_meta->dimensions;
+                svdm.unpacked_dims = 0;
                 svdm.is_vector_or_array = true;
             } else if (s.msb_expr) {
                 int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
@@ -3416,32 +3453,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (ca->target_index_expr) {
             check_expr(ca->rhs.get());
             size_t tid = (size_t)-1;
-            std::string cur_s = scope;
-            while (true) {
-                std::string cand = cur_s.empty() ? ca->target_name : (cur_s + "." + ca->target_name);
-                auto it = result.net_map.find(cand);
-                if (it != result.net_map.end()) { tid = it->second; break; }
-                if (cur_s.empty()) break;
-                auto dot = cur_s.rfind('.');
-                if (dot == std::string::npos) cur_s = "";
-                else cur_s = cur_s.substr(0, dot);
+            std::string full_combined = ca->member_name.empty() ? ca->target_name : (ca->target_name + "." + ca->member_name);
+            tid = get_net_id(scope, full_combined);
+            if (tid == (size_t)-1) {
+                tid = get_net_id(scope, ca->target_name);
             }
             if (tid == (size_t)-1) {
-                std::string tname = ca->target_name;
+                std::string tname = full_combined;
                 size_t dot_pos = tname.rfind('.');
                 while (dot_pos != std::string::npos) {
                     std::string base = tname.substr(0, dot_pos);
-                    std::string cur_s2 = scope;
-                    while (true) {
-                        std::string cand2 = cur_s2.empty() ? base : (cur_s2 + "." + base);
-                        auto it2 = result.net_map.find(cand2);
-                        if (it2 != result.net_map.end()) { tid = it2->second; break; }
-                        if (cur_s2.empty()) break;
-                        auto dot2 = cur_s2.rfind('.');
-                        if (dot2 == std::string::npos) cur_s2 = "";
-                        else cur_s2 = cur_s2.substr(0, dot2);
-                    }
-                    if (tid != (size_t)-1) break;
+                    size_t b_tid = get_net_id(scope, base);
+                    if (b_tid != (size_t)-1) { tid = b_tid; break; }
                     dot_pos = tname.rfind('.', dot_pos - 1);
                 }
             }
@@ -3522,31 +3545,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         size_t target_id = (size_t)-1;
         std::string effective_member = ca->member_name;
         {
-            auto resolve_name = [&](const std::string& name) -> size_t {
-                std::string cur_s = scope;
-                while (true) {
-                    std::string cand = cur_s.empty() ? name : (cur_s + "." + name);
-                    auto it = result.net_map.find(cand);
-                    if (it != result.net_map.end()) return it->second;
-                    if (cur_s.empty()) break;
-                    auto dot = cur_s.rfind('.');
-                    if (dot == std::string::npos) cur_s = "";
-                    else cur_s = cur_s.substr(0, dot);
-                }
-                return (size_t)-1;
-            };
-
-            target_id = resolve_name(ca->target_name);
-            if (target_id == (size_t)-1) {
-                std::string tname = ca->target_name;
+            std::string full_combined = effective_member.empty() ? ca->target_name : (ca->target_name + "." + effective_member);
+            size_t tid = get_net_id(scope, full_combined);
+            if (tid != (size_t)-1) {
+                target_id = tid;
+                effective_member = "";
+            } else {
+                std::string tname = full_combined;
                 size_t dot_pos = tname.rfind('.');
+                std::string memb = "";
                 while (dot_pos != std::string::npos) {
                     std::string base = tname.substr(0, dot_pos);
-                    std::string memb = tname.substr(dot_pos + 1);
-                    size_t tid = resolve_name(base);
-                    if (tid != (size_t)-1) {
-                        target_id = tid;
-                        effective_member = effective_member.empty() ? memb : (memb + "." + effective_member);
+                    memb = tname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                    size_t bid = get_net_id(scope, base);
+                    if (bid != (size_t)-1) {
+                        target_id = bid;
+                        effective_member = memb;
                         break;
                     }
                     dot_pos = tname.rfind('.', dot_pos - 1);
@@ -4107,7 +4121,10 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
             if (!is_iface_port && conn.expr) {
                 if (auto mem = dynamic_cast<MemberAccessNode*>(conn.expr.get())) {
                     std::string pkey = scope.empty() ? mem->var_name : (scope + "." + mem->var_name);
-                    if (result.interface_instances.count(pkey) || result.interface_port_map.count(pkey)) {
+                    std::string net_key = scope.empty() ? (mem->var_name + "." + mem->member_name) : (scope + "." + mem->var_name + "." + mem->member_name);
+                    bool is_signal_net = (result.net_map.find(net_key) != result.net_map.end());
+                    bool formal_is_signal = formal_p && (formal_p->direction == "input" || formal_p->direction == "output" || formal_p->direction == "inout");
+                    if (!is_signal_net && !formal_is_signal && (result.interface_instances.count(pkey) || result.interface_port_map.count(pkey))) {
                         is_iface_port = true;
                     }
                 }

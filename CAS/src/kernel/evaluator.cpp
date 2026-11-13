@@ -3106,6 +3106,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     if (msb < lsb) std::swap(msb, lsb);
                                     slice_w = msb - lsb + 1;
                                 }
+                            } else if (mem.dimensions.size() > mem.unpacked_dims_count + 1) {
+                                uint32_t stride = 1;
+                                for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
+                                    stride *= (uint32_t)mem.dimensions[d].size();
+                                }
+                                int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
+                                uint32_t elem_idx = (msb_val.aval >= (uint32_t)low) ? (uint32_t)(msb_val.aval - (uint32_t)low) : (uint32_t)msb_val.aval;
+                                lsb = elem_idx * stride;
+                                slice_w = stride;
+                                msb = lsb + slice_w - 1;
                             } else {
                                 lsb = msb_val.aval;
                                 slice_w = 1;
@@ -4509,6 +4519,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                             if (msb < lsb) std::swap(msb, lsb);
                                             slice_w = msb - lsb + 1;
                                         }
+                                    } else if (mem.dimensions.size() > mem.unpacked_dims_count + 1) {
+                                        uint32_t stride = 1;
+                                        for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
+                                            stride *= (uint32_t)mem.dimensions[d].size();
+                                        }
+                                        int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
+                                        uint32_t elem_idx = (msb_val.aval >= (uint32_t)low) ? (uint32_t)(msb_val.aval - (uint32_t)low) : (uint32_t)msb_val.aval;
+                                        lsb = elem_idx * stride;
+                                        slice_w = stride;
+                                        msb = lsb + slice_w - 1;
                                     } else {
                                         lsb = msb_val.aval;
                                         slice_w = 1;
@@ -4661,6 +4681,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                                 if (st && st->total_width > 0) {
                                     d1_width = st->total_width;
+                                } else {
+                                    uint32_t total_w = engine.netlist[net_id].width;
+                                    uint32_t d0_sz = (uint32_t)it_vdm->second.dimensions[0].size();
+                                    if (d0_sz > 0 && total_w > d0_sz && (total_w % d0_sz == 0)) {
+                                        d1_width = total_w / d0_sz;
+                                    }
                                 }
                             }
                         }

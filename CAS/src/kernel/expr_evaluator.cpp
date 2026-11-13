@@ -2474,6 +2474,24 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return engine.netlist[nid].value;
         }
 
+        size_t iface_nid = engine.get_net_id(scope, var_name + "." + member_name);
+        if (iface_nid != (size_t)-1) {
+            LogicVal val = (preponed_override && iface_nid < preponed_override->size()) ? (*preponed_override)[iface_nid] : engine.netlist[iface_nid].value;
+            if (member_node->has_member_select) {
+                if (member_node->is_part_select) {
+                    uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
+                    uint64_t lsb = eval(member_node->member_lsb_expr.get(), scope).aval;
+                    uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                    uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                    return val.extract_slice(eff_lsb, w);
+                } else {
+                    uint64_t b_idx = eval(member_node->member_msb_expr.get(), scope).aval;
+                    return val.extract_slice((uint32_t)b_idx, 1);
+                }
+            }
+            return val;
+        }
+
         if (engine.interface_instances.find(scoped_var) != engine.interface_instances.end() ||
             engine.interface_instances.find(var_name) != engine.interface_instances.end()) {
             std::string resolved_path = (engine.interface_instances.find(scoped_var) != engine.interface_instances.end()) ? scoped_var : var_name;
@@ -2803,6 +2821,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (name == "shortint") return LogicVal::make_known(32, 16);
                 if (name == "int" || name == "integer") return LogicVal::make_known(32, 32);
                 if (name == "longint" || name == "time") return LogicVal::make_known(32, 64);
+
+                std::string cur_s = scope;
+                while (!cur_s.empty()) {
+                    std::string cand = cur_s + "." + name;
+                    auto it_e = engine.enum_types.find(cand);
+                    if (it_e != engine.enum_types.end()) return LogicVal::make_known(32, it_e->second.width);
+                    auto it_s = engine.struct_types.find(cand);
+                    if (it_s != engine.struct_types.end()) return LogicVal::make_known(32, it_s->second.total_width);
+                    auto it_sim = engine.simple_types.find(cand);
+                    if (it_sim != engine.simple_types.end()) return LogicVal::make_known(32, it_sim->second.width);
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) cur_s = "";
+                    else cur_s = cur_s.substr(0, dot);
+                }
+                auto it_e = engine.enum_types.find(name);
+                if (it_e != engine.enum_types.end()) return LogicVal::make_known(32, it_e->second.width);
+                auto it_s = engine.struct_types.find(name);
+                if (it_s != engine.struct_types.end()) return LogicVal::make_known(32, it_s->second.total_width);
+                auto it_sim = engine.simple_types.find(name);
+                if (it_sim != engine.simple_types.end()) return LogicVal::make_known(32, it_sim->second.width);
 
                 const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(name);
                 if (tmeta && !tmeta->dimensions.empty()) {
@@ -3595,16 +3633,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
                         b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                         w = static_cast<uint32_t>(width);
+                    } else if (!idx_node->bit_lsb_expr && mem.dimensions.size() > mem.unpacked_dims_count + 1) {
+                        uint32_t stride = 1;
+                        for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
+                            stride *= (uint32_t)mem.dimensions[d].size();
+                        }
+                        int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
+                        uint32_t elem_idx = (b_msb >= (uint64_t)low) ? (uint32_t)(b_msb - (uint64_t)low) : (uint32_t)b_msb;
+                        b_lsb = elem_idx * stride;
+                        w = stride;
                     } else {
                         b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
                         w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                        if (b_lsb >= (uint64_t)mem.packed_lsb) {
+                            b_lsb -= (uint64_t)mem.packed_lsb;
+                        }
                     }
-                    if (b_lsb >= (uint64_t)mem.packed_lsb) {
-                        b_lsb -= (uint64_t)mem.packed_lsb;
+                    if (w <= 64) {
+                        LogicVal slice = elem.extract_slice((uint32_t)b_lsb, w);
+                        return LogicVal::make_known(w, slice.aval);
                     }
-                    uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-                    uint64_t val = (elem.aval >> b_lsb) & mask;
-                    return LogicVal::make_known(w, val);
+                    return elem.extract_slice((uint32_t)b_lsb, w);
                 }
                 return elem;
             }
@@ -3793,6 +3842,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     const PackedStructType* st = find_struct_type(tname, scope);
                     if (st && st->total_width > 0) {
                         elem_w = st->total_width;
+                    }
+                }
+                if (elem_w == 1 && nid != (size_t)-1 && !vdm->dimensions.empty()) {
+                    uint32_t total_w = engine.netlist[nid].width;
+                    uint32_t d0_sz = (uint32_t)vdm->dimensions[0].size();
+                    if (d0_sz > 0 && total_w > d0_sz && (total_w % d0_sz == 0)) {
+                        elem_w = total_w / d0_sz;
                     }
                 }
             }

@@ -1409,20 +1409,29 @@ void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,
 }
 
 std::string Engine::resolve_scoped_name(const std::string& scope, const std::string& name) const {
-    auto dot_pos = name.find('.');
-    if (dot_pos != std::string::npos) {
+    size_t dot_pos = name.find('.');
+    while (dot_pos != std::string::npos) {
         std::string prefix = name.substr(0, dot_pos);
         std::string suffix = name.substr(dot_pos + 1);
         std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
 
         auto it = interface_port_map.find(scoped_prefix);
         if (it != interface_port_map.end()) {
-            return it->second + "." + suffix;
+            std::string bound = it->second;
+            while (interface_port_map.find(bound) != interface_port_map.end()) {
+                bound = interface_port_map.at(bound);
+            }
+            return bound + "." + suffix;
         }
         auto it2 = interface_port_map.find(prefix);
         if (it2 != interface_port_map.end()) {
-            return it2->second + "." + suffix;
+            std::string bound = it2->second;
+            while (interface_port_map.find(bound) != interface_port_map.end()) {
+                bound = interface_port_map.at(bound);
+            }
+            return bound + "." + suffix;
         }
+        dot_pos = name.find('.', dot_pos + 1);
     }
     return scope.empty() ? name : (scope + "." + name);
 }
