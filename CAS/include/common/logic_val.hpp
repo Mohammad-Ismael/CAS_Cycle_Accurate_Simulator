@@ -59,6 +59,17 @@ struct LogicVal {
         return LogicVal(w, val, 0, s);
     }
 
+    static LogicVal make_ones(uint32_t w, bool s = false) {
+        LogicVal v(w, ~0ULL, 0ULL, s);
+        if (w > 64) {
+            size_t nwords = ((size_t)w + 63) / 64;
+            v.wide_aval.assign(nwords, ~0ULL);
+            v.wide_bval.assign(nwords, 0ULL);
+            v.mask();
+        }
+        return v;
+    }
+
     static LogicVal from_int(int32_t val) {
         return LogicVal(32, static_cast<uint64_t>(static_cast<uint32_t>(val)), 0, true);
     }

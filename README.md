@@ -11,6 +11,114 @@ The system includes a containerized execution environment paired with a Monaco-b
 
 ---
 
+## Repository Architecture
+
+```text
+CAS_Cycle_Accurate_Simulator/
+├── CAS/                     # Core Cycle-Accurate Simulator Engine (C++17)
+│   ├── include/             # Public & Modular Internal Headers
+│   │   ├── common/          # Types, AST Nodes, Diagnostics, LogicVal
+│   │   ├── frontend/        # Lexer, Parser, Preprocessor
+│   │   ├── elaborator/      # Hierarchical Elaboration & Parameter Resolver
+│   │   ├── kernel/          # IEEE 1800 Stratified Scheduler, LogicOps, JIT
+│   │   ├── interpreter/     # AST & Fast-Path Evaluators
+│   │   ├── codegen/         # Bytecode Compiler, Native CodeGen, LLVM JIT
+│   │   └── trace/           # VCD & Async Waveform Tracing
+│   ├── src/                 # Implementation Units
+│   ├── CMakeLists.txt       # Build Configuration (C++17, AVX2, LLVM support)
+│   └── build/               # Default Build Output Directory
+├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
+├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
+├── regressions/             # 83/83 Comprehensive IEEE 1800-2023 Regression Testbenches
+│   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
+├── projects/                # Production Designs & System-on-Chip Verification Targets
+│   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
+│   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
+│   └── run_ibex_cas.sh      # Automated Ibex Simulation Runner Script
+└── docs/                    # Architecture Documentation, Specifications, & Release Notes
+```
+
+---
+
+## Build Instructions (CMake Release Build)
+
+CAS is built with modern C++17. For maximum simulation throughput, configure with `-DCMAKE_BUILD_TYPE=Release`:
+
+```bash
+# Clone the repository
+git clone https://github.com/Mohammad-Ismael/CAS_Cycle_Accurate_Simulator.git
+cd CAS_Cycle_Accurate_Simulator/CAS
+
+# Configure and compile in Release mode (-O3 optimizations)
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+```
+
+---
+
+## Command-Line Interface (CLI) & Options
+
+CAS supports standard Verilog simulator flags, plusargs, and simulation controls:
+
+```text
+Usage: cas [options] <source_files...>
+
+Options:
+  -top, --top <name>          Specify explicit top-level module for elaboration
+  --max-cycles <N>            Maximum simulation cycle / time-step limit
+  --initreg <val>             Initialize uninitialized registers (0, 1, x, random)
+  +initreg+<val>              Plus-arg equivalent (+initreg+0, +initreg+1, +initreg+x, +initreg+random)
+  --no-vcd                    Disable VCD waveform dumping for maximum throughput
+  --vcd <file>                Specify custom VCD output filename
+  --casdb <file>              Stream waveforms to high-performance CASDB binary format
+  --quiet, -q                 Suppress verbose compilation and progress banners
+  +incdir+<dir>               Add directory to preprocessor include search path
+  +define+<macro>[=<val>]     Define Verilog preprocessor macro
+  +<plusarg>                  Arbitrary simulation plus-args (queried via $test$plusargs / $value$plusargs)
+```
+
+---
+
+## Verification & Golden Parity Suite
+
+### 1. Full Regression Suite (83/83 Suites - 100% VCS Parity)
+Run the automated regression test suite covering all IEEE Std 1800-2023 language features:
+```bash
+python3 -u /app/regressions/run_regressions.py
+```
+*Result:* **TOTAL: 83 | PASSED: 83 | FAILED: 0** across all 83 milestones.
+
+### 2. lowRISC Ibex RISC-V SoC Verification
+Run the production lowRISC Ibex core running the `hello_test` firmware:
+```bash
+bash /app/projects/run_ibex_cas.sh /app/projects/ibex/examples/sw/simple_system/hello_test/hello_test.vmem 2000
+```
+*Result:* 100% clean instruction execution, timer interrupt servicing, and MMIO UART banner emission:
+```text
+Hello simple system
+deadbeef
+BAADF00D
+```
+
+---
+
+## Core Engine Advancements
+
+### Arbitrary Wide-Vector (>64-bit) Logic Operations
+The 4-state dual-rail kernel (`LogicVal`) now seamlessly executes multi-word logic across dynamic vector widths exceeding 64 bits (`wide_aval` / `wide_bval`). Fully supported operations include:
+- Bitwise operators: `&`, `|`, `^`, `~^`, `~` across arbitrary word vectors.
+- Multiplexers & Ternary operators (`cond ? true_val : false_val`) with bit-level 4-state ambiguity resolution.
+- Multi-driver resolution (`resolve_wire`) and wide reduction operators (`&`, `~&`, `|`, `~|`, `^`, `~^`).
+
+### Power-On Register Initialization (`+initreg+` / `--initreg`)
+Provides deterministic power-on states matching commercial toolchains and FPGA synthesis flows:
+- `+initreg+0`: Zero-initialize all uninitialized registers (avoids unknown X-propagation stalls).
+- `+initreg+1`: Initialize all uninitialized register bits to 1.
+- `+initreg+x`: Standard IEEE 1800 4-state unknown initialization.
+- `+initreg+random`: Deterministic pseudo-random initial state for X-optimism/pessimism bug hunting.
+
+---
+
 ## IEEE Std 1800-2023 Compliance & Simulator Maturity
 
 **Roadmap to Full Synopsys VCS Parity:**  

@@ -22,9 +22,11 @@ int main(int argc, char* argv[]) {
     bool enable_monitor = true;
     bool enable_finish_msg = true;
     bool enable_native_codegen = false;
+    InitRegMode init_reg_mode = InitRegMode::X;
     std::string top_override = "";
     std::string timescale_unit = "1ns";
     std::vector<std::string> source_files;
+    std::vector<std::string> cli_plusargs;
 
     std::function<void(const std::string&, const std::string&)> process_filelist;
     process_filelist = [&](const std::string& fl_path, const std::string& base_fl_dir) {
@@ -67,6 +69,12 @@ int main(int argc, char* argv[]) {
                     }
                 } else if ((tok == "-f" || tok == "-F") && (lss >> tok)) {
                     process_filelist(tok, cur_fl_dir);
+                } else if (tok.rfind("+initreg+", 0) == 0) {
+                    std::string mode_str = tok.substr(9);
+                    if (mode_str == "0") init_reg_mode = InitRegMode::ZERO;
+                    else if (mode_str == "1") init_reg_mode = InitRegMode::ONE;
+                    else if (mode_str == "x" || mode_str == "X") init_reg_mode = InitRegMode::X;
+                    cli_plusargs.push_back(tok);
                 } else if (tok == "-top" || tok == "--top") {
                     if (lss >> tok) top_override = tok;
                 } else if (tok.rfind("-", 0) == 0 || tok.rfind("+", 0) == 0) {
@@ -84,7 +92,6 @@ int main(int argc, char* argv[]) {
     };
 
     std::unordered_map<std::string, LogicVal> top_param_overrides;
-    std::vector<std::string> cli_plusargs;
     uint64_t max_cycles = 0;
 
     auto parse_param_arg = [&](const std::string& arg) {
@@ -137,6 +144,29 @@ int main(int argc, char* argv[]) {
             top_override = argv[++i];
         } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
             timescale_unit = argv[++i];
+        } else if (std::strcmp(argv[i], "--initreg") == 0 && i + 1 < argc) {
+            std::string mode_str = argv[++i];
+            if (mode_str == "0") {
+                init_reg_mode = InitRegMode::ZERO;
+            } else if (mode_str == "1") {
+                init_reg_mode = InitRegMode::ONE;
+            } else if (mode_str == "x" || mode_str == "X") {
+                init_reg_mode = InitRegMode::X;
+            } else {
+                std::cerr << "[CAS WARNING] Unknown --initreg mode: " << mode_str << " (expected 0, 1, or x)\n";
+            }
+        } else if (std::strncmp(argv[i], "+initreg+", 9) == 0) {
+            std::string mode_str = argv[i] + 9;
+            if (mode_str == "0") {
+                init_reg_mode = InitRegMode::ZERO;
+            } else if (mode_str == "1") {
+                init_reg_mode = InitRegMode::ONE;
+            } else if (mode_str == "x" || mode_str == "X") {
+                init_reg_mode = InitRegMode::X;
+            } else {
+                std::cerr << "[CAS WARNING] Unknown +initreg+ mode: " << mode_str << " (expected 0, 1, or x)\n";
+            }
+            cli_plusargs.push_back(argv[i]);
         } else if (std::strncmp(argv[i], "+incdir+", 8) == 0) {
             Lexer::add_include_dir(argv[i] + 8);
         } else if (std::strncmp(argv[i], "+define+", 8) == 0) {
@@ -279,6 +309,7 @@ int main(int argc, char* argv[]) {
         engine.set_monitor_allowed(enable_monitor);
         engine.set_finish_msg_allowed(enable_finish_msg);
         engine.set_native_codegen(enable_native_codegen);
+        engine.set_init_reg_mode(init_reg_mode);
         engine.package_defs = Parser::global_packages;
 
         for (const auto& kv : top_param_overrides) {

@@ -33,6 +33,12 @@ struct MonitorSession {
 
 namespace cas { class MemoryFastPath; }
 
+enum class InitRegMode {
+    X,
+    ZERO,
+    ONE
+};
+
 class Engine;
 void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem);
 
@@ -187,6 +193,8 @@ public:
     void set_display_allowed(bool allowed) { allow_display = allowed; }
     void set_monitor_allowed(bool allowed) { allow_monitor = allowed; }
     void set_finish_msg_allowed(bool allowed) { allow_finish_msg = allowed; }
+    void set_init_reg_mode(InitRegMode m) { init_reg_mode = m; }
+    InitRegMode get_init_reg_mode() const { return init_reg_mode; }
     void set_native_codegen(bool en) { enable_native_codegen = en; }
     void set_native_codegen_path(const std::string& p) { native_codegen_output_path = p; }
     bool is_native_codegen_enabled() const { return enable_native_codegen; }
@@ -194,6 +202,7 @@ public:
 
     bool enable_native_codegen = false;
     std::string native_codegen_output_path = "/tmp/cas_native_comb.cpp";
+    InitRegMode init_reg_mode = InitRegMode::X;
 
     bool is_display_allowed() const { return allow_display; }
     bool is_monitor_allowed() const { return allow_monitor; }

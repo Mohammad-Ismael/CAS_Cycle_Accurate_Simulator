@@ -14,8 +14,8 @@ public:
         bool has_unknown = false;
 
         for (uint32_t i = 0; i < v.width; ++i) {
-            uint64_t a = (v.aval >> i) & 1;
-            uint64_t b = (v.bval >> i) & 1;
+            uint64_t a = v.get_bit_a(i) ? 1 : 0;
+            uint64_t b = v.get_bit_b(i) ? 1 : 0;
             if (b == 1) {
                 has_unknown = true;
             } else if (a == 0) {
@@ -41,8 +41,8 @@ public:
         bool has_unknown = false;
 
         for (uint32_t i = 0; i < v.width; ++i) {
-            uint64_t a = (v.aval >> i) & 1;
-            uint64_t b = (v.bval >> i) & 1;
+            uint64_t a = v.get_bit_a(i) ? 1 : 0;
+            uint64_t b = v.get_bit_b(i) ? 1 : 0;
             if (b == 1) {
                 has_unknown = true;
             } else if (a == 1) {
@@ -67,8 +67,8 @@ public:
         uint64_t parity = 0;
 
         for (uint32_t i = 0; i < v.width; ++i) {
-            uint64_t a = (v.aval >> i) & 1;
-            uint64_t b = (v.bval >> i) & 1;
+            uint64_t a = v.get_bit_a(i) ? 1 : 0;
+            uint64_t b = v.get_bit_b(i) ? 1 : 0;
             if (b == 1) return LogicVal::make_x(1); // Any unknown forces XOR result to X
             parity ^= a;
         }
@@ -135,40 +135,121 @@ public:
     }
 
     static LogicVal bitwise_not(const LogicVal& v) {
-        uint64_t new_a = (~v.aval) & (~v.bval);
-        uint64_t new_b = v.bval;
-        new_a |= v.bval;
-        return LogicVal(v.width, new_a, new_b);
+        if (v.width <= 64) {
+            uint64_t new_a = (~v.aval) & (~v.bval);
+            uint64_t new_b = v.bval;
+            new_a |= v.bval;
+            return LogicVal(v.width, new_a, new_b);
+        }
+        LogicVal res(v.width, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t va = (i < v.wide_aval.size()) ? v.wide_aval[i] : ((i == 0) ? v.aval : 0ULL);
+            uint64_t vb = (i < v.wide_bval.size()) ? v.wide_bval[i] : ((i == 0) ? v.bval : 0ULL);
+            res.wide_aval[i] = ((~va) & (~vb)) | vb;
+            res.wide_bval[i] = vb;
+        }
+        res.mask();
+        return res;
     }
 
     static LogicVal bitwise_and(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
-        uint64_t l_0 = (~l.aval) & (~l.bval);
-        uint64_t r_0 = (~r.aval) & (~r.bval);
-        uint64_t any_0 = l_0 | r_0;
+        if (max_w <= 64) {
+            uint64_t l_0 = (~l.aval) & (~l.bval);
+            uint64_t r_0 = (~r.aval) & (~r.bval);
+            uint64_t any_0 = l_0 | r_0;
 
-        uint64_t new_a = (l.aval & r.aval) | (l.bval | r.bval);
-        uint64_t new_b = (l.bval | r.bval) & (~any_0);
-        new_a &= (~any_0);
-        return LogicVal(max_w, new_a, new_b);
+            uint64_t new_a = (l.aval & r.aval) | (l.bval | r.bval);
+            uint64_t new_b = (l.bval | r.bval) & (~any_0);
+            new_a &= (~any_0);
+            return LogicVal(max_w, new_a, new_b);
+        }
+        LogicVal el = cast_width(l, max_w, false);
+        LogicVal er = cast_width(r, max_w, false);
+        LogicVal res(max_w, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t la = (i < el.wide_aval.size()) ? el.wide_aval[i] : ((i == 0) ? el.aval : 0ULL);
+            uint64_t lb = (i < el.wide_bval.size()) ? el.wide_bval[i] : ((i == 0) ? el.bval : 0ULL);
+            uint64_t ra = (i < er.wide_aval.size()) ? er.wide_aval[i] : ((i == 0) ? er.aval : 0ULL);
+            uint64_t rb = (i < er.wide_bval.size()) ? er.wide_bval[i] : ((i == 0) ? er.bval : 0ULL);
+
+            uint64_t l_0 = (~la) & (~lb);
+            uint64_t r_0 = (~ra) & (~rb);
+            uint64_t any_0 = l_0 | r_0;
+
+            uint64_t new_a = (la & ra) | (lb | rb);
+            uint64_t new_b = (lb | rb) & (~any_0);
+            new_a &= (~any_0);
+
+            res.wide_aval[i] = new_a;
+            res.wide_bval[i] = new_b;
+        }
+        res.mask();
+        return res;
     }
 
     static LogicVal bitwise_or(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
-        uint64_t l_1 = l.aval & (~l.bval);
-        uint64_t r_1 = r.aval & (~r.bval);
-        uint64_t any_1 = l_1 | r_1;
+        if (max_w <= 64) {
+            uint64_t l_1 = l.aval & (~l.bval);
+            uint64_t r_1 = r.aval & (~r.bval);
+            uint64_t any_1 = l_1 | r_1;
 
-        uint64_t new_a = l.aval | r.aval | any_1;
-        uint64_t new_b = (l.bval | r.bval) & (~any_1);
-        return LogicVal(max_w, new_a, new_b);
+            uint64_t new_a = l.aval | r.aval | any_1;
+            uint64_t new_b = (l.bval | r.bval) & (~any_1);
+            return LogicVal(max_w, new_a, new_b);
+        }
+        LogicVal el = cast_width(l, max_w, false);
+        LogicVal er = cast_width(r, max_w, false);
+        LogicVal res(max_w, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t la = (i < el.wide_aval.size()) ? el.wide_aval[i] : ((i == 0) ? el.aval : 0ULL);
+            uint64_t lb = (i < el.wide_bval.size()) ? el.wide_bval[i] : ((i == 0) ? el.bval : 0ULL);
+            uint64_t ra = (i < er.wide_aval.size()) ? er.wide_aval[i] : ((i == 0) ? er.aval : 0ULL);
+            uint64_t rb = (i < er.wide_bval.size()) ? er.wide_bval[i] : ((i == 0) ? er.bval : 0ULL);
+
+            uint64_t l_1 = la & (~lb);
+            uint64_t r_1 = ra & (~rb);
+            uint64_t any_1 = l_1 | r_1;
+
+            uint64_t new_a = la | ra | any_1;
+            uint64_t new_b = (lb | rb) & (~any_1);
+
+            res.wide_aval[i] = new_a;
+            res.wide_bval[i] = new_b;
+        }
+        res.mask();
+        return res;
     }
 
     static LogicVal bitwise_xor(const LogicVal& l, const LogicVal& r) {
         uint32_t max_w = std::max(l.width, r.width);
-        uint64_t new_b = l.bval | r.bval;
-        uint64_t new_a = (l.aval ^ r.aval) | new_b;
-        return LogicVal(max_w, new_a, new_b);
+        if (max_w <= 64) {
+            uint64_t new_b = l.bval | r.bval;
+            uint64_t new_a = (l.aval ^ r.aval) | new_b;
+            return LogicVal(max_w, new_a, new_b);
+        }
+        LogicVal el = cast_width(l, max_w, false);
+        LogicVal er = cast_width(r, max_w, false);
+        LogicVal res(max_w, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t la = (i < el.wide_aval.size()) ? el.wide_aval[i] : ((i == 0) ? el.aval : 0ULL);
+            uint64_t lb = (i < el.wide_bval.size()) ? el.wide_bval[i] : ((i == 0) ? el.bval : 0ULL);
+            uint64_t ra = (i < er.wide_aval.size()) ? er.wide_aval[i] : ((i == 0) ? er.aval : 0ULL);
+            uint64_t rb = (i < er.wide_bval.size()) ? er.wide_bval[i] : ((i == 0) ? er.bval : 0ULL);
+
+            uint64_t new_b = lb | rb;
+            uint64_t new_a = (la ^ ra) | new_b;
+
+            res.wide_aval[i] = new_a;
+            res.wide_bval[i] = new_b;
+        }
+        res.mask();
+        return res;
     }
 
     static LogicVal shift_left(const LogicVal& l, const LogicVal& r) {
@@ -303,36 +384,81 @@ public:
             return (cond.aval != 0) ? t_val : f_val;
         }
         uint32_t w = std::max(t_val.width, f_val.width);
-        uint64_t same_known_0 = ((~t_val.aval) & (~t_val.bval)) & ((~f_val.aval) & (~f_val.bval));
-        uint64_t same_known_1 = (t_val.aval & (~t_val.bval)) & (f_val.aval & (~f_val.bval));
+        if (w <= 64) {
+            uint64_t same_known_0 = ((~t_val.aval) & (~t_val.bval)) & ((~f_val.aval) & (~f_val.bval));
+            uint64_t same_known_1 = (t_val.aval & (~t_val.bval)) & (f_val.aval & (~f_val.bval));
 
-        uint64_t new_a = same_known_1 | (~(same_known_0 | same_known_1));
-        uint64_t new_b = ~(same_known_0 | same_known_1);
-        return LogicVal(w, new_a, new_b);
+            uint64_t new_a = same_known_1 | (~(same_known_0 | same_known_1));
+            uint64_t new_b = ~(same_known_0 | same_known_1);
+            return LogicVal(w, new_a, new_b);
+        }
+        LogicVal et = cast_width(t_val, w, false);
+        LogicVal ef = cast_width(f_val, w, false);
+        LogicVal res(w, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t ta = (i < et.wide_aval.size()) ? et.wide_aval[i] : ((i == 0) ? et.aval : 0ULL);
+            uint64_t tb = (i < et.wide_bval.size()) ? et.wide_bval[i] : ((i == 0) ? et.bval : 0ULL);
+            uint64_t fa = (i < ef.wide_aval.size()) ? ef.wide_aval[i] : ((i == 0) ? ef.aval : 0ULL);
+            uint64_t fb = (i < ef.wide_bval.size()) ? ef.wide_bval[i] : ((i == 0) ? ef.bval : 0ULL);
+
+            uint64_t same_known_0 = ((~ta) & (~tb)) & ((~fa) & (~fb));
+            uint64_t same_known_1 = (ta & (~tb)) & (fa & (~fb));
+
+            res.wide_aval[i] = same_known_1 | (~(same_known_0 | same_known_1));
+            res.wide_bval[i] = ~(same_known_0 | same_known_1);
+        }
+        res.mask();
+        return res;
     }
 
     // IEEE 1800-2023 §6.5 & Table 6-1: wire / tri resolution function
     static LogicVal resolve_wire(const LogicVal& a, const LogicVal& b) {
         uint32_t w = std::max(a.width, b.width);
-        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
         LogicVal ea = cast_width(a, w, false);
         LogicVal eb = cast_width(b, w, false);
+        if (w <= 64) {
+            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+            uint64_t is_z_a = (~ea.aval) & ea.bval & mask;
+            uint64_t is_z_b = (~eb.aval) & eb.bval & mask;
 
-        uint64_t is_z_a = (~ea.aval) & ea.bval & mask;
-        uint64_t is_z_b = (~eb.aval) & eb.bval & mask;
+            uint64_t both_z = is_z_a & is_z_b;
+            uint64_t only_z_a = is_z_a & (~is_z_b);
+            uint64_t only_z_b = (~is_z_a) & is_z_b;
+            uint64_t neither_z = (~is_z_a) & (~is_z_b) & mask;
 
-        uint64_t both_z = is_z_a & is_z_b;
-        uint64_t only_z_a = is_z_a & (~is_z_b);
-        uint64_t only_z_b = (~is_z_a) & is_z_b;
-        uint64_t neither_z = (~is_z_a) & (~is_z_b) & mask;
+            uint64_t same_known = neither_z & (~ea.bval) & (~eb.bval) & (~(ea.aval ^ eb.aval)) & mask;
+            uint64_t conflict_or_x = neither_z & (~same_known) & mask;
 
-        uint64_t same_known = neither_z & (~ea.bval) & (~eb.bval) & (~(ea.aval ^ eb.aval)) & mask;
-        uint64_t conflict_or_x = neither_z & (~same_known) & mask;
+            uint64_t res_a = ((only_z_a & eb.aval) | (only_z_b & ea.aval) | (same_known & ea.aval) | conflict_or_x) & mask;
+            uint64_t res_b = (both_z | (only_z_a & eb.bval) | (only_z_b & ea.bval) | conflict_or_x) & mask;
 
-        uint64_t res_a = ((only_z_a & eb.aval) | (only_z_b & ea.aval) | (same_known & ea.aval) | conflict_or_x) & mask;
-        uint64_t res_b = (both_z | (only_z_a & eb.bval) | (only_z_b & ea.bval) | conflict_or_x) & mask;
+            return LogicVal(w, res_a, res_b);
+        }
+        LogicVal res(w, 0, 0);
+        size_t nwords = res.wide_aval.size();
+        for (size_t i = 0; i < nwords; ++i) {
+            uint64_t ava = (i < ea.wide_aval.size()) ? ea.wide_aval[i] : ((i == 0) ? ea.aval : 0ULL);
+            uint64_t avb = (i < ea.wide_bval.size()) ? ea.wide_bval[i] : ((i == 0) ? ea.bval : 0ULL);
+            uint64_t bva = (i < eb.wide_aval.size()) ? eb.wide_aval[i] : ((i == 0) ? eb.aval : 0ULL);
+            uint64_t bvb = (i < eb.wide_bval.size()) ? eb.wide_bval[i] : ((i == 0) ? eb.bval : 0ULL);
 
-        return LogicVal(w, res_a, res_b);
+            uint64_t is_z_a = (~ava) & avb;
+            uint64_t is_z_b = (~bva) & bvb;
+
+            uint64_t both_z = is_z_a & is_z_b;
+            uint64_t only_z_a = is_z_a & (~is_z_b);
+            uint64_t only_z_b = (~is_z_a) & is_z_b;
+            uint64_t neither_z = (~is_z_a) & (~is_z_b);
+
+            uint64_t same_known = neither_z & (~avb) & (~bvb) & (~(ava ^ bva));
+            uint64_t conflict_or_x = neither_z & (~same_known);
+
+            res.wide_aval[i] = (only_z_a & bva) | (only_z_b & ava) | (same_known & ava) | conflict_or_x;
+            res.wide_bval[i] = both_z | (only_z_a & bvb) | (only_z_b & avb) | conflict_or_x;
+        }
+        res.mask();
+        return res;
     }
 
     // IEEE 1800-2023 §6.5 & Table 6-2: wand / triand resolution function

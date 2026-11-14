@@ -117,6 +117,29 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     DpiRegistry::set_active_engine(this);
     bind_all_ast_nodes();
     build_fanout_graph();
+
+    if (init_reg_mode != InitRegMode::X) {
+        for (auto& net : netlist) {
+            if (net.kind == NetKind::VAR) {
+                if (init_reg_mode == InitRegMode::ZERO) {
+                    net.value = LogicVal::make_known(net.width, 0, net.is_signed);
+                } else if (init_reg_mode == InitRegMode::ONE) {
+                    net.value = LogicVal::make_ones(net.width, net.is_signed);
+                }
+                net.prev_value = net.value;
+            }
+        }
+        for (auto& kv : memory_map) {
+            auto& mem = kv.second;
+            for (auto& w : mem.words) {
+                if (init_reg_mode == InitRegMode::ZERO) {
+                    w = LogicVal::make_known(mem.word_width, 0, false);
+                } else if (init_reg_mode == InitRegMode::ONE) {
+                    w = LogicVal::make_ones(mem.word_width, false);
+                }
+            }
+        }
+    }
 }
 
 void collect_read_nets(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem);
