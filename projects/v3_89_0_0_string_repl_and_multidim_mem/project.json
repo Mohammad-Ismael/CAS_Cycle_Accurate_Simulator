@@ -1,0 +1,6 @@
+{
+  "name": "v3_89_0_0_string_repl_and_multidim_mem",
+  "version": "3.89.0.0",
+  "top_module": "tb_v3_89_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

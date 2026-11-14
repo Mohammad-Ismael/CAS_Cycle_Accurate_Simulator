@@ -122,6 +122,22 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
     }
 
+    // Break Statement (§12.8)
+    if (match(TokenType::TOKEN_BREAK)) {
+        std::string f = current.filename;
+        size_t l = current.line;
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after break");
+        return std::make_unique<BreakStatementNode>(f, l);
+    }
+
+    // Continue Statement (§12.8)
+    if (match(TokenType::TOKEN_CONTINUE)) {
+        std::string f = current.filename;
+        size_t l = current.line;
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after continue");
+        return std::make_unique<ContinueStatementNode>(f, l);
+    }
+
     // Virtual Interface Variable Declaration (§25.9)
     if (match(TokenType::TOKEN_VIRTUAL)) {
         std::string iface_name = "";
@@ -781,38 +797,96 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         auto cond_expr = parse_expression();
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for condition");
         
-        std::string target = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
         std::unique_ptr<StatementNode> step_stmt = nullptr;
-        if (match(TokenType::TOKEN_PLUS_PLUS)) {
+        if (current.type == TokenType::TOKEN_PLUS_PLUS || current.type == TokenType::TOKEN_MINUS_MINUS) {
+            std::string inc_op = current.text;
+            advance();
+            std::string target = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
             auto lhs_id = std::make_unique<IdentifierNode>(target);
             auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-            auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
-        } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
-            auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-            auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
-        } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
-            auto step_rhs = parse_expression();
-            auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(step_rhs));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
-        } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
-            auto step_rhs = parse_expression();
-            auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(step_rhs));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
-        } else if (match(TokenType::TOKEN_STAR_EQUAL)) {
-            auto step_rhs = parse_expression();
-            auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto mul = std::make_unique<BinaryOpNode>("*", std::move(lhs_id), std::move(step_rhs));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(mul));
+            auto op_expr = (inc_op == "++")
+                ? std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one))
+                : std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op_expr));
         } else {
-            expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
-            auto step_rhs = parse_expression();
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(step_rhs));
+            std::string target = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
+            if (match(TokenType::TOKEN_PLUS_PLUS)) {
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
+            } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
+            } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
+            } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
+            } else if (match(TokenType::TOKEN_STAR_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto mul = std::make_unique<BinaryOpNode>("*", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(mul));
+            } else if (match(TokenType::TOKEN_SLASH_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("/", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_PERCENT_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("%", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_AND_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("&", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_OR_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("|", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_XOR_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("^", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_SHL_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("<<", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_SHR_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>(">>", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_ASHL_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>("<<<", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else if (match(TokenType::TOKEN_ASHR_EQUAL)) {
+                auto step_rhs = parse_expression();
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto op = std::make_unique<BinaryOpNode>(">>>", std::move(lhs_id), std::move(step_rhs));
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
+            } else {
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
+                auto step_rhs = parse_expression();
+                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(step_rhs));
+            }
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing for header");
 
@@ -1291,6 +1365,26 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<VoidCastStatementNode>(std::move(expr));
     }
 
+    if (match(TokenType::TOKEN_PLUS_PLUS)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '++'");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++<ident>'");
+        auto lhs_id = std::make_unique<IdentifierNode>(target);
+        auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+        auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
+        return std::make_unique<BlockingAssignNode>(target, std::move(add));
+    }
+
+    if (match(TokenType::TOKEN_MINUS_MINUS)) {
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '--'");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--<ident>'");
+        auto lhs_id = std::make_unique<IdentifierNode>(target);
+        auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+        auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+        return std::make_unique<BlockingAssignNode>(target, std::move(sub));
+    }
+
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
     if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS || current.type == TokenType::TOKEN_SUPER) {
         std::string ident = current.text;
@@ -1437,9 +1531,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (match(TokenType::TOKEN_PLUS_EQUAL)) comp_op = "+";
             else if (match(TokenType::TOKEN_MINUS_EQUAL)) comp_op = "-";
             else if (match(TokenType::TOKEN_STAR_EQUAL)) comp_op = "*";
+            else if (match(TokenType::TOKEN_SLASH_EQUAL)) comp_op = "/";
+            else if (match(TokenType::TOKEN_PERCENT_EQUAL)) comp_op = "%";
             else if (match(TokenType::TOKEN_AND_EQUAL)) comp_op = "&";
             else if (match(TokenType::TOKEN_OR_EQUAL)) comp_op = "|";
             else if (match(TokenType::TOKEN_XOR_EQUAL)) comp_op = "^";
+            else if (match(TokenType::TOKEN_SHL_EQUAL)) comp_op = "<<";
+            else if (match(TokenType::TOKEN_SHR_EQUAL)) comp_op = ">>";
+            else if (match(TokenType::TOKEN_ASHL_EQUAL)) comp_op = "<<<";
+            else if (match(TokenType::TOKEN_ASHR_EQUAL)) comp_op = ">>>";
             if (!comp_op.empty()) {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
@@ -1525,9 +1625,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (match(TokenType::TOKEN_PLUS_EQUAL)) comp_op = "+";
             else if (match(TokenType::TOKEN_MINUS_EQUAL)) comp_op = "-";
             else if (match(TokenType::TOKEN_STAR_EQUAL)) comp_op = "*";
+            else if (match(TokenType::TOKEN_SLASH_EQUAL)) comp_op = "/";
+            else if (match(TokenType::TOKEN_PERCENT_EQUAL)) comp_op = "%";
             else if (match(TokenType::TOKEN_AND_EQUAL)) comp_op = "&";
             else if (match(TokenType::TOKEN_OR_EQUAL)) comp_op = "|";
             else if (match(TokenType::TOKEN_XOR_EQUAL)) comp_op = "^";
+            else if (match(TokenType::TOKEN_SHL_EQUAL)) comp_op = "<<";
+            else if (match(TokenType::TOKEN_SHR_EQUAL)) comp_op = ">>";
+            else if (match(TokenType::TOKEN_ASHL_EQUAL)) comp_op = "<<<";
+            else if (match(TokenType::TOKEN_ASHR_EQUAL)) comp_op = ">>>";
             if (!comp_op.empty()) {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");

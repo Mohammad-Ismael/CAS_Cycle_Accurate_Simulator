@@ -254,8 +254,255 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     return true;
 }
 
+LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal& val, const std::string& scope) {
+    if (!target) return val;
+
+    // 1. Direct Identifier: e.g. a
+    if (auto id = dynamic_cast<IdentifierNode*>(target)) {
+        // Local variable lookup (current context or call stack)
+        LocalVar* local = nullptr;
+        if (context.has_active_frame()) {
+            local = context.lookup_local(id->name);
+        }
+        if (!local && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                local = it->local_frame.get_var(id->name);
+                if (local) break;
+            }
+        }
+        if (local) {
+            LogicVal casted = (local->type_name == "string" || val.is_string)
+                              ? val
+                              : LogicOps::cast_width(val, local->width, local->is_signed);
+            if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
+                local->type_name == "shortint" || local->type_name == "longint") {
+                casted.bval = 0;
+                if (!casted.wide_bval.empty()) {
+                    std::fill(casted.wide_bval.begin(), casted.wide_bval.end(), 0ULL);
+                }
+            }
+            local->value = casted;
+            return local->value;
+        }
+
+        // SVA local variable
+        if (current_sva_local_vars && current_sva_local_vars->count(id->name)) {
+            (*current_sva_local_vars)[id->name] = val;
+            return val;
+        }
+
+        // Class property
+        if (current_this && current_this->has_property(id->name)) {
+            current_this->set_property(id->name, val);
+            return val;
+        }
+
+        // Net / Variable in netlist
+        size_t nid = (id->is_bound && id->cached_net_id != UINT32_MAX && id->cached_net_id < engine.netlist.size())
+                     ? id->cached_net_id
+                     : engine.get_net_id(scope, id->name);
+        if (nid != (size_t)-1) {
+            size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
+            LogicVal casted = (engine.netlist[target_id].type_name == "string" || val.is_string)
+                              ? val
+                              : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+            if (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
+                engine.netlist[target_id].type_name == "byte" || engine.netlist[target_id].type_name == "shortint" ||
+                engine.netlist[target_id].type_name == "longint") {
+                casted.bval = 0;
+                if (!casted.wide_bval.empty()) {
+                    std::fill(casted.wide_bval.begin(), casted.wide_bval.end(), 0ULL);
+                }
+            }
+            LogicVal old_v = engine.netlist[target_id].value;
+            engine.netlist[target_id].set(casted);
+            if (target_id < engine.alias_members.size()) {
+                for (size_t other_id : engine.alias_members[target_id]) {
+                    if (other_id != target_id && other_id < engine.netlist.size()) {
+                        engine.netlist[other_id].set(casted);
+                    }
+                }
+            }
+            if (engine.netlist[target_id].value != old_v) {
+                engine.scheduler.notify_net_changed(target_id);
+            }
+            return engine.netlist[target_id].value;
+        }
+        return val;
+    }
+
+    // 2. Member Access: e.g. obj.prop
+    if (auto ma = dynamic_cast<MemberAccessNode*>(target)) {
+        if (current_this && (ma->var_name == "this" || ma->var_name.empty())) {
+            current_this->set_property(ma->member_name, val);
+            return val;
+        }
+        LocalVar* h_local = nullptr;
+        if (context.has_active_frame()) h_local = context.lookup_local(ma->var_name);
+        if (!h_local && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                h_local = it->local_frame.get_var(ma->var_name);
+                if (h_local) break;
+            }
+        }
+        if (h_local && h_local->is_class_handle) {
+            auto obj = engine.get_class_object(h_local->value.aval);
+            if (obj) {
+                obj->set_property(ma->member_name, val);
+                return val;
+            }
+        }
+    }
+
+    // 3. Index Select: e.g. a[i] or a[msb:lsb]
+    if (auto idx = dynamic_cast<IndexSelectNode*>(target)) {
+        LocalVar* local = nullptr;
+        if (context.has_active_frame()) local = context.lookup_local(idx->name);
+        if (!local && current_bp && !current_bp->call_stack.empty()) {
+            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                local = it->local_frame.get_var(idx->name);
+                if (local) break;
+            }
+        }
+        if (local) {
+            if (idx->is_part_select && idx->msb_expr && idx->lsb_expr) {
+                uint32_t msb = (uint32_t)eval(idx->msb_expr.get(), scope).aval;
+                uint32_t lsb = (uint32_t)eval(idx->lsb_expr.get(), scope).aval;
+                if (msb < lsb) std::swap(msb, lsb);
+                uint32_t slice_w = msb - lsb + 1;
+                local->value.deposit_slice(lsb, slice_w, val);
+                return local->value.extract_slice(lsb, slice_w);
+            } else if (idx->msb_expr) {
+                uint32_t bit_idx = (uint32_t)eval(idx->msb_expr.get(), scope).aval;
+                local->value.deposit_slice(bit_idx, 1, val);
+                return local->value.extract_slice(bit_idx, 1);
+            }
+        } else {
+            size_t nid = engine.get_net_id(scope, idx->name);
+            if (nid != (size_t)-1) {
+                size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
+                LogicVal old_v = engine.netlist[target_id].value;
+                LogicVal new_v = old_v;
+                if (idx->is_part_select && idx->msb_expr && idx->lsb_expr) {
+                    uint32_t msb = (uint32_t)eval(idx->msb_expr.get(), scope).aval;
+                    uint32_t lsb = (uint32_t)eval(idx->lsb_expr.get(), scope).aval;
+                    if (msb < lsb) std::swap(msb, lsb);
+                    uint32_t slice_w = msb - lsb + 1;
+                    new_v.deposit_slice(lsb, slice_w, val);
+                    engine.netlist[target_id].set(new_v);
+                    if (engine.netlist[target_id].value != old_v) engine.scheduler.notify_net_changed(target_id);
+                    return engine.netlist[target_id].value.extract_slice(lsb, slice_w);
+                } else if (idx->msb_expr) {
+                    uint32_t bit_idx = (uint32_t)eval(idx->msb_expr.get(), scope).aval;
+                    new_v.deposit_slice(bit_idx, 1, val);
+                    engine.netlist[target_id].set(new_v);
+                    if (engine.netlist[target_id].value != old_v) engine.scheduler.notify_net_changed(target_id);
+                    return engine.netlist[target_id].value.extract_slice(bit_idx, 1);
+                }
+            }
+        }
+    }
+
+    return val;
+}
+
+LogicVal ExprEvaluator::eval_binary_op(const std::string& op, const LogicVal& l, const LogicVal& r) {
+    bool expr_signed = l.is_signed && r.is_signed;
+    if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
+        uint64_t a = l.get_raw_u64();
+        uint64_t b = r.get_raw_u64();
+        uint32_t w = l.width;
+        uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+        if (op == "+") return LogicVal::from_u64_2state((a + b) & mask, w, l.is_signed);
+        if (op == "-") return LogicVal::from_u64_2state((a - b) & mask, w, l.is_signed);
+        if (op == "*") return LogicVal::from_u64_2state((a * b) & mask, w, l.is_signed);
+        if (op == "/") {
+            if (b == 0) return LogicVal::make_x(w);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                if (sr == 0) return LogicVal::make_x(w);
+                return LogicVal::make_known(w, static_cast<uint64_t>(sl / sr), true);
+            }
+            return LogicVal::make_known(w, a / b, false);
+        }
+        if (op == "%") {
+            if (b == 0) return LogicVal::make_x(w);
+            if (expr_signed) {
+                int64_t sl = (int64_t)LogicOps::cast_width(l, 64, true).aval;
+                int64_t sr = (int64_t)LogicOps::cast_width(r, 64, true).aval;
+                if (sr == 0) return LogicVal::make_x(w);
+                return LogicVal::make_known(w, static_cast<uint64_t>(sl % sr), true);
+            }
+            return LogicVal::make_known(w, a % b, false);
+        }
+        if (op == "&") return LogicOps::bitwise_and(l, r);
+        if (op == "|") return LogicOps::bitwise_or(l, r);
+        if (op == "^") return LogicOps::bitwise_xor(l, r);
+        if (op == "<<" || op == "<<<") return LogicOps::shift_left(l, r);
+        if (op == ">>") return LogicOps::shift_right(l, r);
+        if (op == ">>>") return LogicOps::arith_shift_right(l, r, l.is_signed);
+    }
+    // Generic fallback
+    if (op == "+") {
+        LogicVal ext_l = LogicOps::cast_width(l, l.width, expr_signed);
+        LogicVal ext_r = LogicOps::cast_width(r, l.width, expr_signed);
+        if (ext_l.is_unknown() || ext_r.is_unknown()) return LogicVal::make_x(l.width);
+        return LogicVal::make_known(l.width, ext_l.aval + ext_r.aval, l.is_signed);
+    }
+    if (op == "-") {
+        LogicVal ext_l = LogicOps::cast_width(l, l.width, expr_signed);
+        LogicVal ext_r = LogicOps::cast_width(r, l.width, expr_signed);
+        if (ext_l.is_unknown() || ext_r.is_unknown()) return LogicVal::make_x(l.width);
+        return LogicVal::make_known(l.width, ext_l.aval - ext_r.aval, l.is_signed);
+    }
+    if (op == "*") {
+        if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(l.width);
+        return LogicVal::make_known(l.width, l.aval * r.aval, l.is_signed);
+    }
+    if (op == "/") {
+        if (l.is_unknown() || r.is_unknown() || r.aval == 0) return LogicVal::make_x(l.width);
+        return LogicVal::make_known(l.width, l.aval / r.aval, l.is_signed);
+    }
+    if (op == "%") {
+        if (l.is_unknown() || r.is_unknown() || r.aval == 0) return LogicVal::make_x(l.width);
+        return LogicVal::make_known(l.width, l.aval % r.aval, l.is_signed);
+    }
+    if (op == "&") return LogicOps::bitwise_and(l, r);
+    if (op == "|") return LogicOps::bitwise_or(l, r);
+    if (op == "^") return LogicOps::bitwise_xor(l, r);
+    if (op == "<<" || op == "<<<") return LogicOps::shift_left(l, r);
+    if (op == ">>") return LogicOps::shift_right(l, r);
+    if (op == ">>>") return LogicOps::arith_shift_right(l, r, l.is_signed);
+    return r;
+}
+
 LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
+
+    if (auto incdec = dynamic_cast<IncDecExprNode*>(expr)) {
+        LogicVal cur_val = eval(incdec->operand.get(), scope);
+        LogicVal one = LogicVal::make_known(cur_val.width, 1, cur_val.is_signed);
+        LogicVal new_val = (incdec->op == "++")
+            ? eval_binary_op("+", cur_val, one)
+            : eval_binary_op("-", cur_val, one);
+        writeback_lvalue(incdec->operand.get(), new_val, scope);
+        return incdec->is_prefix ? new_val : cur_val;
+    }
+
+    if (auto assign_node = dynamic_cast<AssignExprNode*>(expr)) {
+        LogicVal rhs_val = eval(assign_node->rhs.get(), scope);
+        LogicVal val_to_store = rhs_val;
+        if (assign_node->op != "=") {
+            LogicVal lhs_val = eval(assign_node->lhs.get(), scope);
+            std::string base_op = assign_node->op;
+            if (!base_op.empty() && base_op.back() == '=') {
+                base_op.pop_back();
+            }
+            val_to_store = eval_binary_op(base_op, lhs_val, rhs_val);
+        }
+        return writeback_lvalue(assign_node->lhs.get(), val_to_store, scope);
+    }
 
     if (dynamic_cast<NullNode*>(expr)) {
         return LogicVal(64, 0, 0);
@@ -3271,11 +3518,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         } else if (count_val.width == 33 && (count_val.aval & 0x100000000ULL)) {
             scount = (int64_t)(count_val.aval | (~0ULL << 33));
         }
-        if (count_val.is_unknown() || scount <= 0) return LogicVal(1, 0, 0);
+        if (count_val.is_unknown() || scount < 0) return LogicVal(1, 0, 0);
         uint64_t count = (uint64_t)scount;
         if (count > 65536) return LogicVal(1, 0, 0);
 
         LogicVal t_val = eval(rep->target_expr.get(), scope);
+
+        if (t_val.is_string) {
+            std::string repeated = "";
+            for (uint64_t i = 0; i < count; ++i) {
+                repeated += t_val.str_val;
+            }
+            return LogicVal::make_string(repeated);
+        }
+        if (scount == 0) return LogicVal(1, 0, 0);
 
         if (count == 0 || t_val.width == 0) return LogicVal(1, 0, 0);
         uint64_t total_w_64 = (uint64_t)t_val.width * count;
@@ -3614,40 +3870,84 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                 const auto& mem = engine.memory_map.at(scoped_mem);
-                LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
-                if (addr_val.is_unknown()) {
+                std::vector<ExpressionNode*> mem_indices;
+                if (idx_node->msb_expr) mem_indices.push_back(idx_node->msb_expr.get());
+                if (idx_node->has_bit_select && idx_node->bit_msb_expr) mem_indices.push_back(idx_node->bit_msb_expr.get());
+                for (const auto& ei : idx_node->extra_indices) if (ei) mem_indices.push_back(ei.get());
+
+                size_t U = (mem.unpacked_dims_count > 0) ? mem.unpacked_dims_count : 1;
+                size_t num_u = std::min(U, mem_indices.size());
+                uint32_t linear_addr = 0;
+                bool addr_unknown = false;
+                if (U <= 1) {
+                    if (!mem_indices.empty()) {
+                        LogicVal iv = eval(mem_indices[0], scope);
+                        if (iv.is_unknown()) addr_unknown = true;
+                        else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
+                    }
+                } else {
+                    std::vector<uint32_t> u_strides(U, 1);
+                    for (int k = (int)U - 2; k >= 0; --k) {
+                        u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
+                    }
+                    for (size_t d = 0; d < num_u; ++d) {
+                        LogicVal iv = eval(mem_indices[d], scope);
+                        if (iv.is_unknown()) { addr_unknown = true; break; }
+                        int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                        int64_t rel_idx = 0;
+                        if (d < mem.dimensions.size()) {
+                            const auto& dim = mem.dimensions[d];
+                            rel_idx = (dim.left <= dim.right) ? (val - dim.left) : (dim.left - val);
+                        }
+                        if (rel_idx < 0) rel_idx = 0;
+                        linear_addr += (uint32_t)rel_idx * u_strides[d];
+                    }
+                }
+
+                if (addr_unknown) {
                     return LogicVal::make_x(mem.word_width);
                 }
-                int64_t addr = (int64_t)addr_val.aval;
-                LogicVal elem = mem.get_word(addr);
-                if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
-                    uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+
+                LogicVal elem = mem.get_word(linear_addr);
+                if (mem_indices.size() > U) {
+                    ExpressionNode* bit_sel_expr = mem_indices[U];
+                    uint64_t b_msb = eval(bit_sel_expr, scope).aval;
                     uint64_t b_lsb = 0;
                     uint32_t w = 1;
-                    if (idx_node->is_plus_colon) {
-                        uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                        b_lsb = b_msb;
-                        b_msb = b_lsb + width - 1;
-                        w = static_cast<uint32_t>(width);
-                    } else if (idx_node->is_minus_colon) {
-                        uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                        b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
-                        w = static_cast<uint32_t>(width);
-                    } else if (!idx_node->bit_lsb_expr && mem.dimensions.size() > mem.unpacked_dims_count + 1) {
-                        uint32_t stride = 1;
-                        for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
-                            stride *= (uint32_t)mem.dimensions[d].size();
+                    ExpressionNode* bit_lsb_node = (U == 1) ? idx_node->bit_lsb_expr.get() : nullptr;
+                    bool plus_c = (U == 1) ? idx_node->is_plus_colon : false;
+                    bool minus_c = (U == 1) ? idx_node->is_minus_colon : false;
+                    if (bit_lsb_node) {
+                        uint64_t width = eval(bit_lsb_node, scope).aval;
+                        if (plus_c) {
+                            b_lsb = b_msb;
+                            b_msb = b_lsb + width - 1;
+                            w = static_cast<uint32_t>(width);
+                        } else if (minus_c) {
+                            b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
+                            w = static_cast<uint32_t>(width);
+                        } else {
+                            b_lsb = width;
+                            w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
                         }
-                        int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
-                        uint32_t elem_idx = (b_msb >= (uint64_t)low) ? (uint32_t)(b_msb - (uint64_t)low) : (uint32_t)b_msb;
-                        b_lsb = elem_idx * stride;
-                        w = stride;
                     } else {
-                        b_lsb = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : b_msb;
-                        w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                        if (b_lsb >= (uint64_t)mem.packed_lsb) {
-                            b_lsb -= (uint64_t)mem.packed_lsb;
-                        }
+                        b_lsb = b_msb;
+                        w = 1;
+                    }
+                    if (b_lsb >= (uint64_t)mem.packed_lsb) {
+                        b_lsb -= (uint64_t)mem.packed_lsb;
+                    }
+                    if (w <= 64) {
+                        LogicVal slice = elem.extract_slice((uint32_t)b_lsb, w);
+                        return LogicVal::make_known(w, slice.aval);
+                    }
+                    return elem.extract_slice((uint32_t)b_lsb, w);
+                } else if (idx_node->is_part_select && idx_node->lsb_expr && U <= 1) {
+                    uint64_t b_msb = eval(idx_node->msb_expr.get(), scope).aval;
+                    uint64_t b_lsb = eval(idx_node->lsb_expr.get(), scope).aval;
+                    uint32_t w = b_msb >= b_lsb ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                    if (b_lsb >= (uint64_t)mem.packed_lsb) {
+                        b_lsb -= (uint64_t)mem.packed_lsb;
                     }
                     if (w <= 64) {
                         LogicVal slice = elem.extract_slice((uint32_t)b_lsb, w);
@@ -4069,6 +4369,34 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
+        // Short-circuit logical AND (&&) and logical OR (||) per IEEE 1800 §11.3.5
+        if (bin->op == "&&") {
+            LogicVal l = eval(bin->lhs.get(), scope);
+            if (!l.is_unknown() && !l.to_bool()) {
+                return LogicVal::from_u64_2state(0, 1);
+            }
+            LogicVal r = eval(bin->rhs.get(), scope);
+            if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
+                return LogicVal::from_u64_2state((l.get_raw_u64() != 0 && r.get_raw_u64() != 0) ? 1 : 0, 1);
+            }
+            if ((!l.is_unknown() && !l.to_bool()) || (!r.is_unknown() && !r.to_bool())) return LogicVal::make_known(1, 0);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.to_bool() && r.to_bool()) ? 1 : 0);
+        }
+        if (bin->op == "||") {
+            LogicVal l = eval(bin->lhs.get(), scope);
+            if (!l.is_unknown() && l.to_bool()) {
+                return LogicVal::from_u64_2state(1, 1);
+            }
+            LogicVal r = eval(bin->rhs.get(), scope);
+            if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
+                return LogicVal::from_u64_2state((l.get_raw_u64() != 0 || r.get_raw_u64() != 0) ? 1 : 0, 1);
+            }
+            if ((!l.is_unknown() && l.to_bool()) || (!r.is_unknown() && r.to_bool())) return LogicVal::make_known(1, 1);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.to_bool() || r.to_bool()) ? 1 : 0);
+        }
+
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
 
@@ -4192,13 +4520,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 uint32_t max_w = std::max(l.width, r.width);
                 return LogicVal::from_u64_2state(a ^ b, max_w);
             }
-            if (bin->op == "<<") {
+            if (bin->op == "<<" || bin->op == "<<<") {
                 uint64_t res = (b >= l.width) ? 0ULL : (a << b);
-                return LogicVal::from_u64_2state(res, l.width);
+                return LogicVal::from_u64_2state(res, l.width, l_signed);
             }
             if (bin->op == ">>") {
                 uint64_t res = (b >= l.width) ? 0ULL : (a >> b);
-                return LogicVal::from_u64_2state(res, l.width);
+                return LogicVal::from_u64_2state(res, l.width, l_signed);
             }
             if (bin->op == ">>>") {
                 if (!l_signed) {
@@ -4324,7 +4652,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "&")   return LogicOps::bitwise_and(l, r);
         if (bin->op == "|")   return LogicOps::bitwise_or(l, r);
         if (bin->op == "^")   return LogicOps::bitwise_xor(l, r);
-        if (bin->op == "<<")  return LogicOps::shift_left(l, r);
+        if (bin->op == "<<" || bin->op == "<<<")  return LogicOps::shift_left(l, r);
         if (bin->op == ">>")  return LogicOps::shift_right(l, r);
         if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, l_signed);
         if (l.is_string || r.is_string) {

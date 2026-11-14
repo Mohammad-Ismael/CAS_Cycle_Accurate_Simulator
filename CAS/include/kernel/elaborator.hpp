@@ -71,10 +71,16 @@ struct MemoryArray {
     }
 
     bool is_valid_index(int64_t idx) const {
+        if (unpacked_dims_count > 1) {
+            return (idx >= 0 && idx < (int64_t)words.size());
+        }
         return (idx >= start_idx && idx <= end_idx);
     }
 
     size_t to_word_offset(int64_t idx) const {
+        if (unpacked_dims_count > 1) {
+            return (size_t)idx;
+        }
         if (is_descending) {
             return (size_t)(end_idx - idx);
         } else {
@@ -146,6 +152,8 @@ struct BoundProcess {
     bool is_looping = false;
     size_t loop_start_pc = 0;
     bool fired_in_time_slot = false;
+    bool loop_break = false;
+    bool loop_continue = false;
     std::vector<TaskActivationFrame> call_stack;
 
     size_t parent_pid = (size_t)-1;

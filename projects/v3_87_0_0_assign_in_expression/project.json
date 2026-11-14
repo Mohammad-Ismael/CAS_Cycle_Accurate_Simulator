@@ -1,0 +1,9 @@
+{
+  "name": "v3_87_0_0_assign_in_expression",
+  "version": "3.87.0.0",
+  "top_module": "tb_v3_87_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

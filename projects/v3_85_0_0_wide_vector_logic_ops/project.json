@@ -1,0 +1,9 @@
+{
+  "name": "v3_85_0_0_wide_vector_logic_ops",
+  "version": "3.85.0.0",
+  "top_module": "tb_v3_85_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

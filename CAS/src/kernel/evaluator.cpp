@@ -371,11 +371,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (!stmt) return;
     set_current_process(&bp);
 
-    if (has_returned(bp)) {
+    if (has_returned(bp) || bp.loop_break || bp.loop_continue) {
         return;
     }
 
     if (dynamic_cast<LetStatementNode*>(stmt)) {
+        return;
+    }
+
+    if (dynamic_cast<BreakStatementNode*>(stmt)) {
+        bp.loop_break = true;
+        return;
+    }
+
+    if (dynamic_cast<ContinueStatementNode*>(stmt)) {
+        bp.loop_continue = true;
         return;
     }
 
@@ -402,9 +412,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
-            if (has_returned(bp)) return;
+            if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
             execute_statement(s.get(), bp);
-            if (has_returned(bp)) return;
+            if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
             if (!engine.scheduler.is_active()) return;
         }
         return;
@@ -876,12 +886,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
         uint64_t for_iters = 0;
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || bp.loop_break) break;
             for (auto& s : for_stmt->body) {
-                if (has_returned(bp)) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
                 execute_statement(s.get(), bp);
             }
             if (has_returned(bp)) break;
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
+            }
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
             for_iters++;
             if (for_iters > 100000) {
@@ -921,14 +938,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         }
         for (size_t i = 0; i < n; ++i) {
+            if (has_returned(bp) || bp.loop_break) break;
             if (expr_eval.get_context().has_active_frame()) {
                 expr_eval.get_context().set_local_value(fe_stmt->loop_var, LogicVal::make_known(32, (uint64_t)i));
             }
             for (auto& s : fe_stmt->body) {
-                if (has_returned(bp)) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
                 execute_statement(s.get(), bp);
             }
             if (has_returned(bp)) break;
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
+            }
         }
         return;
     }
@@ -936,12 +961,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
         uint64_t while_iters = 0;
         while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || bp.loop_break) break;
             for (auto& s : while_stmt->body) {
-                if (has_returned(bp)) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
                 execute_statement(s.get(), bp);
             }
             if (has_returned(bp)) break;
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
+            }
             while_iters++;
             if (while_iters > 100000) {
                 std::cout << "[ERROR WHILE LOOP] while loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -955,23 +987,37 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         LogicVal count_val = eval_expr(rep_stmt->count_expr.get(), bp.scope);
         uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
         for (uint64_t i = 0; i < count; ++i) {
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || bp.loop_break) break;
             for (auto& s : rep_stmt->body) {
-                if (has_returned(bp)) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
                 execute_statement(s.get(), bp);
             }
             if (has_returned(bp)) break;
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
+            }
         }
         return;
     }
 
     if (auto fv_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
         while (engine.scheduler.is_active() && !bp.completed && !bp.is_delayed && bp.waiting_event_id == (size_t)-1 && !bp.is_waiting_sync && !bp.is_waiting_cycle) {
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || bp.loop_break) break;
             for (auto& s : fv_stmt->body) {
-                if (has_returned(bp)) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active() || bp.completed || bp.is_delayed || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_sync || bp.is_waiting_cycle) break;
+            }
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
             }
         }
         return;
@@ -982,15 +1028,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             LogicVal cond = eval_expr(if_stmt->condition.get(), bp.scope);
             if (cond.to_bool()) {
                 for (auto& s : if_stmt->then_branch) {
-                    if (has_returned(bp)) return;
+                    if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
                     execute_statement(s.get(), bp);
-                    if (has_returned(bp)) return;
+                    if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
                 }
             } else {
                 for (auto& s : if_stmt->else_branch) {
-                    if (has_returned(bp)) return;
+                    if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
                     execute_statement(s.get(), bp);
-                    if (has_returned(bp)) return;
+                    if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
                 }
             }
             return;
@@ -3081,22 +3127,59 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         if (engine.memory_map.find(scoped_mem_nba) != engine.memory_map.end()) {
             auto& mem = engine.memory_map.at(scoped_mem_nba);
-            if (nassign->bit_idx) {
-                LogicVal idx_val = eval_expr(nassign->bit_idx.get(), bp.scope);
-                if (!idx_val.is_unknown()) {
-                    int64_t addr = (int64_t)idx_val.aval;
+            std::vector<ExpressionNode*> mem_indices;
+            if (nassign->bit_idx) mem_indices.push_back(nassign->bit_idx.get());
+            if (nassign->bit_idx2) mem_indices.push_back(nassign->bit_idx2.get());
+            for (const auto& ei : nassign->extra_indices) if (ei) mem_indices.push_back(ei.get());
+
+            size_t U = (mem.unpacked_dims_count > 0) ? mem.unpacked_dims_count : 1;
+            size_t num_u = std::min(U, mem_indices.size());
+            uint32_t linear_addr = 0;
+            bool addr_unknown = false;
+            if (U <= 1) {
+                if (!mem_indices.empty()) {
+                    LogicVal iv = eval_expr(mem_indices[0], bp.scope);
+                    if (iv.is_unknown()) addr_unknown = true;
+                    else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
+                }
+            } else {
+                std::vector<uint32_t> u_strides(U, 1);
+                for (int k = (int)U - 2; k >= 0; --k) {
+                    u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
+                }
+                for (size_t d = 0; d < num_u; ++d) {
+                    LogicVal iv = eval_expr(mem_indices[d], bp.scope);
+                    if (iv.is_unknown()) { addr_unknown = true; break; }
+                    int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                    int64_t rel_idx = 0;
+                    if (d < mem.dimensions.size()) {
+                        const auto& dim = mem.dimensions[d];
+                        rel_idx = (dim.left <= dim.right) ? (val - dim.left) : (dim.left - val);
+                    }
+                    if (rel_idx < 0) rel_idx = 0;
+                    linear_addr += (uint32_t)rel_idx * u_strides[d];
+                }
+            }
+
+            if (!mem_indices.empty()) {
+                if (!addr_unknown) {
+                    int64_t addr = (int64_t)linear_addr;
                     LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
-                    if (nassign->bit_idx2) {
-                        LogicVal msb_val = eval_expr(nassign->bit_idx2.get(), bp.scope);
+                    if (mem_indices.size() > U) {
+                        ExpressionNode* bit_sel_expr = mem_indices[U];
+                        LogicVal msb_val = eval_expr(bit_sel_expr, bp.scope);
                         if (!msb_val.is_unknown()) {
                             uint32_t msb = 0, lsb = 0, slice_w = 0;
-                            if (nassign->bit_lsb2) {
-                                LogicVal lsb_val = eval_expr(nassign->bit_lsb2.get(), bp.scope);
-                                if (nassign->is_plus_colon2) {
+                            ExpressionNode* lsb_node = (U == 1) ? nassign->bit_lsb2.get() : nullptr;
+                            bool plus_c = (U == 1) ? nassign->is_plus_colon2 : false;
+                            bool minus_c = (U == 1) ? nassign->is_minus_colon2 : false;
+                            if (lsb_node) {
+                                LogicVal lsb_val = eval_expr(lsb_node, bp.scope);
+                                if (plus_c) {
                                     lsb = msb_val.aval;
                                     slice_w = lsb_val.aval;
                                     msb = lsb + slice_w - 1;
-                                } else if (nassign->is_minus_colon2) {
+                                } else if (minus_c) {
                                     slice_w = lsb_val.aval;
                                     msb = msb_val.aval;
                                     lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
@@ -3106,16 +3189,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     if (msb < lsb) std::swap(msb, lsb);
                                     slice_w = msb - lsb + 1;
                                 }
-                            } else if (mem.dimensions.size() > mem.unpacked_dims_count + 1) {
-                                uint32_t stride = 1;
-                                for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
-                                    stride *= (uint32_t)mem.dimensions[d].size();
-                                }
-                                int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
-                                uint32_t elem_idx = (msb_val.aval >= (uint32_t)low) ? (uint32_t)(msb_val.aval - (uint32_t)low) : (uint32_t)msb_val.aval;
-                                lsb = elem_idx * stride;
-                                slice_w = stride;
-                                msb = lsb + slice_w - 1;
                             } else {
                                 lsb = msb_val.aval;
                                 slice_w = 1;
@@ -3128,7 +3201,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
                             }
                         }
-                    } else if (nassign->bit_lsb) {
+                    } else if (nassign->bit_lsb && U <= 1) {
                         LogicVal msb_val = eval_expr(nassign->bit_idx.get(), bp.scope);
                         LogicVal lsb_val = eval_expr(nassign->bit_lsb.get(), bp.scope);
                         uint32_t msb = 0, lsb = 0, slice_w = 0;
@@ -4494,22 +4567,60 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                     auto& mem = engine.memory_map.at(scoped_mem);
-                    if (assign->bit_idx) {
-                        LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                        if (!idx_val.is_unknown()) {
-                            int64_t addr = (int64_t)idx_val.aval;
-                            if (assign->bit_idx2) {
-                                LogicVal word_val = mem.get_word(addr);
-                                LogicVal msb_val = eval_expr(assign->bit_idx2.get(), bp.scope);
+                    std::vector<ExpressionNode*> mem_indices;
+                    if (assign->bit_idx) mem_indices.push_back(assign->bit_idx.get());
+                    if (assign->bit_idx2) mem_indices.push_back(assign->bit_idx2.get());
+                    for (const auto& ei : assign->extra_indices) if (ei) mem_indices.push_back(ei.get());
+
+                    size_t U = (mem.unpacked_dims_count > 0) ? mem.unpacked_dims_count : 1;
+                    size_t num_u = std::min(U, mem_indices.size());
+                    uint32_t linear_addr = 0;
+                    bool addr_unknown = false;
+                    if (U <= 1) {
+                        if (!mem_indices.empty()) {
+                            LogicVal iv = eval_expr(mem_indices[0], bp.scope);
+                            if (iv.is_unknown()) addr_unknown = true;
+                            else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
+                        }
+                    } else {
+                        std::vector<uint32_t> u_strides(U, 1);
+                        for (int k = (int)U - 2; k >= 0; --k) {
+                            u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
+                        }
+                        for (size_t d = 0; d < num_u; ++d) {
+                            LogicVal iv = eval_expr(mem_indices[d], bp.scope);
+                            if (iv.is_unknown()) { addr_unknown = true; break; }
+                            int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                            int64_t rel_idx = 0;
+                            if (d < mem.dimensions.size()) {
+                                const auto& dim = mem.dimensions[d];
+                                rel_idx = (dim.left <= dim.right) ? (val - dim.left) : (dim.left - val);
+                            }
+                            if (rel_idx < 0) rel_idx = 0;
+                            linear_addr += (uint32_t)rel_idx * u_strides[d];
+                        }
+                    }
+
+                    if (!mem_indices.empty()) {
+                        if (!addr_unknown) {
+                            int64_t addr = (int64_t)linear_addr;
+                            LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+                            if (mem_indices.size() > U) {
+                                LogicVal word_val = mem.get_word(linear_addr);
+                                ExpressionNode* bit_sel_expr = mem_indices[U];
+                                LogicVal msb_val = eval_expr(bit_sel_expr, bp.scope);
                                 if (!msb_val.is_unknown()) {
                                     uint32_t msb = 0, lsb = 0, slice_w = 0;
-                                    if (assign->bit_lsb2) {
-                                        LogicVal lsb_val = eval_expr(assign->bit_lsb2.get(), bp.scope);
-                                        if (assign->is_plus_colon2) {
+                                    ExpressionNode* lsb_node = (U == 1) ? assign->bit_lsb2.get() : nullptr;
+                                    bool plus_c = (U == 1) ? assign->is_plus_colon2 : false;
+                                    bool minus_c = (U == 1) ? assign->is_minus_colon2 : false;
+                                    if (lsb_node) {
+                                        LogicVal lsb_val = eval_expr(lsb_node, bp.scope);
+                                        if (plus_c) {
                                             lsb = msb_val.aval;
                                             slice_w = lsb_val.aval;
                                             msb = lsb + slice_w - 1;
-                                        } else if (assign->is_minus_colon2) {
+                                        } else if (minus_c) {
                                             slice_w = lsb_val.aval;
                                             msb = msb_val.aval;
                                             lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
@@ -4519,16 +4630,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                             if (msb < lsb) std::swap(msb, lsb);
                                             slice_w = msb - lsb + 1;
                                         }
-                                    } else if (mem.dimensions.size() > mem.unpacked_dims_count + 1) {
-                                        uint32_t stride = 1;
-                                        for (size_t d = mem.unpacked_dims_count + 1; d < mem.dimensions.size(); ++d) {
-                                            stride *= (uint32_t)mem.dimensions[d].size();
-                                        }
-                                        int64_t low = (mem.dimensions.size() > mem.unpacked_dims_count) ? mem.dimensions[mem.unpacked_dims_count].low() : 0;
-                                        uint32_t elem_idx = (msb_val.aval >= (uint32_t)low) ? (uint32_t)(msb_val.aval - (uint32_t)low) : (uint32_t)msb_val.aval;
-                                        lsb = elem_idx * stride;
-                                        slice_w = stride;
-                                        msb = lsb + slice_w - 1;
                                     } else {
                                         lsb = msb_val.aval;
                                         slice_w = 1;
@@ -4538,10 +4639,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                         lsb -= (uint32_t)mem.packed_lsb;
                                     }
                                     word_val.deposit_slice(lsb, slice_w, rhs_val);
-                                    mem.set_word(addr, word_val);
+                                    mem.set_word(linear_addr, word_val);
                                 }
-                            } else if (assign->bit_lsb) {
-                                LogicVal word_val = mem.get_word(addr);
+                            } else if (assign->bit_lsb && U <= 1) {
+                                LogicVal word_val = mem.get_word(linear_addr);
                                 LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
                                 LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
                                 uint32_t msb = 0, lsb = 0, slice_w = 0;
@@ -4563,9 +4664,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     lsb -= (uint32_t)mem.packed_lsb;
                                 }
                                 word_val.deposit_slice(lsb, slice_w, rhs_val);
-                                mem.set_word(addr, word_val);
+                                mem.set_word(linear_addr, word_val);
                             } else {
-                                mem.set_word(addr, rhs_val);
+                                mem.set_word(linear_addr, rhs_val);
                             }
                         }
                         engine.scheduler.notify_mem_changed();

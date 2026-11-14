@@ -689,6 +689,30 @@ struct ReturnStatementNode : public StatementNode {
     }
 };
 
+struct BreakStatementNode : public StatementNode {
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit BreakStatementNode(std::string file = "", size_t line = 0)
+        : src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<BreakStatementNode>(src_file, src_line);
+    }
+};
+
+struct ContinueStatementNode : public StatementNode {
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    explicit ContinueStatementNode(std::string file = "", size_t line = 0)
+        : src_file(std::move(file)), src_line(line) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ContinueStatementNode>(src_file, src_line);
+    }
+};
+
 struct SysCastStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> dest_expr;
     std::unique_ptr<ExpressionNode> src_expr;

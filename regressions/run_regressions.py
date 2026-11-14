@@ -85,7 +85,13 @@ suites = [
     ("v3.80.0.0", "v3_80_0_0_struct_member_slice", ["design.sv", "testbench.sv"]),
     ("v3.81.0.0", "v3_81_0_0_nd_array_slice", ["design.sv", "testbench.sv"]),
     ("v3.82.0.0", "v3_82_0_0_wait_condition_handshake", ["design.sv", "testbench.sv"]),
-    ("v3.83.0.0", "v3_83_0_0_assoc_mem_readmemh", ["design.sv", "testbench.sv"])
+    ("v3.83.0.0", "v3_83_0_0_assoc_mem_readmemh", ["design.sv", "testbench.sv"]),
+    ("v3.84.0.0", "v3_84_0_0_initreg_feedback_loops", ["design.sv", "testbench.sv"]),
+    ("v3.85.0.0", "v3_85_0_0_wide_vector_logic_ops", ["design.sv", "testbench.sv"]),
+    ("v3.86.0.0", "v3_86_0_0_loop_jump_and_short_circuit", ["design.sv", "testbench.sv"]),
+    ("v3.87.0.0", "v3_87_0_0_assign_in_expression", ["design.sv", "testbench.sv"]),
+    ("v3.88.0.0", "v3_88_0_0_arith_shift_and_4state_eq", ["design.sv", "testbench.sv"]),
+    ("v3.89.0.0", "v3_89_0_0_string_repl_and_multidim_mem", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -107,6 +113,7 @@ for ver, s_dir, files in suites:
     if os.path.exists(c_source):
         subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
     top_arg = []
+    extra_args = []
     meta_path = os.path.join(dir_path, "project.json")
     if os.path.exists(meta_path):
         import json
@@ -115,9 +122,11 @@ for ver, s_dir, files in suites:
                 pdata = json.load(pf)
                 if "top_module" in pdata and pdata["top_module"]:
                     top_arg = ["-top", pdata["top_module"]]
+                if "extra_args" in pdata and isinstance(pdata["extra_args"], list):
+                    extra_args = pdata["extra_args"]
         except Exception:
             pass
-    cmd = [cas_bin] + top_arg + files
+    cmd = [cas_bin] + extra_args + top_arg + files
     
     proc = subprocess.run(cmd, cwd=dir_path, capture_output=True, text=True)
     out = proc.stdout + proc.stderr

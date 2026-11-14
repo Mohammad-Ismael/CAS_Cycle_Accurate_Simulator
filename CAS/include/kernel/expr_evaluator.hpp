@@ -51,6 +51,8 @@ public:
     const ClassNode* get_current_class_def() const { return current_class_def; }
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
+    LogicVal writeback_lvalue(ExpressionNode* target, const LogicVal& val, const std::string& scope);
+    LogicVal eval_binary_op(const std::string& op, const LogicVal& l, const LogicVal& r);
     LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);
     LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope);
     LogicVal eval_dpi_call(DpiImportNode* dpi, const std::vector<LogicVal>& evaluated_args, const std::string& scope = "");

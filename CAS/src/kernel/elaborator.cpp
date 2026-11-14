@@ -2624,6 +2624,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             continue;
         }
         size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
+        if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" ||
+            p.type_name == "shortint" || p.type_name == "longint") {
+            result.netlist[pid].type_name = p.type_name;
+            result.netlist[pid].value = LogicVal(w, 0, 0, p.is_signed);
+            result.netlist[pid].prev_value = LogicVal(w, 0, 0, p.is_signed);
+        }
         if (p.is_chandle || p.type_name == "chandle") {
             result.netlist[pid].is_chandle = true;
             result.netlist[pid].type_name = "chandle";
@@ -3003,10 +3009,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.virtual_interface_names.insert(scope + "." + s.name);
                 result.virtual_interface_names.insert(s.name);
             }
-            if (s.type_name == "bit") {
-                result.netlist[sid].type_name = "bit";
-                result.netlist[sid].value = LogicVal(w, 0, 0);
-                result.netlist[sid].prev_value = LogicVal(w, 0, 0);
+            if (s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" ||
+                s.type_name == "shortint" || s.type_name == "longint") {
+                result.netlist[sid].type_name = s.type_name;
+                result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
+                result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
             }
             if (!s.type_name.empty()) {
                 result.netlist[sid].type_name = s.type_name;

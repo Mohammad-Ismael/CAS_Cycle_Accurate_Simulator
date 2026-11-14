@@ -255,15 +255,15 @@ public:
     static LogicVal shift_left(const LogicVal& l, const LogicVal& r) {
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
-        if (sh >= l.width) return LogicVal(l.width, 0, 0);
-        return LogicVal(l.width, l.aval << sh, l.bval << sh);
+        if (sh >= l.width) return LogicVal(l.width, 0, 0, l.is_signed);
+        return LogicVal(l.width, l.aval << sh, l.bval << sh, l.is_signed);
     }
 
     static LogicVal shift_right(const LogicVal& l, const LogicVal& r) {
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
-        if (sh >= l.width) return LogicVal(l.width, 0, 0);
-        return LogicVal(l.width, l.aval >> sh, l.bval >> sh);
+        if (sh >= l.width) return LogicVal(l.width, 0, 0, l.is_signed);
+        return LogicVal(l.width, l.aval >> sh, l.bval >> sh, l.is_signed);
     }
 
     static LogicVal arith_shift_right(const LogicVal& l, const LogicVal& r, bool is_signed) {
@@ -281,8 +281,8 @@ public:
 
         if (sh >= l.width) {
             if (sign_b) return LogicVal::make_x(l.width);
-            return sign_a ? LogicVal::make_known(l.width, (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1))
-                          : LogicVal::make_known(l.width, 0);
+            return sign_a ? LogicVal::make_known(l.width, (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1), true)
+                          : LogicVal::make_known(l.width, 0, true);
         }
 
         uint64_t new_a = l.aval >> sh;
@@ -299,17 +299,64 @@ public:
             new_a |= fill_mask;
         }
 
-        return LogicVal(l.width, new_a & width_mask, new_b & width_mask);
+        return LogicVal(l.width, new_a & width_mask, new_b & width_mask, true);
     }
 
     static LogicVal logical_eq(const LogicVal& l, const LogicVal& r) {
-        if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
-        return LogicVal::make_known(1, (l.aval == r.aval) ? 1 : 0);
+        if (l.is_real || r.is_real) {
+            double lv = l.is_real ? l.real_val : static_cast<double>(l.aval);
+            double rv = r.is_real ? r.real_val : static_cast<double>(r.aval);
+            return LogicVal::make_known(1, (lv == rv) ? 1 : 0);
+        }
+        if (l.is_string || r.is_string) {
+            if (l.is_string && r.is_string) {
+                return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
+            }
+            return LogicVal::make_known(1, 0);
+        }
+        uint32_t w = std::max(l.width, r.width);
+        bool expr_signed = l.is_signed && r.is_signed;
+        LogicVal el = (l.width != w) ? cast_width(l, w, expr_signed) : l;
+        LogicVal er = (r.width != w) ? cast_width(r, w, expr_signed) : r;
+        if (w <= 64) {
+            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+            uint64_t known_mask = (~el.bval) & (~er.bval) & mask;
+            // IEEE 1800 §11.4.5: If any pair of corresponding 2-state bits differ, result is 0
+            if (((el.aval ^ er.aval) & known_mask) != 0) {
+                return LogicVal::make_known(1, 0);
+            }
+            // If any bit is unknown (X or Z) and no known mismatch, result is X
+            if (((el.bval | er.bval) & mask) != 0) {
+                return LogicVal::make_x(1);
+            }
+            return LogicVal::make_known(1, (el.aval & mask) == (er.aval & mask) ? 1 : 0);
+        } else {
+            size_t nwords = el.wide_aval.size();
+            bool has_unknown = false;
+            for (size_t i = 0; i < nwords; ++i) {
+                uint64_t mask = ~0ULL;
+                if (i == nwords - 1 && (w % 64) != 0) {
+                    mask = (1ULL << (w % 64)) - 1;
+                }
+                uint64_t la = el.wide_aval[i], lb = el.wide_bval[i];
+                uint64_t ra = er.wide_aval[i], rb = er.wide_bval[i];
+                uint64_t known_mask = (~lb) & (~rb) & mask;
+                if (((la ^ ra) & known_mask) != 0) {
+                    return LogicVal::make_known(1, 0);
+                }
+                if (((lb | rb) & mask) != 0) {
+                    has_unknown = true;
+                }
+            }
+            if (has_unknown) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, 1);
+        }
     }
 
     static LogicVal logical_neq(const LogicVal& l, const LogicVal& r) {
-        if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
-        return LogicVal::make_known(1, (l.aval != r.aval) ? 1 : 0);
+        LogicVal eq = logical_eq(l, r);
+        if (eq.is_unknown()) return LogicVal::make_x(1);
+        return LogicVal::make_known(1, (eq.aval == 0) ? 1 : 0);
     }
 
     static LogicVal case_eq(const LogicVal& l, const LogicVal& r) {

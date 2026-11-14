@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any
 import subprocess
 import tempfile
 import shutil
@@ -30,6 +30,7 @@ class SimRequest(BaseModel):
     enable_monitor: Optional[bool] = True
     enable_finish_msg: Optional[bool] = True
     timescale: Optional[str] = "1ns"
+    extra_args: Optional[List[str]] = []
 
 class SaveProjectRequest(BaseModel):
     project_name: str
@@ -84,6 +85,15 @@ def save_project(req: SaveProjectRequest):
         with open(os.path.join(pdir, fname), "w") as f:
             f.write(content)
 
+    existing_meta = {}
+    meta_path = os.path.join(pdir, "project.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r") as f:
+                existing_meta = json.load(f)
+        except Exception:
+            existing_meta = {}
+
     meta = {
         "project_name": pname,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -91,7 +101,17 @@ def save_project(req: SaveProjectRequest):
         "settings": req.settings or {},
         "status": req.status or {}
     }
-    with open(os.path.join(pdir, "project.json"), "w") as f:
+    if "extra_args" in existing_meta:
+        meta["extra_args"] = existing_meta["extra_args"]
+    elif "extra_args" in (req.settings or {}):
+        meta["extra_args"] = req.settings["extra_args"]
+
+    if "version" in existing_meta:
+        meta["version"] = existing_meta["version"]
+    if "top_module" in existing_meta and ("top_module" not in (req.settings or {}) or not (req.settings or {}).get("top_module")):
+        meta["top_module"] = existing_meta["top_module"]
+
+    with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
 
     return {"status": "success", "project_name": pname}
@@ -172,6 +192,7 @@ def load_project(name: str):
 
     settings = {}
     status = {}
+    extra_args = []
     meta_path = os.path.join(pdir, "project.json")
     if os.path.exists(meta_path):
         try:
@@ -179,17 +200,29 @@ def load_project(name: str):
                 meta = json.load(f)
                 settings = meta.get("settings", {})
                 status = meta.get("status", {})
+                raw_extra = meta.get("extra_args") or settings.get("extra_args", [])
+                if isinstance(raw_extra, list):
+                    extra_args = [str(x) for x in raw_extra]
+                elif raw_extra:
+                    extra_args = [str(raw_extra)]
+
+                if "top_module" in meta and ("top_module" not in settings or not settings.get("top_module")):
+                    settings["top_module"] = meta["top_module"]
+                if extra_args:
+                    settings["extra_args"] = extra_args
         except Exception as e:
             print(f"[ERROR] Failed to read project.json for {name}: {e}")
             settings = {}
             status = {}
+            extra_args = []
 
     return {
         "project_name": name,
         "files": files,
         "waves": waves,
         "settings": settings,
-        "status": status
+        "status": status,
+        "extra_args": extra_args
     }
 
 @app.delete("/api/projects/{name}")
@@ -328,6 +361,32 @@ def simulate(req: SimRequest):
             options += ["--top", req.top_module.strip()]
         if req.timescale and req.timescale.strip():
             options += ["--timescale", req.timescale.strip()]
+
+        # Resolve extra_args from request and/or project.json
+        extra_args = list(req.extra_args or [])
+        if req.project_name:
+            p_meta_path = os.path.join(PROJECTS_DIR, req.project_name, "project.json")
+            if os.path.exists(p_meta_path):
+                try:
+                    with open(p_meta_path, "r") as pf:
+                        p_meta = json.load(pf)
+                        p_extra = p_meta.get("extra_args") or p_meta.get("settings", {}).get("extra_args", [])
+                        if isinstance(p_extra, list):
+                            for ea in p_extra:
+                                if str(ea) not in extra_args:
+                                    extra_args.append(str(ea))
+                        elif p_extra and str(p_extra) not in extra_args:
+                            extra_args.append(str(p_extra))
+
+                        if (not req.top_module or not req.top_module.strip()) and p_meta.get("top_module"):
+                            if "--top" not in options:
+                                options += ["--top", str(p_meta["top_module"]).strip()]
+                except Exception as pe:
+                    print(f"[WARN] Failed to read project.json metadata: {pe}")
+
+        for ea in extra_args:
+            if ea and ea not in options:
+                options.append(ea)
 
         run_cmd = [cas_bin] + options + files_to_run
 

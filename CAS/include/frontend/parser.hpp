@@ -610,4 +610,6 @@ public:
     std::unique_ptr<ExpressionNode> parse_primary();
     std::unique_ptr<ExpressionNode> parse_sequence_element();
     std::unique_ptr<ExpressionNode> parse_sequence_expression();
+    bool is_assignment_operator(TokenType type) const;
+    std::unique_ptr<ExpressionNode> parse_assignment_in_parens(std::unique_ptr<ExpressionNode> lhs);
 };

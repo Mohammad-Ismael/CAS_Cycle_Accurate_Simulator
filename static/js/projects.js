@@ -1,5 +1,6 @@
 window.StudioProjects = {
     activeProject: null,
+    currentExtraArgs: [],
 
     DEFAULT_SETTINGS: {
         top_module: "",
@@ -11,12 +12,14 @@ window.StudioProjects = {
         vcd_levels: 0,
         enable_display: true,
         enable_monitor: true,
-        enable_finish_msg: true
+        enable_finish_msg: true,
+        extra_args: []
     },
 
     newProject() {
         if (confirm("Start a new scratchpad? Any unsaved edits will be discarded.")) {
             this.activeProject = null;
+            this.currentExtraArgs = [];
             document.getElementById('active-project-label').textContent = "[Unsaved Scratchpad]";
             if (window.WaveApp) window.WaveApp.clear();
 
@@ -47,12 +50,16 @@ window.StudioProjects = {
             vcd_levels: parseInt(document.getElementById('cfg-vcd-levels').value, 10) || 0,
             enable_display: document.getElementById('chk-opt-display').checked,
             enable_monitor: document.getElementById('chk-opt-monitor').checked,
-            enable_finish_msg: document.getElementById('chk-opt-finish').checked
+            enable_finish_msg: document.getElementById('chk-opt-finish').checked,
+            extra_args: this.currentExtraArgs || []
         };
     },
 
     applySettings(s) {
         const cfg = Object.assign({}, this.DEFAULT_SETTINGS, s || {});
+        if (cfg.extra_args) {
+            this.currentExtraArgs = Array.isArray(cfg.extra_args) ? cfg.extra_args : [cfg.extra_args];
+        }
 
         const topInput = document.getElementById('cfg-top-module');
         if (topInput) topInput.value = cfg.top_module || "";
@@ -119,6 +126,7 @@ window.StudioProjects = {
         Object.assign(window.StudioEditor.projectFiles, data.files);
 
         // 2. Load and apply project settings immediately
+        this.currentExtraArgs = data.extra_args || (data.settings && data.settings.extra_args) || [];
         this.applySettings(data.settings);
 
         // 3. Restore active editor tabs

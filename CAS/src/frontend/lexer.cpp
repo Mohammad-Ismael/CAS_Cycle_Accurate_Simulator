@@ -713,7 +713,16 @@ Token Lexer::next_token() {
     if (c == '<') {
         advance();
         if (peek() == '=') { advance(); return {TokenType::TOKEN_LE, "<=", 0, 0, cur_file, cur_line, 0}; }
-        if (peek() == '<') { advance(); return {TokenType::TOKEN_SHL, "<<", 0, 0, cur_file, cur_line, 0}; }
+        if (peek() == '<') {
+            advance();
+            if (peek() == '<') {
+                advance();
+                if (peek() == '=') { advance(); return {TokenType::TOKEN_ASHL_EQUAL, "<<<=", 0, 0, cur_file, cur_line, 0}; }
+                return {TokenType::TOKEN_SHL, "<<<", 0, 0, cur_file, cur_line, 0};
+            }
+            if (peek() == '=') { advance(); return {TokenType::TOKEN_SHL_EQUAL, "<<=", 0, 0, cur_file, cur_line, 0}; }
+            return {TokenType::TOKEN_SHL, "<<", 0, 0, cur_file, cur_line, 0};
+        }
         return {TokenType::TOKEN_LT, "<", 0, 0, cur_file, cur_line, 0};
     }
     if (c == '>') {
@@ -723,8 +732,10 @@ Token Lexer::next_token() {
             advance();
             if (peek() == '>') {
                 advance();
+                if (peek() == '=') { advance(); return {TokenType::TOKEN_ASHR_EQUAL, ">>>=", 0, 0, cur_file, cur_line, 0}; }
                 return {TokenType::TOKEN_ASHR, ">>>", 0, 0, cur_file, cur_line, 0};
             }
+            if (peek() == '=') { advance(); return {TokenType::TOKEN_SHR_EQUAL, ">>=", 0, 0, cur_file, cur_line, 0}; }
             return {TokenType::TOKEN_SHR, ">>", 0, 0, cur_file, cur_line, 0};
         }
         return {TokenType::TOKEN_GT, ">", 0, 0, cur_file, cur_line, 0};
@@ -969,6 +980,8 @@ Token Lexer::next_token() {
         if (ident == "this") return {TokenType::TOKEN_THIS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "bit") return {TokenType::TOKEN_BIT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "return") return {TokenType::TOKEN_RETURN, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "break") return {TokenType::TOKEN_BREAK, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "continue") return {TokenType::TOKEN_CONTINUE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "extends") return {TokenType::TOKEN_EXTENDS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "implements") return {TokenType::TOKEN_IMPLEMENTS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "super") return {TokenType::TOKEN_SUPER, ident, 0, 0, cur_file, cur_line, 0};

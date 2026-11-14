@@ -1,6 +1,35 @@
 #include "../../include/frontend/parser.hpp"
 #include <stdexcept>
 
+bool Parser::is_assignment_operator(TokenType type) const {
+    return type == TokenType::TOKEN_EQUAL ||
+           type == TokenType::TOKEN_PLUS_EQUAL ||
+           type == TokenType::TOKEN_MINUS_EQUAL ||
+           type == TokenType::TOKEN_STAR_EQUAL ||
+           type == TokenType::TOKEN_SLASH_EQUAL ||
+           type == TokenType::TOKEN_PERCENT_EQUAL ||
+           type == TokenType::TOKEN_AND_EQUAL ||
+           type == TokenType::TOKEN_OR_EQUAL ||
+           type == TokenType::TOKEN_XOR_EQUAL ||
+           type == TokenType::TOKEN_SHL_EQUAL ||
+           type == TokenType::TOKEN_SHR_EQUAL ||
+           type == TokenType::TOKEN_ASHL_EQUAL ||
+           type == TokenType::TOKEN_ASHR_EQUAL;
+}
+
+std::unique_ptr<ExpressionNode> Parser::parse_assignment_in_parens(std::unique_ptr<ExpressionNode> lhs) {
+    if (is_assignment_operator(current.type)) {
+        std::string op = current.text;
+        advance();
+        auto rhs = parse_expression();
+        if (is_assignment_operator(current.type)) {
+            rhs = parse_assignment_in_parens(std::move(rhs));
+        }
+        return std::make_unique<AssignExprNode>(op, std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (match(TokenType::TOKEN_NEW)) {
         if (match(TokenType::TOKEN_LBRACKET)) {
@@ -1167,6 +1196,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
     if (match(TokenType::TOKEN_LPAREN)) {
         auto expr = parse_sequence_expression();
+        if (is_assignment_operator(current.type)) {
+            expr = parse_assignment_in_parens(std::move(expr));
+        }
         if (match(TokenType::TOKEN_COMMA)) {
             std::vector<SequenceMatchAction> assigns;
             do {
@@ -1335,6 +1367,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_unary() {
+    // 0. Prefix ++ and --
+    if (current.type == TokenType::TOKEN_PLUS_PLUS || current.type == TokenType::TOKEN_MINUS_MINUS) {
+        std::string op = current.text;
+        advance();
+        auto operand = parse_unary();
+        return std::make_unique<IncDecExprNode>(op, true, std::move(operand));
+    }
+
     // 1. Two-character composite unary reduction: ~&, ~|, ~^
     if (current.type == TokenType::TOKEN_TILDE) {
         advance();
@@ -1395,7 +1435,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
         return std::make_unique<UnaryOpNode>(op, parse_unary());
     }
 
-    return parse_primary();
+    auto expr = parse_primary();
+    while (current.type == TokenType::TOKEN_PLUS_PLUS || current.type == TokenType::TOKEN_MINUS_MINUS) {
+        std::string op = current.text;
+        advance();
+        expr = std::make_unique<IncDecExprNode>(op, false, std::move(expr));
+    }
+    return expr;
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_power() {

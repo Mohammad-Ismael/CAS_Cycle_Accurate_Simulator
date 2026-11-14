@@ -131,6 +131,7 @@ window.StudioApp = {
                     entry_tb: window.StudioEditor.activeTbFile,
                     top_module: topModule,
                     project_name: window.StudioProjects.activeProject,
+                    extra_args: window.StudioProjects.currentExtraArgs || [],
                     enable_profiler: enableProfiler,
                     enable_debug: enableDebug,
                     enable_vcd: enableVcd,

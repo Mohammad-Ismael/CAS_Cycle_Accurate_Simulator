@@ -229,6 +229,36 @@ struct BinaryOpNode : public ExpressionNode {
     }
 };
 
+struct IncDecExprNode : public ExpressionNode {
+    std::string op; // "++", "--"
+    bool is_prefix; // true for prefix (++a), false for postfix (a++)
+    std::unique_ptr<ExpressionNode> operand;
+
+    IncDecExprNode(std::string o, bool prefix, std::unique_ptr<ExpressionNode> opnd)
+        : op(std::move(o)), is_prefix(prefix), operand(std::move(opnd)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<IncDecExprNode>(op, is_prefix, operand ? operand->clone() : nullptr);
+    }
+};
+
+struct AssignExprNode : public ExpressionNode {
+    std::string op; // "=", "+=", "-=", etc.
+    std::unique_ptr<ExpressionNode> lhs;
+    std::unique_ptr<ExpressionNode> rhs;
+
+    AssignExprNode(std::string o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
+        : op(std::move(o)), lhs(std::move(l)), rhs(std::move(r)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<AssignExprNode>(
+            op,
+            lhs ? lhs->clone() : nullptr,
+            rhs ? rhs->clone() : nullptr
+        );
+    }
+};
+
 struct TernaryOpNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> condition;
     std::unique_ptr<ExpressionNode> true_expr;

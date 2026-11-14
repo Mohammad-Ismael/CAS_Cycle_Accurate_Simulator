@@ -1,0 +1,9 @@
+{
+  "name": "v3_88_0_0_arith_shift_and_4state_eq",
+  "version": "3.88.0.0",
+  "top_module": "tb_v3_88_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}
