@@ -772,6 +772,24 @@ struct ClassNode : public ASTNode {
     }
 };
 
+inline bool ClassObject::has_property(const std::string& name) const {
+    if (properties.find(name) != properties.end()) return true;
+    if (class_def && class_def->param_values.find(name) != class_def->param_values.end()) return true;
+    return false;
+}
+
+inline LogicVal ClassObject::get_property(const std::string& name) const {
+    auto it = properties.find(name);
+    if (it != properties.end()) return it->second;
+    if (class_def) {
+        auto pit = class_def->param_values.find(name);
+        if (pit != class_def->param_values.end()) {
+            return LogicVal(32, pit->second, 0);
+        }
+    }
+    return LogicVal::make_x(32);
+}
+
 inline bool ClassObject::is_instance_of(const std::string& target_type) const {
     if (ClassNode::compare_type_names(class_type_name, target_type)) return true;
     if (class_def) return class_def->is_subclass_of(target_type);

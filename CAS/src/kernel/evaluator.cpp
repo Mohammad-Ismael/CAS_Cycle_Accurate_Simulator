@@ -610,6 +610,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         lv->value = init_val;
                     } else {
+                        std::string target_cls = "";
+                        if (vdecl->is_class_handle && !vdecl->class_type_name.empty()) {
+                            target_cls = vdecl->class_type_name;
+                        }
+                        if (auto cnew = dynamic_cast<ClassNewNode*>(vdecl->init_expr.get())) {
+                            if (cnew->class_type_name.empty() && !target_cls.empty()) {
+                                cnew->class_type_name = target_cls;
+                            }
+                        }
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
@@ -750,6 +759,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         lv->value = init_val;
                     } else {
+                        std::string target_cls = "";
+                        if (vdecl->is_class_handle && !vdecl->class_type_name.empty()) {
+                            target_cls = vdecl->class_type_name;
+                        }
+                        if (auto cnew = dynamic_cast<ClassNewNode*>(vdecl->init_expr.get())) {
+                            if (cnew->class_type_name.empty() && !target_cls.empty()) {
+                                cnew->class_type_name = target_cls;
+                            }
+                        }
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
@@ -903,6 +921,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     lv->value = init_val;
                 } else {
+                    std::string target_cls = "";
+                    if (vdecl->is_class_handle && !vdecl->class_type_name.empty()) {
+                        target_cls = vdecl->class_type_name;
+                    }
+                    if (auto cnew = dynamic_cast<ClassNewNode*>(vdecl->init_expr.get())) {
+                        if (cnew->class_type_name.empty() && !target_cls.empty()) {
+                            cnew->class_type_name = target_cls;
+                        }
+                    }
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
                     if (vdecl->type_name == "string") {
                         lv->value = init_val;

@@ -1,0 +1,9 @@
+{
+  "name": "v3_93_0_0_classes_and_interface_typedefs",
+  "version": "3.93.0.0",
+  "top_module": "tb_v3_93_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

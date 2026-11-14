@@ -3392,6 +3392,78 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_TYPEDEF) {
+            auto td = parse_typedef();
+            if (td) {
+                simple_typedef_map[class_name + "::" + td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
+                if (current_parsing_module) {
+                    current_parsing_module->simple_typedefs[class_name + "::" + td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
+                    current_parsing_module->typedefs.push_back(std::move(td));
+                } else {
+                    global_typedefs.push_back(std::move(td));
+                }
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+            bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
+            advance();
+            bool has_type = false;
+            std::string ptype = "";
+            while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                   current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                   current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
+                   current.type == TokenType::TOKEN_BIT ||
+                   (!has_type && is_type_identifier(current.text)) ||
+                   (!has_type && current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_COLON_COLON || peek_token().type == TokenType::TOKEN_IDENTIFIER))) {
+                has_type = true;
+                if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                    ptype = current.text;
+                    advance();
+                    ptype += current.text;
+                    advance();
+                    ptype += current.text;
+                    advance();
+                } else {
+                    if (ptype.empty()) ptype = current.text;
+                    advance();
+                }
+                while (current.type == TokenType::TOKEN_LBRACKET) {
+                    advance();
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                }
+            }
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                parse_expression();
+                if (match(TokenType::TOKEN_COLON)) {
+                    parse_expression();
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+            }
+            while (true) {
+                std::string pname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                }
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
+                auto val_expr = parse_expression();
+                cls->parameters.push_back(ParameterDef(pname, std::move(val_expr), is_local, ptype));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after parameter declaration");
+            continue;
+        }
         if (current.type == TokenType::TOKEN_SPECIFY) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: 'specify' block is not permitted inside class per IEEE 1800-2023 section 32");
         }
