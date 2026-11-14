@@ -1397,6 +1397,44 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+                auto struct_node = parse_struct_or_union_body();
+                std::string anon_type = "__anon_struct_or_union_" + std::to_string(anon_struct_counter++);
+                struct_typedef_map[anon_type] = struct_node;
+                mod->struct_typedefs[anon_type] = struct_node;
+                mod->typedefs.push_back(std::make_unique<TypedefNode>(anon_type, struct_node));
+                if (struct_node->is_packed && struct_node->total_width > 0) {
+                    VariableDimMetadata svdm;
+                    svdm.name = anon_type;
+                    svdm.dimensions.push_back(ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false});
+                    svdm.unpacked_dims = 0;
+                    svdm.is_vector_or_array = true;
+                    global_type_dimensions[anon_type] = svdm;
+                    mod->type_dimensions[anon_type] = svdm;
+                }
+
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    auto msb = std::make_unique<NumberNode>(struct_node->total_width > 0 ? struct_node->total_width - 1 : 0, 32);
+                    auto lsb = std::make_unique<NumberNode>(0, 32);
+                    PortNode sig(signame, "internal", std::move(msb), std::move(lsb), struct_node->is_signed, NetKind::VAR);
+                    sig.type_name = anon_type;
+                    if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                        auto init_expr = parse_expression();
+                        sig.default_value = init_expr->clone();
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
+                    }
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                continue;
+            }
+
             std::string mod_sig_type = "";
             if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 std::string p_name = current.text;
@@ -2636,6 +2674,167 @@ std::string Parser::parse_skew_spec() {
     return "";
 }
 
+std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
+    bool is_union = (current.type == TokenType::TOKEN_UNION);
+    advance(); // consume struct or union
+
+    bool is_tagged = false;
+    bool is_packed = false;
+    bool is_signed = false;
+
+    while (current.type == TokenType::TOKEN_TAGGED || current.type == TokenType::TOKEN_PACKED ||
+           current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED) {
+        if (match(TokenType::TOKEN_TAGGED)) is_tagged = true;
+        else if (match(TokenType::TOKEN_PACKED)) is_packed = true;
+        else if (match(TokenType::TOKEN_SIGNED)) is_signed = true;
+        else if (match(TokenType::TOKEN_UNSIGNED)) is_signed = false;
+    }
+
+    expect(TokenType::TOKEN_LBRACE, "Expected '{' in struct or union declaration");
+    auto struct_node = std::make_shared<StructTypeNode>();
+    struct_node->is_packed = is_packed;
+    struct_node->is_signed = is_signed;
+    struct_node->is_union = is_union;
+    struct_node->is_tagged = is_tagged;
+
+    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+        bool mem_signed = false;
+        std::string mem_type = "logic";
+        uint32_t field_width = 1;
+
+        if (match(TokenType::TOKEN_VOID)) {
+            mem_type = "void";
+            field_width = 0;
+        } else {
+            if (match(TokenType::TOKEN_SIGNED)) mem_signed = true;
+            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+                current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
+                current.type == TokenType::TOKEN_BIT   ||
+                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                 (current.text == "int" || current.text == "byte" || current.text == "bit" ||
+                  current.text == "shortint" || current.text == "longint"))) {
+                mem_type = current.text;
+                if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" ||
+                    current.text == "byte" || current.text == "shortint" || current.text == "longint") {
+                    mem_signed = true;
+                }
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_type_identifier(current.text) || is_typedef(current.text))) {
+                mem_type = current.text;
+                advance();
+                while (match(TokenType::TOKEN_COLON_COLON)) {
+                    mem_type += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+                }
+            }
+            if (match(TokenType::TOKEN_SIGNED)) mem_signed = true;
+
+            auto en_def = get_enum_typedef(mem_type);
+            auto st_def = get_struct_typedef(mem_type);
+            SimpleTypedef smp_t;
+            if (mem_type == "int" || mem_type == "integer") field_width = 32;
+            else if (mem_type == "byte") field_width = 8;
+            else if (mem_type == "shortint") field_width = 16;
+            else if (mem_type == "longint") field_width = 64;
+            else if (en_def) { field_width = en_def->base_width; mem_signed = en_def->is_signed; }
+            else if (st_def) { field_width = st_def->total_width; mem_signed = st_def->is_signed; }
+            else if (get_simple_typedef(mem_type, smp_t)) { field_width = smp_t.width; mem_signed = smp_t.is_signed; }
+
+            uint32_t total_member_width = (field_width > 0) ? field_width : 1;
+            bool has_dim = false;
+            uint64_t msb_v = 0, lsb_v = 0;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                has_dim = true;
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in member range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member range");
+                bool ok = false;
+                try {
+                    msb_v = eval_const_expr(msb_e.get());
+                    lsb_v = eval_const_expr(lsb_e.get());
+                    ok = true;
+                } catch (...) {
+                    if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                        if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                            msb_v = nm->aval;
+                            lsb_v = nl->aval;
+                            ok = true;
+                        }
+                    }
+                }
+                uint32_t dim_w = 1;
+                if (ok) {
+                    dim_w = (msb_v >= lsb_v) ? (uint32_t)(msb_v - lsb_v + 1) : (uint32_t)(lsb_v - msb_v + 1);
+                }
+                total_member_width *= dim_w;
+            }
+            if (has_dim) {
+                field_width = total_member_width;
+            }
+        }
+
+        while (true) {
+            std::string mem_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected member identifier");
+            uint32_t unpacked_mult = 1;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto u_msb = parse_expression();
+                uint64_t u_dim = 1;
+                if (match(TokenType::TOKEN_COLON)) {
+                    auto u_lsb = parse_expression();
+                    try {
+                        uint64_t u_m = eval_const_expr(u_msb.get());
+                        uint64_t u_l = eval_const_expr(u_lsb.get());
+                        u_dim = (u_m >= u_l) ? (u_m - u_l + 1) : (u_l - u_m + 1);
+                    } catch (...) {}
+                } else {
+                    try {
+                        u_dim = eval_const_expr(u_msb.get());
+                    } catch (...) {}
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member unpacked range");
+                unpacked_mult *= (uint32_t)u_dim;
+            }
+            StructMemberNode sm;
+            sm.name = mem_name;
+            sm.width = field_width * unpacked_mult;
+            sm.is_signed = mem_signed;
+            sm.type_name = mem_type;
+            struct_node->members.push_back(sm);
+            if (!is_union) {
+                struct_node->total_width += sm.width;
+            }
+
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member declaration");
+    }
+    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing struct or union declaration");
+
+    if (is_union) {
+        uint32_t max_payload = 0;
+        for (const auto& sm : struct_node->members) {
+            if (sm.width > max_payload) max_payload = sm.width;
+        }
+        struct_node->payload_width = max_payload;
+        if (is_tagged) {
+            size_t N = struct_node->members.size();
+            uint32_t tag_bits = 1;
+            while ((1ULL << tag_bits) < N) {
+                tag_bits++;
+            }
+            struct_node->tag_bits = tag_bits;
+            struct_node->total_width = tag_bits + max_payload;
+        } else {
+            struct_node->total_width = max_payload;
+        }
+    }
+
+    return struct_node;
+}
+
 std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
 
@@ -2934,131 +3133,8 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
     }
 
-    if (match(TokenType::TOKEN_STRUCT)) {
-        bool is_packed = false;
-        if (match(TokenType::TOKEN_PACKED)) {
-            is_packed = true;
-        }
-        bool is_signed = false;
-        if (match(TokenType::TOKEN_SIGNED)) {
-            is_signed = true;
-        }
-
-        expect(TokenType::TOKEN_LBRACE, "Expected '{' in struct declaration");
-        auto struct_node = std::make_shared<StructTypeNode>();
-        struct_node->is_packed = is_packed;
-        struct_node->is_signed = is_signed;
-
-        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-            bool mem_signed = false;
-            std::string mem_type = "logic";
-            if (match(TokenType::TOKEN_SIGNED)) {
-                mem_signed = true;
-            }
-            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
-                current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
-                (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit"))) {
-                mem_type = current.text;
-                if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" || current.text == "byte") {
-                    mem_signed = true;
-                }
-                advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_type_identifier(current.text) || is_typedef(current.text))) {
-                mem_type = current.text;
-                advance();
-                while (match(TokenType::TOKEN_COLON_COLON)) {
-                    mem_type += "::" + current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
-                }
-            }
-            if (match(TokenType::TOKEN_SIGNED)) {
-                mem_signed = true;
-            }
-
-            uint32_t field_width = 1;
-            auto en_def = get_enum_typedef(mem_type);
-            auto st_def = get_struct_typedef(mem_type);
-            SimpleTypedef smp_t;
-            if (mem_type == "int" || mem_type == "integer") field_width = 32;
-            else if (mem_type == "byte") field_width = 8;
-            else if (en_def) { field_width = en_def->base_width; mem_signed = en_def->is_signed; }
-            else if (st_def) { field_width = st_def->total_width; mem_signed = st_def->is_signed; }
-            else if (get_simple_typedef(mem_type, smp_t)) { field_width = smp_t.width; mem_signed = smp_t.is_signed; }
-
-            uint32_t total_member_width = (field_width > 0) ? field_width : 1;
-            bool has_dim = false;
-            uint64_t msb_v = 0, lsb_v = 0;
-            while (match(TokenType::TOKEN_LBRACKET)) {
-                has_dim = true;
-                auto msb_e = parse_expression();
-                expect(TokenType::TOKEN_COLON, "Expected ':' in struct member range");
-                auto lsb_e = parse_expression();
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in struct member range");
-                bool ok = false;
-                try {
-                    msb_v = eval_const_expr(msb_e.get());
-                    lsb_v = eval_const_expr(lsb_e.get());
-                    ok = true;
-                } catch (...) {
-                    if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-                        if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                            msb_v = nm->aval;
-                            lsb_v = nl->aval;
-                            ok = true;
-                        }
-                    }
-                }
-                uint32_t dim_w = 1;
-                if (ok) {
-                    dim_w = (msb_v >= lsb_v) ? (uint32_t)(msb_v - lsb_v + 1) : (uint32_t)(lsb_v - msb_v + 1);
-                }
-                total_member_width *= dim_w;
-            }
-            if (has_dim) {
-                field_width = total_member_width;
-            }
-
-            while (true) {
-                std::string mem_name = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected member identifier in struct");
-                uint32_t unpacked_mult = 1;
-                while (match(TokenType::TOKEN_LBRACKET)) {
-                    auto u_msb = parse_expression();
-                    uint64_t u_dim = 1;
-                    if (match(TokenType::TOKEN_COLON)) {
-                        auto u_lsb = parse_expression();
-                        try {
-                            uint64_t u_m = eval_const_expr(u_msb.get());
-                            uint64_t u_l = eval_const_expr(u_lsb.get());
-                            u_dim = (u_m >= u_l) ? (u_m - u_l + 1) : (u_l - u_m + 1);
-                        } catch (...) {}
-                    } else {
-                        try {
-                            u_dim = eval_const_expr(u_msb.get());
-                        } catch (...) {}
-                    }
-                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in struct member unpacked range");
-                    unpacked_mult *= (uint32_t)u_dim;
-                }
-                StructMemberNode sm;
-                sm.name = mem_name;
-                sm.width = field_width * unpacked_mult;
-                sm.is_signed = mem_signed;
-                sm.type_name = mem_type;
-                if (has_dim) {
-                    sm.msb = (int64_t)msb_v;
-                    sm.lsb = (int64_t)lsb_v;
-                }
-                struct_node->members.push_back(sm);
-                struct_node->total_width += sm.width;
-
-                if (match(TokenType::TOKEN_COMMA)) continue;
-                break;
-            }
-            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after struct member declaration");
-        }
-        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing struct declaration");
-
+    if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+        auto struct_node = parse_struct_or_union_body();
         std::string type_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
@@ -3068,7 +3144,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
 
         struct_typedef_map[type_name] = struct_node;
-        if (is_packed && struct_node->total_width > 0) {
+        if (struct_node->is_packed && struct_node->total_width > 0) {
             VariableDimMetadata svdm;
             svdm.name = type_name;
             svdm.dimensions.push_back(ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false});

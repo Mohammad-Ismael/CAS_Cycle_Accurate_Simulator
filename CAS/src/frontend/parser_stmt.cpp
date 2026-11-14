@@ -251,6 +251,41 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(vstmts));
     }
 
+    if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+        auto struct_node = parse_struct_or_union_body();
+        std::string anon_type = "__anon_struct_or_union_" + std::to_string(anon_struct_counter++);
+        struct_typedef_map[anon_type] = struct_node;
+        if (current_parsing_module) {
+            current_parsing_module->struct_typedefs[anon_type] = struct_node;
+            current_parsing_module->typedefs.push_back(std::make_unique<TypedefNode>(anon_type, struct_node));
+            current_parsing_module->type_dimensions[anon_type] = VariableDimMetadata{anon_type, {ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false}}, 0, true};
+        }
+        if (struct_node->is_packed && struct_node->total_width > 0) {
+            VariableDimMetadata svdm;
+            svdm.name = anon_type;
+            svdm.dimensions.push_back(ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false});
+            svdm.unpacked_dims = 0;
+            svdm.is_vector_or_array = true;
+            global_type_dimensions[anon_type] = svdm;
+        }
+
+        std::vector<std::unique_ptr<StatementNode>> vstmts;
+        while (true) {
+            std::string vname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+            auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, struct_node->total_width, struct_node->is_signed, anon_type);
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                var_stmt->init_expr = parse_expression();
+            }
+            vstmts.push_back(std::move(var_stmt));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
+        if (vstmts.size() == 1) return std::move(vstmts[0]);
+        return std::make_unique<BlockStatementNode>(std::move(vstmts));
+    }
+
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
     std::string proc_type_name = "";
     if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {

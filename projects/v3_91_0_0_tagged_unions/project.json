@@ -1,0 +1,6 @@
+{
+  "name": "v3_91_0_0_tagged_unions",
+  "version": "3.91.0.0",
+  "top_module": "tb_v3_91_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

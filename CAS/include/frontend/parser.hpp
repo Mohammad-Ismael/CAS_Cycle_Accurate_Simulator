@@ -489,6 +489,8 @@ public:
     }
     void parse_packages_only();
     std::unique_ptr<TypedefNode> parse_typedef();
+    std::shared_ptr<StructTypeNode> parse_struct_or_union_body();
+    uint32_t anon_struct_counter = 0;
     std::string parse_skew_spec();
 
     bool is_assoc_key_token(const Token& tok) const {

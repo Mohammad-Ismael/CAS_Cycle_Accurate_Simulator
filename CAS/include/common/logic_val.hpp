@@ -17,6 +17,8 @@ struct LogicVal {
     double real_val = 0.0;
     bool is_signed = false;
     bool is_unpacked = false;
+    bool is_tagged_union = false;
+    std::string tag_member = "";
     std::vector<LogicVal> unpacked_elements;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;

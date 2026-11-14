@@ -322,6 +322,18 @@ struct MemberAccessNode : public ExpressionNode {
     }
 };
 
+struct TaggedUnionExprNode : public ExpressionNode {
+    std::string member_name;
+    std::unique_ptr<ExpressionNode> payload_expr;
+
+    TaggedUnionExprNode(std::string m_name, std::unique_ptr<ExpressionNode> payload = nullptr)
+        : member_name(std::move(m_name)), payload_expr(std::move(payload)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<TaggedUnionExprNode>(member_name, payload_expr ? payload_expr->clone() : nullptr);
+    }
+};
+
 using ExprNode = ExpressionNode;
 
 enum class CastKind { SIZE, TYPE, SIGNED, UNSIGNED };

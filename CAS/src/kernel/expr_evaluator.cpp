@@ -480,6 +480,19 @@ LogicVal ExprEvaluator::eval_binary_op(const std::string& op, const LogicVal& l,
 LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal::make_x(1);
 
+    if (auto tue = dynamic_cast<TaggedUnionExprNode*>(expr)) {
+        LogicVal payload(1, 0, 0);
+        if (tue->payload_expr) {
+            payload = eval(tue->payload_expr.get(), scope);
+        } else {
+            payload = LogicVal(0, 0, 0);
+        }
+        LogicVal res = payload;
+        res.is_tagged_union = true;
+        res.tag_member = tue->member_name;
+        return res;
+    }
+
     if (auto incdec = dynamic_cast<IncDecExprNode*>(expr)) {
         LogicVal cur_val = eval(incdec->operand.get(), scope);
         LogicVal one = LogicVal::make_known(cur_val.width, 1, cur_val.is_signed);
@@ -2912,6 +2925,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         m_offset += (uint32_t)b_idx;
                         m_width = 1;
                     }
+                }
+                if (sm->width == 0) {
+                    return LogicVal(0, 0, 0);
                 }
                 return var_val.extract_slice(m_offset, m_width);
             }
@@ -5436,7 +5452,7 @@ const PackedStructType* ExprEvaluator::find_struct_type_by_member(
     }
     if (!member_name.empty()) {
         for (const auto& pair : engine.struct_types) {
-            if ((width == 0 || pair.second.total_width == width) && pair.second.get_member(member_name)) {
+            if ((width == 0 || pair.second.total_width == width || pair.second.is_tagged) && pair.second.get_member(member_name)) {
                 return &pair.second;
             }
         }

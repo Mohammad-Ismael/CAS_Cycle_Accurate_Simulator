@@ -89,7 +89,31 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
     }
 }
 
+LogicVal Evaluator::pack_tagged_union_if_needed(const LogicVal& rhs_val, const std::string& target_type, const std::string& target_name, uint32_t target_width, const std::string& scope) {
+    if (!rhs_val.is_tagged_union) return rhs_val;
+    const PackedStructType* st = expr_eval.find_struct_type_by_member(target_type, rhs_val.tag_member, target_width, scope);
+    if (!st && !target_name.empty()) {
+        st = expr_eval.find_struct_type_by_member(target_name, rhs_val.tag_member, target_width, scope);
+    }
+    if (!st) {
+        st = expr_eval.find_struct_type_by_member("", rhs_val.tag_member, target_width, scope);
+    }
+    if (st && st->is_tagged) {
+        int mem_idx = st->get_member_index(rhs_val.tag_member);
+        if (mem_idx >= 0) {
+            LogicVal packed_val = LogicOps::cast_width(rhs_val, st->total_width, false);
+            if (st->tag_bits > 0) {
+                packed_val.deposit_slice(st->payload_width, st->tag_bits, LogicVal::make_known(st->tag_bits, (uint64_t)mem_idx));
+            }
+            packed_val.is_tagged_union = false;
+            return packed_val;
+        }
+    }
+    return rhs_val;
+}
+
 void Evaluator::write_variable(const std::string& var_name, const LogicVal& val, BoundProcess& bp) {
+    LogicVal actual_val = val;
     LocalVar* local = nullptr;
     if (expr_eval.get_context().has_active_frame()) {
         local = expr_eval.get_context().lookup_local(var_name);
@@ -101,23 +125,29 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
     }
     if (local) {
+        if (actual_val.is_tagged_union) {
+            actual_val = pack_tagged_union_if_needed(actual_val, local->type_name, var_name, local->width, bp.scope);
+        }
         if (local->type_name == "string") {
-            local->value = val;
+            local->value = actual_val;
             return;
         }
-        local->value = LogicOps::cast_width(val, local->width, local->is_signed);
+        local->value = LogicOps::cast_width(actual_val, local->width, local->is_signed);
         return;
     }
     size_t nid = engine.get_net_id(bp.scope, var_name);
     if (nid != (size_t)-1) {
         size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
+        if (actual_val.is_tagged_union) {
+            actual_val = pack_tagged_union_if_needed(actual_val, engine.netlist[target_id].type_name, var_name, engine.netlist[target_id].width, bp.scope);
+        }
         if (!engine.netlist[target_id].has_procedural_assign) {
             LogicVal old_v = engine.netlist[target_id].value;
-            engine.netlist[target_id].set(val);
+            engine.netlist[target_id].set(actual_val);
             if (target_id < engine.alias_members.size()) {
                 for (size_t other_id : engine.alias_members[target_id]) {
                     if (other_id != target_id && other_id < engine.netlist.size()) {
-                        engine.netlist[other_id].set(val);
+                        engine.netlist[other_id].set(actual_val);
                     }
                 }
             }
@@ -581,6 +611,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         lv->value = init_val;
                     } else {
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
                         } else {
@@ -720,6 +751,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         lv->value = init_val;
                     } else {
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
                         } else {
@@ -2861,6 +2893,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                     if (it->local_frame.get_var(nassign->target)) { is_shadowed = true; break; }
                 }
+            } else if (dynamic_cast<TaggedUnionExprNode*>(nassign->rhs.get())) {
+                is_shadowed = true;
             }
             if (!is_shadowed) {
                 uint32_t net_id = nassign->cached_net_id;
@@ -2937,6 +2971,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         if (local) {
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            if (rhs_val.is_tagged_union) {
+                rhs_val = pack_tagged_union_if_needed(rhs_val, local->type_name, base_var, local->width, bp.scope);
+            }
             if (local->is_dynamic_array) {
                 std::vector<LogicVal> elems;
                 if (rhs_val.is_unpacked) {
@@ -3225,6 +3262,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (net_id != (size_t)-1) {
             if (engine.netlist[net_id].has_procedural_assign) return;
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            if (rhs_val.is_tagged_union) {
+                rhs_val = pack_tagged_union_if_needed(rhs_val, engine.netlist[net_id].type_name, target_name, engine.netlist[net_id].width, bp.scope);
+            }
 
             if (is_member) {
                 std::string type_name = engine.netlist[net_id].type_name;
@@ -3642,6 +3682,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             } else if (dynamic_cast<ClassNewNode*>(assign->rhs.get())) {
                 is_shadowed = true;
+            } else if (dynamic_cast<TaggedUnionExprNode*>(assign->rhs.get())) {
+                is_shadowed = true;
             }
             if (!is_shadowed) {
                 uint32_t target_id = assign->cached_net_id;
@@ -3668,6 +3710,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+
+        if (rhs_val.is_tagged_union && !assign->lhs_targets.empty()) {
+            std::string tname = assign->lhs_targets[0];
+            LocalVar* local = nullptr;
+            if (expr_eval.get_context().has_active_frame()) {
+                local = expr_eval.get_context().lookup_local(tname);
+            }
+            if (!local && !bp.call_stack.empty()) {
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    local = it->local_frame.get_var(tname);
+                    if (local) break;
+                }
+            }
+            std::string type_name = local ? local->type_name : "";
+            uint32_t tw = local ? local->width : 0;
+            if (type_name.empty()) {
+                size_t nid = engine.get_net_id(bp.scope, tname);
+                if (nid != (size_t)-1) {
+                    type_name = engine.netlist[nid].type_name;
+                    tw = engine.netlist[nid].width;
+                }
+            }
+            rhs_val = pack_tagged_union_if_needed(rhs_val, type_name, tname, tw, bp.scope);
+        }
 
         if (!assign->lhs_targets.empty()) {
             std::string target_name = assign->lhs_targets[0];

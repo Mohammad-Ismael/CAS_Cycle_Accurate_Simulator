@@ -54,6 +54,8 @@ enum class TokenType {
     TOKEN_TYPEDEF,
     TOKEN_ENUM,
     TOKEN_STRUCT,
+    TOKEN_UNION,
+    TOKEN_TAGGED,
     TOKEN_PACKED,
     TOKEN_GATE_AND,
     TOKEN_GATE_OR,

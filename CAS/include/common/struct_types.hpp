@@ -17,6 +17,10 @@ struct PackedStructType {
     std::string name;
     uint32_t total_width = 0;
     bool is_signed = false;
+    bool is_union = false;
+    bool is_tagged = false;
+    uint32_t tag_bits = 0;
+    uint32_t payload_width = 0;
     std::vector<StructMember> members;
 
     const StructMember* get_member(const std::string& member_name) const {
@@ -26,5 +30,14 @@ struct PackedStructType {
             }
         }
         return nullptr;
+    }
+
+    int get_member_index(const std::string& member_name) const {
+        for (size_t i = 0; i < members.size(); ++i) {
+            if (members[i].name == member_name) {
+                return (int)i;
+            }
+        }
+        return -1;
     }
 };

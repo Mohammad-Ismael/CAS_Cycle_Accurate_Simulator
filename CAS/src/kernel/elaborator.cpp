@@ -2338,16 +2338,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             st.name = td->type_name;
             st.is_signed = td->struct_type->is_signed;
             st.total_width = td->struct_type->total_width;
+            st.is_union = td->struct_type->is_union;
+            st.is_tagged = td->struct_type->is_tagged;
+            st.tag_bits = td->struct_type->tag_bits;
+            st.payload_width = td->struct_type->payload_width;
 
             size_t n = td->struct_type->members.size();
             std::vector<uint32_t> offsets(n, 0);
             uint32_t running_offset = 0;
-            for (int i = (int)n - 1; i >= 0; --i) {
-                offsets[i] = running_offset;
-                running_offset += td->struct_type->members[i].width;
-            }
-            if (st.total_width == 0) {
-                st.total_width = running_offset;
+            if (st.is_union) {
+                for (size_t i = 0; i < n; ++i) {
+                    offsets[i] = 0;
+                }
+            } else {
+                for (int i = (int)n - 1; i >= 0; --i) {
+                    offsets[i] = running_offset;
+                    running_offset += td->struct_type->members[i].width;
+                }
+                if (st.total_width == 0) {
+                    st.total_width = running_offset;
+                }
             }
 
             for (size_t i = 0; i < n; ++i) {
@@ -4371,16 +4381,26 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             s.name = st.first;
             s.is_signed = st.second->is_signed;
             s.total_width = st.second->total_width;
+            s.is_union = st.second->is_union;
+            s.is_tagged = st.second->is_tagged;
+            s.tag_bits = st.second->tag_bits;
+            s.payload_width = st.second->payload_width;
 
             size_t n = st.second->members.size();
             std::vector<uint32_t> offsets(n, 0);
             uint32_t running_offset = 0;
-            for (int i = (int)n - 1; i >= 0; --i) {
-                offsets[i] = running_offset;
-                running_offset += st.second->members[i].width;
-            }
-            if (s.total_width == 0) {
-                s.total_width = running_offset;
+            if (s.is_union) {
+                for (size_t i = 0; i < n; ++i) {
+                    offsets[i] = 0;
+                }
+            } else {
+                for (int i = (int)n - 1; i >= 0; --i) {
+                    offsets[i] = running_offset;
+                    running_offset += st.second->members[i].width;
+                }
+                if (s.total_width == 0) {
+                    s.total_width = running_offset;
+                }
             }
 
             for (size_t i = 0; i < n; ++i) {

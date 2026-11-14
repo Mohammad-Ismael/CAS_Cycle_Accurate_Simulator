@@ -404,6 +404,10 @@ struct StructMemberNode : public ASTNode {
 struct StructTypeNode : public ASTNode {
     bool is_packed = true;
     bool is_signed = false;
+    bool is_union = false;
+    bool is_tagged = false;
+    uint32_t tag_bits = 0;
+    uint32_t payload_width = 0;
     std::vector<StructMemberNode> members;
     uint32_t total_width = 0;
 };

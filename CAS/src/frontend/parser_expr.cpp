@@ -56,6 +56,22 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<NullNode>();
     }
 
+    if (match(TokenType::TOKEN_TAGGED)) {
+        std::string mem_name = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after 'tagged'");
+        std::unique_ptr<ExpressionNode> payload = nullptr;
+        if (current.type != TokenType::TOKEN_SEMICOLON &&
+            current.type != TokenType::TOKEN_RPAREN &&
+            current.type != TokenType::TOKEN_COMMA &&
+            current.type != TokenType::TOKEN_RBRACE &&
+            current.type != TokenType::TOKEN_RBRACKET &&
+            current.type != TokenType::TOKEN_COLON &&
+            current.type != TokenType::TOKEN_END) {
+            payload = parse_unary();
+        }
+        return std::make_unique<TaggedUnionExprNode>(mem_name, std::move(payload));
+    }
+
     if (match(TokenType::TOKEN_CAST)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after $cast");
         auto dest = parse_expression();
