@@ -83,7 +83,20 @@ public:
     }
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
-        if (v.is_real || v.is_string) return v;
+        if (v.is_real) return v;
+        if (v.is_string) {
+            LogicVal num_val(v.width, v.aval, v.bval, is_signed);
+            num_val.wide_aval = v.wide_aval;
+            num_val.wide_bval = v.wide_bval;
+            return cast_width(num_val, target_width, is_signed);
+        }
+        if (v.is_streaming && target_width > v.width) {
+            uint32_t shift_pad = target_width - v.width;
+            LogicVal res(target_width, 0, 0, is_signed);
+            res.deposit_slice(shift_pad, v.width, v);
+            res.mask();
+            return res;
+        }
         if (v.width == target_width) {
             LogicVal res = v;
             res.is_signed = is_signed;

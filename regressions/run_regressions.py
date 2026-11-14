@@ -91,7 +91,8 @@ suites = [
     ("v3.86.0.0", "v3_86_0_0_loop_jump_and_short_circuit", ["design.sv", "testbench.sv"]),
     ("v3.87.0.0", "v3_87_0_0_assign_in_expression", ["design.sv", "testbench.sv"]),
     ("v3.88.0.0", "v3_88_0_0_arith_shift_and_4state_eq", ["design.sv", "testbench.sv"]),
-    ("v3.89.0.0", "v3_89_0_0_string_repl_and_multidim_mem", ["design.sv", "testbench.sv"])
+    ("v3.89.0.0", "v3_89_0_0_string_repl_and_multidim_mem", ["design.sv", "testbench.sv"]),
+    ("v3.90.0.0", "v3_90_0_0_streaming_operators_wide", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

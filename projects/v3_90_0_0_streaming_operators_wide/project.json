@@ -1,0 +1,6 @@
+{
+  "name": "v3_90_0_0_streaming_operators_wide",
+  "version": "3.90.0.0",
+  "top_module": "tb_v3_90_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

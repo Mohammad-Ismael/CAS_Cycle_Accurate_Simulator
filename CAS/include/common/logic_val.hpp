@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <algorithm>
 
 struct LogicVal {
     uint64_t aval; // Data bitplane
@@ -11,6 +12,7 @@ struct LogicVal {
     uint32_t width;
     bool is_string = false;
     std::string str_val = "";
+    bool is_streaming = false;
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
@@ -75,9 +77,29 @@ struct LogicVal {
     }
 
     static LogicVal make_string(const std::string& str) {
-        LogicVal v(32, 0, 0);
+        uint32_t w = (uint32_t)str.size() * 8;
+        if (w == 0) w = 32;
+        LogicVal v(w, 0, 0);
         v.is_string = true;
         v.str_val = str;
+        if (w <= 64) {
+            uint64_t a = 0;
+            for (char c : str) {
+                a = (a << 8) | (uint8_t)c;
+            }
+            v.aval = a;
+        } else {
+            for (size_t i = 0; i < str.size(); ++i) {
+                uint8_t c = (uint8_t)str[i];
+                size_t bit_pos = (str.size() - 1 - i) * 8;
+                for (size_t bi = 0; bi < 8; ++bi) {
+                    if ((c >> bi) & 1) {
+                        v.set_bit((uint32_t)(bit_pos + bi), true, false);
+                    }
+                }
+            }
+        }
+        v.mask();
         return v;
     }
 
@@ -364,6 +386,37 @@ struct LogicVal {
             }
         }
         return s;
+    }
+
+    std::string to_dec_string() const {
+        if (width <= 64) {
+            return std::to_string(aval);
+        }
+        if (wide_aval.empty()) {
+            return "0";
+        }
+        bool all_zero = true;
+        for (uint64_t w : wide_aval) {
+            if (w != 0) { all_zero = false; break; }
+        }
+        if (all_zero) return "0";
+
+        std::vector<uint64_t> words = wide_aval;
+        std::string res;
+        while (true) {
+            bool non_zero = false;
+            uint64_t rem = 0;
+            for (int i = (int)words.size() - 1; i >= 0; --i) {
+                __uint128_t cur = (static_cast<__uint128_t>(rem) << 64) | words[i];
+                words[i] = static_cast<uint64_t>(cur / 10);
+                rem = static_cast<uint64_t>(cur % 10);
+                if (words[i] != 0) non_zero = true;
+            }
+            res.push_back('0' + (char)rem);
+            if (!non_zero) break;
+        }
+        std::reverse(res.begin(), res.end());
+        return res;
     }
 };
 

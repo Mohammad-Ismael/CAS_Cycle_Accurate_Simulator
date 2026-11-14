@@ -125,7 +125,7 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     }
 
     // 1. Declare and initialize function return variable
-    context.declare_local(fn->name, fn->return_width, fn->return_signed);
+    context.declare_local(fn->name, fn->return_width, fn->return_signed, fn->return_type_name);
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
@@ -140,7 +140,7 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
         } else {
             w = 32;
         }
-        context.declare_local(in_p.name, w, in_p.is_signed);
+        context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -196,7 +196,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     }
 
     // 1. Declare and initialize function return variable
-    context.declare_local(fn->name, fn->return_width, fn->return_signed);
+    context.declare_local(fn->name, fn->return_width, fn->return_signed, fn->return_type_name);
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
@@ -211,7 +211,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
         } else {
             w = 32;
         }
-        context.declare_local(in_p.name, w, in_p.is_signed);
+        context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -271,7 +271,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             }
         }
         if (local) {
-            LogicVal casted = (local->type_name == "string" || val.is_string)
+            LogicVal casted = (local->type_name == "string")
                               ? val
                               : LogicOps::cast_width(val, local->width, local->is_signed);
             if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
@@ -303,7 +303,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
                      : engine.get_net_id(scope, id->name);
         if (nid != (size_t)-1) {
             size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
-            LogicVal casted = (engine.netlist[target_id].type_name == "string" || val.is_string)
+            LogicVal casted = (engine.netlist[target_id].type_name == "string")
                               ? val
                               : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
             if (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
@@ -3021,7 +3021,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             } else if (val.is_signed) {
                                 ss << val.to_signed();
                             } else {
-                                ss << val.aval;
+                                if (val.width <= 64) ss << val.aval;
+                                else ss << val.to_dec_string();
                             }
                         } else if (spec == 'f') {
                             ss << (val.is_real ? val.real_val : (double)val.aval);
@@ -5551,6 +5552,47 @@ LogicVal ExprEvaluator::eval_struct_pattern(UnpackedConcatNode* ucat, const Pack
 std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return {};
 
+    if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
+        int slice_sz = 1;
+        if (sc->slice_size) {
+            LogicVal sz_v = eval(sc->slice_size.get(), scope);
+            slice_sz = (int)sz_v.to_signed();
+            if (slice_sz <= 0) slice_sz = 1;
+        }
+        std::vector<std::pair<bool, bool>> bits;
+        for (const auto& item : sc->stream_items) {
+            get_stream_bits(item.get(), scope, bits);
+        }
+        std::vector<std::pair<bool, bool>> result_bits;
+        if (sc->direction == StreamDirection::LEFT_TO_RIGHT) {
+            result_bits = std::move(bits);
+        } else {
+            int N = (int)bits.size();
+            std::vector<std::vector<std::pair<bool, bool>>> slices;
+            int cur = N;
+            while (cur > 0) {
+                int start = std::max(0, cur - slice_sz);
+                std::vector<std::pair<bool, bool>> sl(bits.begin() + start, bits.begin() + cur);
+                slices.push_back(sl);
+                cur = start;
+            }
+            for (const auto& sl : slices) {
+                result_bits.insert(result_bits.end(), sl.begin(), sl.end());
+            }
+        }
+        uint32_t ew = slice_sz > 0 ? (uint32_t)slice_sz : 8;
+        std::vector<LogicVal> res;
+        for (size_t i = 0; i + ew <= result_bits.size(); i += ew) {
+            uint64_t a = 0, b = 0;
+            for (size_t bi = 0; bi < ew; ++bi) {
+                if (result_bits[i + bi].first) a |= (1ULL << (ew - 1 - bi));
+                if (result_bits[i + bi].second) b |= (1ULL << (ew - 1 - bi));
+            }
+            res.push_back(LogicVal(ew, a, b));
+        }
+        return res;
+    }
+
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
         std::vector<LogicVal> res;
         for (auto& elem : ucat->elements) {
@@ -5819,7 +5861,7 @@ bool ExprEvaluator::get_stream_bits(ExpressionNode* expr, const std::string& sco
     }
 
     for (int b = (int)val.width - 1; b >= 0; --b) {
-        out_bits.push_back({ (bool)((val.aval >> b) & 1), (bool)((val.bval >> b) & 1) });
+        out_bits.push_back({ val.get_bit_a(b), val.get_bit_b(b) });
     }
     return true;
 }
@@ -5842,7 +5884,9 @@ LogicVal ExprEvaluator::eval_streaming_concat(StreamingConcatNode* sc, const std
     }
 
     if (bits.empty()) {
-        return LogicVal(0, 0, 0);
+        LogicVal empty_lv(0, 0, 0);
+        empty_lv.is_streaming = true;
+        return empty_lv;
     }
 
     std::vector<std::pair<bool, bool>> result_bits;
@@ -5872,15 +5916,18 @@ LogicVal ExprEvaluator::eval_streaming_concat(StreamingConcatNode* sc, const std
             if (result_bits[i].first) aval |= (1ULL << (total_w - 1 - i));
             if (result_bits[i].second) bval |= (1ULL << (total_w - 1 - i));
         }
-        return LogicVal(total_w, aval, bval);
+        LogicVal res(total_w, aval, bval);
+        res.is_streaming = true;
+        return res;
     } else {
-        uint64_t aval = 0;
-        uint64_t bval = 0;
-        for (size_t i = 0; i < 64 && i < result_bits.size(); ++i) {
-            if (result_bits[i].first) aval |= (1ULL << (63 - i));
-            if (result_bits[i].second) bval |= (1ULL << (63 - i));
+        LogicVal res(total_w, 0, 0);
+        for (size_t i = 0; i < result_bits.size(); ++i) {
+            uint32_t bit_pos = total_w - 1 - (uint32_t)i;
+            res.set_bit(bit_pos, result_bits[i].first, result_bits[i].second);
         }
-        return LogicVal(64, aval, bval);
+        res.mask();
+        res.is_streaming = true;
+        return res;
     }
 }
 
@@ -6758,7 +6805,8 @@ std::string ExprEvaluator::format_systemverilog_string(
                     } else if (val.is_signed) {
                         result += std::to_string(val.to_signed());
                     } else {
-                        result += std::to_string(val.aval);
+                        if (val.width <= 64) result += std::to_string(val.aval);
+                        else result += val.to_dec_string();
                     }
                 } else {
                     result += std::to_string(sim_time);
@@ -6798,7 +6846,8 @@ std::string ExprEvaluator::format_systemverilog_string(
                 } else if (val.is_signed) {
                     s = std::to_string(val.to_signed());
                 } else {
-                    s = std::to_string(val.aval);
+                    if (val.width <= 64) s = std::to_string(val.aval);
+                    else s = val.to_dec_string();
                 }
                 if (pad_zero && width > 0) {
                     while (s.size() < (size_t)width) s = "0" + s;
@@ -6882,7 +6931,8 @@ std::string ExprEvaluator::format_systemverilog_string(
         if (val.is_string) result += val.str_val;
         else if (val.is_real) result += std::to_string(val.real_val);
         else if (val.is_signed) result += std::to_string(val.to_signed());
-        else result += std::to_string(val.aval);
+        else if (val.width <= 64) result += std::to_string(val.aval);
+        else result += val.to_dec_string();
     }
     return result;
 }
