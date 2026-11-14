@@ -121,6 +121,7 @@ private:
     bool resume_waiting_processes(bool for_reactive = false);
     void check_program_completion();
     std::vector<uint32_t> due_reactive_pids;
+    std::vector<uint32_t> pending_event_active_pids;
     void transfer_due_delayed_updates(uint64_t target_time);
     void invoke_task(BoundProcess& bp, TaskCallNode* tcall);
     void write_task_output(BoundProcess& bp, const std::string& actual_name, const LogicVal& val);

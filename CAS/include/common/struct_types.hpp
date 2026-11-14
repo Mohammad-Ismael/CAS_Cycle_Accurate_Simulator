@@ -1,7 +1,11 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <memory>
 #include <cstdint>
+#include "logic_val.hpp"
+
+struct ExpressionNode;
 
 struct StructMember {
     std::string name;
@@ -11,6 +15,9 @@ struct StructMember {
     std::string type_name = "";
     int64_t msb = 0;
     int64_t lsb = 0;
+    std::shared_ptr<ExpressionNode> default_expr = nullptr;
+    bool has_default = false;
+    LogicVal default_val;
 };
 
 struct PackedStructType {

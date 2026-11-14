@@ -1,0 +1,6 @@
+{
+  "name": "v3_92_0_0_named_events_and_struct_defaults",
+  "version": "3.92.0.0",
+  "top_module": "tb_v3_92_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

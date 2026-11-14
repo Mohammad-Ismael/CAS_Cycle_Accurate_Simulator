@@ -399,6 +399,7 @@ struct StructMemberNode : public ASTNode {
     std::string type_name = "";
     int64_t msb = 0;
     int64_t lsb = 0;
+    std::shared_ptr<ExpressionNode> default_value = nullptr;
 };
 
 struct StructTypeNode : public ASTNode {

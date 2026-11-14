@@ -2473,35 +2473,47 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         mod->processes.push_back(std::move(proc));
                         continue;
                     }
-                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
-                    if (match(TokenType::TOKEN_STAR)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        if (match(TokenType::TOKEN_STAR)) {
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
+                            auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+                            proc->is_always_comb = true;
+                            proc->body = parse_statement_or_block();
+                            mod->processes.push_back(std::move(proc));
+                            continue;
+                        }
+                        auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
+                        while (true) {
+                            EdgeType edge = EdgeType::LEVEL;
+                            if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+                            else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+
+                            std::string sig = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                            while (match(TokenType::TOKEN_DOT)) {
+                                sig += "." + current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                            }
+                            proc->sensitivity_list.push_back({edge, sig});
+
+                            if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
+                            break;
+                        }
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
-                        auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                        proc->is_always_comb = true;
                         proc->body = parse_statement_or_block();
                         mod->processes.push_back(std::move(proc));
-                        continue;
-                    }
-                    auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
-                    while (true) {
-                        EdgeType edge = EdgeType::LEVEL;
-                        if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
-                        else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
-
+                    } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                        auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
                         std::string sig = current.text;
-                        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                        advance();
                         while (match(TokenType::TOKEN_DOT)) {
                             sig += "." + current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
                         }
-                        proc->sensitivity_list.push_back({edge, sig});
-
-                        if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
-                        break;
+                        proc->sensitivity_list.push_back({EdgeType::LEVEL, sig});
+                        proc->body = parse_statement_or_block();
+                        mod->processes.push_back(std::move(proc));
                     }
-                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
-                    proc->body = parse_statement_or_block();
-                    mod->processes.push_back(std::move(proc));
                 } else {
                     auto proc = std::make_unique<ProcessNode>(ProcessType::ALWAYS);
                     proc->body = parse_statement_or_block();
@@ -2801,6 +2813,9 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             sm.width = field_width * unpacked_mult;
             sm.is_signed = mem_signed;
             sm.type_name = mem_type;
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                sm.default_value = parse_expression();
+            }
             struct_node->members.push_back(sm);
             if (!is_union) {
                 struct_node->total_width += sm.width;
@@ -6088,35 +6103,48 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                 else mod->processes.push_back(std::move(proc));
                 return;
             }
-            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
-            if (match(TokenType::TOKEN_STAR)) {
+            if (match(TokenType::TOKEN_LPAREN)) {
+                if (match(TokenType::TOKEN_STAR)) {
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
+                    auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
+                    proc->is_always_comb = true;
+                    proc->body = parse_statement_or_block();
+                    if (blk) blk->processes.push_back(std::move(proc));
+                    else mod->processes.push_back(std::move(proc));
+                    return;
+                }
+                auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
+                while (true) {
+                    EdgeType edge = EdgeType::LEVEL;
+                    if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
+                    else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                    std::string sig = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                    while (match(TokenType::TOKEN_DOT)) {
+                        sig += "." + current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                    }
+                    proc->sensitivity_list.push_back({edge, sig});
+                    if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
-                auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                proc->is_always_comb = true;
                 proc->body = parse_statement_or_block();
                 if (blk) blk->processes.push_back(std::move(proc));
                 else mod->processes.push_back(std::move(proc));
-                return;
-            }
-            auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
-            while (true) {
-                EdgeType edge = EdgeType::LEVEL;
-                if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
-                else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
                 std::string sig = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
+                advance();
                 while (match(TokenType::TOKEN_DOT)) {
                     sig += "." + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
                 }
-                proc->sensitivity_list.push_back({edge, sig});
-                if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
-                break;
+                proc->sensitivity_list.push_back({EdgeType::LEVEL, sig});
+                proc->body = parse_statement_or_block();
+                if (blk) blk->processes.push_back(std::move(proc));
+                else mod->processes.push_back(std::move(proc));
             }
-            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
-            proc->body = parse_statement_or_block();
-            if (blk) blk->processes.push_back(std::move(proc));
-            else mod->processes.push_back(std::move(proc));
         } else {
             auto proc = std::make_unique<ProcessNode>(ProcessType::ALWAYS);
             proc->body = parse_statement_or_block();

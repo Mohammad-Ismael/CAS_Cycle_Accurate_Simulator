@@ -2127,6 +2127,27 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 proc_copy->body[i] = substitute_genvar_in_stmt(proc_copy->body[i].get(), gname, gval);
             }
         }
+        if (proc_copy->type == ProcessType::SEQUENTIAL && !proc_copy->sensitivity_list.empty()) {
+            bool all_events = true;
+            for (const auto& sens : proc_copy->sensitivity_list) {
+                std::string scoped_sig = current_scope.empty() ? sens.signal_name : (current_scope + "." + sens.signal_name);
+                if (result.named_event_map.find(scoped_sig) == result.named_event_map.end() &&
+                    result.named_event_map.find(sens.signal_name) == result.named_event_map.end()) {
+                    all_events = false;
+                    break;
+                }
+            }
+            if (all_events) {
+                proc_copy->type = ProcessType::ALWAYS;
+                std::vector<std::unique_ptr<StatementNode>> new_body;
+                new_body.push_back(std::make_unique<EventControlStatementNode>(proc_copy->sensitivity_list[0].edge, proc_copy->sensitivity_list[0].signal_name));
+                for (auto& s : proc_copy->body) {
+                    new_body.push_back(std::move(s));
+                }
+                proc_copy->body = std::move(new_body);
+                proc_copy->sensitivity_list.clear();
+            }
+        }
         BoundProcess bp(current_scope, proc_copy.get(), 0, false);
         bp.pid = result.processes.size();
         result.generated_processes.push_back(std::move(proc_copy));
@@ -2370,6 +2391,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sm.type_name = mn.type_name;
                 sm.msb = mn.msb;
                 sm.lsb = mn.lsb;
+                sm.default_expr = mn.default_value;
                 st.members.push_back(sm);
             }
             result.struct_types[td->type_name] = st;
@@ -2688,6 +2710,29 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.netlist[pid].value = iv;
             result.netlist[pid].prev_value = iv;
             result.netlist[pid].modified = false;
+        } else if (!p.type_name.empty()) {
+            const PackedStructType* st = find_struct_type(p.type_name, scope);
+            if (st) {
+                bool has_def = false;
+                for (const auto& mem : st->members) {
+                    if (mem.default_expr || mem.has_default) { has_def = true; break; }
+                }
+                if (has_def) {
+                    LogicVal iv(w, 0, 0);
+                    for (const auto& mem : st->members) {
+                        if (mem.default_expr) {
+                            LogicVal mv = eval_const_logic_val(mem.default_expr.get(), scope);
+                            mv = LogicOps::cast_width(mv, mem.width, mem.is_signed);
+                            iv.deposit_slice(mem.offset, mem.width, mv);
+                        } else if (mem.has_default) {
+                            iv.deposit_slice(mem.offset, mem.width, mem.default_val);
+                        }
+                    }
+                    result.netlist[pid].value = iv;
+                    result.netlist[pid].prev_value = iv;
+                    result.netlist[pid].modified = false;
+                }
+            }
         }
 
         VariableDimMetadata pvdm;
@@ -3038,6 +3083,29 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.netlist[sid].value = iv;
                 result.netlist[sid].prev_value = iv;
                 result.netlist[sid].modified = false;
+            } else if (!s.type_name.empty()) {
+                const PackedStructType* st = find_struct_type(s.type_name, scope);
+                if (st) {
+                    bool has_def = false;
+                    for (const auto& mem : st->members) {
+                        if (mem.default_expr || mem.has_default) { has_def = true; break; }
+                    }
+                    if (has_def) {
+                        LogicVal iv(w, 0, 0);
+                        for (const auto& mem : st->members) {
+                            if (mem.default_expr) {
+                                LogicVal mv = eval_const_logic_val(mem.default_expr.get(), scope);
+                                mv = LogicOps::cast_width(mv, mem.width, mem.is_signed);
+                                iv.deposit_slice(mem.offset, mem.width, mv);
+                            } else if (mem.has_default) {
+                                iv.deposit_slice(mem.offset, mem.width, mem.default_val);
+                            }
+                        }
+                        result.netlist[sid].value = iv;
+                        result.netlist[sid].prev_value = iv;
+                        result.netlist[sid].modified = false;
+                    }
+                }
             }
         }
     }
@@ -3895,6 +3963,27 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& proc : mod->processes) {
         auto proc_copy = proc->clone();
+        if (proc_copy->type == ProcessType::SEQUENTIAL && !proc_copy->sensitivity_list.empty()) {
+            bool all_events = true;
+            for (const auto& sens : proc_copy->sensitivity_list) {
+                std::string scoped_sig = scope.empty() ? sens.signal_name : (scope + "." + sens.signal_name);
+                if (result.named_event_map.find(scoped_sig) == result.named_event_map.end() &&
+                    result.named_event_map.find(sens.signal_name) == result.named_event_map.end()) {
+                    all_events = false;
+                    break;
+                }
+            }
+            if (all_events) {
+                proc_copy->type = ProcessType::ALWAYS;
+                std::vector<std::unique_ptr<StatementNode>> new_body;
+                new_body.push_back(std::make_unique<EventControlStatementNode>(proc_copy->sensitivity_list[0].edge, proc_copy->sensitivity_list[0].signal_name));
+                for (auto& s : proc_copy->body) {
+                    new_body.push_back(std::move(s));
+                }
+                proc_copy->body = std::move(new_body);
+                proc_copy->sensitivity_list.clear();
+            }
+        }
         BoundProcess bp(scope, proc_copy.get(), 0, false);
         bp.pid = result.processes.size();
         if (mod->is_program) {
@@ -4413,6 +4502,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 sm.type_name = mn.type_name;
                 sm.msb = mn.msb;
                 sm.lsb = mn.lsb;
+                sm.default_expr = mn.default_value;
                 s.members.push_back(sm);
             }
 

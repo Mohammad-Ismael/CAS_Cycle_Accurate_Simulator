@@ -3782,7 +3782,17 @@ void StratifiedScheduler::trigger_named_event_id(size_t ev_id) {
     for (size_t w_pid : pids_to_wake) {
         if (w_pid < engine.processes.size() && !engine.processes[w_pid].completed) {
             engine.processes[w_pid].waiting_event_id = (size_t)-1;
-            step_process(w_pid);
+            if (engine.processes[w_pid].is_reactive) {
+                due_reactive_pids.push_back((uint32_t)w_pid);
+            } else {
+                bool already = false;
+                for (uint32_t existing : pending_event_active_pids) {
+                    if (existing == (uint32_t)w_pid) { already = true; break; }
+                }
+                if (!already) {
+                    pending_event_active_pids.push_back((uint32_t)w_pid);
+                }
+            }
         }
     }
 }
@@ -4825,6 +4835,18 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
 
             if (resume_waiting_processes(false /* active only */)) {
                 active_activity = true;
+                propagate_comb();
+            }
+
+            if (!pending_event_active_pids.empty()) {
+                auto pids = std::move(pending_event_active_pids);
+                pending_event_active_pids.clear();
+                for (uint32_t p : pids) {
+                    if (p < engine.processes.size() && !engine.processes[p].completed) {
+                        step_process(p);
+                        active_activity = true;
+                    }
+                }
                 propagate_comb();
             }
 
