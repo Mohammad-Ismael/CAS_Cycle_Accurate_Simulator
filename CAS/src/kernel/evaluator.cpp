@@ -369,10 +369,18 @@ void Evaluator::check_monitor() {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
-                        } else if (spec == 'h' || spec == 'x') {
+                        } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
+                            if (spec == 'H' || spec == 'X') {
+                                for (char& c : hx) c = (char)std::toupper((unsigned char)c);
+                            }
                             if (pad_zero && width > 0) {
                                 while (hx.size() < (size_t)width) hx = "0" + hx;
+                            } else if (!pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = " " + hx;
+                            } else if (!pad_zero && width == 0) {
+                                size_t hex_digits = (val.width + 3) / 4;
+                                while (hx.size() < hex_digits) hx = "0" + hx;
                             }
                             std::cout << hx;
                         } else {
@@ -1679,6 +1687,80 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 return;
             }
+            if (method == "delete") {
+                DynamicArrayObject* da = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+                }
+                if (!da && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_dynamic_array) { da = &local->dyn_array_data; break; }
+                    }
+                }
+                if (!da && expr_eval.get_current_this() && expr_eval.get_current_this()->has_dynamic_array(var_name)) {
+                    da = expr_eval.get_current_this()->get_dynamic_array(var_name);
+                }
+                if (!da) da = engine.get_dynamic_array(var_name, bp.scope);
+                if (da) {
+                    da->delete_all();
+                    return;
+                }
+
+                QueueObject* q = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_queue) q = &local->queue_data;
+                }
+                if (!q && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_queue) { q = &local->queue_data; break; }
+                    }
+                }
+                if (!q) q = engine.get_queue(var_name, bp.scope);
+                if (q) {
+                    if (tcall->args.empty()) {
+                        q->delete_all();
+                    } else {
+                        LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
+                        q->delete_at((int64_t)idx_v.aval);
+                    }
+                    return;
+                }
+
+                AssociativeArrayObject* assoc = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+                }
+                if (!assoc && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_associative_array) { assoc = &local->assoc_array_data; break; }
+                    }
+                }
+                if (!assoc) assoc = engine.get_assoc_array(var_name, bp.scope);
+                if (assoc) {
+                    if (tcall->args.empty()) {
+                        assoc->delete_all();
+                    } else {
+                        LogicVal k = eval_expr(tcall->args[0].get(), bp.scope);
+                        if (assoc->is_string_key) {
+                            assoc->delete_key(k.str_val);
+                        } else {
+                            uint64_t key = k.aval;
+                            if (assoc->key_width < 64 && assoc->key_width > 0) {
+                                key &= ((1ULL << assoc->key_width) - 1);
+                            }
+                            assoc->delete_key(key);
+                        }
+                    }
+                    return;
+                }
+            }
+
             if (method == "len" || method == "getc" || method == "toupper" || method == "tolower" ||
                 method == "compare" || method == "icompare" || method == "substr" || method == "atoi" ||
                 method == "atohex" || method == "atooct" || method == "atobin" || method == "atoreal") {
@@ -2738,10 +2820,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
-                        } else if (spec == 'h' || spec == 'x') {
+                        } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
+                            if (spec == 'H' || spec == 'X') {
+                                for (char& c : hx) c = (char)std::toupper((unsigned char)c);
+                            }
                             if (pad_zero && width > 0) {
                                 while (hx.size() < (size_t)width) hx = "0" + hx;
+                            } else if (!pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = " " + hx;
+                            } else if (!pad_zero && width == 0) {
+                                size_t hex_digits = (val.width + 3) / 4;
+                                while (hx.size() < hex_digits) hx = "0" + hx;
                             }
                             std::cout << hx;
                         } else {
@@ -2824,10 +2914,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
-                        } else if (spec == 'h' || spec == 'x') {
+                        } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
+                            if (spec == 'H' || spec == 'X') {
+                                for (char& c : hx) c = (char)std::toupper((unsigned char)c);
+                            }
                             if (pad_zero && width > 0) {
                                 while (hx.size() < (size_t)width) hx = "0" + hx;
+                            } else if (!pad_zero && width > 0) {
+                                while (hx.size() < (size_t)width) hx = " " + hx;
+                            } else if (!pad_zero && width == 0) {
+                                size_t hex_digits = (val.width + 3) / 4;
+                                while (hx.size() < hex_digits) hx = "0" + hx;
                             }
                             std::cout << hx;
                         } else {

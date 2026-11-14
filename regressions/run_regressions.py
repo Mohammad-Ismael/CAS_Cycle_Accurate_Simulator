@@ -95,7 +95,8 @@ suites = [
     ("v3.90.0.0", "v3_90_0_0_streaming_operators_wide", ["design.sv", "testbench.sv"]),
     ("v3.91.0.0", "v3_91_0_0_tagged_unions", ["design.sv", "testbench.sv"]),
     ("v3.92.0.0", "v3_92_0_0_named_events_and_struct_defaults", ["design.sv", "testbench.sv"]),
-    ("v3.93.0.0", "v3_93_0_0_classes_and_interface_typedefs", ["design.sv", "testbench.sv"])
+    ("v3.93.0.0", "v3_93_0_0_classes_and_interface_typedefs", ["design.sv", "testbench.sv"]),
+    ("v3.94.0.0", "v3_94_0_0_dynamic_arrays_and_hex_pad", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -215,6 +215,16 @@ public:
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (queue_map.find(scoped) != queue_map.end()) return true;
         if (queue_map.find(name) != queue_map.end()) return true;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                if (queue_map.find(cur_scope + "." + name) != queue_map.end()) return true;
+            } else {
+                break;
+            }
+        }
         return false;
     }
 
@@ -224,6 +234,17 @@ public:
         if (it != queue_map.end()) return &it->second;
         it = queue_map.find(name);
         if (it != queue_map.end()) return &it->second;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                it = queue_map.find(cur_scope + "." + name);
+                if (it != queue_map.end()) return &it->second;
+            } else {
+                break;
+            }
+        }
         return nullptr;
     }
 
@@ -231,6 +252,16 @@ public:
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (dynamic_array_map.find(scoped) != dynamic_array_map.end()) return true;
         if (dynamic_array_map.find(name) != dynamic_array_map.end()) return true;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                if (dynamic_array_map.find(cur_scope + "." + name) != dynamic_array_map.end()) return true;
+            } else {
+                break;
+            }
+        }
         return false;
     }
 
@@ -240,6 +271,17 @@ public:
         if (it != dynamic_array_map.end()) return &it->second;
         it = dynamic_array_map.find(name);
         if (it != dynamic_array_map.end()) return &it->second;
+        std::string cur_scope = scope;
+        while (!cur_scope.empty()) {
+            auto pos = cur_scope.rfind('.');
+            if (pos != std::string::npos) {
+                cur_scope = cur_scope.substr(0, pos);
+                it = dynamic_array_map.find(cur_scope + "." + name);
+                if (it != dynamic_array_map.end()) return &it->second;
+            } else {
+                break;
+            }
+        }
         return nullptr;
     }
 

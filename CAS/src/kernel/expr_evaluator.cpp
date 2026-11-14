@@ -2715,6 +2715,115 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         std::string var_name = member_node->var_name;
         std::string member_name = member_node->member_name;
+
+        if (member_name == "size") {
+            DynamicArrayObject* da = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+            }
+            if (!da && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_dynamic_array) { da = &local->dyn_array_data; break; }
+                }
+            }
+            if (!da && current_this && current_this->has_dynamic_array(var_name)) {
+                da = current_this->get_dynamic_array(var_name);
+            }
+            if (!da) da = engine.get_dynamic_array(var_name, scope);
+            if (da) return LogicVal::make_known(32, (uint64_t)da->size());
+
+            QueueObject* q = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_queue) q = &local->queue_data;
+            }
+            if (!q && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_queue) { q = &local->queue_data; break; }
+                }
+            }
+            if (!q) q = engine.get_queue(var_name, scope);
+            if (q) return LogicVal::make_known(32, (uint64_t)q->size());
+
+            AssociativeArrayObject* assoc = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+            }
+            if (!assoc && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_associative_array) { assoc = &local->assoc_array_data; break; }
+                }
+            }
+            if (!assoc) assoc = engine.get_assoc_array(var_name, scope);
+            if (assoc) return LogicVal::make_known(32, (uint64_t)assoc->size());
+        }
+        if (member_name == "num") {
+            AssociativeArrayObject* assoc = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+            }
+            if (!assoc && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_associative_array) { assoc = &local->assoc_array_data; break; }
+                }
+            }
+            if (!assoc) assoc = engine.get_assoc_array(var_name, scope);
+            if (assoc) return LogicVal::make_known(32, (uint64_t)assoc->size());
+        }
+        if (member_name == "delete") {
+            DynamicArrayObject* da = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+            }
+            if (!da && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_dynamic_array) { da = &local->dyn_array_data; break; }
+                }
+            }
+            if (!da && current_this && current_this->has_dynamic_array(var_name)) {
+                da = current_this->get_dynamic_array(var_name);
+            }
+            if (!da) da = engine.get_dynamic_array(var_name, scope);
+            if (da) { da->delete_all(); return LogicVal::make_known(32, 0); }
+
+            QueueObject* q = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_queue) q = &local->queue_data;
+            }
+            if (!q && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_queue) { q = &local->queue_data; break; }
+                }
+            }
+            if (!q) q = engine.get_queue(var_name, scope);
+            if (q) { q->delete_all(); return LogicVal::make_known(32, 0); }
+
+            AssociativeArrayObject* assoc = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_associative_array) assoc = &local->assoc_array_data;
+            }
+            if (!assoc && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_associative_array) { assoc = &local->assoc_array_data; break; }
+                }
+            }
+            if (!assoc) assoc = engine.get_assoc_array(var_name, scope);
+            if (assoc) { assoc->delete_all(); return LogicVal::make_known(32, 0); }
+        }
+
         std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
 
         std::string full_sig = scoped_var + "." + member_name;
@@ -6876,16 +6985,24 @@ std::string ExprEvaluator::format_systemverilog_string(
                 std::stringstream ss;
                 ss << d;
                 result += ss.str();
-            } else if (spec == 'h' || spec == 'x') {
+            } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                 std::string s;
                 if (!val.is_unknown()) {
-                    std::stringstream ss;
-                    ss << std::hex << val.aval << std::dec;
-                    s = ss.str();
+                    if (val.width <= 64) {
+                        std::stringstream ss;
+                        ss << std::hex << val.aval << std::dec;
+                        s = ss.str();
+                    } else {
+                        s = val.to_hex_string(true);
+                    }
                 } else {
                     s = val.to_hex_string(true);
                 }
-                for (char& c : s) c = (char)std::tolower((unsigned char)c);
+                if (spec == 'H' || spec == 'X') {
+                    for (char& c : s) c = (char)std::toupper((unsigned char)c);
+                } else {
+                    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+                }
                 if (pad_zero && width > 0) {
                     while (s.size() < (size_t)width) s = "0" + s;
                 } else if (!pad_zero && width > 0) {

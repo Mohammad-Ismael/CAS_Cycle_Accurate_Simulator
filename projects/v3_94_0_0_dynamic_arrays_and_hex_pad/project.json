@@ -1,0 +1,6 @@
+{
+  "name": "v3_94_0_0_dynamic_arrays_and_hex_pad",
+  "version": "3.94.0.0",
+  "top_module": "tb_v3_94_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}
