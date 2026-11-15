@@ -1,0 +1,8 @@
+{
+    "top_module": "tb_v4_2_2_regression",
+    "source_files": [
+        "design.sv",
+        "testbench.sv"
+    ],
+    "description": "Regression suite for CAS v4.2.2.0: randsequence grammar productions, control productions, and abort semantics (IEEE 1800-2023 §18.17)"
+}

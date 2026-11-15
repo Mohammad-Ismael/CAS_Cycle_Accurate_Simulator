@@ -1241,6 +1241,158 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return rc_node;
     }
 
+    // 13.2. Randsequence Statement (IEEE Std 1800-2023 §18.17)
+    if (match(TokenType::TOKEN_RANDSEQUENCE)) {
+        auto rseq = std::make_unique<RandSequenceStatementNode>();
+        rseq->src_file = current.filename;
+        rseq->src_line = current.line;
+
+        if (match(TokenType::TOKEN_LPAREN)) {
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                rseq->top_production = current.text;
+                advance();
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' after randsequence main production");
+        }
+
+        auto parse_prod_item = [&]() -> RandSeqProdItem {
+            RandSeqProdItem item;
+            if (match(TokenType::TOKEN_LBRACE)) {
+                item.is_action_block = true;
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    item.action_stmts.push_back(parse_statement());
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing action block");
+            } else {
+                item.is_action_block = false;
+                item.prod_name = current.text;
+                advance();
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                        item.args.push_back(parse_expression());
+                        if (!match(TokenType::TOKEN_COMMA)) break;
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' after production arguments");
+                }
+            }
+            return item;
+        };
+
+        while (current.type != TokenType::TOKEN_ENDSEQUENCE && current.type != TokenType::TOKEN_EOF) {
+            RandSeqRule rule;
+            std::string first_id = current.text;
+            advance();
+
+            if (first_id == "void" || first_id == "int" || first_id == "logic" || first_id == "bit" ||
+                first_id == "byte" || first_id == "shortint" || first_id == "longint" || first_id == "string") {
+                rule.return_type = first_id;
+                rule.name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected production name after return type");
+            } else {
+                rule.name = first_id;
+            }
+
+            if (match(TokenType::TOKEN_LPAREN)) {
+                while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                    std::string ptype = current.text;
+                    advance();
+                    std::string pname = current.text;
+                    advance();
+                    rule.formals.push_back({ptype, pname});
+                    if (!match(TokenType::TOKEN_COMMA)) break;
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' after production formal parameters");
+            }
+
+            expect(TokenType::TOKEN_COLON, "Expected ':' after production name");
+
+            if (match(TokenType::TOKEN_IF)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if' in production");
+                rule.if_cond = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'if' condition in production");
+                rule.then_items.push_back(parse_prod_item());
+                if (match(TokenType::TOKEN_ELSE)) {
+                    rule.else_items.push_back(parse_prod_item());
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+                rule.kind = RandSeqRuleKind::IF_ELSE;
+            } else if (match(TokenType::TOKEN_CASE)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'case' in production");
+                rule.case_expr = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'case' expression in production");
+                while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+                    RandSeqCaseItem ci;
+                    if (match(TokenType::TOKEN_DEFAULT)) {
+                        ci.is_default = true;
+                        match(TokenType::TOKEN_COLON);
+                        while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+                            ci.items.push_back(parse_prod_item());
+                        }
+                        match(TokenType::TOKEN_SEMICOLON);
+                    } else {
+                        ci.is_default = false;
+                        ci.exprs.push_back(parse_expression());
+                        while (match(TokenType::TOKEN_COMMA)) {
+                            ci.exprs.push_back(parse_expression());
+                        }
+                        expect(TokenType::TOKEN_COLON, "Expected ':' after case expression");
+                        while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+                            ci.items.push_back(parse_prod_item());
+                        }
+                        match(TokenType::TOKEN_SEMICOLON);
+                    }
+                    rule.case_items.push_back(std::move(ci));
+                }
+                expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase' closing case production");
+                match(TokenType::TOKEN_SEMICOLON);
+                rule.kind = RandSeqRuleKind::CASE;
+            } else if (match(TokenType::TOKEN_REPEAT)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'repeat' in production");
+                rule.repeat_count = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'repeat' count in production");
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_ENDSEQUENCE && current.type != TokenType::TOKEN_EOF) {
+                    rule.repeat_items.push_back(parse_prod_item());
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+                rule.kind = RandSeqRuleKind::REPEAT;
+            } else {
+                rule.kind = RandSeqRuleKind::NORMAL;
+                while (true) {
+                    RandSeqBranch branch;
+                    if (current.type == TokenType::TOKEN_RAND && peek_token().type == TokenType::TOKEN_JOIN) {
+                        advance(); advance();
+                        branch.is_rand_join = true;
+                        if (match(TokenType::TOKEN_LPAREN)) {
+                            branch.rand_join_prob = parse_expression();
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' after rand join probability");
+                        }
+                    }
+                    while (current.type != TokenType::TOKEN_SEMICOLON &&
+                           current.type != TokenType::TOKEN_OR_BIT &&
+                           current.type != TokenType::TOKEN_COLON_EQ &&
+                           current.type != TokenType::TOKEN_ENDSEQUENCE &&
+                           current.type != TokenType::TOKEN_EOF) {
+                        branch.items.push_back(parse_prod_item());
+                    }
+                    if (match(TokenType::TOKEN_COLON_EQ)) {
+                        branch.weight = parse_unary();
+                    }
+                    rule.branches.push_back(std::move(branch));
+                    if (match(TokenType::TOKEN_OR_BIT)) {
+                        continue;
+                    }
+                    break;
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+            }
+            rseq->rules.push_back(std::move(rule));
+        }
+
+        expect(TokenType::TOKEN_ENDSEQUENCE, "Expected 'endsequence' closing randsequence statement");
+        match(TokenType::TOKEN_SEMICOLON);
+        return rseq;
+    }
+
     // 13.5. Procedural Continuous Assignments (IEEE Std 1800-2023 §10.4.2)
     if (match(TokenType::TOKEN_ASSIGN)) {
         std::string target = current.text;

@@ -474,6 +474,112 @@ struct RandCaseStatementNode : public StatementNode {
     }
 };
 
+struct RandSeqProdItem {
+    bool is_action_block = false;
+    std::string prod_name = "";
+    std::vector<std::unique_ptr<ExpressionNode>> args;
+    std::vector<std::unique_ptr<StatementNode>> action_stmts;
+
+    RandSeqProdItem clone() const {
+        RandSeqProdItem item;
+        item.is_action_block = is_action_block;
+        item.prod_name = prod_name;
+        for (const auto& a : args) item.args.push_back(a ? a->clone() : nullptr);
+        for (const auto& s : action_stmts) item.action_stmts.push_back(s ? s->clone() : nullptr);
+        return item;
+    }
+};
+
+struct RandSeqBranch {
+    std::vector<RandSeqProdItem> items;
+    std::unique_ptr<ExpressionNode> weight = nullptr;
+    bool is_rand_join = false;
+    std::unique_ptr<ExpressionNode> rand_join_prob = nullptr;
+
+    RandSeqBranch clone() const {
+        RandSeqBranch b;
+        b.is_rand_join = is_rand_join;
+        b.rand_join_prob = rand_join_prob ? rand_join_prob->clone() : nullptr;
+        b.weight = weight ? weight->clone() : nullptr;
+        for (const auto& it : items) b.items.push_back(it.clone());
+        return b;
+    }
+};
+
+struct RandSeqCaseItem {
+    std::vector<std::unique_ptr<ExpressionNode>> exprs;
+    bool is_default = false;
+    std::vector<RandSeqProdItem> items;
+
+    RandSeqCaseItem clone() const {
+        RandSeqCaseItem c;
+        c.is_default = is_default;
+        for (const auto& e : exprs) c.exprs.push_back(e ? e->clone() : nullptr);
+        for (const auto& it : items) c.items.push_back(it.clone());
+        return c;
+    }
+};
+
+enum class RandSeqRuleKind {
+    NORMAL,
+    IF_ELSE,
+    CASE,
+    REPEAT
+};
+
+struct RandSeqRule {
+    std::string return_type = "";
+    std::string name = "";
+    std::vector<std::pair<std::string, std::string>> formals; // type, name
+    RandSeqRuleKind kind = RandSeqRuleKind::NORMAL;
+
+    std::vector<RandSeqBranch> branches;
+    std::unique_ptr<ExpressionNode> if_cond = nullptr;
+    std::vector<RandSeqProdItem> then_items;
+    std::vector<RandSeqProdItem> else_items;
+    std::unique_ptr<ExpressionNode> case_expr = nullptr;
+    std::vector<RandSeqCaseItem> case_items;
+    std::unique_ptr<ExpressionNode> repeat_count = nullptr;
+    std::vector<RandSeqProdItem> repeat_items;
+
+    RandSeqRule clone() const {
+        RandSeqRule r;
+        r.return_type = return_type;
+        r.name = name;
+        r.formals = formals;
+        r.kind = kind;
+        for (const auto& b : branches) r.branches.push_back(b.clone());
+        r.if_cond = if_cond ? if_cond->clone() : nullptr;
+        for (const auto& it : then_items) r.then_items.push_back(it.clone());
+        for (const auto& it : else_items) r.else_items.push_back(it.clone());
+        r.case_expr = case_expr ? case_expr->clone() : nullptr;
+        for (const auto& ci : case_items) r.case_items.push_back(ci.clone());
+        r.repeat_count = repeat_count ? repeat_count->clone() : nullptr;
+        for (const auto& it : repeat_items) r.repeat_items.push_back(it.clone());
+        return r;
+    }
+};
+
+struct RandSequenceStatementNode : public StatementNode {
+    std::string top_production = "";
+    std::vector<RandSeqRule> rules;
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    RandSequenceStatementNode() = default;
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<RandSequenceStatementNode>();
+        node->top_production = top_production;
+        for (const auto& r : rules) {
+            node->rules.push_back(r.clone());
+        }
+        node->src_file = src_file;
+        node->src_line = src_line;
+        return node;
+    }
+};
+
 enum class JoinType {
     JOIN,
     JOIN_ANY,

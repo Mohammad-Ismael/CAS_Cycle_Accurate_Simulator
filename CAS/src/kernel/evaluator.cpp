@@ -444,6 +444,198 @@ bool Evaluator::has_returned(const BoundProcess& bp) const {
     return false;
 }
 
+void Evaluator::execute_randsequence(RandSequenceStatementNode* rseq, BoundProcess& bp) {
+    if (!rseq || rseq->rules.empty()) return;
+
+    std::unordered_map<std::string, const RandSeqRule*> rule_map;
+    for (const auto& r : rseq->rules) {
+        rule_map[r.name] = &r;
+    }
+
+    std::string start_prod = rseq->top_production.empty() ? rseq->rules[0].name : rseq->top_production;
+    if (rule_map.find(start_prod) == rule_map.end()) {
+        throw std::runtime_error("[CAS-RANDSEQ] Undefined starting production in randsequence: '" + start_prod + "'");
+    }
+
+    bool rseq_break = false;
+    bool rseq_return = false;
+
+    auto execute_action_block = [&](const std::vector<std::unique_ptr<StatementNode>>& stmts) {
+        for (const auto& s : stmts) {
+            if (rseq_break || rseq_return) break;
+            if (!engine.scheduler.is_active()) break;
+
+            execute_statement(s.get(), bp);
+
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                rseq_break = true;
+                break;
+            }
+            if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().current_frame()->returned) {
+                expr_eval.get_context().current_frame()->returned = false;
+                rseq_return = true;
+                break;
+            }
+            if (!bp.call_stack.empty() && bp.call_stack.back().returned) {
+                bp.call_stack.back().returned = false;
+                rseq_return = true;
+                break;
+            }
+        }
+    };
+
+    std::function<void(const std::string&, const std::vector<LogicVal>&)> eval_prod;
+
+    auto eval_item = [&](const RandSeqProdItem& item) {
+        if (rseq_break || rseq_return) return;
+        if (item.is_action_block) {
+            execute_action_block(item.action_stmts);
+        } else {
+            std::vector<LogicVal> arg_vals;
+            for (const auto& a : item.args) {
+                arg_vals.push_back(a ? eval_expr(a.get(), bp.scope) : LogicVal::make_x(32));
+            }
+            eval_prod(item.prod_name, arg_vals);
+        }
+    };
+
+    eval_prod = [&](const std::string& prod_name, const std::vector<LogicVal>& actual_args) {
+        if (rseq_break) return;
+        auto it = rule_map.find(prod_name);
+        if (it == rule_map.end()) {
+            throw std::runtime_error("[CAS-RANDSEQ] Undefined production in randsequence: '" + prod_name + "'");
+        }
+        const RandSeqRule* rule = it->second;
+
+        bool has_frame = !rule->formals.empty();
+        if (has_frame) {
+            std::string frame_name = "randsequence__" + rule->name;
+            expr_eval.get_context().push_frame(frame_name);
+            for (size_t i = 0; i < rule->formals.size(); ++i) {
+                const auto& formal = rule->formals[i];
+                expr_eval.get_context().declare_local(formal.second, 32, true, formal.first);
+                if (i < actual_args.size()) {
+                    expr_eval.get_context().set_local_value(formal.second, actual_args[i]);
+                }
+            }
+        }
+
+        if (rule->kind == RandSeqRuleKind::IF_ELSE) {
+            LogicVal c = eval_expr(rule->if_cond.get(), bp.scope);
+            if (c.to_bool()) {
+                for (const auto& item : rule->then_items) {
+                    if (rseq_break || rseq_return) break;
+                    eval_item(item);
+                }
+            } else {
+                for (const auto& item : rule->else_items) {
+                    if (rseq_break || rseq_return) break;
+                    eval_item(item);
+                }
+            }
+        } else if (rule->kind == RandSeqRuleKind::CASE) {
+            LogicVal cval = eval_expr(rule->case_expr.get(), bp.scope);
+            const RandSeqCaseItem* matched = nullptr;
+            const RandSeqCaseItem* def_item = nullptr;
+
+            for (const auto& ci : rule->case_items) {
+                if (ci.is_default) {
+                    def_item = &ci;
+                    continue;
+                }
+                for (const auto& ce : ci.exprs) {
+                    LogicVal arm_val = eval_expr(ce.get(), bp.scope);
+                    if (cval == arm_val) {
+                        matched = &ci;
+                        break;
+                    }
+                }
+                if (matched) break;
+            }
+            if (!matched) matched = def_item;
+            if (matched) {
+                for (const auto& item : matched->items) {
+                    if (rseq_break || rseq_return) break;
+                    eval_item(item);
+                }
+            }
+        } else if (rule->kind == RandSeqRuleKind::REPEAT) {
+            LogicVal cnt_val = eval_expr(rule->repeat_count.get(), bp.scope);
+            int64_t n = cnt_val.is_unknown() ? 0 : cnt_val.to_signed();
+            for (int64_t i = 0; i < n; ++i) {
+                if (rseq_break || rseq_return) break;
+                for (const auto& item : rule->repeat_items) {
+                    if (rseq_break || rseq_return) break;
+                    eval_item(item);
+                }
+            }
+        } else {
+            int64_t total_weight = 0;
+            std::vector<std::pair<int64_t, const RandSeqBranch*>> val_brs;
+
+            for (const auto& b : rule->branches) {
+                int64_t w = 1;
+                if (b.weight) {
+                    LogicVal wv = eval_expr(b.weight.get(), bp.scope);
+                    w = wv.is_unknown() ? 0 : wv.to_signed();
+                }
+                if (w > 0) {
+                    total_weight += w;
+                    val_brs.push_back({w, &b});
+                }
+            }
+
+            if (total_weight > 0 && !val_brs.empty()) {
+                std::uniform_int_distribution<int64_t> dist(0, total_weight - 1);
+                int64_t roll = dist(engine.rng);
+                int64_t cum = 0;
+                const RandSeqBranch* sel = val_brs[0].second;
+                for (const auto& vb : val_brs) {
+                    cum += vb.first;
+                    if (roll < cum) {
+                        sel = vb.second;
+                        break;
+                    }
+                }
+
+                if (sel->is_rand_join && sel->items.size() >= 2) {
+                    double prob = 0.5;
+                    if (sel->rand_join_prob) {
+                        LogicVal pv = eval_expr(sel->rand_join_prob.get(), bp.scope);
+                        if (pv.is_real) prob = pv.real_val;
+                        else if (!pv.is_unknown()) prob = (double)pv.aval;
+                    }
+                    std::uniform_real_distribution<double> rdist(0.0, 1.0);
+                    bool first_first = (rdist(engine.rng) < prob);
+                    if (first_first) {
+                        eval_item(sel->items[0]);
+                        if (!rseq_break && !rseq_return) eval_item(sel->items[1]);
+                    } else {
+                        eval_item(sel->items[1]);
+                        if (!rseq_break && !rseq_return) eval_item(sel->items[0]);
+                    }
+                } else {
+                    for (const auto& item : sel->items) {
+                        if (rseq_break || rseq_return) break;
+                        eval_item(item);
+                    }
+                }
+            }
+        }
+
+        if (has_frame) {
+            expr_eval.get_context().pop_frame();
+        }
+
+        if (rseq_return) {
+            rseq_return = false;
+        }
+    };
+
+    eval_prod(start_prod, {});
+}
+
 void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (!stmt) return;
     set_current_process(&bp);
@@ -1459,6 +1651,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
         }
+        return;
+    }
+
+    if (auto rseq = dynamic_cast<RandSequenceStatementNode*>(stmt)) {
+        execute_randsequence(rseq, bp);
         return;
     }
 

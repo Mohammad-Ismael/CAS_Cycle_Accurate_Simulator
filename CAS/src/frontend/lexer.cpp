@@ -592,6 +592,10 @@ Token Lexer::next_token() {
             advance();
             return {TokenType::TOKEN_COLON_COLON, "::", 0, 0, cur_file, cur_line, 0};
         }
+        if (peek() == '=') {
+            advance();
+            return {TokenType::TOKEN_COLON_EQ, ":=", 0, 0, cur_file, cur_line, 0};
+        }
         return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0};
     }
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
@@ -1013,6 +1017,7 @@ Token Lexer::next_token() {
         if (ident == "shortreal") return {TokenType::TOKEN_SHORTREAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "property") return {TokenType::TOKEN_PROPERTY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endproperty") return {TokenType::TOKEN_ENDPROPERTY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "randsequence") return {TokenType::TOKEN_RANDSEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "sequence") return {TokenType::TOKEN_SEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endsequence") return {TokenType::TOKEN_ENDSEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assert") return {TokenType::TOKEN_ASSERT, ident, 0, 0, cur_file, cur_line, 0};

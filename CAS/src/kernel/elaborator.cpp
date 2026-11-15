@@ -1141,6 +1141,107 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                     }
                     return;
                 }
+                if (auto rseq = dynamic_cast<RandSequenceStatementNode*>(s)) {
+                    std::unordered_map<std::string, const RandSeqRule*> rule_map;
+                    for (const auto& r : rseq->rules) rule_map[r.name] = &r;
+                    std::string start_prod = rseq->top_production.empty() ? (rseq->rules.empty() ? "" : rseq->rules[0].name) : rseq->top_production;
+                    if (rule_map.find(start_prod) != rule_map.end()) {
+                        bool rseq_break = false;
+                        bool rseq_return = false;
+                        std::function<void(const std::string&, const std::vector<uint64_t>&)> eval_c_prod;
+
+                        auto eval_c_item = [&](const RandSeqProdItem& item) {
+                            if (rseq_break || rseq_return) return;
+                            if (item.is_action_block) {
+                                for (auto& act_s : item.action_stmts) {
+                                    eval_const_stmt(act_s.get());
+                                    if (returned) {
+                                        returned = false;
+                                        rseq_return = true;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                std::vector<uint64_t> args;
+                                for (auto& a : item.args) args.push_back(a ? eval_const_expr(a.get(), scope, &fn_env) : 0);
+                                eval_c_prod(item.prod_name, args);
+                            }
+                        };
+
+                        eval_c_prod = [&](const std::string& pname, const std::vector<uint64_t>& act_args) {
+                            if (rseq_break) return;
+                            auto it = rule_map.find(pname);
+                            if (it == rule_map.end()) return;
+                            const RandSeqRule* rule = it->second;
+
+                            std::unordered_map<std::string, uint64_t> old_env = fn_env;
+                            for (size_t i = 0; i < rule->formals.size(); ++i) {
+                                if (i < act_args.size()) fn_env[rule->formals[i].second] = act_args[i];
+                            }
+
+                            if (rule->kind == RandSeqRuleKind::IF_ELSE) {
+                                uint64_t c = eval_const_expr(rule->if_cond.get(), scope, &fn_env);
+                                if (c != 0) {
+                                    for (const auto& item : rule->then_items) { if (rseq_break || rseq_return) break; eval_c_item(item); }
+                                } else {
+                                    for (const auto& item : rule->else_items) { if (rseq_break || rseq_return) break; eval_c_item(item); }
+                                }
+                            } else if (rule->kind == RandSeqRuleKind::CASE) {
+                                uint64_t cval = eval_const_expr(rule->case_expr.get(), scope, &fn_env);
+                                const RandSeqCaseItem* matched = nullptr;
+                                const RandSeqCaseItem* def_item = nullptr;
+                                for (const auto& ci : rule->case_items) {
+                                    if (ci.is_default) { def_item = &ci; continue; }
+                                    for (const auto& ce : ci.exprs) {
+                                        if (eval_const_expr(ce.get(), scope, &fn_env) == cval) { matched = &ci; break; }
+                                    }
+                                    if (matched) break;
+                                }
+                                if (!matched) matched = def_item;
+                                if (matched) {
+                                    for (const auto& item : matched->items) { if (rseq_break || rseq_return) break; eval_c_item(item); }
+                                }
+                            } else if (rule->kind == RandSeqRuleKind::REPEAT) {
+                                int64_t n = (int64_t)eval_const_expr(rule->repeat_count.get(), scope, &fn_env);
+                                for (int64_t i = 0; i < n; ++i) {
+                                    if (rseq_break || rseq_return) break;
+                                    for (const auto& item : rule->repeat_items) { if (rseq_break || rseq_return) break; eval_c_item(item); }
+                                }
+                            } else {
+                                uint64_t total_weight = 0;
+                                std::vector<std::pair<uint64_t, const RandSeqBranch*>> val_brs;
+                                for (const auto& b : rule->branches) {
+                                    uint64_t w = 1;
+                                    if (b.weight) w = eval_const_expr(b.weight.get(), scope, &fn_env);
+                                    if ((int64_t)w > 0) { total_weight += w; val_brs.push_back({w, &b}); }
+                                }
+                                if (total_weight > 0 && !val_brs.empty()) {
+                                    uint64_t roll = (uint64_t)(rand()) % total_weight;
+                                    uint64_t cum = 0;
+                                    const RandSeqBranch* sel = val_brs[0].second;
+                                    for (const auto& vb : val_brs) {
+                                        cum += vb.first;
+                                        if (roll < cum) { sel = vb.second; break; }
+                                    }
+                                    for (const auto& item : sel->items) {
+                                        if (rseq_break || rseq_return) break;
+                                        eval_c_item(item);
+                                    }
+                                }
+                            }
+
+                            for (const auto& formal : rule->formals) {
+                                auto old_it = old_env.find(formal.second);
+                                if (old_it != old_env.end()) fn_env[formal.second] = old_it->second;
+                                else fn_env.erase(formal.second);
+                            }
+                            if (rseq_return) rseq_return = false;
+                        };
+
+                        eval_c_prod(start_prod, {});
+                    }
+                    return;
+                }
             };
 
             for (auto& s : target_fn->get_body()) {
