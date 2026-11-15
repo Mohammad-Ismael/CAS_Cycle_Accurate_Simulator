@@ -1603,7 +1603,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return node;
     }
 
-    if (current.type == TokenType::TOKEN_ASSERT) {
+    if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || current.type == TokenType::TOKEN_EXPECT) {
         return parse_assert_property(stmt_label);
     }
 

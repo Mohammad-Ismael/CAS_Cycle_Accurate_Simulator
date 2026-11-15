@@ -1676,6 +1676,37 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto asrt = dynamic_cast<AssertPropertyStatementNode*>(stmt)) {
+        if (asrt->is_expect) {
+            return;
+        }
+
+        ExpressionNode* cond = nullptr;
+        if (asrt->inlined_property) {
+            cond = asrt->inlined_property->antecedent.get();
+        } else if (!asrt->property_name.empty()) {
+            std::string full_p = bp.scope.empty() ? asrt->property_name : (bp.scope + "." + asrt->property_name);
+            if (engine.property_defs.count(full_p)) cond = engine.property_defs[full_p]->antecedent.get();
+            else if (engine.property_defs.count(asrt->property_name)) cond = engine.property_defs[asrt->property_name]->antecedent.get();
+        }
+
+        bool passed = true;
+        if (cond) {
+            LogicVal res = expr_eval.eval(cond, bp.scope);
+            passed = !res.is_unknown() && res.is_true();
+        }
+        if (passed) {
+            for (auto& s : asrt->pass_statements) execute_statement(s.get(), bp);
+        } else {
+            if (!asrt->fail_statements.empty()) {
+                for (auto& s : asrt->fail_statements) execute_statement(s.get(), bp);
+            } else {
+                std::cerr << "[CAS ASSERT ERROR] Assertion failed at time " << engine.get_sim_time() << "\n";
+            }
+        }
+        return;
+    }
+
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         std::string tname = tcall->task_name;
         auto colons = tname.find("::");
@@ -1693,7 +1724,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::vector<LogicVal> arg_vals;
                     for (auto& a : tcall->args) arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
                     LogicVal dummy;
-                    expr_eval.eval_static_class_method(tcall->class_type_name, func_node, arg_vals, dummy);
+                    expr_eval.eval_static_class_method(tcall->class_type_name, func_node, arg_vals, dummy, &tcall->args, bp.scope);
                     return;
                 }
                 if (task_node) {
@@ -2384,8 +2415,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
                 if (var_name == "super" && method == "new") {
-                    FunctionNode* base_ctor = (cl_obj->class_def && cl_obj->class_def->base_class) ?
-                                              cl_obj->class_def->base_class->get_constructor() : nullptr;
+                    const ClassNode* cur_class = expr_eval.get_current_class_def();
+                    if (!cur_class) cur_class = cl_obj->class_def;
+                    FunctionNode* base_ctor = (cur_class && cur_class->base_class) ?
+                                              cur_class->base_class->get_constructor() : nullptr;
                     if (base_ctor) {
                         std::vector<LogicVal> arg_vals;
                         for (auto& a : tcall->args) {
@@ -2400,9 +2433,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 TaskNode* task_node = nullptr;
                 FunctionNode* func_node = nullptr;
                 if (var_name == "super") {
-                    if (cl_obj->class_def && cl_obj->class_def->base_class) {
-                        task_node = cl_obj->class_def->base_class->find_task(method);
-                        if (!task_node) func_node = cl_obj->class_def->base_class->find_function(method);
+                    const ClassNode* cur_class = expr_eval.get_current_class_def();
+                    if (!cur_class) cur_class = cl_obj->class_def;
+                    if (cur_class && cur_class->base_class) {
+                        task_node = cur_class->base_class->find_task(method);
+                        if (!task_node) func_node = cur_class->base_class->find_function(method);
                     }
                 } else {
                     std::string static_type = "";

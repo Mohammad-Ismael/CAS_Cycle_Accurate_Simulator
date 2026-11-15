@@ -222,7 +222,13 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     if (!obj || !fn) return false;
 
     ClassObject* prev_this = current_this;
+    const ClassNode* prev_class_def = current_class_def;
     current_this = obj;
+    if (!fn->scope.empty()) {
+        current_class_def = engine.get_class_def(fn->scope);
+    } else {
+        current_class_def = obj->class_def;
+    }
 
     std::string frame_name = obj->class_type_name + "::" + fn->name + "__call";
     context.push_frame(frame_name);
@@ -309,10 +315,11 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
 
     context.pop_frame();
     current_this = prev_this;
+    current_class_def = prev_class_def;
     return true;
 }
 
-bool ExprEvaluator::eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out) {
+bool ExprEvaluator::eval_static_class_method(const std::string& class_type, FunctionNode* fn, const std::vector<LogicVal>& arg_vals, LogicVal& result_out, const std::vector<std::unique_ptr<ExpressionNode>>* actual_args, const std::string& caller_scope) {
     if (!fn) return false;
 
     const ClassNode* prev_class_def = current_class_def;
@@ -401,6 +408,17 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
         result_out = LogicVal(fn->return_width, 0, 0);
     }
 
+    if (actual_args && !caller_scope.empty()) {
+        for (size_t i = 0; i < fn->inputs.size() && i < actual_args->size(); ++i) {
+            if (fn->inputs[i].direction == "output" || fn->inputs[i].direction == "inout") {
+                LocalVar* out_lv = context.current_frame() ? context.current_frame()->get_var(fn->inputs[i].name) : nullptr;
+                if (out_lv && (*actual_args)[i]) {
+                    writeback_lvalue((*actual_args)[i].get(), out_lv->value, caller_scope);
+                }
+            }
+        }
+    }
+
     context.pop_frame();
     current_class_def = prev_class_def;
     return true;
@@ -444,9 +462,14 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
         }
 
         // Class property
-        if (current_this && current_this->has_property(id->name)) {
-            current_this->set_property(id->name, val);
-            return val;
+        if (current_this) {
+            if (engine.is_virtual_interface_handle(val.aval)) {
+                current_this->set_virtual_interface(id->name, engine.get_vif_handle(val.aval));
+            }
+            if (current_this->has_virtual_interface(id->name) || current_this->has_property(id->name)) {
+                current_this->set_property(id->name, val);
+                return val;
+            }
         }
 
         // Net / Variable in netlist
@@ -1297,7 +1320,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 std::vector<LogicVal> arg_vals;
                 for (auto& a : smc->args) arg_vals.push_back(eval(a.get(), scope));
                 LogicVal res;
-                eval_static_class_method(smc->class_type_name, fn, arg_vals, res);
+                eval_static_class_method(smc->class_type_name, fn, arg_vals, res, &smc->args, scope);
                 return res;
             }
         }
@@ -2065,7 +2088,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 for (auto& a : method_node->args) arg_vals.push_back(eval(a.get(), scope));
                 LogicVal res;
                 if (fn->is_static) {
-                    if (eval_static_class_method(cl_obj->class_type_name, fn, arg_vals, res)) {
+                    if (eval_static_class_method(cl_obj->class_type_name, fn, arg_vals, res, &method_node->args, scope)) {
                         return res;
                     }
                 } else if (eval_class_method(cl_obj, fn, arg_vals, res)) {

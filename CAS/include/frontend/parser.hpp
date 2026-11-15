@@ -64,6 +64,7 @@ public:
 
     std::unordered_set<std::string> known_interfaces;
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
+    static void ensure_package_loaded(const std::string& pkg_name);
     static std::unordered_map<std::string, std::shared_ptr<ConfigNode>> global_configs;
     static std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> global_udp_defs;
     static inline std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> global_struct_typedefs;
@@ -90,6 +91,7 @@ public:
     }
 
     bool is_package(const std::string& name) const {
+        if (name == "uvm_pkg") ensure_package_loaded("uvm_pkg");
         return global_packages.find(name) != global_packages.end();
     }
 

@@ -4350,6 +4350,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.assertion_names.insert(asrt->label);
         }
 
+        std::string prop_scope = scope;
+        if (!asrt->property_name.empty() && asrt->property_name.find('.') != std::string::npos) {
+            std::string prefix = asrt->property_name.substr(0, asrt->property_name.rfind('.'));
+            prop_scope = scope.empty() ? prefix : (scope + "." + prefix);
+            inst.scope = prop_scope;
+        }
+
         PropertyNode* target_prop = nullptr;
         if (!asrt->property_name.empty()) {
             std::string full_pname = scope.empty() ? asrt->property_name : (scope + "." + asrt->property_name);
@@ -4364,11 +4371,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             inst.clock_edge = target_prop->clock_edge;
             inst.clock_signal = target_prop->clock_signal;
 
-            std::string clk_scoped = scope.empty() ? target_prop->clock_signal : (scope + "." + target_prop->clock_signal);
+            std::string clk_scoped = prop_scope.empty() ? target_prop->clock_signal : (prop_scope + "." + target_prop->clock_signal);
             if (result.net_map.find(clk_scoped) != result.net_map.end()) {
                 inst.clock_net_id = result.net_map.at(clk_scoped);
             } else if (result.net_map.find(target_prop->clock_signal) != result.net_map.end()) {
                 inst.clock_net_id = result.net_map.at(target_prop->clock_signal);
+            } else {
+                std::string clk_sc = scope.empty() ? target_prop->clock_signal : (scope + "." + target_prop->clock_signal);
+                if (result.net_map.find(clk_sc) != result.net_map.end()) {
+                    inst.clock_net_id = result.net_map.at(clk_sc);
+                }
             }
 
             inst.disable_expr = target_prop->disable_expr.get();

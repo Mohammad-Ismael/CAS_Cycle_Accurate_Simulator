@@ -571,6 +571,9 @@ struct ClassMemberVar {
     uint32_t width = 32;
     bool is_signed = false;
     bool is_dynamic_array = false;
+    bool is_associative_array = false;
+    std::string assoc_key_type = "";
+    std::string type_name = "";
     std::unique_ptr<ExpressionNode> default_expr;
     bool is_rand = false;
     bool is_randc = false;
@@ -591,6 +594,9 @@ struct ClassMemberVar {
         width = other.width;
         is_signed = other.is_signed;
         is_dynamic_array = other.is_dynamic_array;
+        is_associative_array = other.is_associative_array;
+        assoc_key_type = other.assoc_key_type;
+        type_name = other.type_name;
         if (other.default_expr) default_expr = other.default_expr->clone();
         is_rand = other.is_rand;
         is_randc = other.is_randc;
@@ -609,6 +615,9 @@ struct ClassMemberVar {
             width = other.width;
             is_signed = other.is_signed;
             is_dynamic_array = other.is_dynamic_array;
+            is_associative_array = other.is_associative_array;
+            assoc_key_type = other.assoc_key_type;
+            type_name = other.type_name;
             default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
             is_rand = other.is_rand;
             is_randc = other.is_randc;
@@ -713,12 +722,14 @@ struct ClassNode : public ASTNode {
     }
 
     void add_function(std::unique_ptr<FunctionNode> fn) {
+        fn->scope = name;
         FunctionNode* ptr = fn.get();
         functions.push_back(std::move(fn));
         function_map[ptr->name] = ptr;
     }
 
     void add_task(std::unique_ptr<TaskNode> t) {
+        t->scope = name;
         TaskNode* ptr = t.get();
         tasks.push_back(std::move(t));
         task_map[ptr->name] = ptr;
@@ -894,6 +905,10 @@ struct AssertPropertyStatementNode : public StatementNode {
     std::shared_ptr<PropertyNode> inlined_property;
     std::vector<std::unique_ptr<StatementNode>> pass_statements;
     std::vector<std::unique_ptr<StatementNode>> fail_statements;
+    bool is_assume = false;
+    bool is_expect = false;
+    bool is_deferred_zero = false;
+    bool is_final = false;
 };
 
 struct DpiImportNode : public ASTNode {

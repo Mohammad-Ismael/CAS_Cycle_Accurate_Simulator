@@ -82,6 +82,37 @@ void Lexer::handle_include() {
         }
     }
     if (!f.is_open()) {
+        static const std::vector<std::string> std_dirs = {
+            "/app/CAS/include/std_sv",
+            "CAS/include/std_sv",
+            "../include/std_sv",
+            "include/std_sv"
+        };
+        for (const auto& sdir : std_dirs) {
+            std::string p = sdir + "/" + inc_path;
+            f.open(p);
+            if (f.is_open()) {
+                full_path = p;
+                break;
+            }
+        }
+    }
+    if (!f.is_open() && inc_path == "uvm_macros.svh") {
+        static const std::string builtin_uvm_macros =
+            "`ifndef UVM_MACROS_SVH\n"
+            "`define UVM_MACROS_SVH\n"
+            "`define uvm_info(ID, MSG, VERBOSITY) $display(\"[%s] %s\", ID, MSG)\n"
+            "`define uvm_warning(ID, MSG) $display(\"[UVM_WARNING %s] %s\", ID, MSG)\n"
+            "`define uvm_error(ID, MSG) $display(\"[UVM_ERROR %s] %s\", ID, MSG)\n"
+            "`define uvm_fatal(ID, MSG) begin $display(\"[UVM_FATAL %s] %s\", ID, MSG); $finish; end\n"
+            "`define uvm_component_utils(T)\n"
+            "`define uvm_object_utils(T)\n"
+            "`endif\n";
+        include_depth++;
+        file_stack.push_back({inc_path, builtin_uvm_macros, 0, 1});
+        return;
+    }
+    if (!f.is_open()) {
         throw std::runtime_error(get_current_location() + ": Cannot open `include file: " + inc_path);
     }
 
@@ -1021,6 +1052,8 @@ Token Lexer::next_token() {
         if (ident == "sequence") return {TokenType::TOKEN_SEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endsequence") return {TokenType::TOKEN_ENDSEQUENCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "assert") return {TokenType::TOKEN_ASSERT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "assume") return {TokenType::TOKEN_ASSUME, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "expect") return {TokenType::TOKEN_EXPECT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "iff") return {TokenType::TOKEN_IFF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$rose") return {TokenType::TOKEN_ROSE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$fell") return {TokenType::TOKEN_FELL, ident, 0, 0, cur_file, cur_line, 0};

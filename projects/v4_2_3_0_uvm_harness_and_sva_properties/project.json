@@ -1,0 +1,8 @@
+{
+    "top_module": "tb_v4_2_3_regression",
+    "source_files": [
+        "design.sv",
+        "testbench.sv"
+    ],
+    "description": "Regression suite for CAS v4.2.3.0: Built-in uvm_pkg & uvm_macros.svh, SVA deferred/assume/expect assertions, and interface properties"
+}

@@ -3409,6 +3409,16 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         return;
     }
 
+    if (!tcall->class_type_name.empty()) {
+        engine.evaluator.execute_statement(tcall, bp);
+        if (!bp.call_stack.empty()) {
+            bp.call_stack.back().pc++;
+        } else {
+            bp.pc++;
+        }
+        return;
+    }
+
     TaskNode* target_task = nullptr;
     ClassObject* cl_obj = nullptr;
     auto dot = tcall->task_name.rfind('.');
