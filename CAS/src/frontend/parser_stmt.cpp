@@ -1061,6 +1061,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
         if (match(TokenType::TOKEN_LPAREN)) {
             if (!match(TokenType::TOKEN_RPAREN)) {
+                auto parse_arg = [&]() -> std::unique_ptr<ExpressionNode> {
+                    if (current.type == TokenType::TOKEN_COMMA || current.type == TokenType::TOKEN_RPAREN) {
+                        return std::make_unique<StringNode>(" ");
+                    }
+                    return parse_expression();
+                };
+
                 if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "$time") {
                     has_lead_time = true;
                     advance();
@@ -1069,18 +1076,18 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                             fmt = current.text;
                             advance();
                         } else {
-                            args.push_back(parse_expression());
+                            args.push_back(parse_arg());
                         }
                     }
                 } else if (current.type == TokenType::TOKEN_STRING) {
                     fmt = current.text;
                     advance();
                 } else {
-                    args.push_back(parse_expression());
+                    args.push_back(parse_arg());
                 }
 
                 while (match(TokenType::TOKEN_COMMA)) {
-                    args.push_back(parse_expression());
+                    args.push_back(parse_arg());
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $display / $monitor argument list");
             }

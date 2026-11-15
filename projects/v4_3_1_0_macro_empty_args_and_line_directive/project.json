@@ -1,0 +1,12 @@
+{
+  "name": "v4_3_1_0_macro_empty_args_and_line_directive",
+  "version": "4.3.1.0",
+  "top": "tb_v4_3_1_regression",
+  "top_module": "tb_v4_3_1_regression",
+  "sources": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "standard": "IEEE 1800-2023",
+  "description": "Milestone regression for empty macro arguments (§22.5.1), line directives (§22.12), gate delay parsing, and display consecutive comma support"
+}

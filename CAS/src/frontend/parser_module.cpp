@@ -2184,6 +2184,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (current.type == TokenType::TOKEN_GATE_NOTIF1) gt = GateType::NOTIF1;
                 advance();
 
+                // Optional gate delay: #delay or #(delay) or #(d1, d2)
+                if (match(TokenType::TOKEN_HASH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing gate delay");
+                    } else {
+                        parse_expression();
+                    }
+                }
+
                 std::string inst_name = "";
                 if (current.type == TokenType::TOKEN_IDENTIFIER) {
                     inst_name = current.text;

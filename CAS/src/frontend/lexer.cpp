@@ -455,6 +455,27 @@ void Lexer::skip_whitespace_and_comments() {
                 }
             } else if (directive == "endif") {
                 if (!cond_stack.empty()) cond_stack.pop_back();
+            } else if (directive == "line") {
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string num_str = "";
+                while (std::isdigit(peek())) num_str += advance();
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string fname = "";
+                if (peek() == '"') {
+                    advance();
+                    while (peek() != '"' && peek() != '\n' && peek() != '\0') fname += advance();
+                    if (peek() == '"') advance();
+                }
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string level_str = "";
+                while (std::isdigit(peek())) level_str += advance();
+                while (peek() != '\n' && peek() != '\0') advance();
+                if (!num_str.empty()) {
+                    cur.line = std::stoi(num_str);
+                }
+                if (!fname.empty()) {
+                    cur.filename = fname;
+                }
             } else if (directive == "default_nettype" || directive == "celldefine" || 
                        directive == "endcelldefine" || directive == "resetall" || 
                        directive == "unconnected_drive" || directive == "nounconnected_drive" ||
@@ -480,13 +501,18 @@ void Lexer::skip_whitespace_and_comments() {
                             std::vector<std::string> actuals;
                             std::string current_arg = "";
                             int paren_depth = 0;
+                            bool in_str = false;
                             while (peek() != '\0') {
-                                if (peek() == '(') { paren_depth++; current_arg += advance(); }
-                                else if (peek() == ')') {
+                                if (peek() == '"' && (current_arg.empty() || current_arg.back() != '\\')) {
+                                    in_str = !in_str;
+                                    current_arg += advance();
+                                }
+                                else if (!in_str && peek() == '(') { paren_depth++; current_arg += advance(); }
+                                else if (!in_str && peek() == ')') {
                                     if (paren_depth > 0) { paren_depth--; current_arg += advance(); }
                                     else { advance(); actuals.push_back(current_arg); break; }
                                 }
-                                else if (peek() == ',' && paren_depth == 0) {
+                                else if (!in_str && peek() == ',' && paren_depth == 0) {
                                     advance();
                                     actuals.push_back(current_arg);
                                     current_arg = "";
@@ -497,6 +523,9 @@ void Lexer::skip_whitespace_and_comments() {
                             for (auto& a : actuals) {
                                 while (!a.empty() && std::isspace(a.front())) a.erase(a.begin());
                                 while (!a.empty() && std::isspace(a.back())) a.pop_back();
+                            }
+                            if (mdef.args.empty() && actuals.size() == 1 && actuals[0].empty()) {
+                                actuals.clear();
                             }
                             for (size_t i = 0; i < mdef.args.size(); i++) {
                                 const std::string& formal = mdef.args[i];

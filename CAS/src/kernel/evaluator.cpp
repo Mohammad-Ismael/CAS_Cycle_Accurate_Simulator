@@ -3456,6 +3456,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::cout << disp->format_string[i];
                 }
             }
+            while (arg_idx < disp->arg_exprs.size()) {
+                LogicVal val = eval_expr(disp->arg_exprs[arg_idx++].get(), bp.scope);
+                if (val.is_string) {
+                    std::cout << val.str_val;
+                } else if (val.is_real) {
+                    if (disp->default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
+                    else std::cout << val.real_val;
+                } else if (val.is_unknown() && disp->default_radix == 'd') {
+                    std::cout << "x";
+                } else if (disp->default_radix == 'b') {
+                    std::cout << val.to_bin_string();
+                } else if (disp->default_radix == 'o') {
+                    std::cout << val.to_oct_string();
+                } else if (disp->default_radix == 'h' || disp->default_radix == 'x') {
+                    std::cout << val.to_hex_string(true);
+                } else {
+                    if (val.is_signed) std::cout << val.to_signed();
+                    else if (val.width <= 64) std::cout << val.aval;
+                    else std::cout << val.to_dec_string();
+                }
+            }
             std::cout << "\n";
         }
         return;

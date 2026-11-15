@@ -22,6 +22,8 @@ int main(int argc, char* argv[]) {
     bool enable_monitor = true;
     bool enable_finish_msg = true;
     bool enable_native_codegen = false;
+    bool parse_only = false;
+    bool elab_only = false;
     InitRegMode init_reg_mode = InitRegMode::X;
     std::string top_override = "";
     std::string timescale_unit = "1ns";
@@ -140,6 +142,10 @@ int main(int argc, char* argv[]) {
             enable_finish_msg = false;
         } else if (std::strcmp(argv[i], "--native-codegen") == 0) {
             enable_native_codegen = true;
+        } else if (std::strcmp(argv[i], "--parse-only") == 0) {
+            parse_only = true;
+        } else if (std::strcmp(argv[i], "--elab-only") == 0) {
+            elab_only = true;
         } else if ((std::strcmp(argv[i], "--top") == 0 || std::strcmp(argv[i], "-top") == 0) && i + 1 < argc) {
             top_override = argv[++i];
         } else if (std::strcmp(argv[i], "--timescale") == 0 && i + 1 < argc) {
@@ -289,6 +295,14 @@ int main(int argc, char* argv[]) {
             debug_ss << "\n";
         }
 
+        if (parse_only) {
+            if (verbose) {
+                std::cout << debug_ss.str();
+            }
+            std::cout << "All files parsed successfully (--parse-only).\n";
+            return 0;
+        }
+
         if (all_modules.empty()) {
             if (verbose) {
                 std::cout << debug_ss.str();
@@ -326,6 +340,13 @@ int main(int argc, char* argv[]) {
             std::cout << "[CAS] Parsing completed. Starting elaboration...\n" << std::flush;
         }
         engine.elaborate(all_modules, top_override, debug_ptr);
+        if (elab_only) {
+            if (verbose) {
+                std::cout << debug_ss.str();
+            }
+            std::cout << "Elaboration completed successfully (--elab-only).\n";
+            return 0;
+        }
         if (verbose) {
             std::cout << "[CAS] Elaboration completed. Starting simulation...\n" << std::flush;
         }
