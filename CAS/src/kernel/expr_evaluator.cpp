@@ -3852,11 +3852,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         else if (engine.memory_map.find(ident->name) != engine.memory_map.end()) mem_key = ident->name;
         if (!mem_key.empty()) {
             auto& mem = engine.memory_map.at(mem_key);
-            LogicVal res = LogicVal::make_known(32, (uint64_t)mem.depth);
+            LogicVal res = LogicVal::make_known(32, (uint64_t)mem.words.size());
             res.is_unpacked = true;
-            res.unpacked_elements.reserve(mem.depth);
-            for (size_t i = 0; i < mem.depth; ++i) {
-                res.unpacked_elements.push_back(mem.get_word(i));
+            res.unpacked_elements.reserve(mem.words.size());
+            for (size_t i = 0; i < mem.words.size(); ++i) {
+                res.unpacked_elements.push_back(mem.get_raw_word(i));
             }
             return res;
         }
@@ -5693,9 +5693,9 @@ bool ExprEvaluator::get_array_elements(const std::string& var_name, const std::s
     }
     if (!mem_key.empty()) {
         auto& mem = engine.memory_map.at(mem_key);
-        out_elements.reserve(mem.depth);
-        for (size_t i = 0; i < mem.depth; ++i) {
-            out_elements.push_back(mem.get_word(i));
+        out_elements.reserve(mem.words.size());
+        for (size_t i = 0; i < mem.words.size(); ++i) {
+            out_elements.push_back(mem.get_raw_word(i));
         }
         out_elem_width = mem.word_width;
         out_is_signed = false;
@@ -6286,6 +6286,10 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
     }
 
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        LogicVal v = eval(idx, scope);
+        if (v.is_unpacked) {
+            return v.unpacked_elements;
+        }
         if (idx->is_part_select && idx->lsb_expr) {
             std::vector<LogicVal> elements;
             uint32_t elem_width = 32;

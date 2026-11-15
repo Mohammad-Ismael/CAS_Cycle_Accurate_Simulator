@@ -1,0 +1,6 @@
+{
+  "name": "v4_0_0_0_unpacked_descending_slices_and_ch5_12_parity",
+  "version": "4.0.0.0",
+  "top_module": "tb_v4_0_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}
