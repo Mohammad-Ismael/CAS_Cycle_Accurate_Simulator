@@ -2620,6 +2620,33 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
+        bool is_unb = false;
+        if (auto unb_id = dynamic_cast<IdentifierNode*>(p.default_expr.get())) {
+            if (unb_id->name == "$" || unb_id->name == "__CAS_QUEUE_DOLLAR__") {
+                is_unb = true;
+            }
+        }
+        if (overridden && overrides && !p.is_localparam) {
+            for (size_t oi = 0; oi < overrides->size(); ++oi) {
+                const auto& ov = (*overrides)[oi];
+                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == i)) {
+                    if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                        if (ov_id->name == "$" || ov_id->name == "__CAS_QUEUE_DOLLAR__") {
+                            is_unb = true;
+                        } else {
+                            is_unb = false;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if (is_unb) {
+            result.unbounded_params.insert(scope + "." + p.name);
+            if (parent_scope.empty()) {
+                result.unbounded_params.insert(p.name);
+            }
+        }
         if (parent_scope.empty()) {
             result.param_map[p.name] = val;
             result.param_val_map[p.name] = lval;

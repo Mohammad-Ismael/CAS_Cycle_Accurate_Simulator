@@ -29,6 +29,7 @@ struct MonitorSession {
     bool has_leading_time = false;
     std::string src_file = "";
     size_t src_line = 0;
+    char default_radix = 'd';
 };
 
 namespace cas { class MemoryFastPath; }
@@ -81,6 +82,7 @@ private:
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
     std::unordered_map<std::string, LogicVal> param_val_map;
+    std::unordered_set<std::string> unbounded_params;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
     std::unordered_map<std::string, EnumType> enum_types;
@@ -148,6 +150,7 @@ public:
     struct SimOpenFile {
         std::shared_ptr<std::ofstream> stream;
         std::string path;
+        FILE* fp = nullptr;
     };
     std::unordered_map<int, SimOpenFile> open_files;
     int next_file_descriptor = 32;
@@ -189,7 +192,14 @@ public:
     LogicVal dispatch_dpi_export(const std::string& c_name, const std::vector<LogicVal>& args);
 
     Engine();
-    ~Engine() = default;
+    ~Engine() {
+        for (auto& pair : open_files) {
+            if (pair.second.fp) {
+                std::fclose(pair.second.fp);
+                pair.second.fp = nullptr;
+            }
+        }
+    }
 
     void set_vcd_allowed(bool allowed) { vcd_dumper.set_allowed(allowed); }
     void set_display_allowed(bool allowed) { allow_display = allowed; }

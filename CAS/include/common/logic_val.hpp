@@ -375,6 +375,50 @@ struct LogicVal {
         return s;
     }
 
+    std::string to_oct_string(bool unpadded = false) const {
+        if (width <= 64 && !is_unknown()) {
+            std::stringstream ss;
+            if (unpadded) {
+                ss << std::oct << aval << std::dec;
+            } else {
+                int oct_width = (width + 2) / 3;
+                ss << std::oct << std::setfill('0') << std::setw(oct_width) << aval << std::dec;
+            }
+            return ss.str();
+        }
+        int oct_width = (width + 2) / 3;
+        std::string s;
+        s.reserve(oct_width);
+        for (int grp = oct_width - 1; grp >= 0; --grp) {
+            int bit_start = grp * 3;
+            uint64_t a_grp = 0;
+            uint64_t b_grp = 0;
+            for (int b = 0; b < 3; ++b) {
+                if (bit_start + b < (int)width) {
+                    if (get_bit_a(bit_start + b)) a_grp |= (1ULL << b);
+                    if (get_bit_b(bit_start + b)) b_grp |= (1ULL << b);
+                }
+            }
+            if (b_grp == 0) {
+                s += (char)('0' + a_grp);
+            } else {
+                bool has_x = false;
+                for (int b = 0; b < 3; ++b) {
+                    if ((b_grp >> b) & 1) {
+                        if ((a_grp >> b) & 1) has_x = true;
+                    }
+                }
+                s += (has_x ? 'x' : 'z');
+            }
+        }
+        if (unpadded) {
+            size_t first = s.find_first_not_of('0');
+            if (first != std::string::npos) return s.substr(first);
+            return "0";
+        }
+        return s;
+    }
+
     std::string to_bin_string() const {
         std::string s;
         s.reserve(width);

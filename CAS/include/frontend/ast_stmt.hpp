@@ -552,17 +552,22 @@ struct DisplayStatementNode : public StatementNode {
     bool has_leading_time = false;
     std::string src_file = "";
     size_t src_line = 0;
+    char default_radix = 'd';
+    bool is_on_off_control = false;
+    bool monitor_enable = true;
 
     explicit DisplayStatementNode(std::string fmt, std::vector<std::unique_ptr<ExpressionNode>> a,
                                   bool mon = false, bool lead_time = false,
-                                  std::string file = "", size_t line = 0)
+                                  std::string file = "", size_t line = 0,
+                                  char radix = 'd', bool on_off = false, bool mon_en = true)
         : format_string(std::move(fmt)), arg_exprs(std::move(a)), is_monitor(mon),
-          has_leading_time(lead_time), src_file(std::move(file)), src_line(line) {}
+          has_leading_time(lead_time), src_file(std::move(file)), src_line(line),
+          default_radix(radix), is_on_off_control(on_off), monitor_enable(mon_en) {}
 
     std::unique_ptr<StatementNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> a;
         for (const auto& arg : arg_exprs) a.push_back(arg ? arg->clone() : nullptr);
-        return std::make_unique<DisplayStatementNode>(format_string, std::move(a), is_monitor, has_leading_time, src_file, src_line);
+        return std::make_unique<DisplayStatementNode>(format_string, std::move(a), is_monitor, has_leading_time, src_file, src_line, default_radix, is_on_off_control, monitor_enable);
     }
 };
 

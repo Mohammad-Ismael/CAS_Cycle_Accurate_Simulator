@@ -74,6 +74,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     processes = std::move(elab_res.processes);
     comb_target_net_ids = std::move(elab_res.comb_target_net_ids);
     function_map = std::move(elab_res.function_map);
+    unbounded_params = std::move(elab_res.unbounded_params);
     named_events = std::move(elab_res.named_events);
     named_event_map = std::move(elab_res.named_event_map);
     enum_types = std::move(elab_res.enum_types);

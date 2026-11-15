@@ -102,6 +102,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                                 current.type == TokenType::TOKEN_BIT ||
                                 current.type == TokenType::TOKEN_INTEGER ||
                                 current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_SHORTREAL ||
                                 current.type == TokenType::TOKEN_CHANDLE ||
                                 current.type == TokenType::TOKEN_VOID ||
                                 (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -164,6 +165,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                                 current.type == TokenType::TOKEN_BIT ||
                                 current.type == TokenType::TOKEN_INTEGER ||
                                 current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_SHORTREAL ||
                                 current.type == TokenType::TOKEN_CHANDLE ||
                                 current.type == TokenType::TOKEN_VOID ||
                                 (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -241,6 +243,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                                 current.type == TokenType::TOKEN_BIT ||
                                 current.type == TokenType::TOKEN_INTEGER ||
                                 current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_SHORTREAL ||
                                 current.type == TokenType::TOKEN_CHANDLE ||
                                 current.type == TokenType::TOKEN_VOID ||
                                 (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -289,6 +292,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                                 current.type == TokenType::TOKEN_BIT ||
                                 current.type == TokenType::TOKEN_INTEGER ||
                                 current.type == TokenType::TOKEN_REAL ||
+                                current.type == TokenType::TOKEN_SHORTREAL ||
                                 current.type == TokenType::TOKEN_CHANDLE ||
                                 current.type == TokenType::TOKEN_VOID ||
                                 (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -526,7 +530,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
     if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER ||
-        current.type == TokenType::TOKEN_REAL) {
+        current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_SHORTREAL) {
         if (peek_token().type == TokenType::TOKEN_APOSTROPHE) {
             std::string tname = current.text;
             advance(); // consume type token

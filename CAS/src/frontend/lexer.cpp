@@ -958,7 +958,15 @@ Token Lexer::next_token() {
         if (ident == "initial") return {TokenType::TOKEN_INITIAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "final") return {TokenType::TOKEN_FINAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$display") return {TokenType::TOKEN_DISPLAY, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$displayb") return {TokenType::TOKEN_DISPLAYB, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$displayo") return {TokenType::TOKEN_DISPLAYO, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$displayh") return {TokenType::TOKEN_DISPLAYH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$monitor") return {TokenType::TOKEN_MONITOR, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$monitorb") return {TokenType::TOKEN_MONITORB, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$monitoro") return {TokenType::TOKEN_MONITORO, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$monitorh") return {TokenType::TOKEN_MONITORH, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$monitoron") return {TokenType::TOKEN_MONITORON, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "$monitoroff") return {TokenType::TOKEN_MONITOROFF, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$finish") return {TokenType::TOKEN_FINISH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$stop") return {TokenType::TOKEN_STOP, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$fatal") return {TokenType::TOKEN_FATAL, ident, 0, 0, cur_file, cur_line, 0};
@@ -1001,6 +1009,7 @@ Token Lexer::next_token() {
         if (ident == "bins") return {TokenType::TOKEN_BINS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "cross") return {TokenType::TOKEN_CROSS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "real") return {TokenType::TOKEN_REAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "shortreal") return {TokenType::TOKEN_SHORTREAL, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "property") return {TokenType::TOKEN_PROPERTY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endproperty") return {TokenType::TOKEN_ENDPROPERTY, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "sequence") return {TokenType::TOKEN_SEQUENCE, ident, 0, 0, cur_file, cur_line, 0};

@@ -137,13 +137,26 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     }
 
     if (match(TokenType::TOKEN_LPAREN)) {
-        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-            std::string dir = "input";
-            if (match(TokenType::TOKEN_INPUT)) dir = "input";
-            else if (match(TokenType::TOKEN_OUTPUT)) dir = "output";
-            else if (match(TokenType::TOKEN_INOUT)) dir = "inout";
-            else if (match(TokenType::TOKEN_REF)) dir = "ref";
+        std::string prev_dir = "input";
+        bool prev_is_s = false;
+        bool prev_is_int = false;
+        uint32_t prev_def_w = 1;
+        bool prev_is_vif = false;
+        std::string prev_vif_iface = "";
+        std::string prev_vif_mp = "";
+        std::string prev_arg_type_name = "";
+        std::vector<AstDimension> prev_packed_dims;
+        bool has_prev_arg = false;
 
+        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+            bool has_explicit_dir = false;
+            std::string dir = has_prev_arg ? prev_dir : "input";
+            if (match(TokenType::TOKEN_INPUT)) { dir = "input"; has_explicit_dir = true; }
+            else if (match(TokenType::TOKEN_OUTPUT)) { dir = "output"; has_explicit_dir = true; }
+            else if (match(TokenType::TOKEN_INOUT)) { dir = "inout"; has_explicit_dir = true; }
+            else if (match(TokenType::TOKEN_REF)) { dir = "ref"; has_explicit_dir = true; }
+
+            bool has_explicit_type = false;
             bool is_s = false;
             bool is_int = false;
             uint32_t def_w = 1;
@@ -152,6 +165,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             std::string vif_mp = "";
             std::string arg_type_name = "";
             if (match(TokenType::TOKEN_VIRTUAL)) {
+                has_explicit_type = true;
                 is_vif = true;
                 if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
                     vif_iface = current.text;
@@ -164,19 +178,34 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 def_w = 64;
                 is_int = true;
             }
-            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
+            if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
-                current.type == TokenType::TOKEN_BIT) {
+                current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
+                current.type == TokenType::TOKEN_SHORTREAL) {
+                has_explicit_type = true;
                 if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
+                else if (current.type == TokenType::TOKEN_REAL) { is_s = false; is_int = false; def_w = 64; arg_type_name = "real"; }
+                else if (current.type == TokenType::TOKEN_SHORTREAL) { is_s = false; is_int = false; def_w = 32; arg_type_name = "shortreal"; }
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string")) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal")) {
+                has_explicit_type = true;
                 if (current.text == "string") {
                     is_s = false;
                     is_int = true;
                     def_w = 64;
                     arg_type_name = "string";
+                } else if (current.text == "real") {
+                    is_s = false;
+                    is_int = false;
+                    def_w = 64;
+                    arg_type_name = "real";
+                } else if (current.text == "shortreal") {
+                    is_s = false;
+                    is_int = false;
+                    def_w = 32;
+                    arg_type_name = "shortreal";
                 } else {
                     is_s = true;
                     is_int = true;
@@ -187,8 +216,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 }
                 advance();
             }
-            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                has_explicit_type = true;
                 std::string p_name = current.text;
                 advance(); advance();
                 std::string t_name = current.text;
@@ -200,6 +230,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 is_int = true;
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+                has_explicit_type = true;
                 auto einfo = get_enum_typedef(current.text);
                 auto sinfo = get_struct_typedef(current.text);
                 def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
@@ -207,18 +238,25 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 is_int = true;
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+                has_explicit_type = true;
                 arg_type_name = current.text;
                 def_w = 64;
                 is_s = false;
                 is_int = false;
                 advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+                has_explicit_type = true;
+                arg_type_name = current.text;
+                def_w = 32;
+                advance();
             }
-            if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+            if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
 
             std::vector<AstDimension> packed_dims;
             std::unique_ptr<ExpressionNode> msb = nullptr;
             std::unique_ptr<ExpressionNode> lsb = nullptr;
             while (match(TokenType::TOKEN_LBRACKET)) {
+                has_explicit_type = true;
                 auto m = parse_expression();
                 expect(TokenType::TOKEN_COLON, "Expected ':' in argument range");
                 auto l = parse_expression();
@@ -231,6 +269,33 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 if (!msb) {
                     msb = std::move(m);
                     lsb = std::move(l);
+                }
+            }
+            if (!has_explicit_type) {
+                if (has_explicit_dir) {
+                    is_s = false;
+                    is_int = false;
+                    def_w = 1;
+                    is_vif = false;
+                    vif_iface = "";
+                    vif_mp = "";
+                    arg_type_name = "";
+                    packed_dims.clear();
+                } else if (has_prev_arg) {
+                    is_s = prev_is_s;
+                    is_int = prev_is_int;
+                    def_w = prev_def_w;
+                    is_vif = prev_is_vif;
+                    vif_iface = prev_vif_iface;
+                    vif_mp = prev_vif_mp;
+                    arg_type_name = prev_arg_type_name;
+                    for (const auto& pd : prev_packed_dims) {
+                        AstDimension cad;
+                        cad.left_expr = pd.left_expr ? pd.left_expr->clone() : nullptr;
+                        cad.right_expr = pd.right_expr ? pd.right_expr->clone() : nullptr;
+                        cad.is_single = pd.is_single;
+                        packed_dims.push_back(std::move(cad));
+                    }
                 }
             }
             if (packed_dims.size() > 1) {
@@ -254,6 +319,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             } else if (packed_dims.empty() && is_int) {
                 msb = std::make_unique<NumberNode>(def_w > 0 ? (def_w - 1) : 0, (uint32_t)32);
                 lsb = std::make_unique<NumberNode>(0ULL, (uint32_t)32);
+            } else if (!packed_dims.empty() && !msb) {
+                msb = packed_dims[0].left_expr ? packed_dims[0].left_expr->clone() : nullptr;
+                lsb = packed_dims[0].right_expr ? packed_dims[0].right_expr->clone() : nullptr;
             }
 
             std::string arg_name = current.text;
@@ -320,6 +388,23 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 pnode.default_value = parse_expression();
             }
             func->inputs.push_back(std::move(pnode));
+            prev_dir = dir;
+            prev_is_s = is_s;
+            prev_is_int = is_int;
+            prev_def_w = def_w;
+            prev_is_vif = is_vif;
+            prev_vif_iface = vif_iface;
+            prev_vif_mp = vif_mp;
+            prev_arg_type_name = arg_type_name;
+            prev_packed_dims.clear();
+            for (const auto& pd : packed_dims) {
+                AstDimension cad;
+                cad.left_expr = pd.left_expr ? pd.left_expr->clone() : nullptr;
+                cad.right_expr = pd.right_expr ? pd.right_expr->clone() : nullptr;
+                cad.is_single = pd.is_single;
+                prev_packed_dims.push_back(std::move(cad));
+            }
+            has_prev_arg = true;
             if (match(TokenType::TOKEN_COMMA)) continue;
             break;
         }

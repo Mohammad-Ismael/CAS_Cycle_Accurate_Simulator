@@ -327,6 +327,35 @@ void Evaluator::check_monitor() {
             std::cout << engine.get_sim_time() << " ";
         }
 
+        if (engine.monitor_session.format_string.empty()) {
+            for (size_t i = 0; i < current_values.size(); ++i) {
+                const auto& val = current_values[i];
+                if (val.is_string) {
+                    std::cout << val.str_val;
+                } else if (val.is_real) {
+                    if (engine.monitor_session.default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
+                    else std::cout << val.real_val;
+                } else if (val.is_unknown() && engine.monitor_session.default_radix == 'd') {
+                    std::cout << "x";
+                } else if (engine.monitor_session.default_radix == 'b') {
+                    std::cout << val.to_bin_string();
+                } else if (engine.monitor_session.default_radix == 'o') {
+                    std::cout << val.to_oct_string();
+                } else if (engine.monitor_session.default_radix == 'h' || engine.monitor_session.default_radix == 'x') {
+                    std::cout << val.to_hex_string(true);
+                } else { // 'd'
+                    if (val.is_signed) {
+                        std::cout << val.to_signed();
+                    } else {
+                        if (val.width <= 64) std::cout << val.aval;
+                        else std::cout << val.to_dec_string();
+                    }
+                }
+            }
+            std::cout << "\n";
+            return;
+        }
+
         size_t arg_idx = 0;
         size_t fmt_len = engine.monitor_session.format_string.size();
         for (size_t i = 0; i < fmt_len; ++i) {
@@ -358,7 +387,7 @@ void Evaluator::check_monitor() {
                     } else {
                         if (spec == 'd' || spec == 't') {
                             if (val.is_real) {
-                                std::cout << (int64_t)val.real_val;
+                                std::cout << (int64_t)std::llround(val.real_val);
                             } else if (val.is_signed) {
                                 std::cout << val.to_signed();
                             } else {
@@ -369,6 +398,8 @@ void Evaluator::check_monitor() {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
+                        } else if (spec == 'o') {
+                            std::cout << val.to_oct_string();
                         } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
                             if (spec == 'H' || spec == 'X') {
@@ -1608,14 +1639,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     AsyncTraceBuffer::instance().log_string(1, out_str);
                 }
             } else {
-                if (out_stream) {
+                auto it = engine.open_files.find(fd);
+                if (it != engine.open_files.end() && it->second.fp) {
+                    std::fputs(out_str.c_str(), it->second.fp);
+                    std::fflush(it->second.fp);
+                } else if (out_stream) {
                     *out_stream << out_str;
                     if (out_str.find('\n') != std::string::npos) {
                         out_stream->flush();
                     }
-                }
-                if (out_stream != &std::cout) {
-                    std::cout << out_str;
                 }
             }
             return;
@@ -1629,8 +1661,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
                 int fd = (int)fd_val.aval;
                 auto it = engine.open_files.find(fd);
-                if (it != engine.open_files.end() && it->second.stream) {
-                    it->second.stream->flush();
+                if (it != engine.open_files.end()) {
+                    if (it->second.fp) std::fflush(it->second.fp);
+                    if (it->second.stream) it->second.stream->flush();
                 }
                 std::cout.flush();
             } else {
@@ -1646,10 +1679,50 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 AsyncTraceBuffer::instance().unregister_fd(fd);
                 auto it = engine.open_files.find(fd);
                 if (it != engine.open_files.end()) {
+                    if (it->second.fp) {
+                        std::fclose(it->second.fp);
+                        it->second.fp = nullptr;
+                    }
                     if (it->second.stream) it->second.stream->close();
                     engine.open_files.erase(it);
                 }
             }
+            return;
+        }
+
+        if (tcall->task_name == "$fseek") {
+            if (tcall->args.size() >= 3) {
+                LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
+                LogicVal off_val = eval_expr(tcall->args[1].get(), bp.scope);
+                LogicVal op_val = eval_expr(tcall->args[2].get(), bp.scope);
+                int fd = (int)fd_val.aval;
+                long offset = (long)off_val.to_signed();
+                int op_arg = (int)op_val.aval;
+                int op = SEEK_SET;
+                if (op_arg == 1) op = SEEK_CUR;
+                else if (op_arg == 2) op = SEEK_END;
+                auto it = engine.open_files.find(fd);
+                if (it != engine.open_files.end() && it->second.fp) {
+                    std::fseek(it->second.fp, offset, op);
+                }
+            }
+            return;
+        }
+
+        if (tcall->task_name == "$rewind") {
+            if (!tcall->args.empty()) {
+                LogicVal fd_val = eval_expr(tcall->args[0].get(), bp.scope);
+                int fd = (int)fd_val.aval;
+                auto it = engine.open_files.find(fd);
+                if (it != engine.open_files.end() && it->second.fp) {
+                    std::rewind(it->second.fp);
+                }
+            }
+            return;
+        }
+
+        if (tcall->task_name == "$sscanf") {
+            expr_eval.eval_sscanf(tcall->args, bp.scope);
             return;
         }
 
@@ -2786,6 +2859,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto disp = dynamic_cast<DisplayStatementNode*>(stmt)) {
+        if (disp->is_on_off_control) {
+            engine.set_monitor_allowed(disp->monitor_enable);
+            return;
+        }
+
         if (disp->is_monitor) {
             std::function<void(ExpressionNode*)> check_mon_expr = [&](ExpressionNode* expr) {
                 if (!expr) return;
@@ -2940,6 +3018,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.active = true;
             engine.monitor_session.scope = bp.scope;
             engine.monitor_session.format_string = disp->format_string;
+            engine.monitor_session.default_radix = disp->default_radix;
             engine.monitor_session.args.clear();
             engine.monitor_session.arg_exprs.clear();
             for (auto& arg : disp->arg_exprs) {
@@ -2954,6 +3033,35 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             engine.monitor_session.prev_values.clear();
         } else {
             if (!engine.is_display_allowed()) return;
+
+            if (disp->format_string.empty()) {
+                for (size_t i = 0; i < disp->arg_exprs.size(); ++i) {
+                    LogicVal val = eval_expr(disp->arg_exprs[i].get(), bp.scope);
+                    if (val.is_string) {
+                        std::cout << val.str_val;
+                    } else if (val.is_real) {
+                        if (disp->default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
+                        else std::cout << val.real_val;
+                    } else if (val.is_unknown() && disp->default_radix == 'd') {
+                        std::cout << "x";
+                    } else if (disp->default_radix == 'b') {
+                        std::cout << val.to_bin_string();
+                    } else if (disp->default_radix == 'o') {
+                        std::cout << val.to_oct_string();
+                    } else if (disp->default_radix == 'h' || disp->default_radix == 'x') {
+                        std::cout << val.to_hex_string(true);
+                    } else { // 'd'
+                        if (val.is_signed) {
+                            std::cout << val.to_signed();
+                        } else {
+                            if (val.width <= 64) std::cout << val.aval;
+                            else std::cout << val.to_dec_string();
+                        }
+                    }
+                }
+                std::cout << "\n";
+                return;
+            }
 
             if (!disp->src_file.empty() && disp->src_line > 0) {
                 std::cout << "[CAS $display " << disp->src_file << ":" << disp->src_line << "] ";
@@ -3001,7 +3109,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << "x";
                         } else if (spec == 'd' || spec == 't') {
                             if (val.is_real) {
-                                std::cout << (int64_t)val.real_val;
+                                std::cout << (int64_t)std::llround(val.real_val);
                             } else if (val.is_signed) {
                                 std::cout << val.to_signed();
                             } else {
@@ -3012,6 +3120,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
+                        } else if (spec == 'o') {
+                            std::cout << val.to_oct_string();
                         } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
                             if (spec == 'H' || spec == 'X') {
@@ -3095,7 +3205,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << "x";
                         } else if (spec == 'd' || spec == 't') {
                             if (val.is_real) {
-                                std::cout << (int64_t)val.real_val;
+                                std::cout << (int64_t)std::llround(val.real_val);
                             } else if (val.is_signed) {
                                 std::cout << val.to_signed();
                             } else {
@@ -3106,6 +3216,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::cout << (val.is_real ? val.real_val : (double)val.aval);
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
+                        } else if (spec == 'o') {
+                            std::cout << val.to_oct_string();
                         } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                             std::string hx = val.to_hex_string(true);
                             if (spec == 'H' || spec == 'X') {
@@ -4175,7 +4287,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (local) {
                     uint32_t width = is_sliced ? slice_width : local->width;
-                    LogicVal piece = rhs_val.extract_slice(shift, width);
+                    LogicVal piece = (rhs_val.is_real || rhs_val.is_string) ? rhs_val : rhs_val.extract_slice(shift, width);
                     if (is_sliced) {
                         local->value.deposit_slice(slice_offset, slice_width, piece);
                     } else {
@@ -4195,7 +4307,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         uint32_t width = is_sliced ? slice_width : engine.netlist[target_id].width;
                         if (!engine.netlist[target_id].has_procedural_assign) {
                             LogicVal old_v = engine.netlist[target_id].value;
-                            LogicVal piece = rhs_val.extract_slice(shift, width);
+                            LogicVal piece = (rhs_val.is_real || rhs_val.is_string) ? rhs_val : rhs_val.extract_slice(shift, width);
                             if (is_sliced) {
                                 LogicVal new_v = old_v;
                                 new_v.deposit_slice(slice_offset, slice_width, piece);

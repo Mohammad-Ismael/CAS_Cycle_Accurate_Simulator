@@ -1,0 +1,6 @@
+{
+  "name": "v4_2_0_0_sys_tasks_file_io_and_packages",
+  "version": "4.2.0.0",
+  "top_module": "tb_v4_2_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

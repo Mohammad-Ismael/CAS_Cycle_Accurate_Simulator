@@ -449,6 +449,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::move(vstmts));
     }
 
+    bool is_procedural_param = false;
+    if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+        is_procedural_param = true;
+        advance();
+    }
+
+    bool is_shortreal_var = (current.type == TokenType::TOKEN_SHORTREAL ||
+                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal"));
+    bool is_real_var = (current.type == TokenType::TOKEN_REAL || is_shortreal_var);
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
     bool is_ident_string_type = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
@@ -460,9 +469,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     bool is_mailbox_stmt = (current.type == TokenType::TOKEN_MAILBOX ||
                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
 
-    if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+    if (is_procedural_param ||
+        current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REAL ||
+        current.type == TokenType::TOKEN_BIT || is_real_var ||
         current.type == TokenType::TOKEN_UNSIGNED ||
         is_ident_int_type || is_ident_string_type || is_ident_unsigned_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) {
 
@@ -476,7 +486,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             advance();
         }
 
-        bool is_real_var = (current.type == TokenType::TOKEN_REAL);
+        bool has_type_kw = (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+                            current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+                            current.type == TokenType::TOKEN_BIT || is_real_var ||
+                            is_ident_int_type || is_ident_string_type || is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt);
         bool is_int = (current.type == TokenType::TOKEN_INTEGER);
         std::string int_type_name = "";
         if (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -484,7 +497,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             int_type_name = current.text;
             is_int = true;
         }
-        advance();
+        if (has_type_kw) {
+            advance();
+        }
         if (is_mailbox_stmt && match(TokenType::TOKEN_HASH)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in mailbox parameter");
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
@@ -503,7 +518,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         else if (explicit_unsigned) is_signed_var = false;
         else if (is_int) is_signed_var = true;
 
-        uint32_t width = (is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) ? 64 : (is_ident_string_type ? 64 : (is_int ? 32 : (is_real_var ? 64 : 1)));
+        uint32_t width = (is_chandle_stmt || is_semaphore_stmt || is_mailbox_stmt) ? 64 :
+                         (is_ident_string_type ? 64 :
+                         (is_int ? 32 :
+                         (is_shortreal_var ? 32 :
+                         (is_real_var ? 64 :
+                         (is_procedural_param ? 32 : 1)))));
         if (int_type_name == "byte") width = 8;
         else if (int_type_name == "shortint") width = 16;
         else if (int_type_name == "longint") width = 64;
@@ -527,7 +547,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
 
         std::vector<std::unique_ptr<StatementNode>> vstmts;
-        std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_real_var ? "real" : (is_ident_string_type ? "string" : (!int_type_name.empty() ? int_type_name : "")))));
+        std::string tname = is_chandle_stmt ? "chandle" : (is_semaphore_stmt ? "semaphore" : (is_mailbox_stmt ? "mailbox" : (is_shortreal_var ? "shortreal" : (is_real_var ? "real" : (is_ident_string_type ? "string" : (!int_type_name.empty() ? int_type_name : ""))))));
         while (true) {
             std::string vname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
@@ -998,40 +1018,67 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<RepeatStatementNode>(std::move(count), std::move(body));
     }
 
-    // 8. System Tasks ($display / $monitor)
-    if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR) {
-        bool is_mon = (current.type == TokenType::TOKEN_MONITOR);
+    // 8. System Tasks ($display / $monitor / $monitoron / $monitoroff)
+    if (current.type == TokenType::TOKEN_MONITORON || current.type == TokenType::TOKEN_MONITOROFF) {
+        bool mon_en = (current.type == TokenType::TOKEN_MONITORON);
+        std::string origin_file = current.filename;
+        size_t origin_line = current.line;
+        advance();
+        if (match(TokenType::TOKEN_LPAREN)) {
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' after $monitoron / $monitoroff");
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $monitoron / $monitoroff");
+        return std::make_unique<DisplayStatementNode>("", std::vector<std::unique_ptr<ExpressionNode>>(), false, false, origin_file, origin_line, 'd', true, mon_en);
+    }
+
+    if (current.type == TokenType::TOKEN_DISPLAY || current.type == TokenType::TOKEN_MONITOR ||
+        current.type == TokenType::TOKEN_DISPLAYB || current.type == TokenType::TOKEN_DISPLAYO || current.type == TokenType::TOKEN_DISPLAYH ||
+        current.type == TokenType::TOKEN_MONITORB || current.type == TokenType::TOKEN_MONITORO || current.type == TokenType::TOKEN_MONITORH) {
+        bool is_mon = (current.type == TokenType::TOKEN_MONITOR ||
+                       current.type == TokenType::TOKEN_MONITORB ||
+                       current.type == TokenType::TOKEN_MONITORO ||
+                       current.type == TokenType::TOKEN_MONITORH);
+        char default_radix = 'd';
+        if (current.type == TokenType::TOKEN_DISPLAYB || current.type == TokenType::TOKEN_MONITORB) default_radix = 'b';
+        else if (current.type == TokenType::TOKEN_DISPLAYO || current.type == TokenType::TOKEN_MONITORO) default_radix = 'o';
+        else if (current.type == TokenType::TOKEN_DISPLAYH || current.type == TokenType::TOKEN_MONITORH) default_radix = 'h';
+
         std::string origin_file = current.filename;
         size_t origin_line = current.line;
 
         advance();
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' after $display / $monitor");
-
         bool has_lead_time = false;
         std::string fmt = "";
+        std::vector<std::unique_ptr<ExpressionNode>> args;
 
-        if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "$time") {
-            has_lead_time = true;
-            advance();
-            if (match(TokenType::TOKEN_COMMA)) {
-                if (current.type == TokenType::TOKEN_STRING) {
+        if (match(TokenType::TOKEN_LPAREN)) {
+            if (!match(TokenType::TOKEN_RPAREN)) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "$time") {
+                    has_lead_time = true;
+                    advance();
+                    if (match(TokenType::TOKEN_COMMA)) {
+                        if (current.type == TokenType::TOKEN_STRING) {
+                            fmt = current.text;
+                            advance();
+                        } else {
+                            args.push_back(parse_expression());
+                        }
+                    }
+                } else if (current.type == TokenType::TOKEN_STRING) {
                     fmt = current.text;
                     advance();
+                } else {
+                    args.push_back(parse_expression());
                 }
+
+                while (match(TokenType::TOKEN_COMMA)) {
+                    args.push_back(parse_expression());
+                }
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $display / $monitor argument list");
             }
-        } else if (current.type == TokenType::TOKEN_STRING) {
-            fmt = current.text;
-            advance();
         }
-
-        std::vector<std::unique_ptr<ExpressionNode>> args;
-        while (match(TokenType::TOKEN_COMMA)) {
-            args.push_back(parse_expression());
-        }
-
-        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing $display / $monitor argument list");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after $display / $monitor");
-        return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line);
+        return std::make_unique<DisplayStatementNode>(fmt, std::move(args), is_mon, has_lead_time, origin_file, origin_line, default_radix);
     }
 
     // System Task ($sformat)

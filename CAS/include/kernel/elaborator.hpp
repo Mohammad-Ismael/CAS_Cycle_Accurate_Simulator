@@ -257,6 +257,7 @@ struct ElaborationResult {
     std::vector<SvaAssertionInstance> sva_assertions;
     std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
     std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;
+    std::unordered_set<std::string> unbounded_params;
     std::unordered_set<std::string> assertion_names;
     std::unordered_set<std::string> property_names;
     std::unordered_set<std::string> sequence_names;

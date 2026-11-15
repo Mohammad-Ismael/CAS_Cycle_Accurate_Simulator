@@ -1600,12 +1600,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             bool is_mailbox_mod = (current.type == TokenType::TOKEN_MAILBOX || 
                                    (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
             bool is_ident_string_sig = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
+            bool is_shortreal_sig = (current.type == TokenType::TOKEN_SHORTREAL || 
+                                     (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal"));
+            bool is_real_sig = (current.type == TokenType::TOKEN_REAL || is_shortreal_sig);
 
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
                 current.type == TokenType::TOKEN_TRI   ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
+                current.type == TokenType::TOKEN_SHORTREAL || is_shortreal_sig ||
                 current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_ident_string_sig || is_ident_unsigned || is_chandle_mod ||
                 is_semaphore_mod || is_mailbox_mod) {
                 
@@ -1625,7 +1629,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     int_type_name = current.text;
                     is_int = true;
                 }
-                bool is_real_sig = (current.type == TokenType::TOKEN_REAL);
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
                 NetKind sig_kind = NetKind::WIRE;
@@ -1692,7 +1695,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         msb = std::make_unique<NumberNode>(iw - 1, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
                     } else if (is_real_sig) {
-                        msb = std::make_unique<NumberNode>(63, 32);
+                        uint32_t rw = is_shortreal_sig ? 32 : 64;
+                        msb = std::make_unique<NumberNode>(rw - 1, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
                     }
                 }
@@ -1717,7 +1721,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         sig.type_name = "string";
                     }
                     if (is_bit_type) sig.type_name = "bit";
-                    if (is_real_sig) sig.type_name = "real";
+                    if (is_shortreal_sig) sig.type_name = "shortreal";
+                    else if (is_real_sig) sig.type_name = "real";
                     if (!int_type_name.empty()) sig.type_name = int_type_name;
 
                     while (match(TokenType::TOKEN_LBRACKET)) {
@@ -6748,6 +6753,7 @@ TypeInferenceResult Parser::parse_type_spec_from_type_op() {
                             current.type == TokenType::TOKEN_BIT ||
                             current.type == TokenType::TOKEN_INTEGER ||
                             current.type == TokenType::TOKEN_REAL ||
+                            current.type == TokenType::TOKEN_SHORTREAL ||
                             current.type == TokenType::TOKEN_CHANDLE ||
                             current.type == TokenType::TOKEN_VOID ||
                             (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -6769,6 +6775,8 @@ TypeInferenceResult Parser::parse_type_spec_from_type_op() {
             res.width = 64; res.is_signed = true; res.type_name = "longint";
         } else if (kw == "time") {
             res.width = 64; res.is_signed = false; res.type_name = "time";
+        } else if (kw == "shortreal") {
+            res.width = 32; res.type_name = "shortreal";
         } else if (kw == "string" || kw == "real" || kw == "chandle") {
             res.width = 64; res.type_name = kw;
         } else {

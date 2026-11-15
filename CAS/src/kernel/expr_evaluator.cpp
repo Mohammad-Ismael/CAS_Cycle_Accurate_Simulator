@@ -5,6 +5,7 @@
 #include "../../include/kernel/trace_buffer.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
@@ -3363,7 +3364,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             ss << "x";
                         } else if (spec == 'd' || spec == 't') {
                             if (val.is_real) {
-                                ss << (int64_t)val.real_val;
+                                ss << (int64_t)std::llround(val.real_val);
                             } else if (val.is_signed) {
                                 ss << val.to_signed();
                             } else {
@@ -3402,6 +3403,195 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_known(32, static_cast<uint64_t>(ival));
             }
             return LogicVal::make_known(32, 0);
+        }
+        if (fn_call->func_name == "$isunbounded") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $isunbounded requires exactly one argument per IEEE 1800-2023 section 20.6");
+            }
+            auto* arg = fn_call->args[0].get();
+            bool is_unb = false;
+            if (auto id = dynamic_cast<IdentifierNode*>(arg)) {
+                if (id->name == "$" || id->name == "__CAS_QUEUE_DOLLAR__") {
+                    is_unb = true;
+                } else if (engine.unbounded_params.count(id->name) || engine.unbounded_params.count(scope + "." + id->name)) {
+                    is_unb = true;
+                }
+            }
+            return LogicVal::make_known(32, is_unb ? 1ULL : 0ULL);
+        }
+        if (fn_call->func_name == "$shortrealtobits") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $shortrealtobits requires exactly one argument per IEEE 1800-2023 section 20.5");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            float f = arg_val.is_real ? static_cast<float>(arg_val.real_val) : static_cast<float>(arg_val.aval);
+            uint32_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(float));
+            return LogicVal::make_known(32, static_cast<uint64_t>(bits));
+        }
+        if (fn_call->func_name == "$bitstoshortreal") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $bitstoshortreal requires exactly one argument per IEEE 1800-2023 section 20.5");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            uint32_t bits = static_cast<uint32_t>(arg_val.aval & 0xFFFFFFFFULL);
+            float f = 0.0f;
+            std::memcpy(&f, &bits, sizeof(float));
+            return LogicVal::make_real(static_cast<double>(f));
+        }
+        if (fn_call->func_name == "$realtobits") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $realtobits requires exactly one argument per IEEE 1800-2023 section 20.5");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : static_cast<double>(arg_val.aval);
+            uint64_t bits = 0;
+            std::memcpy(&bits, &d, sizeof(double));
+            return LogicVal::make_known(64, bits);
+        }
+        if (fn_call->func_name == "$bitstoreal") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $bitstoreal requires exactly one argument per IEEE 1800-2023 section 20.5");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            uint64_t bits = arg_val.aval;
+            double d = 0.0;
+            std::memcpy(&d, &bits, sizeof(double));
+            return LogicVal::make_real(d);
+        }
+        if (fn_call->func_name == "$itor") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $itor requires exactly one argument per IEEE 1800-2023 section 20.5");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(d);
+        }
+        if (fn_call->func_name == "$ceil") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $ceil requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::ceil(d));
+        }
+        if (fn_call->func_name == "$floor") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $floor requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::floor(d));
+        }
+        if (fn_call->func_name == "$exp") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $exp requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::exp(d));
+        }
+        if (fn_call->func_name == "$ln") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $ln requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::log(d));
+        }
+        if (fn_call->func_name == "$log10") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $log10 requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::log10(d));
+        }
+        if (fn_call->func_name == "$pow") {
+            if (fn_call->args.size() != 2) {
+                throw std::runtime_error("[CAS-DTINPCIL] $pow requires exactly two arguments per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal a0 = eval(fn_call->args[0].get(), scope);
+            LogicVal a1 = eval(fn_call->args[1].get(), scope);
+            double x = a0.is_real ? a0.real_val : (a0.is_signed ? static_cast<double>(a0.to_signed()) : static_cast<double>(a0.aval));
+            double y = a1.is_real ? a1.real_val : (a1.is_signed ? static_cast<double>(a1.to_signed()) : static_cast<double>(a1.aval));
+            return LogicVal::make_real(std::pow(x, y));
+        }
+        if (fn_call->func_name == "$sqrt") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $sqrt requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::sqrt(d));
+        }
+        if (fn_call->func_name == "$sin") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $sin requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::sin(d));
+        }
+        if (fn_call->func_name == "$cos") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $cos requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::cos(d));
+        }
+        if (fn_call->func_name == "$tan") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $tan requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::tan(d));
+        }
+        if (fn_call->func_name == "$asin") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $asin requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::asin(d));
+        }
+        if (fn_call->func_name == "$acos") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $acos requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::acos(d));
+        }
+        if (fn_call->func_name == "$atan") {
+            if (fn_call->args.size() != 1) {
+                throw std::runtime_error("[CAS-DTINPCIL] $atan requires exactly one argument per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal arg_val = eval(fn_call->args[0].get(), scope);
+            double d = arg_val.is_real ? arg_val.real_val : (arg_val.is_signed ? static_cast<double>(arg_val.to_signed()) : static_cast<double>(arg_val.aval));
+            return LogicVal::make_real(std::atan(d));
+        }
+        if (fn_call->func_name == "$atan2") {
+            if (fn_call->args.size() != 2) {
+                throw std::runtime_error("[CAS-DTINPCIL] $atan2 requires exactly two arguments per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal a0 = eval(fn_call->args[0].get(), scope);
+            LogicVal a1 = eval(fn_call->args[1].get(), scope);
+            double y = a0.is_real ? a0.real_val : (a0.is_signed ? static_cast<double>(a0.to_signed()) : static_cast<double>(a0.aval));
+            double x = a1.is_real ? a1.real_val : (a1.is_signed ? static_cast<double>(a1.to_signed()) : static_cast<double>(a1.aval));
+            return LogicVal::make_real(std::atan2(y, x));
+        }
+        if (fn_call->func_name == "$hypot") {
+            if (fn_call->args.size() != 2) {
+                throw std::runtime_error("[CAS-DTINPCIL] $hypot requires exactly two arguments per IEEE 1800-2023 section 20.8");
+            }
+            LogicVal a0 = eval(fn_call->args[0].get(), scope);
+            LogicVal a1 = eval(fn_call->args[1].get(), scope);
+            double x = a0.is_real ? a0.real_val : (a0.is_signed ? static_cast<double>(a0.to_signed()) : static_cast<double>(a0.aval));
+            double y = a1.is_real ? a1.real_val : (a1.is_signed ? static_cast<double>(a1.to_signed()) : static_cast<double>(a1.aval));
+            return LogicVal::make_real(std::hypot(x, y));
         }
         if (fn_call->func_name == "$bits") {
             if (fn_call->args.size() != 1) {
@@ -3491,15 +3681,150 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (m_val.is_string) mode = m_val.str_val;
             }
             int fd = const_cast<Engine&>(engine).next_file_descriptor++;
+            FILE* fp = std::fopen(filename.c_str(), mode.c_str());
             auto strm = std::make_shared<std::ofstream>();
-            std::ios_base::openmode om = std::ios::out;
-            if (mode.find('w') != std::string::npos) om |= std::ios::trunc;
-            if (mode.find('a') != std::string::npos) om |= std::ios::app;
-            if (mode.find('b') != std::string::npos) om |= std::ios::binary;
-            strm->open(filename, om);
-            const_cast<Engine&>(engine).open_files[fd] = {strm, filename};
-            AsyncTraceBuffer::instance().register_fd(fd, strm);
+            if (mode.find('w') != std::string::npos || mode.find('a') != std::string::npos) {
+                std::ios_base::openmode om = std::ios::out;
+                if (mode.find('w') != std::string::npos) om |= std::ios::trunc;
+                if (mode.find('a') != std::string::npos) om |= std::ios::app;
+                if (mode.find('b') != std::string::npos) om |= std::ios::binary;
+                strm->open(filename, om);
+            }
+            const_cast<Engine&>(engine).open_files[fd] = {strm, filename, fp};
+            if (strm->is_open()) {
+                AsyncTraceBuffer::instance().register_fd(fd, strm);
+            }
             return LogicVal::make_known(32, static_cast<uint64_t>(fd));
+        }
+        if (fn_call->func_name == "$fclose") {
+            if (!fn_call->args.empty()) {
+                LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+                int fd = (int)fd_val.aval;
+                AsyncTraceBuffer::instance().unregister_fd(fd);
+                auto it = const_cast<Engine&>(engine).open_files.find(fd);
+                if (it != const_cast<Engine&>(engine).open_files.end()) {
+                    if (it->second.fp) {
+                        std::fclose(it->second.fp);
+                        it->second.fp = nullptr;
+                    }
+                    if (it->second.stream) it->second.stream->close();
+                    const_cast<Engine&>(engine).open_files.erase(it);
+                }
+            }
+            return LogicVal::make_known(32, 0);
+        }
+        if (fn_call->func_name == "$feof") {
+            if (fn_call->args.empty()) return LogicVal::make_known(32, 0);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            int fd = (int)fd_val.aval;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                int eof = std::feof(it->second.fp) ? 1 : 0;
+                return LogicVal::make_known(32, (uint64_t)eof);
+            }
+            return LogicVal::make_known(32, 0);
+        }
+        if (fn_call->func_name == "$ferror") {
+            if (fn_call->args.empty()) return LogicVal::make_known(32, 0);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            int fd = (int)fd_val.aval;
+            int err = 0;
+            std::string err_msg = "";
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                err = std::ferror(it->second.fp);
+                if (err != 0) {
+                    char* msg = std::strerror(errno);
+                    if (msg) err_msg = msg;
+                }
+            }
+            if (fn_call->args.size() > 1) {
+                if (auto id = dynamic_cast<IdentifierNode*>(fn_call->args[1].get())) {
+                    LogicVal sval = LogicVal::make_string(err_msg);
+                    if (context.has_active_frame()) {
+                        if (LocalVar* lv = context.lookup_local(id->name)) {
+                            lv->value = sval;
+                        } else {
+                            size_t nid = engine.get_net_id(scope, id->name);
+                            if (nid != (size_t)-1) const_cast<Engine&>(engine).netlist[nid].set(sval);
+                        }
+                    } else {
+                        size_t nid = engine.get_net_id(scope, id->name);
+                        if (nid != (size_t)-1) const_cast<Engine&>(engine).netlist[nid].set(sval);
+                    }
+                }
+            }
+            return LogicVal::make_known(32, (uint64_t)err, true);
+        }
+        if (fn_call->func_name == "$ftell") {
+            if (fn_call->args.empty()) return LogicVal::make_x(32);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            int fd = (int)fd_val.aval;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                long pos = std::ftell(it->second.fp);
+                return LogicVal::make_known(32, (uint64_t)pos, true);
+            }
+            return LogicVal::make_known(32, (uint64_t)-1LL, true);
+        }
+        if (fn_call->func_name == "$fseek") {
+            if (fn_call->args.size() < 3) return LogicVal::make_known(32, (uint64_t)-1LL, true);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            LogicVal off_val = eval(fn_call->args[1].get(), scope);
+            LogicVal op_val = eval(fn_call->args[2].get(), scope);
+            int fd = (int)fd_val.aval;
+            long offset = (long)off_val.to_signed();
+            int op_arg = (int)op_val.aval;
+            int op = SEEK_SET;
+            if (op_arg == 1) op = SEEK_CUR;
+            else if (op_arg == 2) op = SEEK_END;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                int res = std::fseek(it->second.fp, offset, op);
+                return LogicVal::make_known(32, (uint64_t)res, true);
+            }
+            return LogicVal::make_known(32, (uint64_t)-1LL, true);
+        }
+        if (fn_call->func_name == "$rewind") {
+            if (fn_call->args.empty()) return LogicVal::make_known(32, (uint64_t)-1LL, true);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            int fd = (int)fd_val.aval;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                std::rewind(it->second.fp);
+                return LogicVal::make_known(32, 0);
+            }
+            return LogicVal::make_known(32, (uint64_t)-1LL, true);
+        }
+        if (fn_call->func_name == "$ungetc") {
+            if (fn_call->args.size() < 2) return LogicVal::make_known(32, (uint64_t)-1LL, true);
+            LogicVal c_val = eval(fn_call->args[0].get(), scope);
+            LogicVal fd_val = eval(fn_call->args[1].get(), scope);
+            int ch = (int)c_val.aval;
+            int fd = (int)fd_val.aval;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                int res = std::ungetc(ch, it->second.fp);
+                int sv_res = (res == EOF) ? -1 : 0;
+                return LogicVal::make_known(32, (uint64_t)sv_res, true);
+            }
+            return LogicVal::make_known(32, (uint64_t)-1LL, true);
+        }
+        if (fn_call->func_name == "$fgetc") {
+            if (fn_call->args.empty()) return LogicVal::make_known(32, (uint64_t)-1LL, true);
+            LogicVal fd_val = eval(fn_call->args[0].get(), scope);
+            int fd = (int)fd_val.aval;
+            auto it = engine.open_files.find(fd);
+            if (it != engine.open_files.end() && it->second.fp) {
+                int ch = std::fgetc(it->second.fp);
+                if (ch == EOF) return LogicVal::make_known(32, (uint64_t)-1LL, true);
+                return LogicVal::make_known(32, (uint64_t)(unsigned char)ch);
+            }
+            return LogicVal::make_known(32, (uint64_t)-1LL, true);
+        }
+        if (fn_call->func_name == "$sscanf") {
+            int matched = eval_sscanf(fn_call->args, scope);
+            return LogicVal::make_known(32, (uint64_t)matched, true);
         }
         if (fn_call->func_name == "$value$plusargs") {
             if (fn_call->args.size() < 2) return LogicVal::make_known(32, 0);
@@ -5155,6 +5480,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (bin->op == "<<" || bin->op == "<<<")  return LogicOps::shift_left(l, r);
         if (bin->op == ">>")  return LogicOps::shift_right(l, r);
         if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, l_signed);
+        if (l.is_real || r.is_real) {
+            double lv = l.is_real ? l.real_val : (l.is_signed ? (double)l.to_signed() : (double)l.aval);
+            double rv = r.is_real ? r.real_val : (r.is_signed ? (double)r.to_signed() : (double)r.aval);
+            if (bin->op == "+")  return LogicVal::make_real(lv + rv);
+            if (bin->op == "-")  return LogicVal::make_real(lv - rv);
+            if (bin->op == "*")  return LogicVal::make_real(lv * rv);
+            if (bin->op == "/")  return (rv != 0.0) ? LogicVal::make_real(lv / rv) : LogicVal::make_x(64);
+            if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (lv == rv) ? 1 : 0);
+            if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (lv != rv) ? 1 : 0);
+            if (bin->op == "<")  return LogicVal::make_known(1, (lv < rv) ? 1 : 0);
+            if (bin->op == "<=") return LogicVal::make_known(1, (lv <= rv) ? 1 : 0);
+            if (bin->op == ">")  return LogicVal::make_known(1, (lv > rv) ? 1 : 0);
+            if (bin->op == ">=") return LogicVal::make_known(1, (lv >= rv) ? 1 : 0);
+        }
         if (l.is_string || r.is_string) {
             if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
             if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (l.str_val != r.str_val) ? 1 : 0);
@@ -7592,4 +7931,150 @@ LogicVal ExprEvaluator::eval_sformatf(SFormatfNode* node, const std::string& sco
     }
     std::string formatted = format_systemverilog_string(fmt_val.str_val, arg_vals, engine.get_sim_time());
     return LogicVal::make_string(formatted);
+}
+
+int ExprEvaluator::eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
+    if (args.size() < 2) return 0;
+    LogicVal str_val = eval(args[0].get(), scope);
+    std::string input = str_val.is_string ? str_val.str_val : "";
+    LogicVal fmt_val = eval(args[1].get(), scope);
+    std::string fmt = fmt_val.is_string ? fmt_val.str_val : "";
+
+    size_t in_pos = 0;
+    size_t fmt_pos = 0;
+    size_t arg_idx = 2;
+    int matched = 0;
+
+    auto assign_target = [&](ExpressionNode* expr, const LogicVal& val) {
+        if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+            std::string name = id->name;
+            if (context.has_active_frame()) {
+                if (LocalVar* lv = context.lookup_local(name)) {
+                    lv->value = val;
+                    return;
+                }
+            }
+            size_t nid = engine.get_net_id(scope, name);
+            if (nid != (size_t)-1) {
+                const_cast<Engine&>(engine).netlist[nid].set(val);
+            }
+        }
+    };
+
+    auto get_target_width = [&](ExpressionNode* expr) -> size_t {
+        if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+            std::string name = id->name;
+            if (context.has_active_frame()) {
+                if (LocalVar* lv = context.lookup_local(name)) {
+                    return lv->value.width > 0 ? lv->value.width : 32;
+                }
+            }
+            size_t nid = engine.get_net_id(scope, name);
+            if (nid != (size_t)-1) {
+                return engine.netlist[nid].width > 0 ? engine.netlist[nid].width : 32;
+            }
+        }
+        return 32;
+    };
+
+    while (fmt_pos < fmt.size() && arg_idx < args.size()) {
+        if (fmt[fmt_pos] == '%') {
+            fmt_pos++;
+            if (fmt_pos >= fmt.size()) break;
+            if (fmt[fmt_pos] == '%') {
+                if (in_pos < input.size() && input[in_pos] == '%') {
+                    in_pos++;
+                    fmt_pos++;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            char spec = fmt[fmt_pos++];
+            if (spec != 'c') {
+                while (in_pos < input.size() && std::isspace((unsigned char)input[in_pos])) in_pos++;
+            }
+            if (in_pos >= input.size()) break;
+
+            size_t tw = get_target_width(args[arg_idx].get());
+            if (spec == 'd' || spec == 'i' || spec == 'u') {
+                char* endptr = nullptr;
+                const char* startptr = input.c_str() + in_pos;
+                long long val = std::strtoll(startptr, &endptr, 10);
+                if (endptr != startptr) {
+                    in_pos += (endptr - startptr);
+                    assign_target(args[arg_idx].get(), LogicVal::make_known(tw, (uint64_t)val, spec != 'u'));
+                    matched++;
+                    arg_idx++;
+                } else {
+                    break;
+                }
+            } else if (spec == 'x' || spec == 'h' || spec == 'X' || spec == 'H') {
+                char* endptr = nullptr;
+                const char* startptr = input.c_str() + in_pos;
+                unsigned long long val = std::strtoull(startptr, &endptr, 16);
+                if (endptr != startptr) {
+                    in_pos += (endptr - startptr);
+                    assign_target(args[arg_idx].get(), LogicVal::make_known(tw, val, false));
+                    matched++;
+                    arg_idx++;
+                } else {
+                    break;
+                }
+            } else if (spec == 'o') {
+                char* endptr = nullptr;
+                const char* startptr = input.c_str() + in_pos;
+                unsigned long long val = std::strtoull(startptr, &endptr, 8);
+                if (endptr != startptr) {
+                    in_pos += (endptr - startptr);
+                    assign_target(args[arg_idx].get(), LogicVal::make_known(tw, val, false));
+                    matched++;
+                    arg_idx++;
+                } else {
+                    break;
+                }
+            } else if (spec == 'b') {
+                size_t start = in_pos;
+                uint64_t val = 0;
+                while (in_pos < input.size() && (input[in_pos] == '0' || input[in_pos] == '1')) {
+                    val = (val << 1) | (input[in_pos] - '0');
+                    in_pos++;
+                }
+                if (in_pos > start) {
+                    assign_target(args[arg_idx].get(), LogicVal::make_known(tw, val, false));
+                    matched++;
+                    arg_idx++;
+                } else {
+                    break;
+                }
+            } else if (spec == 's') {
+                size_t start = in_pos;
+                while (in_pos < input.size() && !std::isspace((unsigned char)input[in_pos])) in_pos++;
+                if (in_pos > start) {
+                    std::string word = input.substr(start, in_pos - start);
+                    assign_target(args[arg_idx].get(), LogicVal::make_string(word));
+                    matched++;
+                    arg_idx++;
+                } else {
+                    break;
+                }
+            } else if (spec == 'c') {
+                char ch = input[in_pos++];
+                assign_target(args[arg_idx].get(), LogicVal::make_known(tw, (uint8_t)ch, false));
+                matched++;
+                arg_idx++;
+            }
+        } else if (std::isspace((unsigned char)fmt[fmt_pos])) {
+            while (fmt_pos < fmt.size() && std::isspace((unsigned char)fmt[fmt_pos])) fmt_pos++;
+            while (in_pos < input.size() && std::isspace((unsigned char)input[in_pos])) in_pos++;
+        } else {
+            if (in_pos < input.size() && fmt[fmt_pos] == input[in_pos]) {
+                fmt_pos++;
+                in_pos++;
+            } else {
+                break;
+            }
+        }
+    }
+    return matched;
 }
