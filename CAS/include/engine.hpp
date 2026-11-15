@@ -18,6 +18,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <random>
 
 struct MonitorSession {
     bool active = false;
@@ -79,6 +80,9 @@ private:
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<TaskNode*, ScopeFrame> static_task_frames;
     std::unordered_set<TaskNode*> initialized_static_tasks;
+    std::mt19937_64 rng{123456789ULL};
+    std::unordered_map<std::string, LogicVal> procedural_static_vars;
+    std::unordered_set<std::string> initialized_procedural_static_vars;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
     std::unordered_map<std::string, LogicVal> param_val_map;

@@ -104,12 +104,14 @@ struct VarDeclStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> init_expr = nullptr;
     std::vector<AstDimension> packed_dimensions;
     std::vector<AstDimension> unpacked_dimensions;
+    bool is_static = false;
 
     VarDeclStatementNode(std::string n, uint32_t w = 32, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, std::string key_t = "", uint32_t key_w = 32)
         : var_name(std::move(n)), width(w), is_signed(s), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc), assoc_key_type(std::move(key_t)), assoc_key_width(key_w) {}
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<VarDeclStatementNode>(var_name, width, is_signed, type_name, is_queue, is_dynamic_array, is_associative_array, assoc_key_type, assoc_key_width);
+        node->is_static = is_static;
         node->is_class_handle = is_class_handle;
         node->class_type_name = class_type_name;
         node->is_covergroup_handle = is_covergroup_handle;
@@ -439,6 +441,33 @@ struct CaseStatementNode : public StatementNode {
             node->items.push_back(std::move(ci));
         }
         node->modifier = modifier;
+        node->src_file = src_file;
+        node->src_line = src_line;
+        return node;
+    }
+};
+
+struct RandCaseItem {
+    std::unique_ptr<ExpressionNode> weight;
+    std::unique_ptr<StatementNode> stmt;
+};
+
+struct RandCaseStatementNode : public StatementNode {
+    std::vector<RandCaseItem> items;
+    std::string src_file = "";
+    size_t src_line = 0;
+
+    RandCaseStatementNode() = default;
+    explicit RandCaseStatementNode(std::vector<RandCaseItem> itms) : items(std::move(itms)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto node = std::make_unique<RandCaseStatementNode>();
+        for (const auto& item : items) {
+            RandCaseItem ci;
+            ci.weight = item.weight ? item.weight->clone() : nullptr;
+            ci.stmt = item.stmt ? item.stmt->clone() : nullptr;
+            node->items.push_back(std::move(ci));
+        }
         node->src_file = src_file;
         node->src_line = src_line;
         return node;

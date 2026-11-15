@@ -411,6 +411,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + fn->name + "'");
                     }
                     bind_out_of_body_function(std::move(fn));
+                } else {
+                    global_functions.push_back(std::move(fn));
                 }
             }
             continue;
@@ -424,6 +426,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         throw std::runtime_error("[CAS-DTINPCIL] Out-of-body task implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + t->name + "'");
                     }
                     bind_out_of_body_task(std::move(t));
+                } else {
+                    global_tasks.push_back(std::move(t));
                 }
             }
             continue;

@@ -68,10 +68,14 @@ public:
     static std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> global_udp_defs;
     static inline std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> global_struct_typedefs;
     static inline std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> global_enum_typedefs;
+    static inline std::vector<std::shared_ptr<FunctionNode>> global_functions;
+    static inline std::vector<std::shared_ptr<TaskNode>> global_tasks;
     static std::vector<std::string> global_wildcard_imports;
     static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
     static void clear_global_packages() {
         global_packages.clear();
+        global_functions.clear();
+        global_tasks.clear();
         global_wildcard_imports.clear();
         global_explicit_imports.clear();
         global_configs.clear();

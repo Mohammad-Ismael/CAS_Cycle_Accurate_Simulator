@@ -287,6 +287,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
+    bool is_procedural_static = false;
+    if (match(TokenType::TOKEN_STATIC)) {
+        is_procedural_static = true;
+    }
+
     std::string proc_type_name = "";
     if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
         std::string p_name = current.text;
@@ -356,6 +361,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             }
             uint32_t var_decl_w = is_dyn ? (uarr_info ? uarr_info->elem_width : width) : width;
             auto vstmt = std::make_unique<VarDeclStatementNode>(vname, var_decl_w, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            vstmt->is_static = is_procedural_static;
             if (uarr_info && !uarr_info->is_dynamic_array) {
                 vstmt->is_unpacked_array = true;
                 vstmt->elem_width = uarr_info->elem_width;
@@ -421,6 +427,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 init_expr = parse_expression();
             }
             auto vnode = std::make_unique<VarDeclStatementNode>(vname, inf.width, inf.is_signed, inf.type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            vnode->is_static = is_procedural_static;
             vnode->is_class_handle = inf.is_class_handle;
             vnode->class_type_name = inf.class_type_name;
             vnode->is_covergroup_handle = inf.is_covergroup_handle;
@@ -469,7 +476,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     bool is_mailbox_stmt = (current.type == TokenType::TOKEN_MAILBOX ||
                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
 
-    if (is_procedural_param ||
+    if (is_procedural_param || is_procedural_static ||
         current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || is_real_var ||
@@ -600,6 +607,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 init_expr = parse_expression();
             }
             auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
+            vnode->is_static = is_procedural_static;
             std::vector<AstDimension> cloned_packed;
             for (const auto& pd : packed_dims) {
                 AstDimension cad;
@@ -1212,6 +1220,25 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         current.type == TokenType::TOKEN_CASEZ ||
         current.type == TokenType::TOKEN_CASEX) {
         return parse_case_statement(DecisionModifier::NONE, current.filename, current.line);
+    }
+
+    // 13.1. Randcase Statement (IEEE Std 1800-2023 §18.16)
+    if (match(TokenType::TOKEN_RANDCASE)) {
+        std::vector<RandCaseItem> items;
+        std::string rc_file = current.filename;
+        size_t rc_line = current.line;
+        while (current.type != TokenType::TOKEN_ENDCASE && current.type != TokenType::TOKEN_EOF) {
+            auto weight_expr = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' after randcase weight expression");
+            auto stmt = parse_statement();
+            items.push_back({std::move(weight_expr), std::move(stmt)});
+        }
+        expect(TokenType::TOKEN_ENDCASE, "Expected 'endcase' closing randcase statement");
+        match(TokenType::TOKEN_SEMICOLON); // consume optional ';'
+        auto rc_node = std::make_unique<RandCaseStatementNode>(std::move(items));
+        rc_node->src_file = rc_file;
+        rc_node->src_line = rc_line;
+        return rc_node;
     }
 
     // 13.5. Procedural Continuous Assignments (IEEE Std 1800-2023 §10.4.2)

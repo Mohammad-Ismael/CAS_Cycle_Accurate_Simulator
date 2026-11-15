@@ -78,6 +78,7 @@ enum class TokenType {
     TOKEN_CASE,
     TOKEN_CASEZ,
     TOKEN_CASEX,
+    TOKEN_RANDCASE,
     TOKEN_ENDCASE,
     TOKEN_DEFAULT,
     TOKEN_NOT,

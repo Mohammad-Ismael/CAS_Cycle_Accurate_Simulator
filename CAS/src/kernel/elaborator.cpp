@@ -1118,6 +1118,29 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                     }
                     return;
                 }
+                if (auto rc = dynamic_cast<RandCaseStatementNode*>(s)) {
+                    uint64_t total_weight = 0;
+                    std::vector<std::pair<uint64_t, StatementNode*>> valid_branches;
+                    for (auto& item : rc->items) {
+                        uint64_t w = eval_const_expr(item.weight.get(), scope, &fn_env);
+                        if ((int64_t)w > 0) {
+                            total_weight += w;
+                            valid_branches.push_back({w, item.stmt.get()});
+                        }
+                    }
+                    if (total_weight > 0 && !valid_branches.empty()) {
+                        uint64_t roll = (uint64_t)(rand()) % total_weight;
+                        uint64_t cum = 0;
+                        for (auto& branch : valid_branches) {
+                            cum += branch.first;
+                            if (roll < cum) {
+                                eval_const_stmt(branch.second);
+                                break;
+                            }
+                        }
+                    }
+                    return;
+                }
             };
 
             for (auto& s : target_fn->get_body()) {
@@ -1823,6 +1846,18 @@ static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* s
             for (const auto& s : item.statements) {
                 ci.statements.push_back(substitute_genvar_in_stmt(s.get(), gname, val));
             }
+            node->items.push_back(std::move(ci));
+        }
+        return node;
+    }
+    if (auto rcs = dynamic_cast<RandCaseStatementNode*>(stmt)) {
+        auto node = std::make_unique<RandCaseStatementNode>();
+        node->src_file = rcs->src_file;
+        node->src_line = rcs->src_line;
+        for (const auto& item : rcs->items) {
+            RandCaseItem ci;
+            if (item.weight) ci.weight = substitute_genvar_in_expr(item.weight.get(), gname, val);
+            if (item.stmt) ci.stmt = substitute_genvar_in_stmt(item.stmt.get(), gname, val);
             node->items.push_back(std::move(ci));
         }
         return node;
@@ -4783,6 +4818,18 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         if (result.class_defs.find(gc->name) == result.class_defs.end()) {
             result.class_defs[gc->name] = gc.get();
         }
+    }
+
+    for (const auto& fn : Parser::global_functions) {
+        result.function_map[fn->name] = fn.get();
+        result.function_map["$root." + fn->name] = fn.get();
+        result.function_map["$unit::" + fn->name] = fn.get();
+    }
+
+    for (const auto& t : Parser::global_tasks) {
+        result.task_map[t->name] = t.get();
+        result.task_map["$root." + t->name] = t.get();
+        result.task_map["$unit::" + t->name] = t.get();
     }
 
     // Check forward class declarations (§6.18)

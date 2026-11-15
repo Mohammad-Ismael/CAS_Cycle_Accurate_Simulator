@@ -951,6 +951,7 @@ Token Lexer::next_token() {
         if (ident == "case") return {TokenType::TOKEN_CASE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "casez") return {TokenType::TOKEN_CASEZ, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "casex") return {TokenType::TOKEN_CASEX, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "randcase") return {TokenType::TOKEN_RANDCASE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endcase") return {TokenType::TOKEN_ENDCASE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "default") return {TokenType::TOKEN_DEFAULT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "begin") return {TokenType::TOKEN_BEGIN, ident, 0, 0, cur_file, cur_line, 0};

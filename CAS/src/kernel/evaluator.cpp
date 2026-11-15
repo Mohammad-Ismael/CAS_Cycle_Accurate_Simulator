@@ -130,9 +130,15 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
         if (local->type_name == "string") {
             local->value = actual_val;
+            if (local->is_static && !local->static_key.empty()) {
+                engine.procedural_static_vars[local->static_key] = local->value;
+            }
             return;
         }
         local->value = LogicOps::cast_width(actual_val, local->width, local->is_signed);
+        if (local->is_static && !local->static_key.empty()) {
+            engine.procedural_static_vars[local->static_key] = local->value;
+        }
         return;
     }
     size_t nid = engine.get_net_id(bp.scope, var_name);
@@ -493,9 +499,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
         if (expr_eval.get_context().has_active_frame()) {
+            std::string static_key = "";
+            bool already_init = false;
+            if (vdecl->is_static) {
+                std::string scope_id = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->scope_name : bp.scope;
+                static_key = scope_id + "::" + vdecl->var_name;
+                if (engine.initialized_procedural_static_vars.find(static_key) != engine.initialized_procedural_static_vars.end()) {
+                    already_init = true;
+                }
+            }
             expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
             LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
             if (lv) {
+                if (vdecl->is_static) {
+                    lv->is_static = true;
+                    lv->static_key = static_key;
+                    if (already_init) {
+                        lv->value = engine.procedural_static_vars[static_key];
+                        return;
+                    }
+                }
                 if (vdecl->is_queue) {
                     lv->is_queue = true;
                     lv->queue_data = QueueObject(vdecl->var_name, vdecl->width, vdecl->is_signed);
@@ -679,12 +702,32 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                 }
+                if (vdecl->is_static && !static_key.empty()) {
+                    engine.procedural_static_vars[static_key] = lv->value;
+                    engine.initialized_procedural_static_vars.insert(static_key);
+                }
             }
             return;
         }
         if (!bp.call_stack.empty()) {
+            std::string static_key = "";
+            bool already_init = false;
+            if (vdecl->is_static) {
+                static_key = bp.scope + "::" + vdecl->var_name;
+                if (engine.initialized_procedural_static_vars.find(static_key) != engine.initialized_procedural_static_vars.end()) {
+                    already_init = true;
+                }
+            }
             bp.call_stack.back().local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
             LocalVar* lv = bp.call_stack.back().local_frame.get_var(vdecl->var_name);
+            if (lv && vdecl->is_static) {
+                lv->is_static = true;
+                lv->static_key = static_key;
+                if (already_init) {
+                    lv->value = engine.procedural_static_vars[static_key];
+                    return;
+                }
+            }
             if (lv && vdecl->is_class_handle) {
                 lv->is_class_handle = true;
                 lv->class_type_name = vdecl->class_type_name;
@@ -827,6 +870,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
                         }
                     }
+                }
+                if (vdecl->is_static && !static_key.empty()) {
+                    engine.procedural_static_vars[static_key] = lv->value;
+                    engine.initialized_procedural_static_vars.insert(static_key);
                 }
             }
             return;
@@ -1378,6 +1425,38 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 execute_statement(s.get(), bp);
                 if (has_returned(bp)) return;
                 if (!engine.scheduler.is_active()) return;
+            }
+        }
+        return;
+    }
+
+    if (auto rcs = dynamic_cast<RandCaseStatementNode*>(stmt)) {
+        std::vector<int64_t> weights;
+        weights.reserve(rcs->items.size());
+        int64_t total_weight = 0;
+        for (const auto& item : rcs->items) {
+            int64_t w = 0;
+            if (item.weight) {
+                LogicVal wv = eval_expr(item.weight.get(), bp.scope);
+                int64_t sw = wv.to_signed();
+                if (sw > 0) w = sw;
+            }
+            weights.push_back(w);
+            total_weight += w;
+        }
+        if (total_weight > 0) {
+            std::uniform_int_distribution<int64_t> dist(0, total_weight - 1);
+            int64_t r = dist(engine.rng);
+            int64_t cum = 0;
+            for (size_t i = 0; i < rcs->items.size(); ++i) {
+                if (weights[i] <= 0) continue;
+                cum += weights[i];
+                if (r < cum) {
+                    if (rcs->items[i].stmt) {
+                        execute_statement(rcs->items[i].stmt.get(), bp);
+                    }
+                    break;
+                }
             }
         }
         return;
@@ -4299,6 +4378,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
                         }
                     }
+                    if (local->is_static && !local->static_key.empty()) {
+                        engine.procedural_static_vars[local->static_key] = local->value;
+                    }
                     shift += width;
                 } else {
                     size_t net_id = engine.get_net_id(bp.scope, target_name);
@@ -4843,6 +4925,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             local->value.deposit_slice(idx_val.aval, 1, rhs_val);
                         }
                     }
+                    if (local->is_static && !local->static_key.empty()) {
+                        engine.procedural_static_vars[local->static_key] = local->value;
+                    }
                 } else {
                     if (local->is_class_handle && rhs_val.aval != 0) {
                         auto rhs_obj = engine.get_class_object(rhs_val.aval);
@@ -4851,16 +4936,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     if (local->type_name == "string") {
-                local->value = rhs_val;
-            } else {
-                local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
-                    local->value.bval = 0;
-                    if (!local->value.wide_bval.empty()) {
-                        std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                        local->value = rhs_val;
+                    } else {
+                        local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                        if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                            local->value.bval = 0;
+                            if (!local->value.wide_bval.empty()) {
+                                std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                            }
+                        }
                     }
-                }
-            }
+                    if (local->is_static && !local->static_key.empty()) {
+                        engine.procedural_static_vars[local->static_key] = local->value;
+                    }
                 }
             } else {
                 std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);

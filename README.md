@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.2.0.0`  
-**Status:** Release v4.2.0.0 Clean (100% Synopsys VCS Golden Parity & 100% IEEE 1800 Chapters 5–15 & 20–26 sv-tests, 102/102 Milestone Regressions)  
+**Current Version:** `v4.2.1.0`  
+**Status:** Release v4.2.1.0 Clean (100% Synopsys VCS Golden Parity & 100% IEEE 1800 Chapters 5–15, 18 (§18.16) & 20–26 sv-tests, 103/103 Milestone Regressions)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regressions/             # 102/102 Comprehensive IEEE 1800-2023 Regression Testbenches
+├── regressions/             # 103/103 Comprehensive IEEE 1800-2023 Regression Testbenches
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
@@ -560,14 +560,14 @@ In addition to the 100% pass parity achieved on lowRISC Ibex, CAS is verified on
 
 ---
 
-## Key Achievements (v1.0.0.0 – v4.2.0.0)
+## Key Achievements (v1.0.0.0 – v4.2.1.0)
 
 From initial concept to a full commercial-grade SystemVerilog verification platform, the CAS development progression has delivered:
 
-1. **100% IEEE 1800-2023 Chapters 5–15 & Chapters 20–26 sv-tests Parity (240/240 Passing Tests)**:
-   - Zero syntax, elaboration, or simulation failures across all simulation test suites of Chapters 5–15 and Chapters 20–26 (Packages §26, System Tasks §20, File I/O §21, Compiler Directives §22, User Tasks §23, Programs §24).
-2. **102 / 102 Milestone Regressions Passing at 100% VCS Golden Parity**:
-   - 102 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
+1. **100% IEEE 1800-2023 Chapters 5–15, 18 (§18.16) & Chapters 20–26 sv-tests Parity (242/242 Passing Tests)**:
+   - Zero syntax, elaboration, or simulation failures across all simulation test suites of Chapters 5–15, Chapter 18 `randcase` (§18.16), and Chapters 20–26 (Packages §26, System Tasks §20, File I/O §21, Compiler Directives §22, User Tasks §23, Programs §24).
+2. **103 / 103 Milestone Regressions Passing at 100% VCS Golden Parity**:
+   - 103 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
 3. **Production RISC-V SoC Verification Parity**:
    - **lowRISC Ibex RV32IMC:** 137 modules, 2,710 nets, 125 memory arrays, booting bare-metal firmware with CSR setup, timer interrupts, and UART logging.
    - **Western Digital VeeR EL2:** Dual-issue superscalar execution with verified architectural register and pipeline retirement parity against Verilator.

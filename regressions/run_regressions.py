@@ -104,7 +104,8 @@ suites = [
     ("v3.99.0.0", "v3_99_0_0_associative_arrays_traversal_and_locators", ["design.sv", "testbench.sv"]),
     ("v4.0.0.0", "v4_0_0_0_unpacked_descending_slices_and_ch5_12_parity", ["design.sv", "testbench.sv"]),
     ("v4.1.0.0", "v4_1_0_0_tasks_lifetime_and_const_functions", ["design.sv", "testbench.sv"]),
-    ("v4.2.0.0", "v4_2_0_0_sys_tasks_file_io_and_packages", ["design.sv", "testbench.sv"])
+    ("v4.2.0.0", "v4_2_0_0_sys_tasks_file_io_and_packages", ["design.sv", "testbench.sv"]),
+    ("v4.2.1.0", "v4_2_1_0_randcase_and_procedural_static", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

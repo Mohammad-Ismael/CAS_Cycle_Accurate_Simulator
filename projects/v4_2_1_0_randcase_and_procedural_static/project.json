@@ -1,0 +1,8 @@
+{
+    "top_module": "tb_v4_2_1_regression",
+    "source_files": [
+        "design.sv",
+        "testbench.sv"
+    ],
+    "description": "Regression suite for CAS v4.2.1.0: randcase (§18.16) and procedural static variables (§6.21 / §13.3)"
+}
