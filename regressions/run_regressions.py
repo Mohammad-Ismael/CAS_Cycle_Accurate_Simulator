@@ -110,7 +110,8 @@ suites = [
     ("v4.2.3.0", "v4_2_3_0_uvm_harness_and_sva_properties", ["design.sv", "testbench.sv"]),
     ("v4.3.0.0", "v4_3_0_0_sva_sequences_and_full_sv_tests_parity", ["design.sv", "testbench.sv"]),
     ("v4.3.1.0", "v4_3_1_0_macro_empty_args_and_line_directive", ["design.sv", "testbench.sv"]),
-    ("v4.3.2.0", "v4_3_2_0_uvm_testbenches_parity", ["design.sv", "testbench.sv"])
+    ("v4.3.2.0", "v4_3_2_0_uvm_testbenches_parity", ["design.sv", "testbench.sv"]),
+    ("v4.3.3.0", "v4_3_3_0_generic_sv_tests_parity", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

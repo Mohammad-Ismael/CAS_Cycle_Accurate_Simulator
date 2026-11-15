@@ -45,10 +45,10 @@ private:
     Token current;
     std::vector<ParameterDef> global_parameters;
 
-    bool has_peek = false;
-    Token peeked;
+    std::deque<Token> peek_queue;
     void advance();
     Token peek_token();
+    Token peek_token_n(size_t n = 1);
     bool match(TokenType type);
     void expect(TokenType type, const std::string& err_msg);
 
@@ -120,8 +120,10 @@ public:
         }
         return false;
     }
+    std::unordered_set<std::string> forward_typedefs;
+    void register_forward_type(const std::string& name);
     bool is_type_identifier(const std::string& name) const {
-        return is_builtin_type_name(name) || is_typedef(name) || is_simple_typedef(name) || is_unpacked_array_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name);
+        return is_builtin_type_name(name) || is_typedef(name) || is_simple_typedef(name) || is_unpacked_array_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name) || forward_typedefs.find(name) != forward_typedefs.end();
     }
     std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false, bool is_abstract = false);
     std::string parse_class_type_and_specialize();

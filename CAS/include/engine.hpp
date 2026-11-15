@@ -390,7 +390,11 @@ public:
                         if (m.is_dynamic_array) {
                             obj->dynamic_arrays[m.name] = DynamicArrayObject(m.name, m.width, m.is_signed);
                         } else {
-                            obj->properties[m.name] = LogicVal(m.width, 0, 0);
+                            LogicVal init_val(m.width, 0, 0);
+                            if (auto num = dynamic_cast<NumberNode*>(m.default_expr.get())) {
+                                init_val = LogicVal(m.width, num->aval, 0);
+                            }
+                            obj->properties[m.name] = init_val;
                         }
                         if (m.is_virtual_interface) {
                             VirtualInterfaceHandle h;

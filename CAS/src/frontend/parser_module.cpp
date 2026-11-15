@@ -2771,6 +2771,9 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
     struct_node->is_tagged = is_tagged;
 
     while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+        if (match(TokenType::TOKEN_RAND) || match(TokenType::TOKEN_RANDC)) {
+            // consume rand / randc qualifier inside struct
+        }
         bool mem_signed = false;
         std::string mem_type = "logic";
         uint32_t field_width = 1;
@@ -2941,6 +2944,42 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
 std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     expect(TokenType::TOKEN_TYPEDEF, "Expected 'typedef'");
 
+    // Forward typedef struct: typedef struct <name>;
+    if (current.type == TokenType::TOKEN_STRUCT && peek_token_n(1).type == TokenType::TOKEN_IDENTIFIER && peek_token_n(2).type == TokenType::TOKEN_SEMICOLON) {
+        advance(); // consume 'struct'
+        std::string s_name = current.text;
+        advance(); // consume s_name
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        register_forward_type(s_name);
+        return std::make_unique<TypedefNode>(s_name, true, false);
+    }
+    // Forward typedef union: typedef union <name>;
+    if (current.type == TokenType::TOKEN_UNION && peek_token_n(1).type == TokenType::TOKEN_IDENTIFIER && peek_token_n(2).type == TokenType::TOKEN_SEMICOLON) {
+        advance(); // consume 'union'
+        std::string u_name = current.text;
+        advance(); // consume u_name
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        register_forward_type(u_name);
+        return std::make_unique<TypedefNode>(u_name, true, false);
+    }
+    // Forward typedef enum: typedef enum <name>;
+    if (current.type == TokenType::TOKEN_ENUM && peek_token_n(1).type == TokenType::TOKEN_IDENTIFIER && peek_token_n(2).type == TokenType::TOKEN_SEMICOLON) {
+        advance(); // consume 'enum'
+        std::string e_name = current.text;
+        advance(); // consume e_name
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        register_forward_type(e_name);
+        return std::make_unique<TypedefNode>(e_name, true, false);
+    }
+    // Forward typedef: typedef <name>;
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token_n(1).type == TokenType::TOKEN_SEMICOLON) {
+        std::string t_name = current.text;
+        advance(); // consume t_name
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';'");
+        register_forward_type(t_name);
+        return std::make_unique<TypedefNode>(t_name, true, false);
+    }
+
     if (current.type == TokenType::TOKEN_CLASS ||
         (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS)) {
         bool is_iface = false;
@@ -3066,12 +3105,39 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 uint32_t total_elements = 1;
                 int64_t arr_start = 0;
                 int64_t arr_end = 0;
-                while (match(TokenType::TOKEN_LBRACKET)) {
+                while (match(TokenType::TOKEN_LBRACKET) || match(TokenType::TOKEN_REP_CONSEC)) {
                     is_unpacked_arr = true;
+                    if (current.type == TokenType::TOKEN_RBRACKET) {
+                        advance();
+                        is_dynamic_arr = true;
+                        total_elements = 0;
+                        continue;
+                    }
+                    if (match(TokenType::TOKEN_STAR)) {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                        is_dynamic_arr = true;
+                        total_elements = 0;
+                        continue;
+                    }
                     if (match(TokenType::TOKEN_RBRACKET)) {
                         is_dynamic_arr = true;
                         total_elements = 0;
                         break;
+                    }
+                    // Associative array indexed by data type: e.g. [bit], [bit[31:0]], [string]
+                    if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC ||
+                        current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REG ||
+                        current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_STRING ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "string" || is_type_identifier(current.text)))) {
+                        advance();
+                        while (match(TokenType::TOKEN_LBRACKET)) {
+                            while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                            match(TokenType::TOKEN_RBRACKET);
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                        is_dynamic_arr = true;
+                        total_elements = 0;
+                        continue;
                     }
                     auto l = parse_expression();
                     std::unique_ptr<ExpressionNode> r = nullptr;
@@ -3307,7 +3373,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
     } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
         current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
-        current.type == TokenType::TOKEN_SIGNED ||
+        current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_SIGNED ||
         (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit"))) {
 
         if (current.type == TokenType::TOKEN_SIGNED) {
@@ -3424,7 +3490,11 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
 std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_abstract) {
     expect(TokenType::TOKEN_CLASS, "Expected 'class'");
     std::string class_name = current.text;
-    expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
+    if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_SEMAPHORE || current.type == TokenType::TOKEN_MAILBOX) {
+        advance();
+    } else {
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected class name");
+    }
 
     auto cls = std::make_unique<ClassNode>(class_name);
     cls->is_interface_class = is_interface_class;
@@ -3453,7 +3523,17 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             std::unique_ptr<ExpressionNode> pexpr = nullptr;
             if (match(TokenType::TOKEN_EQUAL)) {
                 if (is_type_param) {
-                    if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+                    if (current.type == TokenType::TOKEN_VIRTUAL) {
+                        advance(); // consume 'virtual'
+                        if (current.type == TokenType::TOKEN_INTERFACE) advance();
+                        std::string virt_type = current.text;
+                        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                        while (match(TokenType::TOKEN_COLON_COLON)) {
+                            virt_type += "::" + current.text;
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                        }
+                        pexpr = std::make_unique<IdentifierNode>("virtual " + virt_type);
+                    } else if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
                         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG ||
                         current.type == TokenType::TOKEN_WIRE ||
                         (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || is_type_identifier(current.text)))) {
@@ -3477,6 +3557,10 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             while (true) {
                 std::string parent_iface = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after 'extends'");
+                while (match(TokenType::TOKEN_COLON_COLON)) {
+                    parent_iface += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after '::'");
+                }
                 cls->extended_interfaces.push_back(parent_iface);
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
@@ -3490,6 +3574,10 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         if (match(TokenType::TOKEN_EXTENDS)) {
             base_class_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
+            while (match(TokenType::TOKEN_COLON_COLON)) {
+                base_class_name += "::" + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected class name after '::'");
+            }
             cls->base_class_name = base_class_name;
             if (match(TokenType::TOKEN_HASH)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in base class parameter list");
@@ -3505,6 +3593,10 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             while (true) {
                 std::string iface_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after 'implements'");
+                while (match(TokenType::TOKEN_COLON_COLON)) {
+                    iface_name += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after '::'");
+                }
                 if (match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in implemented interface parameter list");
                     int pdepth = 1;
@@ -3523,6 +3615,22 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after class name");
 
     while (current.type != TokenType::TOKEN_ENDCLASS && current.type != TokenType::TOKEN_EOF) {
+        if (current.type == TokenType::TOKEN_CLASS || (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS)) {
+            bool is_nested_iface = false;
+            if (current.type == TokenType::TOKEN_INTERFACE) {
+                is_nested_iface = true;
+                advance();
+            }
+            auto nested_cls = parse_class(is_nested_iface);
+            if (nested_cls) {
+                std::shared_ptr<ClassNode> snested = std::move(nested_cls);
+                class_map[snested->name] = snested;
+                class_map[class_name + "::" + snested->name] = snested;
+                global_classes.push_back(snested);
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
             if (td) {
@@ -3540,6 +3648,42 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
             bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
             advance();
+            bool is_type_param = false;
+            if (current.type == TokenType::TOKEN_TYPE || current.text == "type") {
+                is_type_param = true;
+                advance();
+            }
+            if (is_type_param) {
+                while (true) {
+                    std::string pname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                    expect(TokenType::TOKEN_EQUAL, "Expected '=' in type parameter assignment");
+                    std::string def_type = current.text;
+                    if (current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+                        current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG ||
+                        current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_IDENTIFIER) {
+                        advance();
+                        while (match(TokenType::TOKEN_COLON_COLON)) {
+                            def_type += "::" + current.text;
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                        }
+                        if (match(TokenType::TOKEN_HASH)) {
+                            expect(TokenType::TOKEN_LPAREN, "Expected '('");
+                            int pdepth = 1;
+                            while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                                if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                                else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                                advance();
+                            }
+                        }
+                    }
+                    cls->parameters.push_back(ParameterDef(pname, std::make_unique<IdentifierNode>(def_type), is_local, "type"));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after type parameter declaration");
+                continue;
+            }
             bool has_type = false;
             std::string ptype = "";
             while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
@@ -3826,7 +3970,11 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     bool is_dyn = false;
                     bool is_assoc = false;
                     std::string assoc_key_type = "";
-                    if (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_REP_CONSEC)) {
+                        is_assoc = true;
+                        assoc_key_type = "*";
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    } else if (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_RBRACKET)) {
                             is_dyn = true;
                         } else if (match(TokenType::TOKEN_STAR)) {
@@ -5486,7 +5634,8 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted in package scope per IEEE 1800-2023 section 20.10");
         }
-        if (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE) {
+        if (current.type == TokenType::TOKEN_MODULE || 
+            (current.type == TokenType::TOKEN_INTERFACE && peek_token().type != TokenType::TOKEN_CLASS)) {
             std::string loc = current.filename.empty() 
                 ? ("line " + std::to_string(current.line)) 
                 : (current.filename + ":" + std::to_string(current.line));
@@ -5657,6 +5806,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 std::shared_ptr<ClassNode> scls = std::move(cls);
                 pkg->class_map[scls->name] = scls.get();
                 pkg->classes.push_back(scls);
+                class_map[scls->name] = scls;
+                class_map[pkg->name + "::" + scls->name] = scls;
+                global_classes.push_back(scls);
             }
             continue;
         }
@@ -5668,6 +5820,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 std::shared_ptr<ClassNode> scls = std::move(cls);
                 pkg->class_map[scls->name] = scls.get();
                 pkg->classes.push_back(scls);
+                class_map[scls->name] = scls;
+                class_map[pkg->name + "::" + scls->name] = scls;
+                global_classes.push_back(scls);
             }
             continue;
         }
@@ -5678,6 +5833,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 std::shared_ptr<ClassNode> scls = std::move(cls);
                 pkg->class_map[scls->name] = scls.get();
                 pkg->classes.push_back(scls);
+                class_map[scls->name] = scls;
+                class_map[pkg->name + "::" + scls->name] = scls;
+                global_classes.push_back(scls);
             }
             continue;
         }

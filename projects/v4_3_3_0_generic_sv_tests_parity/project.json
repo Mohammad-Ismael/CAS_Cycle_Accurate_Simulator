@@ -1,0 +1,9 @@
+{
+  "name": "v4_3_3_0_generic_sv_tests_parity",
+  "description": "Milestone regression for generic SystemVerilog constructs parity (180/180 sv-tests tests/generic)",
+  "top_module": "tb_v4_3_3_regression",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

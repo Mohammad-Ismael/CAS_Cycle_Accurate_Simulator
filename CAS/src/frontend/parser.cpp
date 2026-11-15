@@ -19,20 +19,31 @@ Parser::Parser(Lexer& lex) : lexer(lex) {
 }
 
 void Parser::advance() {
-    if (has_peek) {
-        current = peeked;
-        has_peek = false;
+    if (!peek_queue.empty()) {
+        current = peek_queue.front();
+        peek_queue.pop_front();
     } else {
         current = lexer.next_token();
     }
 }
 
 Token Parser::peek_token() {
-    if (!has_peek) {
-        peeked = lexer.next_token();
-        has_peek = true;
+    return peek_token_n(1);
+}
+
+Token Parser::peek_token_n(size_t n) {
+    while (peek_queue.size() < n) {
+        peek_queue.push_back(lexer.next_token());
     }
-    return peeked;
+    return peek_queue[n - 1];
+}
+
+void Parser::register_forward_type(const std::string& name) {
+    forward_typedefs.insert(name);
+    SimpleTypedef sm{name, "logic", 1, false};
+    simple_typedef_map[name] = sm;
+    if (current_parsing_package) current_parsing_package->simple_typedefs[name] = sm;
+    if (current_parsing_module) current_parsing_module->simple_typedefs[name] = sm;
 }
 
 bool Parser::match(TokenType t) {

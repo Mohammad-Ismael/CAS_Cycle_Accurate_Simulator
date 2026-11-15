@@ -815,15 +815,27 @@ Token Lexer::next_token() {
             auto pnum = NumberParser::parse_unbased_literal(lit);
             return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
         }
-        char next_c = peek_next();
+        // Support whitespace after apostrophe in unsized based literal, e.g. ' b 0
+        size_t ap_ws = 0;
+        char next_c = '\0';
+        if (!file_stack.empty()) {
+            size_t cur = file_stack.back().cursor + 1;
+            const auto& src = file_stack.back().src;
+            while (cur + ap_ws < src.size() && (src[cur + ap_ws] == ' ' || src[cur + ap_ws] == '\t')) ap_ws++;
+            if (cur + ap_ws < src.size()) next_c = src[cur + ap_ws];
+        }
         bool is_based = false;
         if (next_c == 'b' || next_c == 'B' || next_c == 'o' || next_c == 'O' ||
             next_c == 'd' || next_c == 'D' || next_c == 'h' || next_c == 'H') {
             is_based = true;
         } else if (next_c == 's' || next_c == 'S') {
             char after_s = '\0';
-            if (!file_stack.empty() && file_stack.back().cursor + 2 < file_stack.back().src.size()) {
-                after_s = file_stack.back().src[file_stack.back().cursor + 2];
+            if (!file_stack.empty()) {
+                size_t cur = file_stack.back().cursor;
+                const auto& src = file_stack.back().src;
+                size_t cur2 = cur + ap_ws + 1;
+                while (cur2 < src.size() && (src[cur2] == ' ' || src[cur2] == '\t')) cur2++;
+                if (cur2 < src.size()) after_s = src[cur2];
             }
             if (after_s == 'b' || after_s == 'B' || after_s == 'o' || after_s == 'O' ||
                 after_s == 'd' || after_s == 'D' || after_s == 'h' || after_s == 'H') {
@@ -832,10 +844,12 @@ Token Lexer::next_token() {
         }
         if (is_based) {
             advance(); // consume '\''
+            while (peek() == ' ' || peek() == '\t') advance();
             bool is_signed = false;
             if (peek() == 's' || peek() == 'S') {
                 is_signed = true;
                 advance();
+                while (peek() == ' ' || peek() == '\t') advance();
             }
             char base = advance();
             while (peek() == ' ' || peek() == '\t') advance();
@@ -874,16 +888,37 @@ Token Lexer::next_token() {
             num_str += alnum_part;
         }
 
-        if (peek() == '\'') {
-            char next_c = peek_next();
+        // Sized based literal with optional whitespace between size and apostrophe: e.g. 1 'b x, 32 'd 1
+        size_t ws_ahead = 0;
+        char ahead_c = '\0';
+        if (!file_stack.empty()) {
+            size_t cur = file_stack.back().cursor;
+            const auto& src = file_stack.back().src;
+            while (cur + ws_ahead < src.size() && (src[cur + ws_ahead] == ' ' || src[cur + ws_ahead] == '\t')) ws_ahead++;
+            if (cur + ws_ahead < src.size()) ahead_c = src[cur + ws_ahead];
+        }
+
+        if (ahead_c == '\'') {
+            // Check what follows the apostrophe
+            size_t ap_ws = 1;
+            char next_c = '\0';
+            if (!file_stack.empty()) {
+                size_t cur = file_stack.back().cursor + ws_ahead;
+                const auto& src = file_stack.back().src;
+                while (cur + ap_ws < src.size() && (src[cur + ap_ws] == ' ' || src[cur + ap_ws] == '\t')) ap_ws++;
+                if (cur + ap_ws < src.size()) next_c = src[cur + ap_ws];
+            }
             bool is_sized_base = false;
             if (next_c == 'b' || next_c == 'B' || next_c == 'o' || next_c == 'O' ||
                 next_c == 'd' || next_c == 'D' || next_c == 'h' || next_c == 'H') {
                 is_sized_base = true;
             } else if (next_c == 's' || next_c == 'S') {
                 char after_s = '\0';
-                if (!file_stack.empty() && file_stack.back().cursor + 2 < file_stack.back().src.size()) {
-                    after_s = file_stack.back().src[file_stack.back().cursor + 2];
+                if (!file_stack.empty()) {
+                    size_t cur = file_stack.back().cursor + ws_ahead + ap_ws + 1;
+                    const auto& src = file_stack.back().src;
+                    while (cur < src.size() && (src[cur] == ' ' || src[cur] == '\t')) cur++;
+                    if (cur < src.size()) after_s = src[cur];
                 }
                 if (after_s == 'b' || after_s == 'B' || after_s == 'o' || after_s == 'O' ||
                     after_s == 'd' || after_s == 'D' || after_s == 'h' || after_s == 'H') {
@@ -892,12 +927,15 @@ Token Lexer::next_token() {
             }
 
             if (is_sized_base) {
+                while (ws_ahead > 0) { advance(); ws_ahead--; }
                 uint32_t width = std::stoul(num_str);
-                advance();
+                advance(); // consume '\''
+                while (peek() == ' ' || peek() == '\t') advance();
                 bool is_signed = false;
                 if (peek() == 's' || peek() == 'S') {
                     is_signed = true;
                     advance();
+                    while (peek() == ' ' || peek() == '\t') advance();
                 }
                 char base = advance();
                 while (peek() == ' ' || peek() == '\t') advance();

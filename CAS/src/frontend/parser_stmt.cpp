@@ -187,7 +187,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     // Or lookahead for user-defined types (e.g. unknown class / interface type declared in another file)
     bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text));
     bool is_udt_decl = false;
-    if (current.type == TokenType::TOKEN_IDENTIFIER && !is_type_identifier(current.text) &&
+    if (current.type == TokenType::TOKEN_IDENTIFIER && current.text != "var" && !is_type_identifier(current.text) &&
         !is_covergroup(current.text) && !is_interface_type(current.text)) {
         TokenType next_tok = peek_token().type;
         if (next_tok == TokenType::TOKEN_IDENTIFIER) {
@@ -200,18 +200,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (match(TokenType::TOKEN_COLON_COLON)) {
             std::string member = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
-            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                class_type = class_type + "::" + member;
+            } else if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
                 return std::make_unique<BlockingAssignNode>(class_type + "::" + member, std::move(rhs));
-            }
-            if (match(TokenType::TOKEN_LPAREN)) {
+            } else if (match(TokenType::TOKEN_LPAREN)) {
                 auto parsed = parse_call_argument_list();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static method call");
                 return std::make_unique<TaskCallNode>(member, std::move(parsed.args), class_type, std::move(parsed.arg_names));
+            } else {
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static member statement");
+                return std::make_unique<TaskCallNode>(member, std::vector<std::unique_ptr<ExpressionNode>>(), class_type);
             }
-            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after static member statement");
-            return std::make_unique<TaskCallNode>(member, std::vector<std::unique_ptr<ExpressionNode>>(), class_type);
         }
         std::vector<std::unique_ptr<StatementNode>> vstmts;
         while (true) {
@@ -462,6 +464,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         advance();
     }
 
+    bool has_var_kw = false;
+    if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") {
+        has_var_kw = true;
+        advance();
+    }
+
     bool is_shortreal_var = (current.type == TokenType::TOKEN_SHORTREAL ||
                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal"));
     bool is_real_var = (current.type == TokenType::TOKEN_REAL || is_shortreal_var);
@@ -476,7 +484,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     bool is_mailbox_stmt = (current.type == TokenType::TOKEN_MAILBOX ||
                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
 
-    if (is_procedural_param || is_procedural_static ||
+    if (has_var_kw || is_procedural_param || is_procedural_static ||
         current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || is_real_var ||
@@ -644,7 +652,34 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             std::unique_ptr<ExpressionNode> d_lsb = packed_dims.empty() ? nullptr : packed_dims[0].right_expr->clone();
             register_local_decl_var(vname, width, is_signed_var, tname, std::move(d_msb), std::move(d_lsb));
             vstmts.push_back(std::move(vnode));
-            if (match(TokenType::TOKEN_COMMA)) continue;
+            if (match(TokenType::TOKEN_COMMA)) {
+                if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC ||
+                    current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REG ||
+                    (current.type == TokenType::TOKEN_IDENTIFIER &&
+                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                    tname = current.text;
+                    if (current.type == TokenType::TOKEN_BIT) { width = 1; is_signed_var = false; }
+                    else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG) { width = 1; is_signed_var = false; }
+                    else if (current.type == TokenType::TOKEN_INTEGER || current.text == "int") { width = 32; is_signed_var = true; }
+                    else if (current.text == "byte") { width = 8; is_signed_var = true; }
+                    else if (current.text == "shortint") { width = 16; is_signed_var = true; }
+                    else if (current.text == "longint") { width = 64; is_signed_var = true; }
+                    advance();
+                    packed_dims.clear();
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        auto msb = parse_expression();
+                        expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                        AstDimension dim;
+                        dim.left_expr = std::move(msb);
+                        dim.right_expr = std::move(lsb);
+                        dim.is_single = false;
+                        packed_dims.push_back(std::move(dim));
+                    }
+                }
+                continue;
+            }
             break;
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after variable declaration");
