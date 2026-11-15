@@ -1,0 +1,6 @@
+{
+  "name": "v3_98_0_0_queues_dollar_slices_and_ref_persistence",
+  "version": "3.98.0.0",
+  "top_module": "tb_v3_98_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

@@ -1376,6 +1376,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         return std::make_unique<ConcatNode>(std::move(elements));
     }
 
+    if (match(TokenType::TOKEN_DOLLAR)) {
+        return std::make_unique<IdentifierNode>("__CAS_QUEUE_DOLLAR__");
+    }
+
     std::string loc = current.filename.empty() 
         ? ("line " + std::to_string(current.line)) 
         : (current.filename + ":" + std::to_string(current.line));

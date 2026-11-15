@@ -28,6 +28,8 @@ private:
 public:
     explicit ExprEvaluator(Engine& eng);
 
+    std::vector<int64_t> queue_dollar_stack;
+
     void set_pending_subroutines(std::vector<PendingSubroutineCall>* p) { pending_subroutines = p; }
     std::vector<PendingSubroutineCall>* get_pending_subroutines() const { return pending_subroutines; }
 

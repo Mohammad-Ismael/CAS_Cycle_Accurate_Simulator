@@ -2812,6 +2812,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
+        if (member_name == "pop_front" || member_name == "pop_back") {
+            QueueObject* q = nullptr;
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_queue) q = &local->queue_data;
+            }
+            if (!q && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_queue) { q = &local->queue_data; break; }
+                }
+            }
+            if (!q) q = engine.get_queue(var_name, scope);
+            if (q) {
+                if (member_name == "pop_front") return q->pop_front();
+                else return q->pop_back();
+            }
+        }
+
         if (member_name == "size") {
             DynamicArrayObject* da = nullptr;
             if (context.has_active_frame()) {
@@ -3541,6 +3560,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
+        if (ident->name == "__CAS_QUEUE_DOLLAR__" || ident->name == "$") {
+            if (!queue_dollar_stack.empty()) {
+                return LogicVal::make_known(32, (uint64_t)queue_dollar_stack.back(), true);
+            }
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(ident->name);
+                if (local) return local->value;
+            }
+            return LogicVal::make_known(32, 0, true);
+        }
 
         // FAST PATH: bound net identifier
         if (ident->is_bound && ident->cached_net_id != UINT32_MAX && ident->cached_net_id < engine.netlist.size()) {
@@ -3799,6 +3828,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
+        if (cat->elements.empty()) {
+            LogicVal res(0, 0, 0);
+            res.is_unpacked = true;
+            return res;
+        }
         uint32_t total_w = 0;
         std::vector<LogicVal> vals;
         bool any_string = false;
@@ -3902,11 +3936,33 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             q = engine.get_queue(idx_node->name, scope);
         }
         if (q) {
+            struct DollarGuard {
+                std::vector<int64_t>& s;
+                DollarGuard(std::vector<int64_t>& stk, int64_t val) : s(stk) { s.push_back(val); }
+                ~DollarGuard() { s.pop_back(); }
+            } dg(queue_dollar_stack, (int64_t)q->size() - 1);
+
+            if (idx_node->is_part_select && idx_node->lsb_expr) {
+                int64_t a = (int64_t)eval(idx_node->msb_expr.get(), scope).to_signed();
+                int64_t b = (int64_t)eval(idx_node->lsb_expr.get(), scope).to_signed();
+                std::vector<LogicVal> slice_elems;
+                if (a <= b) {
+                    int64_t start = std::max<int64_t>(0, a);
+                    int64_t end = std::min<int64_t>((int64_t)q->size() - 1, b);
+                    for (int64_t i = start; i <= end; ++i) {
+                        slice_elems.push_back(q->get_elem(i));
+                    }
+                }
+                LogicVal res(q->elem_width, 0, 0);
+                res.is_unpacked = true;
+                res.unpacked_elements = std::move(slice_elems);
+                return res;
+            }
             LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
             if (addr_val.is_unknown()) {
                 return LogicVal::make_x(q->elem_width);
             }
-            int64_t idx = (int64_t)addr_val.aval;
+            int64_t idx = addr_val.to_signed();
             LogicVal elem = q->get_elem(idx);
             if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
                 uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
@@ -6080,9 +6136,39 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
             uint32_t elem_width = 32;
             bool is_signed = false;
             if (get_array_elements(idx->name, scope, elements, elem_width, is_signed)) {
-                int64_t msb = (int64_t)eval(idx->msb_expr.get(), scope).aval;
-                int64_t lsb = (int64_t)eval(idx->lsb_expr.get(), scope).aval;
+                bool is_q = engine.is_queue(idx->name, scope);
+                if (!is_q && context.has_active_frame()) {
+                    LocalVar* lq = context.lookup_local(idx->name);
+                    if (lq && lq->is_queue) is_q = true;
+                }
+                if (!is_q && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        LocalVar* lq = it->local_frame.get_var(idx->name);
+                        if (lq && lq->is_queue) { is_q = true; break; }
+                    }
+                }
+                struct DollarGuard {
+                    std::vector<int64_t>& s;
+                    DollarGuard(std::vector<int64_t>& stk, int64_t val) : s(stk) { s.push_back(val); }
+                    ~DollarGuard() { s.pop_back(); }
+                };
+                std::unique_ptr<DollarGuard> dg;
+                if (is_q) {
+                    dg = std::make_unique<DollarGuard>(queue_dollar_stack, (int64_t)elements.size() - 1);
+                }
+                int64_t msb = (int64_t)eval(idx->msb_expr.get(), scope).to_signed();
+                int64_t lsb = (int64_t)eval(idx->lsb_expr.get(), scope).to_signed();
                 std::vector<LogicVal> slice;
+                if (is_q) {
+                    if (msb <= lsb) {
+                        int64_t start = std::max<int64_t>(0, msb);
+                        int64_t end = std::min<int64_t>((int64_t)elements.size() - 1, lsb);
+                        for (int64_t i = start; i <= end; ++i) {
+                            slice.push_back(elements[i]);
+                        }
+                    }
+                    return slice;
+                }
                 if (msb <= lsb) {
                     for (int64_t i = msb; i <= lsb; ++i) {
                         if (i >= 0 && (size_t)i < elements.size()) slice.push_back(elements[i]);

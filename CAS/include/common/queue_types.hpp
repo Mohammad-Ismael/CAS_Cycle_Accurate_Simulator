@@ -75,6 +75,20 @@ struct QueueObject {
         }
     }
 
+    void insert(int64_t idx, const LogicVal& val) {
+        if (idx < 0 || (size_t)idx > elements.size()) {
+            return; // IEEE 1800-2023 §7.10.2.2: Illegal index warning/ignored
+        }
+        LogicVal casted = val.is_string ? val : cast_elem(val, elem_width);
+        if (max_bound >= 0 && (int64_t)elements.size() > max_bound) {
+            return;
+        }
+        elements.insert(elements.begin() + idx, casted);
+        if (max_bound >= 0 && (int64_t)elements.size() > max_bound + 1) {
+            elements.resize(max_bound + 1);
+        }
+    }
+
     LogicVal get_elem(int64_t idx) const {
         if (idx < 0 || (size_t)idx >= elements.size()) {
             return LogicVal::make_x(elem_width);

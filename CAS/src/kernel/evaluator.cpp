@@ -2228,6 +2228,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (method == "pop_back") {
                     q->pop_back();
                     return;
+                } else if (method == "insert") {
+                    if (tcall->args.size() >= 2) {
+                        LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
+                        LogicVal item_v = eval_expr(tcall->args[1].get(), bp.scope);
+                        q->insert((int64_t)idx_v.aval, item_v);
+                    }
+                    return;
                 } else if (method == "delete") {
                     if (tcall->args.empty()) {
                         q->delete_all();
@@ -2543,7 +2550,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
 
-                if (p.direction == "input" || p.direction == "inout") {
+                if (p.direction == "input" || p.direction == "inout" || p.direction == "ref") {
                     if (val_expr) {
                         LogicVal arg_val = eval_expr(val_expr, bp.scope);
                         LocalVar* lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(p.name) : nullptr;
@@ -4385,9 +4392,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (local->is_queue) {
                     if (assign->bit_idx) {
+                        expr_eval.queue_dollar_stack.push_back((int64_t)local->queue_data.size() - 1);
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        expr_eval.queue_dollar_stack.pop_back();
                         if (!idx_val.is_unknown()) {
-                            int64_t idx = (int64_t)idx_val.aval;
+                            int64_t idx = idx_val.to_signed();
                             local->queue_data.set_elem(idx, rhs_val);
                         }
                         return;
@@ -4398,7 +4407,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                         }
-                        local->queue_data.elements.assign(elems.begin(), elems.end());
+                        local->queue_data.elements.clear();
+                        for (const auto& el : elems) {
+                            local->queue_data.elements.push_back(el.is_string ? el : (el.width == local->queue_data.elem_width ? el : local->queue_data.cast_elem(el, local->queue_data.elem_width)));
+                        }
                         return;
                     }
                 }
@@ -4631,9 +4643,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 if (q) {
                     if (assign->bit_idx) {
+                        expr_eval.queue_dollar_stack.push_back((int64_t)q->size() - 1);
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
+                        expr_eval.queue_dollar_stack.pop_back();
                         if (!idx_val.is_unknown()) {
-                            int64_t idx = (int64_t)idx_val.aval;
+                            int64_t idx = idx_val.to_signed();
                             q->set_elem(idx, rhs_val);
                         }
                         return;
@@ -4644,7 +4658,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                         }
-                        q->elements.assign(elems.begin(), elems.end());
+                        q->elements.clear();
+                        for (const auto& el : elems) {
+                            q->elements.push_back(el.is_string ? el : (el.width == q->elem_width ? el : q->cast_elem(el, q->elem_width)));
+                        }
                         return;
                     }
                 }

@@ -3616,7 +3616,7 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             }
         }
 
-        if (p.direction == "input" || p.direction == "inout") {
+        if (p.direction == "input" || p.direction == "inout" || p.direction == "ref") {
             if (val_expr) {
                 LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
                 LocalVar* lv = frame.local_frame.get_var(p.name);
