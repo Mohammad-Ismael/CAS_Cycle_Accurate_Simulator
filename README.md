@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.57.0.0`  
-**Status:** Production Milestone v3.57.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.95.0.0`  
+**Status:** Production Milestone v3.95.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regressions/             # 83/83 Comprehensive IEEE 1800-2023 Regression Testbenches
+├── regressions/             # 95/95 Comprehensive IEEE 1800-2023 Regression Testbenches
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
@@ -304,6 +304,18 @@ All 83 milestone regression testbenches are self-checking and verified against S
 | **v3.81.0.0** | `projects/v3_81_0_0_nd_array_slice` | Multi-dimensional (3D) packed array indexing and slicing | **PASS** | 100% VCS |
 | **v3.82.0.0** | `projects/v3_82_0_0_wait_condition_handshake` | Level-sensitive `wait(expr)` process handshakes and wakeup | **PASS** | 100% VCS |
 | **v3.83.0.0** | `projects/v3_83_0_0_assoc_mem_readmemh` | Sparse associative array initialization with `$readmemh` | **PASS** | 100% VCS |
+| **v3.84.0.0** | `projects/v3_84_0_0_initreg_feedback_loops` | Initial register initialization and cyclic feedback loops | **PASS** | 100% VCS |
+| **v3.85.0.0** | `projects/v3_85_0_0_wide_vector_logic_ops` | Wide vector (>64-bit) bitwise, reduction, and relational operations | **PASS** | 100% VCS |
+| **v3.86.0.0** | `projects/v3_86_0_0_loop_jump_and_short_circuit` | Loop jump statements (`break`, `continue`) & logical short-circuiting | **PASS** | 100% VCS |
+| **v3.87.0.0** | `projects/v3_87_0_0_assign_in_expression` | Assignment within expressions (`++`, `--`, direct assignments) | **PASS** | 100% VCS |
+| **v3.88.0.0** | `projects/v3_88_0_0_arith_shift_and_4state_eq` | Arithmetic shifts (`<<<`, `>>>`) & 4-state wildcard case equality | **PASS** | 100% VCS |
+| **v3.89.0.0** | `projects/v3_89_0_0_string_repl_and_multidim_mem` | String replication operator (`{N{str}}`) & multidimensional memory access | **PASS** | 100% VCS |
+| **v3.90.0.0** | `projects/v3_90_0_0_streaming_operators_wide` | Wide vector streaming concatenation pack/unpack (`{>>{...}}`, `{<<{...}}`) | **PASS** | 100% VCS |
+| **v3.91.0.0** | `projects/v3_91_0_0_tagged_unions` | Tagged union construction, member update, and pattern matching | **PASS** | 100% VCS |
+| **v3.92.0.0** | `projects/v3_92_0_0_named_events_and_struct_defaults` | Named event triggers/waiters & packed struct member default initialization | **PASS** | 100% VCS |
+| **v3.93.0.0** | `projects/v3_93_0_0_classes_and_interface_typedefs` | Class instance property/parameter lookups & interface class typedefs | **PASS** | 100% VCS |
+| **v3.94.0.0** | `projects/v3_94_0_0_dynamic_arrays_and_hex_pad` | Module-scope dynamic array lifecycle & width-based hex zero-padding | **PASS** | 100% VCS |
+| **v3.95.0.0** | `projects/v3_95_0_0_multidim_subarrays_and_subroutine_arrays` | Multidimensional subarray copy (§7.4.5) & subroutine unpacked array ports | **PASS** | 100% VCS |
 
 ---
 
@@ -350,11 +362,11 @@ CAS_Cycle_Accurate_Simulator/
 │   │   ├── profiler/           # Runtime hardware resource profiler
 │   │   └── tracer/             # VCD trace dumper
 │   └── src/                    # Implementation sources
-├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.83.0.0)
-│   ├── run_regressions.py      # Automated 83-milestone regression runner script
+├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.95.0.0)
+│   ├── run_regressions.py      # Automated 95-milestone regression runner script
 │   └── v1.0.0.0/               # Initial golden regression reference
-├── projects/                   # Benchmark and application workspace (including 83 milestone test suites)
-├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.57.0.0.md)
+├── projects/                   # Benchmark and application workspace (including 95 milestone test suites)
+├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.95.0.0.md)
 ├── server.py                   # Containerized FastAPI simulation and IDE server
 ├── Dockerfile                  # Production container definition
 └── README.md                   # Simulator architecture and documentation
@@ -393,7 +405,7 @@ docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c "apk add --no-cac
 
 ### 3. Run All Milestone Regressions
 
-The unified regression runner automatically executes all 83 milestone test suites (`v1.0.0.0` through `v3.83.0.0`), asserting 100% Synopsys VCS golden parity:
+The unified regression runner automatically executes all 95 milestone test suites (`v1.0.0.0` through `v3.95.0.0`), asserting 100% Synopsys VCS golden parity:
 
 ```bash
 # From repository root:
@@ -410,7 +422,7 @@ docker exec cas_dev python3 regressions/run_regressions.py
 
 ## Phase 2: Real-World Silicon Verification (lowRISC Ibex & WD VeeR EL2)
 
-With the expansion through Milestone `v3.83.0.0`, CAS maintains 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 83 milestone test suites (`TOTAL: 83 | PASSED: 83 | FAILED: 0`).
+With the expansion through Milestone `v3.95.0.0`, CAS maintains 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 95 milestone test suites (`TOTAL: 95 | PASSED: 95 | FAILED: 0`).
 
 Building upon this golden baseline, CAS targets **100% cycle-accurate execution parity** against golden references on industrial-grade silicon RTL: the **lowRISC Ibex** 32-bit RISC-V core and the **Western Digital VeeR EL2** dual-issue 32-bit RISC-V core.
 

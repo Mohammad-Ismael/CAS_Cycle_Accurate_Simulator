@@ -264,6 +264,29 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             pnode.is_virtual_interface = is_vif;
             pnode.interface_name = vif_iface;
             pnode.modport_name = vif_mp;
+
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto l = parse_expression();
+                std::unique_ptr<ExpressionNode> r = nullptr;
+                bool is_single = true;
+                if (match(TokenType::TOKEN_COLON)) {
+                    r = parse_expression();
+                    is_single = false;
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port unpacked dimension");
+                AstDimension ad;
+                ad.left_expr = std::move(l);
+                ad.right_expr = std::move(r);
+                ad.is_single = is_single;
+                pnode.unpacked_dimensions.push_back(std::move(ad));
+            }
+            if (!pnode.unpacked_dimensions.empty()) {
+                pnode.bound1_expr = pnode.unpacked_dimensions[0].left_expr->clone();
+                if (pnode.unpacked_dimensions[0].right_expr) {
+                    pnode.bound2_expr = pnode.unpacked_dimensions[0].right_expr->clone();
+                }
+            }
+
             if (match(TokenType::TOKEN_EQUAL)) {
                 pnode.default_value = parse_expression();
             }
@@ -311,6 +334,27 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 auto p_msb = msb ? msb->clone() : nullptr;
                 auto p_lsb = lsb ? lsb->clone() : nullptr;
                 PortNode pnode(arg_name, dir, std::move(p_msb), std::move(p_lsb), is_s);
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port unpacked dimension");
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    pnode.unpacked_dimensions.push_back(std::move(ad));
+                }
+                if (!pnode.unpacked_dimensions.empty()) {
+                    pnode.bound1_expr = pnode.unpacked_dimensions[0].left_expr->clone();
+                    if (pnode.unpacked_dimensions[0].right_expr) {
+                        pnode.bound2_expr = pnode.unpacked_dimensions[0].right_expr->clone();
+                    }
+                }
                 func->inputs.push_back(std::move(pnode));
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;

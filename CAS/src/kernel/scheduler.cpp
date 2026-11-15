@@ -410,7 +410,7 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
         for (const auto& item : mit->second) {
             if (engine.memory_map.find(item.mem_scoped_name) != engine.memory_map.end()) {
                 auto& mem = engine.memory_map.at(item.mem_scoped_name);
-                mem.set_word(item.addr, item.val);
+                mem.set_raw_word(item.addr, item.val);
             }
         }
         delayed_nba_mem_queue.erase(mit);
@@ -3296,15 +3296,15 @@ bool StratifiedScheduler::commit_nba_updates() {
     for (const auto& mem_up : nba_mem_queue) {
         if (engine.memory_map.find(mem_up.mem_scoped_name) != engine.memory_map.end()) {
             auto& mem = engine.memory_map.at(mem_up.mem_scoped_name);
-            LogicVal old_v = mem.get_word(mem_up.addr);
+            LogicVal old_v = mem.get_raw_word(mem_up.addr);
             if (mem_up.is_slice) {
                 LogicVal cur = old_v;
                 cur.deposit_slice(mem_up.offset, mem_up.slice_width, mem_up.val);
-                mem.set_word(mem_up.addr, cur);
+                mem.set_raw_word(mem_up.addr, cur);
             } else {
-                mem.set_word(mem_up.addr, mem_up.val);
+                mem.set_raw_word(mem_up.addr, mem_up.val);
             }
-            if (mem.get_word(mem_up.addr) != old_v) {
+            if (mem.get_raw_word(mem_up.addr) != old_v) {
                 notify_mem_changed();
             }
         }
@@ -3565,6 +3565,29 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
             }
         }
         frame.local_frame.declare_var(p.name, w, p.is_signed);
+        LocalVar* callee_lv = frame.local_frame.get_var(p.name);
+        if (callee_lv && !p.unpacked_dimensions.empty()) {
+            callee_lv->is_unpacked_array = true;
+            callee_lv->elem_width = w;
+            for (const auto& udim : p.unpacked_dimensions) {
+                int64_t b1 = 0, b2 = 0;
+                if (udim.left_expr) b1 = engine.evaluator.eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                if (udim.right_expr) b2 = engine.evaluator.eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                ArrayDimInfo info;
+                info.left = b1; info.right = b2; info.is_unpacked = true;
+                callee_lv->dimensions.push_back(info);
+            }
+            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+            uint32_t tot = 1;
+            for (const auto& d : callee_lv->dimensions) {
+                if (d.is_unpacked) tot *= (uint32_t)d.size();
+            }
+            callee_lv->array_size = tot;
+            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+        }
         if (p.is_virtual_interface) {
             LocalVar* lv = frame.local_frame.get_var(p.name);
             if (lv) {
@@ -3598,9 +3621,18 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                 LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
                 LocalVar* lv = frame.local_frame.get_var(p.name);
                 if (lv) {
-                    lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
-                    if (p.is_virtual_interface) {
-                        lv->vif_handle = arg_val.aval;
+                    if (lv->is_unpacked_array) {
+                        if (arg_val.is_unpacked) {
+                            lv->unpacked_elements = arg_val.unpacked_elements;
+                        } else {
+                            auto elems = engine.evaluator.get_expr_eval().eval_array_expr(val_expr, bp.scope);
+                            if (!elems.empty()) lv->unpacked_elements = elems;
+                        }
+                    } else {
+                        lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
+                        if (p.is_virtual_interface) {
+                            lv->vif_handle = arg_val.aval;
+                        }
                     }
                 }
             }

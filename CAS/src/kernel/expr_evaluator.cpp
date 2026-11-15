@@ -45,6 +45,29 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
             }
         }
         context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
+        LocalVar* callee_lv = context.lookup_local(in_p.name);
+        if (callee_lv && !in_p.unpacked_dimensions.empty()) {
+            callee_lv->is_unpacked_array = true;
+            callee_lv->elem_width = w;
+            for (const auto& udim : in_p.unpacked_dimensions) {
+                int64_t b1 = 0, b2 = 0;
+                if (udim.left_expr) b1 = eval(udim.left_expr.get(), target_fn->scope).to_signed();
+                if (udim.right_expr) b2 = eval(udim.right_expr.get(), target_fn->scope).to_signed();
+                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                ArrayDimInfo info;
+                info.left = b1; info.right = b2; info.is_unpacked = true;
+                callee_lv->dimensions.push_back(info);
+            }
+            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+            uint32_t tot = 1;
+            for (const auto& d : callee_lv->dimensions) {
+                if (d.is_unpacked) tot *= (uint32_t)d.size();
+            }
+            callee_lv->array_size = tot;
+            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+        }
         if (in_p.type_name == "string") {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) lv->value = LogicVal::make_string("");
@@ -61,10 +84,25 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
             }
         }
         if (i < arg_vals.size()) {
-            context.set_local_value(in_p.name, arg_vals[i]);
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv && lv->is_unpacked_array) {
+                if (arg_vals[i].is_unpacked) {
+                    lv->unpacked_elements = arg_vals[i].unpacked_elements;
+                } else if (i < caller_exprs.size() && caller_exprs[i]) {
+                    auto elems = eval_array_expr(caller_exprs[i], target_fn->scope);
+                    if (!elems.empty()) lv->unpacked_elements = elems;
+                }
+            } else {
+                context.set_local_value(in_p.name, arg_vals[i]);
+            }
         } else if (in_p.default_value) {
             LogicVal def_v = eval(in_p.default_value.get(), target_fn->scope);
-            context.set_local_value(in_p.name, def_v);
+            LocalVar* lv = context.lookup_local(in_p.name);
+            if (lv && lv->is_unpacked_array && def_v.is_unpacked) {
+                lv->unpacked_elements = def_v.unpacked_elements;
+            } else {
+                context.set_local_value(in_p.name, def_v);
+            }
         }
     }
 
@@ -141,6 +179,29 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
             w = 32;
         }
         context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
+        LocalVar* callee_lv = context.lookup_local(in_p.name);
+        if (callee_lv && !in_p.unpacked_dimensions.empty()) {
+            callee_lv->is_unpacked_array = true;
+            callee_lv->elem_width = w;
+            for (const auto& udim : in_p.unpacked_dimensions) {
+                int64_t b1 = 0, b2 = 0;
+                if (udim.left_expr) b1 = eval(udim.left_expr.get(), fn->scope).to_signed();
+                if (udim.right_expr) b2 = eval(udim.right_expr.get(), fn->scope).to_signed();
+                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                ArrayDimInfo info;
+                info.left = b1; info.right = b2; info.is_unpacked = true;
+                callee_lv->dimensions.push_back(info);
+            }
+            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+            uint32_t tot = 1;
+            for (const auto& d : callee_lv->dimensions) {
+                if (d.is_unpacked) tot *= (uint32_t)d.size();
+            }
+            callee_lv->array_size = tot;
+            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+        }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -212,6 +273,29 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
             w = 32;
         }
         context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
+        LocalVar* callee_lv = context.lookup_local(in_p.name);
+        if (callee_lv && !in_p.unpacked_dimensions.empty()) {
+            callee_lv->is_unpacked_array = true;
+            callee_lv->elem_width = w;
+            for (const auto& udim : in_p.unpacked_dimensions) {
+                int64_t b1 = 0, b2 = 0;
+                if (udim.left_expr) b1 = eval(udim.left_expr.get(), fn->scope).to_signed();
+                if (udim.right_expr) b2 = eval(udim.right_expr.get(), fn->scope).to_signed();
+                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                ArrayDimInfo info;
+                info.left = b1; info.right = b2; info.is_unpacked = true;
+                callee_lv->dimensions.push_back(info);
+            }
+            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+            uint32_t tot = 1;
+            for (const auto& d : callee_lv->dimensions) {
+                if (d.is_unpacked) tot *= (uint32_t)d.size();
+            }
+            callee_lv->array_size = tot;
+            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+        }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -4005,6 +4089,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 size_t num_u = std::min(U, mem_indices.size());
                 uint32_t linear_addr = 0;
                 bool addr_unknown = false;
+                std::vector<uint32_t> u_strides(U, 1);
                 if (U <= 1) {
                     if (!mem_indices.empty()) {
                         LogicVal iv = eval(mem_indices[0], scope);
@@ -4012,7 +4097,6 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
                     }
                 } else {
-                    std::vector<uint32_t> u_strides(U, 1);
                     for (int k = (int)U - 2; k >= 0; --k) {
                         u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
                     }
@@ -4034,7 +4118,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     return LogicVal::make_x(mem.word_width);
                 }
 
-                LogicVal elem = mem.get_word(linear_addr);
+                if (num_u < U && mem_indices.size() == num_u) {
+                    uint32_t subarray_len = (num_u > 0) ? u_strides[num_u - 1] : (uint32_t)mem.words.size();
+                    std::vector<LogicVal> slice_elems;
+                    slice_elems.reserve(subarray_len);
+                    for (size_t k = 0; k < subarray_len; ++k) {
+                        slice_elems.push_back(mem.get_raw_word(linear_addr + k));
+                    }
+                    LogicVal res(mem.word_width, 0, 0);
+                    res.is_unpacked = true;
+                    res.unpacked_elements = std::move(slice_elems);
+                    return res;
+                }
+
+                LogicVal elem = mem.get_raw_word(linear_addr);
                 if (mem_indices.size() > U) {
                     ExpressionNode* bit_sel_expr = mem_indices[U];
                     uint64_t b_msb = eval(bit_sel_expr, scope).aval;
@@ -5858,6 +5955,11 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
                 }
                 return slice;
             }
+        } else {
+            LogicVal v = eval(idx, scope);
+            if (v.is_unpacked) {
+                return v.unpacked_elements;
+            }
         }
     }
 
@@ -7067,21 +7169,4 @@ std::string ExprEvaluator::format_systemverilog_string(
         else if (val.width <= 64) result += std::to_string(val.aval);
         else result += val.to_dec_string();
     }
-    return result;
-}
-
-LogicVal ExprEvaluator::eval_sformatf(SFormatfNode* node, const std::string& scope) {
-    if (!node || node->args.empty()) {
-        throw std::runtime_error("[CAS-DTINPCIL] $sformatf requires at least 1 argument per IEEE 1800-2023 section 20.14");
-    }
-    LogicVal fmt_val = eval(node->args[0].get(), scope);
-    if (!fmt_val.is_string) {
-        throw std::runtime_error("[CAS-DTINPCIL] Format argument in $sformatf must evaluate to a string type per IEEE 1800-2023 section 20.14");
-    }
-    std::vector<LogicVal> arg_vals;
-    for (size_t i = 1; i < node->args.size(); ++i) {
-        arg_vals.push_back(eval(node->args[i].get(), scope));
-    }
-    std::string formatted = format_systemverilog_string(fmt_val.str_val, arg_vals, engine.get_sim_time());
-    return LogicVal::make_string(formatted);
-}
+    r                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       

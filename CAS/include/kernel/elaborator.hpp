@@ -102,6 +102,17 @@ struct MemoryArray {
             words[off] = val;
         }
     }
+
+    LogicVal get_raw_word(size_t off) const {
+        if (off < words.size()) return words[off];
+        return LogicVal::make_x(word_width);
+    }
+
+    void set_raw_word(size_t off, const LogicVal& val) {
+        if (off < words.size()) {
+            words[off] = val;
+        }
+    }
 };
 
 struct EventWaitTarget {

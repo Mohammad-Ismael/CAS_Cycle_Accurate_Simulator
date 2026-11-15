@@ -1,0 +1,9 @@
+{
+  "name": "v3_95_0_0_multidim_subarrays_and_subroutine_arrays",
+  "version": "3.95.0.0",
+  "top_module": "tb_v3_95_0_regression",
+  "source_files": [
+    "design.sv",
+    "testbench.sv"
+  ]
+}

@@ -2466,6 +2466,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 expr_eval.get_context().declare_local(p.name, w, p.is_signed);
+                LocalVar* callee_lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(p.name) : nullptr;
+                if (callee_lv && !p.unpacked_dimensions.empty()) {
+                    callee_lv->is_unpacked_array = true;
+                    callee_lv->elem_width = w;
+                    for (const auto& udim : p.unpacked_dimensions) {
+                        int64_t b1 = 0, b2 = 0;
+                        if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                        if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                        else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                        ArrayDimInfo info;
+                        info.left = b1; info.right = b2; info.is_unpacked = true;
+                        callee_lv->dimensions.push_back(info);
+                    }
+                    callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+                    uint32_t tot = 1;
+                    for (const auto& d : callee_lv->dimensions) {
+                        if (d.is_unpacked) tot *= (uint32_t)d.size();
+                    }
+                    callee_lv->array_size = tot;
+                    callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                    callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                    callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+                }
 
                 ExpressionNode* val_expr = nullptr;
                 if (bindings[i].is_passed) {
@@ -2489,7 +2512,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (p.direction == "input" || p.direction == "inout") {
                     if (val_expr) {
                         LogicVal arg_val = eval_expr(val_expr, bp.scope);
-                        expr_eval.get_context().set_local_value(p.name, LogicOps::cast_width(arg_val, w, p.is_signed));
+                        LocalVar* lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(p.name) : nullptr;
+                        if (lv && lv->is_unpacked_array) {
+                            if (arg_val.is_unpacked) {
+                                lv->unpacked_elements = arg_val.unpacked_elements;
+                            } else {
+                                auto elems = expr_eval.eval_array_expr(val_expr, bp.scope);
+                                if (!elems.empty()) lv->unpacked_elements = elems;
+                            }
+                        } else {
+                            expr_eval.get_context().set_local_value(p.name, LogicOps::cast_width(arg_val, w, p.is_signed));
+                        }
                     }
                 }
 
@@ -3252,6 +3285,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             size_t num_u = std::min(U, mem_indices.size());
             uint32_t linear_addr = 0;
             bool addr_unknown = false;
+            std::vector<uint32_t> u_strides(U, 1);
             if (U <= 1) {
                 if (!mem_indices.empty()) {
                     LogicVal iv = eval_expr(mem_indices[0], bp.scope);
@@ -3259,7 +3293,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
                 }
             } else {
-                std::vector<uint32_t> u_strides(U, 1);
                 for (int k = (int)U - 2; k >= 0; --k) {
                     u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
                 }
@@ -3341,6 +3374,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
                         }
+                    } else if (num_u < U && mem_indices.size() == num_u) {
+                        std::vector<LogicVal> src_elems;
+                        if (rhs_val.is_unpacked) {
+                            src_elems = rhs_val.unpacked_elements;
+                        } else {
+                            src_elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+                        }
+                        uint32_t subarray_len = (num_u > 0) ? u_strides[num_u - 1] : (uint32_t)mem.words.size();
+                        for (size_t k = 0; k < subarray_len && k < src_elems.size(); ++k) {
+                            int64_t target_addr = (int64_t)(linear_addr + k);
+                            if (nassign->intra_delay > 0) {
+                                uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                                engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, target_addr, src_elems[k]);
+                            } else {
+                                engine.scheduler.queue_nba_mem(scoped_mem_nba, target_addr, src_elems[k]);
+                            }
+                        }
                     } else {
                         if (nassign->intra_delay > 0) {
                             uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
@@ -3365,7 +3415,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
             }
             for (size_t i = 0; i < mem.depth; ++i) {
-                mem.set_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
+                mem.set_raw_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
             }
             return;
         }
@@ -4721,6 +4771,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     size_t num_u = std::min(U, mem_indices.size());
                     uint32_t linear_addr = 0;
                     bool addr_unknown = false;
+                    std::vector<uint32_t> u_strides(U, 1);
                     if (U <= 1) {
                         if (!mem_indices.empty()) {
                             LogicVal iv = eval_expr(mem_indices[0], bp.scope);
@@ -4728,7 +4779,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
                         }
                     } else {
-                        std::vector<uint32_t> u_strides(U, 1);
                         for (int k = (int)U - 2; k >= 0; --k) {
                             u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
                         }
@@ -4751,7 +4801,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             int64_t addr = (int64_t)linear_addr;
                             LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
                             if (mem_indices.size() > U) {
-                                LogicVal word_val = mem.get_word(linear_addr);
+                                LogicVal word_val = mem.get_raw_word(linear_addr);
                                 ExpressionNode* bit_sel_expr = mem_indices[U];
                                 LogicVal msb_val = eval_expr(bit_sel_expr, bp.scope);
                                 if (!msb_val.is_unknown()) {
@@ -4784,10 +4834,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                         lsb -= (uint32_t)mem.packed_lsb;
                                     }
                                     word_val.deposit_slice(lsb, slice_w, rhs_val);
-                                    mem.set_word(linear_addr, word_val);
+                                    mem.set_raw_word(linear_addr, word_val);
                                 }
                             } else if (assign->bit_lsb && U <= 1) {
-                                LogicVal word_val = mem.get_word(linear_addr);
+                                LogicVal word_val = mem.get_raw_word(linear_addr);
                                 LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
                                 LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
                                 uint32_t msb = 0, lsb = 0, slice_w = 0;
@@ -4809,9 +4859,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     lsb -= (uint32_t)mem.packed_lsb;
                                 }
                                 word_val.deposit_slice(lsb, slice_w, rhs_val);
-                                mem.set_word(linear_addr, word_val);
+                                mem.set_raw_word(linear_addr, word_val);
+                            } else if (num_u < U && mem_indices.size() == num_u) {
+                                std::vector<LogicVal> src_elems;
+                                if (rhs_val.is_unpacked) {
+                                    src_elems = rhs_val.unpacked_elements;
+                                } else {
+                                    src_elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                                }
+                                uint32_t subarray_len = (num_u > 0) ? u_strides[num_u - 1] : (uint32_t)mem.words.size();
+                                for (size_t k = 0; k < subarray_len && k < src_elems.size(); ++k) {
+                                    mem.set_raw_word(linear_addr + k, src_elems[k]);
+                                }
                             } else {
-                                mem.set_word(linear_addr, rhs_val);
+                                mem.set_raw_word(linear_addr, rhs_val);
                             }
                         }
                         engine.scheduler.notify_mem_changed();
@@ -4830,7 +4891,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
                             }
                             for (size_t i = 0; i < mem.depth; ++i) {
-                                mem.set_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
+                                mem.set_raw_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
                             }
                         } else {
                             uint32_t ew = mem.word_width;
@@ -4839,7 +4900,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
                                 uint64_t a = (rhs_val.aval >> shift) & mask;
                                 uint64_t b = (rhs_val.bval >> shift) & mask;
-                                mem.set_word(i, LogicVal(ew, a, b));
+                                mem.set_raw_word(i, LogicVal(ew, a, b));
                             }
                         }
                     }
