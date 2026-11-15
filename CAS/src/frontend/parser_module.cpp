@@ -2791,22 +2791,49 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             expect(TokenType::TOKEN_IDENTIFIER, "Expected member identifier");
             uint32_t unpacked_mult = 1;
             while (match(TokenType::TOKEN_LBRACKET)) {
-                auto u_msb = parse_expression();
-                uint64_t u_dim = 1;
-                if (match(TokenType::TOKEN_COLON)) {
-                    auto u_lsb = parse_expression();
-                    try {
-                        uint64_t u_m = eval_const_expr(u_msb.get());
-                        uint64_t u_l = eval_const_expr(u_lsb.get());
-                        u_dim = (u_m >= u_l) ? (u_m - u_l + 1) : (u_l - u_m + 1);
-                    } catch (...) {}
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member queue dimension");
+                    field_width = 64;
+                    break;
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    field_width = 64;
+                    break;
+                } else if (match(TokenType::TOKEN_STAR)) {
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member associative array dimension");
+                    field_width = 64;
+                    break;
+                } else if (is_assoc_key_token(current)) {
+                    std::string k_type;
+                    uint32_t k_width = 0;
+                    parse_assoc_key_type(k_type, k_width);
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member associative array dimension");
+                    field_width = 64;
+                    break;
                 } else {
-                    try {
-                        u_dim = eval_const_expr(u_msb.get());
-                    } catch (...) {}
+                    auto u_msb = parse_expression();
+                    uint64_t u_dim = 1;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto u_lsb = parse_expression();
+                        try {
+                            uint64_t u_m = eval_const_expr(u_msb.get());
+                            uint64_t u_l = eval_const_expr(u_lsb.get());
+                            u_dim = (u_m >= u_l) ? (u_m - u_l + 1) : (u_l - u_m + 1);
+                        } catch (...) {}
+                    } else {
+                        try {
+                            u_dim = eval_const_expr(u_msb.get());
+                        } catch (...) {}
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member unpacked range");
+                    unpacked_mult *= (uint32_t)u_dim;
                 }
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member unpacked range");
-                unpacked_mult *= (uint32_t)u_dim;
+            }
+            if (match(TokenType::TOKEN_REP_CONSEC)) {
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member associative array dimension");
+                field_width = 64;
             }
             StructMemberNode sm;
             sm.name = mem_name;

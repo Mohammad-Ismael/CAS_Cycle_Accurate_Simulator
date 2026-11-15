@@ -2818,6 +2818,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             std::string aa_scope = scope + "." + s.name;
             bool is_2st = (s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" || s.type_name == "shortint" || s.type_name == "longint");
             result.assoc_array_map[aa_scope] = AssociativeArrayObject(aa_scope, w, s.is_signed, s.assoc_key_type, s.assoc_key_width, is_2st);
+            if (s.default_value) {
+                if (auto ucat = dynamic_cast<UnpackedConcatNode*>(s.default_value.get())) {
+                    for (const auto& elem : ucat->elements) {
+                        if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                            if (pm->member_name == "default") {
+                                result.assoc_array_map[aa_scope].has_default_val = true;
+                                result.assoc_array_map[aa_scope].default_val = eval_const_logic_val(pm->value.get(), scope);
+                            }
+                        }
+                    }
+                }
+            }
             if (debug_out) {
                 *debug_out << "     * Associative Array allocated: " << aa_scope 
                            << " [" << w << "-bit, key=" << s.assoc_key_type << " (" << s.assoc_key_width << "-bit), 2state=" << is_2st << "]\n";

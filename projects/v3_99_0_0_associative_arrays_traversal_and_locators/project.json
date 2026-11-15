@@ -1,0 +1,6 @@
+{
+  "name": "v3_99_0_0_associative_arrays_traversal_and_locators",
+  "version": "3.99.0.0",
+  "top_module": "tb_v3_99_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

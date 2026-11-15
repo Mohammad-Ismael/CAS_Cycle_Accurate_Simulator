@@ -100,7 +100,8 @@ suites = [
     ("v3.95.0.0", "v3_95_0_0_multidim_subarrays_and_subroutine_arrays", ["design.sv", "testbench.sv"]),
     ("v3.96.0.0", "v3_96_0_0_unpacked_slices_and_locator_index", ["design.sv", "testbench.sv"]),
     ("v3.97.0.0", "v3_97_0_0_array_reduction_and_ordering", ["design.sv", "testbench.sv"]),
-    ("v3.98.0.0", "v3_98_0_0_queues_dollar_slices_and_ref_persistence", ["design.sv", "testbench.sv"])
+    ("v3.98.0.0", "v3_98_0_0_queues_dollar_slices_and_ref_persistence", ["design.sv", "testbench.sv"]),
+    ("v3.99.0.0", "v3_99_0_0_associative_arrays_traversal_and_locators", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))

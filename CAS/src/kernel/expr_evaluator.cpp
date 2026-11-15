@@ -46,27 +46,94 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
         }
         context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
         LocalVar* callee_lv = context.lookup_local(in_p.name);
-        if (callee_lv && !in_p.unpacked_dimensions.empty()) {
-            callee_lv->is_unpacked_array = true;
-            callee_lv->elem_width = w;
-            for (const auto& udim : in_p.unpacked_dimensions) {
-                int64_t b1 = 0, b2 = 0;
-                if (udim.left_expr) b1 = eval(udim.left_expr.get(), target_fn->scope).to_signed();
-                if (udim.right_expr) b2 = eval(udim.right_expr.get(), target_fn->scope).to_signed();
-                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
-                ArrayDimInfo info;
-                info.left = b1; info.right = b2; info.is_unpacked = true;
-                callee_lv->dimensions.push_back(info);
+        if (callee_lv) {
+            callee_lv->type_name = in_p.type_name;
+            if (in_p.is_associative_array) {
+                callee_lv->is_associative_array = true;
+                bool is_2st = (in_p.type_name == "bit" || in_p.type_name == "int" || in_p.type_name == "byte" || in_p.type_name == "shortint" || in_p.type_name == "longint");
+                callee_lv->assoc_array_data = AssociativeArrayObject(in_p.name, w, in_p.is_signed, in_p.assoc_key_type, in_p.assoc_key_width, is_2st);
+                if (i < caller_exprs.size() && caller_exprs[i]) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(caller_exprs[i])) {
+                        AssociativeArrayObject* src_a = nullptr;
+                        LocalVar* loc = context.lookup_local(aid->name);
+                        if (loc && loc != callee_lv && loc->is_associative_array) src_a = &loc->assoc_array_data;
+                        if (!src_a && current_bp && !current_bp->call_stack.empty()) {
+                            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                if (ploc && ploc->is_associative_array) { src_a = &ploc->assoc_array_data; break; }
+                            }
+                        }
+                        if (!src_a) src_a = engine.get_assoc_array(aid->name, target_fn->scope);
+                        if (src_a) {
+                            callee_lv->assoc_array_data = *src_a;
+                            callee_lv->assoc_array_data.name = in_p.name;
+                        }
+                    }
+                }
+            } else if (in_p.is_dynamic_array) {
+                callee_lv->is_dynamic_array = true;
+                callee_lv->dyn_array_data = DynamicArrayObject(in_p.name, w, in_p.is_signed);
+                if (i < caller_exprs.size() && caller_exprs[i]) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(caller_exprs[i])) {
+                        DynamicArrayObject* src_da = nullptr;
+                        LocalVar* loc = context.lookup_local(aid->name);
+                        if (loc && loc != callee_lv && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                        if (!src_da && current_bp && !current_bp->call_stack.empty()) {
+                            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                if (ploc && ploc->is_dynamic_array) { src_da = &ploc->dyn_array_data; break; }
+                            }
+                        }
+                        if (!src_da) src_da = engine.get_dynamic_array(aid->name, target_fn->scope);
+                        if (src_da) {
+                            callee_lv->dyn_array_data = *src_da;
+                            callee_lv->dyn_array_data.name = in_p.name;
+                        }
+                    }
+                }
+            } else if (in_p.is_queue) {
+                callee_lv->is_queue = true;
+                callee_lv->queue_data = QueueObject(in_p.name, w, in_p.is_signed);
+                if (i < caller_exprs.size() && caller_exprs[i]) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(caller_exprs[i])) {
+                        QueueObject* src_q = nullptr;
+                        LocalVar* loc = context.lookup_local(aid->name);
+                        if (loc && loc != callee_lv && loc->is_queue) src_q = &loc->queue_data;
+                        if (!src_q && current_bp && !current_bp->call_stack.empty()) {
+                            for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                                LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                if (ploc && ploc->is_queue) { src_q = &ploc->queue_data; break; }
+                            }
+                        }
+                        if (!src_q) src_q = engine.get_queue(aid->name, target_fn->scope);
+                        if (src_q) {
+                            callee_lv->queue_data = *src_q;
+                            callee_lv->queue_data.name = in_p.name;
+                        }
+                    }
+                }
+            } else if (!in_p.unpacked_dimensions.empty()) {
+                callee_lv->is_unpacked_array = true;
+                callee_lv->elem_width = w;
+                for (const auto& udim : in_p.unpacked_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (udim.left_expr) b1 = eval(udim.left_expr.get(), target_fn->scope).to_signed();
+                    if (udim.right_expr) b2 = eval(udim.right_expr.get(), target_fn->scope).to_signed();
+                    else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                    ArrayDimInfo info;
+                    info.left = b1; info.right = b2; info.is_unpacked = true;
+                    callee_lv->dimensions.push_back(info);
+                }
+                callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+                uint32_t tot = 1;
+                for (const auto& d : callee_lv->dimensions) {
+                    if (d.is_unpacked) tot *= (uint32_t)d.size();
+                }
+                callee_lv->array_size = tot;
+                callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
             }
-            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
-            uint32_t tot = 1;
-            for (const auto& d : callee_lv->dimensions) {
-                if (d.is_unpacked) tot *= (uint32_t)d.size();
-            }
-            callee_lv->array_size = tot;
-            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
         }
         if (in_p.type_name == "string") {
             LocalVar* lv = context.lookup_local(in_p.name);
@@ -2075,11 +2142,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     iter_name = id->name;
                 }
             }
-            if (method == "min" || method == "max") {
-                auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
-                return loc_res.empty() ? LogicVal::make_x(a_elem_width) : loc_res[0];
-            }
-            if (method == "find" || method == "find_index" || method == "find_first" || method == "find_last" ||
+            if (method == "min" || method == "max" ||
+                method == "unique" || method == "unique_index" ||
+                method == "find" || method == "find_index" || method == "find_first" || method == "find_last" ||
                 method == "find_first_index" || method == "find_last_index") {
                 auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
                 LogicVal res(a_elem_width, 0, 0);
@@ -2215,18 +2280,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             LogicVal sv;
                             sv.is_string = true;
                             sv.str_val = out_k;
+                            bool written = false;
                             if (context.has_active_frame()) {
                                 LocalVar* lv = context.lookup_local(id->name);
-                                if (lv) lv->value = sv;
-                            } else if (current_bp && !current_bp->call_stack.empty()) {
+                                if (lv) { lv->value = sv; written = true; }
+                            }
+                            if (!written && current_bp && !current_bp->call_stack.empty()) {
                                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                                     LocalVar* lv = it->local_frame.get_var(id->name);
-                                    if (lv) { lv->value = sv; break; }
+                                    if (lv) { lv->value = sv; written = true; break; }
+                                }
+                            }
+                            if (!written) {
+                                size_t net_id = engine.get_net_id(scope, id->name);
+                                if (net_id != (size_t)-1) {
+                                    engine.netlist[net_id].set(sv);
                                 }
                             }
                         }
                     }
-                    return LogicVal::make_known(1, ok ? 1 : 0);
+                    return LogicVal::make_known(32, ok ? 1 : 0, true);
                 } else {
                     uint64_t out_k = 0;
                     bool ok = is_first ? assoc->first(out_k) : assoc->last(out_k);
@@ -2259,7 +2332,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             }
                         }
                     }
-                    return LogicVal::make_known(1, ok ? 1 : 0);
+                    return LogicVal::make_known(32, ok ? 1 : 0, true);
                 }
             } else if (method == "next" || method == "prev") {
                 bool is_next = (method == "next");
@@ -2275,18 +2348,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             LogicVal sv;
                             sv.is_string = true;
                             sv.str_val = in_out_k;
+                            bool written = false;
                             if (context.has_active_frame()) {
                                 LocalVar* lv = context.lookup_local(id->name);
-                                if (lv) lv->value = sv;
-                            } else if (current_bp && !current_bp->call_stack.empty()) {
+                                if (lv) { lv->value = sv; written = true; }
+                            }
+                            if (!written && current_bp && !current_bp->call_stack.empty()) {
                                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                                     LocalVar* lv = it->local_frame.get_var(id->name);
-                                    if (lv) { lv->value = sv; break; }
+                                    if (lv) { lv->value = sv; written = true; break; }
+                                }
+                            }
+                            if (!written) {
+                                size_t net_id = engine.get_net_id(scope, id->name);
+                                if (net_id != (size_t)-1) {
+                                    engine.netlist[net_id].set(sv);
                                 }
                             }
                         }
                     }
-                    return LogicVal::make_known(1, ok ? 1 : 0);
+                    return LogicVal::make_known(32, ok ? 1 : 0, true);
                 } else {
                     uint64_t in_out_k = 0;
                     if (!method_node->args.empty()) {
@@ -2326,7 +2407,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             }
                         }
                     }
-                    return LogicVal::make_known(1, ok ? 1 : 0);
+                    return LogicVal::make_known(32, ok ? 1 : 0, true);
                 }
             } else if (method == "delete") {
                 if (method_node->args.empty()) {
@@ -2945,6 +3026,23 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             bool a_is_signed = false;
             if (get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed)) {
                 return eval_array_reduction(member_name, array_elems, a_elem_width, a_is_signed, nullptr, "item", scope);
+            }
+        }
+
+        if (member_name == "min" || member_name == "max" ||
+            member_name == "unique" || member_name == "unique_index" ||
+            member_name == "find" || member_name == "find_index" ||
+            member_name == "find_first" || member_name == "find_last" ||
+            member_name == "find_first_index" || member_name == "find_last_index") {
+            std::vector<LogicVal> array_elems;
+            uint32_t a_elem_width = 32;
+            bool a_is_signed = false;
+            if (get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed)) {
+                auto loc_res = eval_array_locator(member_name, array_elems, a_elem_width, a_is_signed, nullptr, "item", scope);
+                LogicVal res(a_elem_width, 0, 0);
+                res.is_unpacked = true;
+                res.unpacked_elements = std::move(loc_res);
+                return res;
             }
         }
 
@@ -5725,7 +5823,7 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
 
     if (method == "min" || method == "max") {
         bool is_min = (method == "min");
-        size_t best_idx = 0;
+        std::vector<LogicVal> keys(elements.size());
         LogicVal best_key;
 
         for (size_t i = 0; i < elements.size(); ++i) {
@@ -5743,13 +5841,15 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
                 key = eval(with_expr, scope);
                 context.pop_frame();
             }
+            keys[i] = key;
 
             if (i == 0) {
-                best_idx = 0;
                 best_key = key;
             } else {
                 bool better = false;
-                if (is_signed) {
+                if (key.is_string && best_key.is_string) {
+                    better = is_min ? (key.str_val < best_key.str_val) : (key.str_val > best_key.str_val);
+                } else if (is_signed) {
                     int64_t s_cur = (int64_t)LogicOps::cast_width(key, 64, true).aval;
                     int64_t s_best = (int64_t)LogicOps::cast_width(best_key, 64, true).aval;
                     better = is_min ? (s_cur < s_best) : (s_cur > s_best);
@@ -5757,12 +5857,66 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
                     better = is_min ? (key.aval < best_key.aval) : (key.aval > best_key.aval);
                 }
                 if (better) {
-                    best_idx = i;
                     best_key = key;
                 }
             }
         }
-        result.push_back(elements[best_idx]);
+        for (size_t i = 0; i < elements.size(); ++i) {
+            bool eq = false;
+            if (keys[i].is_string && best_key.is_string) {
+                eq = (keys[i].str_val == best_key.str_val);
+            } else if (is_signed) {
+                int64_t s_cur = (int64_t)LogicOps::cast_width(keys[i], 64, true).aval;
+                int64_t s_best = (int64_t)LogicOps::cast_width(best_key, 64, true).aval;
+                eq = (s_cur == s_best);
+            } else {
+                eq = (keys[i].aval == best_key.aval && keys[i].bval == best_key.bval);
+            }
+            if (eq) {
+                result.push_back(elements[i]);
+            }
+        }
+        return result;
+    }
+
+    if (method == "unique" || method == "unique_index") {
+        std::vector<LogicVal> seen_keys;
+        for (size_t i = 0; i < elements.size(); ++i) {
+            LogicVal key = elements[i];
+            if (with_expr) {
+                context.push_frame("with_frame");
+                context.declare_local(iter_name, elem_width, is_signed);
+                context.set_local_value(iter_name, elements[i]);
+                context.declare_local(iter_name + ".index", 32, false);
+                context.set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local(iter_name + "_index", 32, false);
+                context.set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local("index", 32, false);
+                context.set_local_value("index", LogicVal::make_known(32, (uint64_t)i));
+                key = eval(with_expr, scope);
+                context.pop_frame();
+            }
+            bool already_seen = false;
+            for (const auto& sk : seen_keys) {
+                if (key.is_string && sk.is_string) {
+                    if (key.str_val == sk.str_val) {
+                        already_seen = true;
+                        break;
+                    }
+                } else if (key.aval == sk.aval && key.bval == sk.bval) {
+                    already_seen = true;
+                    break;
+                }
+            }
+            if (!already_seen) {
+                seen_keys.push_back(key);
+                if (method == "unique_index") {
+                    result.push_back(LogicVal::make_known(32, (uint64_t)i));
+                } else {
+                    result.push_back(elements[i]);
+                }
+            }
+        }
         return result;
     }
 
@@ -6122,6 +6276,7 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
                 }
             }
             if (mc->method_name == "min" || mc->method_name == "max" ||
+                mc->method_name == "unique" || mc->method_name == "unique_index" ||
                 mc->method_name == "find" || mc->method_name == "find_index" ||
                 mc->method_name == "find_first" || mc->method_name == "find_last" ||
                 mc->method_name == "find_first_index" || mc->method_name == "find_last_index") {
@@ -6197,6 +6352,26 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
         if (get_array_elements(id->name, scope, elements, elem_width, is_signed)) {
             return elements;
         }
+    }
+
+    if (auto mem = dynamic_cast<MemberAccessNode*>(expr)) {
+        std::vector<LogicVal> elements;
+        uint32_t elem_width = 32;
+        bool is_signed = false;
+        if (get_array_elements(mem->var_name, scope, elements, elem_width, is_signed)) {
+            if (mem->member_name == "min" || mem->member_name == "max" ||
+                mem->member_name == "unique" || mem->member_name == "unique_index" ||
+                mem->member_name == "find" || mem->member_name == "find_index" ||
+                mem->member_name == "find_first" || mem->member_name == "find_last" ||
+                mem->member_name == "find_first_index" || mem->member_name == "find_last_index") {
+                return eval_array_locator(mem->member_name, elements, elem_width, is_signed, nullptr, "item", scope);
+            }
+        }
+    }
+
+    LogicVal v = eval(expr, scope);
+    if (v.is_unpacked) {
+        return v.unpacked_elements;
     }
 
     return {};

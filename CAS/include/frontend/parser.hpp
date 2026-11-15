@@ -504,7 +504,7 @@ public:
                 tok.text == "shortint" || tok.text == "longint" || tok.text == "bit") {
                 return true;
             }
-            if (is_typedef(tok.text)) {
+            if (is_type_identifier(tok.text)) {
                 return true;
             }
         }

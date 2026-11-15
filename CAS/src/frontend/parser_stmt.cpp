@@ -1428,6 +1428,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (current.type == TokenType::TOKEN_NEW) {
                 ident += ".new";
                 advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER ||
+                       current.type == TokenType::TOKEN_GATE_AND ||
+                       current.type == TokenType::TOKEN_GATE_OR ||
+                       current.type == TokenType::TOKEN_GATE_XOR ||
+                       current.type == TokenType::TOKEN_OR ||
+                       current.type == TokenType::TOKEN_UNIQUE) {
+                ident += "." + current.text;
+                advance();
             } else {
                 ident += "." + current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");

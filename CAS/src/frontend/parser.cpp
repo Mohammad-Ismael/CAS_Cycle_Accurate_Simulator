@@ -93,7 +93,7 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
         key_type = "*";
         key_width = 64;
         advance();
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_type_identifier(current.text)) {
         key_type = current.text;
         auto en_def = get_enum_typedef(key_type);
         auto st_def = get_struct_typedef(key_type);
@@ -102,7 +102,7 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
         } else if (st_def) {
             key_width = st_def->total_width;
         } else {
-            key_width = 32;
+            key_width = 64;
         }
         advance();
     } else {

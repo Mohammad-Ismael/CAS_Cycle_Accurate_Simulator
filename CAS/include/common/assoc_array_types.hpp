@@ -13,6 +13,8 @@ struct AssociativeArrayObject {
     uint32_t key_width = 32;
     bool is_string_key = false;
     bool is_2state = false;
+    bool has_default_val = false;
+    LogicVal default_val;
 
     std::map<uint64_t, LogicVal> elements;
     std::map<std::string, LogicVal> str_elements;
@@ -26,6 +28,7 @@ struct AssociativeArrayObject {
     }
 
     static LogicVal cast_elem(const LogicVal& v, uint32_t w) {
+        if (v.is_string) return v;
         if (w >= 64) return v;
         uint64_t mask = (1ULL << w) - 1;
         return LogicVal(w, v.aval & mask, v.bval & mask);
@@ -125,6 +128,9 @@ struct AssociativeArrayObject {
         if (it != elements.end()) {
             return it->second;
         }
+        if (has_default_val) {
+            return default_val;
+        }
         if (is_2state) {
             return LogicVal(val_width, 0, 0, is_signed);
         }
@@ -134,6 +140,9 @@ struct AssociativeArrayObject {
         auto it = str_elements.find(key);
         if (it != str_elements.end()) {
             return it->second;
+        }
+        if (has_default_val) {
+            return default_val;
         }
         if (is_2state) {
             return LogicVal(val_width, 0, 0, is_signed);

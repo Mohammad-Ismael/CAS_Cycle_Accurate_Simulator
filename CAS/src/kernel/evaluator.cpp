@@ -477,6 +477,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->is_associative_array = true;
                     bool is_2st = (vdecl->type_name == "bit" || vdecl->type_name == "int" || vdecl->type_name == "byte" || vdecl->type_name == "shortint" || vdecl->type_name == "longint");
                     lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width, is_2st);
+                    if (vdecl->init_expr) {
+                        if (auto ucat = dynamic_cast<UnpackedConcatNode*>(vdecl->init_expr.get())) {
+                            for (const auto& elem : ucat->elements) {
+                                if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                    if (pm->member_name == "default") {
+                                        lv->assoc_array_data.has_default_val = true;
+                                        lv->assoc_array_data.default_val = eval_expr(pm->value.get(), bp.scope);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (vdecl->is_unpacked_array) {
                     lv->is_unpacked_array = true;
@@ -804,6 +816,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->is_associative_array = true;
                 bool is_2st = (vdecl->type_name == "bit" || vdecl->type_name == "int" || vdecl->type_name == "byte" || vdecl->type_name == "shortint" || vdecl->type_name == "longint");
                 lv->assoc_array_data = AssociativeArrayObject(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->assoc_key_type, vdecl->assoc_key_width, is_2st);
+                if (vdecl->init_expr) {
+                    if (auto ucat = dynamic_cast<UnpackedConcatNode*>(vdecl->init_expr.get())) {
+                        for (const auto& elem : ucat->elements) {
+                            if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                if (pm->member_name == "default") {
+                                    lv->assoc_array_data.has_default_val = true;
+                                    lv->assoc_array_data.default_val = eval_expr(pm->value.get(), bp.scope);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if (vdecl->is_unpacked_array) {
                 lv->is_unpacked_array = true;
@@ -2323,13 +2347,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 assoc = engine.get_assoc_array(var_name, bp.scope);
             }
             if (assoc) {
-                auto write_tcall_arg = [&](ExpressionNode* arg_expr, uint64_t k_val) {
+                auto write_tcall_arg = [&](ExpressionNode* arg_expr, const LogicVal& val) {
                     if (auto id = dynamic_cast<IdentifierNode*>(arg_expr)) {
                         bool written = false;
                         if (expr_eval.get_context().has_active_frame()) {
                             LocalVar* lv = expr_eval.get_context().lookup_local(id->name);
                             if (lv) {
-                                lv->value = LogicOps::cast_width(LogicVal(64, k_val, 0), lv->width, lv->is_signed);
+                                lv->value = val.is_string ? val : LogicOps::cast_width(val, lv->width, lv->is_signed);
                                 written = true;
                             }
                         }
@@ -2337,7 +2361,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                                 LocalVar* lv = it->local_frame.get_var(id->name);
                                 if (lv) {
-                                    lv->value = LogicOps::cast_width(LogicVal(64, k_val, 0), lv->width, lv->is_signed);
+                                    lv->value = val.is_string ? val : LogicOps::cast_width(val, lv->width, lv->is_signed);
                                     written = true;
                                     break;
                                 }
@@ -2346,7 +2370,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (!written) {
                             size_t net_id = engine.get_net_id(bp.scope, id->name);
                             if (net_id != (size_t)-1) {
-                                LogicVal casted = LogicOps::cast_width(LogicVal(64, k_val, 0), engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                                LogicVal casted = (val.is_string || engine.netlist[net_id].type_name == "string")
+                                    ? val : LogicOps::cast_width(val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                                 engine.netlist[net_id].set(casted);
                             }
                         }
@@ -2370,24 +2395,50 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 } else if (method == "first" || method == "last") {
-                    uint64_t out_k = 0;
-                    bool ok = (method == "first") ? assoc->first(out_k) : assoc->last(out_k);
-                    if (ok && !tcall->args.empty()) {
-                        write_tcall_arg(tcall->args[0].get(), out_k);
+                    if (assoc->is_string_key) {
+                        std::string out_k;
+                        bool ok = (method == "first") ? assoc->first(out_k) : assoc->last(out_k);
+                        if (ok && !tcall->args.empty()) {
+                            LogicVal sv;
+                            sv.is_string = true;
+                            sv.str_val = out_k;
+                            write_tcall_arg(tcall->args[0].get(), sv);
+                        }
+                    } else {
+                        uint64_t out_k = 0;
+                        bool ok = (method == "first") ? assoc->first(out_k) : assoc->last(out_k);
+                        if (ok && !tcall->args.empty()) {
+                            write_tcall_arg(tcall->args[0].get(), LogicVal(64, out_k, 0));
+                        }
                     }
                     return;
                 } else if (method == "next" || method == "prev") {
-                    uint64_t in_out_k = 0;
-                    if (!tcall->args.empty()) {
-                        LogicVal k_val = eval_expr(tcall->args[0].get(), bp.scope);
-                        in_out_k = k_val.aval;
-                        if (assoc->key_width < 64 && assoc->key_width > 0) {
-                            in_out_k &= ((1ULL << assoc->key_width) - 1);
+                    if (assoc->is_string_key) {
+                        std::string in_out_k;
+                        if (!tcall->args.empty()) {
+                            LogicVal k_val = eval_expr(tcall->args[0].get(), bp.scope);
+                            in_out_k = k_val.str_val;
                         }
-                    }
-                    bool ok = (method == "next") ? assoc->next(in_out_k) : assoc->prev(in_out_k);
-                    if (ok && !tcall->args.empty()) {
-                        write_tcall_arg(tcall->args[0].get(), in_out_k);
+                        bool ok = (method == "next") ? assoc->next(in_out_k) : assoc->prev(in_out_k);
+                        if (ok && !tcall->args.empty()) {
+                            LogicVal sv;
+                            sv.is_string = true;
+                            sv.str_val = in_out_k;
+                            write_tcall_arg(tcall->args[0].get(), sv);
+                        }
+                    } else {
+                        uint64_t in_out_k = 0;
+                        if (!tcall->args.empty()) {
+                            LogicVal k_val = eval_expr(tcall->args[0].get(), bp.scope);
+                            in_out_k = k_val.aval;
+                            if (assoc->key_width < 64 && assoc->key_width > 0) {
+                                in_out_k &= ((1ULL << assoc->key_width) - 1);
+                            }
+                        }
+                        bool ok = (method == "next") ? assoc->next(in_out_k) : assoc->prev(in_out_k);
+                        if (ok && !tcall->args.empty()) {
+                            write_tcall_arg(tcall->args[0].get(), LogicVal(64, in_out_k, 0));
+                        }
                     }
                     return;
                 }
@@ -2506,29 +2557,42 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
                     }
                 }
-                expr_eval.get_context().declare_local(p.name, w, p.is_signed);
+                expr_eval.get_context().declare_local(p.name, w, p.is_signed, p.type_name);
                 LocalVar* callee_lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(p.name) : nullptr;
-                if (callee_lv && !p.unpacked_dimensions.empty()) {
-                    callee_lv->is_unpacked_array = true;
-                    callee_lv->elem_width = w;
-                    for (const auto& udim : p.unpacked_dimensions) {
-                        int64_t b1 = 0, b2 = 0;
-                        if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
-                        if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
-                        else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
-                        ArrayDimInfo info;
-                        info.left = b1; info.right = b2; info.is_unpacked = true;
-                        callee_lv->dimensions.push_back(info);
+                if (callee_lv) {
+                    callee_lv->type_name = p.type_name;
+                    if (p.is_associative_array) {
+                        callee_lv->is_associative_array = true;
+                        bool is_2st = (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" || p.type_name == "shortint" || p.type_name == "longint");
+                        callee_lv->assoc_array_data = AssociativeArrayObject(p.name, w, p.is_signed, p.assoc_key_type, p.assoc_key_width, is_2st);
+                    } else if (p.is_dynamic_array) {
+                        callee_lv->is_dynamic_array = true;
+                        callee_lv->dyn_array_data = DynamicArrayObject(p.name, w, p.is_signed);
+                    } else if (p.is_queue) {
+                        callee_lv->is_queue = true;
+                        callee_lv->queue_data = QueueObject(p.name, w, p.is_signed);
+                    } else if (!p.unpacked_dimensions.empty()) {
+                        callee_lv->is_unpacked_array = true;
+                        callee_lv->elem_width = w;
+                        for (const auto& udim : p.unpacked_dimensions) {
+                            int64_t b1 = 0, b2 = 0;
+                            if (udim.left_expr) b1 = eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                            if (udim.right_expr) b2 = eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                            else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                            ArrayDimInfo info;
+                            info.left = b1; info.right = b2; info.is_unpacked = true;
+                            callee_lv->dimensions.push_back(info);
+                        }
+                        callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+                        uint32_t tot = 1;
+                        for (const auto& d : callee_lv->dimensions) {
+                            if (d.is_unpacked) tot *= (uint32_t)d.size();
+                        }
+                        callee_lv->array_size = tot;
+                        callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                        callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                        callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
                     }
-                    callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
-                    uint32_t tot = 1;
-                    for (const auto& d : callee_lv->dimensions) {
-                        if (d.is_unpacked) tot *= (uint32_t)d.size();
-                    }
-                    callee_lv->array_size = tot;
-                    callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-                    callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-                    callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
                 }
 
                 ExpressionNode* val_expr = nullptr;
@@ -2552,9 +2616,62 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                 if (p.direction == "input" || p.direction == "inout" || p.direction == "ref") {
                     if (val_expr) {
-                        LogicVal arg_val = eval_expr(val_expr, bp.scope);
                         LocalVar* lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(p.name) : nullptr;
-                        if (lv && lv->is_unpacked_array) {
+                        if (lv && lv->is_associative_array) {
+                            if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                                AssociativeArrayObject* src_a = nullptr;
+                                LocalVar* loc = expr_eval.get_context().lookup_local(aid->name);
+                                if (loc && loc != lv && loc->is_associative_array) {
+                                    src_a = &loc->assoc_array_data;
+                                }
+                                if (!src_a && !bp.call_stack.empty()) {
+                                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                        LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                        if (ploc && ploc->is_associative_array) { src_a = &ploc->assoc_array_data; break; }
+                                    }
+                                }
+                                if (!src_a) src_a = engine.get_assoc_array(aid->name, bp.scope);
+                                if (src_a) {
+                                    lv->assoc_array_data = *src_a;
+                                    lv->assoc_array_data.name = p.name;
+                                }
+                            }
+                        } else if (lv && lv->is_dynamic_array) {
+                            if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                                DynamicArrayObject* src_da = nullptr;
+                                LocalVar* loc = expr_eval.get_context().lookup_local(aid->name);
+                                if (loc && loc != lv && loc->is_dynamic_array) src_da = &loc->dyn_array_data;
+                                if (!src_da && !bp.call_stack.empty()) {
+                                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                        LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                        if (ploc && ploc->is_dynamic_array) { src_da = &ploc->dyn_array_data; break; }
+                                    }
+                                }
+                                if (!src_da) src_da = engine.get_dynamic_array(aid->name, bp.scope);
+                                if (src_da) {
+                                    lv->dyn_array_data = *src_da;
+                                    lv->dyn_array_data.name = p.name;
+                                }
+                            }
+                        } else if (lv && lv->is_queue) {
+                            if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                                QueueObject* src_q = nullptr;
+                                LocalVar* loc = expr_eval.get_context().lookup_local(aid->name);
+                                if (loc && loc != lv && loc->is_queue) src_q = &loc->queue_data;
+                                if (!src_q && !bp.call_stack.empty()) {
+                                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                        LocalVar* ploc = it->local_frame.get_var(aid->name);
+                                        if (ploc && ploc->is_queue) { src_q = &ploc->queue_data; break; }
+                                    }
+                                }
+                                if (!src_q) src_q = engine.get_queue(aid->name, bp.scope);
+                                if (src_q) {
+                                    lv->queue_data = *src_q;
+                                    lv->queue_data.name = p.name;
+                                }
+                            }
+                        } else if (lv && lv->is_unpacked_array) {
+                            LogicVal arg_val = eval_expr(val_expr, bp.scope);
                             if (arg_val.is_unpacked) {
                                 lv->unpacked_elements = arg_val.unpacked_elements;
                             } else {
@@ -2562,6 +2679,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (!elems.empty()) lv->unpacked_elements = elems;
                             }
                         } else {
+                            LogicVal arg_val = eval_expr(val_expr, bp.scope);
                             expr_eval.get_context().set_local_value(p.name, LogicOps::cast_width(arg_val, w, p.is_signed));
                         }
                     }
@@ -4367,6 +4485,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         return;
+                    } else if (auto ucat = dynamic_cast<UnpackedConcatNode*>(assign->rhs.get())) {
+                        for (const auto& elem : ucat->elements) {
+                            if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                if (pm->member_name == "default") {
+                                    local->assoc_array_data.has_default_val = true;
+                                    local->assoc_array_data.default_val = eval_expr(pm->value.get(), bp.scope);
+                                }
+                            }
+                        }
+                        return;
                     } else if (auto src_id = dynamic_cast<IdentifierNode*>(assign->rhs.get())) {
                         AssociativeArrayObject* src_assoc = nullptr;
                         if (expr_eval.get_context().has_active_frame()) {
@@ -4797,6 +4925,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     key &= ((1ULL << assoc->key_width) - 1);
                                 }
                                 assoc->set(key, rhs_val);
+                            }
+                        }
+                        return;
+                    } else if (auto ucat = dynamic_cast<UnpackedConcatNode*>(assign->rhs.get())) {
+                        for (const auto& elem : ucat->elements) {
+                            if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                if (pm->member_name == "default") {
+                                    assoc->has_default_val = true;
+                                    assoc->default_val = eval_expr(pm->value.get(), bp.scope);
+                                }
                             }
                         }
                         return;

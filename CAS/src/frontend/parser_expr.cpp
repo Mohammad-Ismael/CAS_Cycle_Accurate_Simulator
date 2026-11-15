@@ -772,7 +772,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 current.type == TokenType::TOKEN_GATE_AND ||
                 current.type == TokenType::TOKEN_GATE_OR ||
                 current.type == TokenType::TOKEN_GATE_XOR ||
-                current.type == TokenType::TOKEN_OR) {
+                current.type == TokenType::TOKEN_OR ||
+                current.type == TokenType::TOKEN_UNIQUE) {
                 sub_name = current.text;
                 advance();
             } else {

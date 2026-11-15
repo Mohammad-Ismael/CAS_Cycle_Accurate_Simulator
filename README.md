@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v3.98.0.0`  
-**Status:** Production Milestone v3.98.0.0 Clean (100% Synopsys VCS Golden Parity)  
+**Current Version:** `v3.99.0.0`  
+**Status:** Production Milestone v3.99.0.0 Clean (100% Synopsys VCS Golden Parity)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -319,6 +319,7 @@ All 83 milestone regression testbenches are self-checking and verified against S
 | **v3.96.0.0** | `projects/v3_96_0_0_unpacked_slices_and_locator_index` | Unpacked array slice assignment/equality & locator `with` index | **PASS** | 100% VCS |
 | **v3.97.0.0** | `projects/v3_97_0_0_array_reduction_and_ordering` | Array reduction (`sum`, `product`, etc.) & ordering (`sort`, `reverse`) | **PASS** | 100% VCS |
 | **v3.98.0.0** | `projects/v3_98_0_0_queues_dollar_slices_and_ref_persistence` | IEEE 1800 §7.10 queue `$`, slices, insert/pop methods & ref persistence | **PASS** | 100% VCS |
+| **v3.99.0.0** | `projects/v3_99_0_0_associative_arrays_traversal_and_locators` | IEEE 1800 §7.9 associative traversal, §7.12.1 locators & defaults | **PASS** | 100% VCS |
 
 ---
 
@@ -365,11 +366,11 @@ CAS_Cycle_Accurate_Simulator/
 │   │   ├── profiler/           # Runtime hardware resource profiler
 │   │   └── tracer/             # VCD trace dumper
 │   └── src/                    # Implementation sources
-├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.98.0.0)
-│   ├── run_regressions.py      # Automated 98-milestone regression runner script
+├── regressions/                # Permanent golden compliance baseline (v1.0.0.0 through v3.99.0.0)
+│   ├── run_regressions.py      # Automated 99-milestone regression runner script
 │   └── v1.0.0.0/               # Initial golden regression reference
-├── projects/                   # Benchmark and application workspace (including 98 milestone test suites)
-├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.98.0.0.md)
+├── projects/                   # Benchmark and application workspace (including 99 milestone test suites)
+├── versions/                   # Milestone release documentation (v1.0.0.0.md through v3.99.0.0.md)
 ├── server.py                   # Containerized FastAPI simulation and IDE server
 ├── Dockerfile                  # Production container definition
 └── README.md                   # Simulator architecture and documentation
@@ -408,7 +409,7 @@ docker run --rm -v "${PWD}:/app" -w /app/CAS alpine:3.20 sh -c "apk add --no-cac
 
 ### 3. Run All Milestone Regressions
 
-The unified regression runner automatically executes all 98 milestone test suites (`v1.0.0.0` through `v3.98.0.0`), asserting 100% Synopsys VCS golden parity:
+The unified regression runner automatically executes all 99 milestone test suites (`v1.0.0.0` through `v3.99.0.0`), asserting 100% Synopsys VCS golden parity:
 
 ```bash
 # From repository root:
@@ -425,7 +426,7 @@ docker exec cas_dev python3 regressions/run_regressions.py
 
 ## Phase 2: Real-World Silicon Verification (lowRISC Ibex & WD VeeR EL2)
 
-With the expansion through Milestone `v3.98.0.0`, CAS maintains 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 98 milestone test suites (`TOTAL: 98 | PASSED: 98 | FAILED: 0`).
+With the expansion through Milestone `v3.99.0.0`, CAS maintains 100.0% IEEE Std 1800-2023 compliance against Synopsys VCS across the 99 milestone test suites (`TOTAL: 99 | PASSED: 99 | FAILED: 0`).
 
 Building upon this golden baseline, CAS targets **100% cycle-accurate execution parity** against golden references on industrial-grade silicon RTL: the **lowRISC Ibex** 32-bit RISC-V core and the **Western Digital VeeR EL2** dual-issue 32-bit RISC-V core.
 

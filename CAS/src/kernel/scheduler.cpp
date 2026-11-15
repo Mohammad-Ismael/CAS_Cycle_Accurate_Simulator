@@ -3564,36 +3564,46 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                 w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
             }
         }
-        frame.local_frame.declare_var(p.name, w, p.is_signed);
+        frame.local_frame.declare_var(p.name, w, p.is_signed, p.type_name, p.is_queue, p.is_dynamic_array, p.is_associative_array, p.assoc_key_type, p.assoc_key_width);
         LocalVar* callee_lv = frame.local_frame.get_var(p.name);
-        if (callee_lv && !p.unpacked_dimensions.empty()) {
-            callee_lv->is_unpacked_array = true;
-            callee_lv->elem_width = w;
-            for (const auto& udim : p.unpacked_dimensions) {
-                int64_t b1 = 0, b2 = 0;
-                if (udim.left_expr) b1 = engine.evaluator.eval_expr(udim.left_expr.get(), bp.scope).to_signed();
-                if (udim.right_expr) b2 = engine.evaluator.eval_expr(udim.right_expr.get(), bp.scope).to_signed();
-                else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
-                ArrayDimInfo info;
-                info.left = b1; info.right = b2; info.is_unpacked = true;
-                callee_lv->dimensions.push_back(info);
+        if (callee_lv) {
+            callee_lv->type_name = p.type_name;
+            if (p.is_associative_array) {
+                callee_lv->is_associative_array = true;
+                bool is_2st = (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" || p.type_name == "shortint" || p.type_name == "longint");
+                callee_lv->assoc_array_data = AssociativeArrayObject(p.name, w, p.is_signed, p.assoc_key_type, p.assoc_key_width, is_2st);
+            } else if (p.is_dynamic_array) {
+                callee_lv->is_dynamic_array = true;
+                callee_lv->dyn_array_data = DynamicArrayObject(p.name, w, p.is_signed);
+            } else if (p.is_queue) {
+                callee_lv->is_queue = true;
+                callee_lv->queue_data = QueueObject(p.name, w, p.is_signed);
+            } else if (!p.unpacked_dimensions.empty()) {
+                callee_lv->is_unpacked_array = true;
+                callee_lv->elem_width = w;
+                for (const auto& udim : p.unpacked_dimensions) {
+                    int64_t b1 = 0, b2 = 0;
+                    if (udim.left_expr) b1 = engine.evaluator.eval_expr(udim.left_expr.get(), bp.scope).to_signed();
+                    if (udim.right_expr) b2 = engine.evaluator.eval_expr(udim.right_expr.get(), bp.scope).to_signed();
+                    else { b2 = b1 > 0 ? (b1 - 1) : 0; b1 = 0; }
+                    ArrayDimInfo info;
+                    info.left = b1; info.right = b2; info.is_unpacked = true;
+                    callee_lv->dimensions.push_back(info);
+                }
+                callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
+                uint32_t tot = 1;
+                for (const auto& d : callee_lv->dimensions) {
+                    if (d.is_unpacked) tot *= (uint32_t)d.size();
+                }
+                callee_lv->array_size = tot;
+                callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
+                callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
             }
-            callee_lv->unpacked_dims = (uint32_t)callee_lv->dimensions.size();
-            uint32_t tot = 1;
-            for (const auto& d : callee_lv->dimensions) {
-                if (d.is_unpacked) tot *= (uint32_t)d.size();
-            }
-            callee_lv->array_size = tot;
-            callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-            callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
-            callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
-        }
-        if (p.is_virtual_interface) {
-            LocalVar* lv = frame.local_frame.get_var(p.name);
-            if (lv) {
-                lv->is_virtual_interface = true;
-                lv->interface_name = p.interface_name;
-                lv->modport_name = p.modport_name;
+            if (p.is_virtual_interface) {
+                callee_lv->is_virtual_interface = true;
+                callee_lv->interface_name = p.interface_name;
+                callee_lv->modport_name = p.modport_name;
             }
         }
 
@@ -3618,21 +3628,65 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
 
         if (p.direction == "input" || p.direction == "inout" || p.direction == "ref") {
             if (val_expr) {
-                LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
                 LocalVar* lv = frame.local_frame.get_var(p.name);
-                if (lv) {
-                    if (lv->is_unpacked_array) {
-                        if (arg_val.is_unpacked) {
-                            lv->unpacked_elements = arg_val.unpacked_elements;
-                        } else {
-                            auto elems = engine.evaluator.get_expr_eval().eval_array_expr(val_expr, bp.scope);
-                            if (!elems.empty()) lv->unpacked_elements = elems;
+                if (lv && lv->is_associative_array) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                        AssociativeArrayObject* src_a = nullptr;
+                        if (!bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(aid->name);
+                                if (loc && loc->is_associative_array) { src_a = &loc->assoc_array_data; break; }
+                            }
                         }
+                        if (!src_a) src_a = engine.get_assoc_array(aid->name, bp.scope);
+                        if (src_a) {
+                            lv->assoc_array_data = *src_a;
+                            lv->assoc_array_data.name = p.name;
+                        }
+                    }
+                } else if (lv && lv->is_dynamic_array) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                        DynamicArrayObject* src_da = nullptr;
+                        if (!bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(aid->name);
+                                if (loc && loc->is_dynamic_array) { src_da = &loc->dyn_array_data; break; }
+                            }
+                        }
+                        if (!src_da) src_da = engine.get_dynamic_array(aid->name, bp.scope);
+                        if (src_da) {
+                            lv->dyn_array_data = *src_da;
+                            lv->dyn_array_data.name = p.name;
+                        }
+                    }
+                } else if (lv && lv->is_queue) {
+                    if (auto aid = dynamic_cast<IdentifierNode*>(val_expr)) {
+                        QueueObject* src_q = nullptr;
+                        if (!bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(aid->name);
+                                if (loc && loc->is_queue) { src_q = &loc->queue_data; break; }
+                            }
+                        }
+                        if (!src_q) src_q = engine.get_queue(aid->name, bp.scope);
+                        if (src_q) {
+                            lv->queue_data = *src_q;
+                            lv->queue_data.name = p.name;
+                        }
+                    }
+                } else if (lv && lv->is_unpacked_array) {
+                    LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
+                    if (arg_val.is_unpacked) {
+                        lv->unpacked_elements = arg_val.unpacked_elements;
                     } else {
-                        lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
-                        if (p.is_virtual_interface) {
-                            lv->vif_handle = arg_val.aval;
-                        }
+                        auto elems = engine.evaluator.get_expr_eval().eval_array_expr(val_expr, bp.scope);
+                        if (!elems.empty()) lv->unpacked_elements = elems;
+                    }
+                } else if (lv) {
+                    LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
+                    lv->value = (p.type_name == "string" || arg_val.is_string) ? arg_val : LogicOps::cast_width(arg_val, w, p.is_signed);
+                    if (p.is_virtual_interface) {
+                        lv->vif_handle = arg_val.aval;
                     }
                 }
             }
