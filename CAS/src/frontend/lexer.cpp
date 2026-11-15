@@ -656,6 +656,10 @@ Token Lexer::next_token() {
             advance();
             return {TokenType::TOKEN_COLON_EQ, ":=", 0, 0, cur_file, cur_line, 0};
         }
+        if (peek() == '/') {
+            advance();
+            return {TokenType::TOKEN_COLON_DIV, ":/", 0, 0, cur_file, cur_line, 0};
+        }
         return {TokenType::TOKEN_COLON, ":", 0, 0, cur_file, cur_line, 0};
     }
     if (c == '~') { advance(); return {TokenType::TOKEN_TILDE, "~", 0, 0, cur_file, cur_line, 0}; }
@@ -1104,6 +1108,11 @@ Token Lexer::next_token() {
         if (ident == "rand") return {TokenType::TOKEN_RAND, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "randc") return {TokenType::TOKEN_RANDC, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "constraint") return {TokenType::TOKEN_CONSTRAINT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "dist") return {TokenType::TOKEN_DIST, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "solve") return {TokenType::TOKEN_SOLVE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "before") return {TokenType::TOKEN_BEFORE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "soft") return {TokenType::TOKEN_SOFT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "matches") return {TokenType::TOKEN_MATCHES, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "with") return {TokenType::TOKEN_WITH, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "inside") return {TokenType::TOKEN_INSIDE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "covergroup") return {TokenType::TOKEN_COVERGROUP, ident, 0, 0, cur_file, cur_line, 0};

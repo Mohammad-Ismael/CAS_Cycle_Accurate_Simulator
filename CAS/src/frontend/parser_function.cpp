@@ -37,13 +37,17 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     }
 
     if (!name_already_parsed) {
+        bool has_bare_sign = false;
         if (match(TokenType::TOKEN_SIGNED)) {
             func->return_signed = true;
+            has_bare_sign = true;
         } else if (match(TokenType::TOKEN_UNSIGNED)) {
             func->return_signed = false;
+            has_bare_sign = true;
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
             advance();
             func->return_signed = false;
+            has_bare_sign = true;
         }
         if (current.type == TokenType::TOKEN_VOID) {
             func->return_width = 0;
@@ -64,6 +68,16 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
             else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
             advance();
+            if (match(TokenType::TOKEN_UNSIGNED)) {
+                func->return_signed = false;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                func->return_signed = false;
+                advance();
+            } else if (match(TokenType::TOKEN_SIGNED)) {
+                func->return_signed = true;
+            }
+        } else if (has_bare_sign) {
+            func->return_width = 32;
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
             std::string p_name = current.text;
             advance(); advance();
@@ -82,6 +96,11 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
             func->return_width = 64;
+            func->return_type_name = current.text;
+            func->return_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+            func->return_width = 32;
             func->return_type_name = current.text;
             func->return_signed = false;
             advance();
@@ -178,8 +197,17 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 def_w = 64;
                 is_int = true;
             }
-            if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); }
+            if (match(TokenType::TOKEN_SIGNED)) {
+                is_s = true; has_explicit_type = true; def_w = 1; is_int = false;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed") {
+                is_s = true; has_explicit_type = true; def_w = 1; is_int = false;
+                advance();
+            } else if (match(TokenType::TOKEN_UNSIGNED)) {
+                is_s = false; has_explicit_type = true; def_w = 1; is_int = false;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                is_s = false; has_explicit_type = true; def_w = 1; is_int = false;
+                advance();
+            }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
@@ -217,7 +245,10 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            else if (match(TokenType::TOKEN_UNSIGNED)) { is_s = false; has_explicit_type = true; }
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                is_s = false; has_explicit_type = true; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 has_explicit_type = true;
                 std::string p_name = current.text;
                 advance(); advance();

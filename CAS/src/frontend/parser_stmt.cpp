@@ -290,8 +290,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
     bool is_procedural_static = false;
+    bool is_procedural_automatic = false;
     if (match(TokenType::TOKEN_STATIC)) {
         is_procedural_static = true;
+    } else if (match(TokenType::TOKEN_AUTOMATIC)) {
+        is_procedural_automatic = true;
     }
 
     std::string proc_type_name = "";
@@ -484,7 +487,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     bool is_mailbox_stmt = (current.type == TokenType::TOKEN_MAILBOX ||
                            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "mailbox"));
 
-    if (has_var_kw || is_procedural_param || is_procedural_static ||
+    if (has_var_kw || is_procedural_param || is_procedural_static || is_procedural_automatic ||
         current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
         current.type == TokenType::TOKEN_BIT || is_real_var ||
@@ -829,11 +832,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ForkStatementNode>(jt, std::move(branches));
     }
 
-    // disable fork (IEEE 1800-2023 §9.6.2)
+    // disable statement (IEEE 1800-2023 §9.6.2)
     if (match(TokenType::TOKEN_DISABLE)) {
-        expect(TokenType::TOKEN_FORK, "Expected 'fork' after 'disable'");
+        if (match(TokenType::TOKEN_FORK)) {
+            match(TokenType::TOKEN_SEMICOLON);
+            return std::make_unique<DisableForkStatementNode>();
+        }
+        std::string target = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected block or task identifier after 'disable'");
+        while (match(TokenType::TOKEN_DOT)) {
+            target += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in disable target");
+        }
         match(TokenType::TOKEN_SEMICOLON);
-        return std::make_unique<DisableForkStatementNode>();
+        return std::make_unique<BreakStatementNode>();
     }
 
     // wait fork (IEEE 1800-2023 §9.6.3), wait (e.triggered) (IEEE 1800-2023 §15.5), or wait (expr) [stmt] (IEEE 1800-2023 §9.4.3)
@@ -1996,9 +2008,35 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             }
             std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
             if (match(TokenType::TOKEN_WITH)) {
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                        advance();
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
+                }
                 expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
                 while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    if (match(TokenType::TOKEN_SEMICOLON)) continue;
+                    if (match(TokenType::TOKEN_SOFT)) {}
                     auto expr = parse_expression();
+                    if (match(TokenType::TOKEN_DIST)) {
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            if (match(TokenType::TOKEN_LBRACKET)) {
+                                parse_expression();
+                                expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
+                                parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
+                            } else {
+                                parse_expression();
+                            }
+                            if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
+                                parse_expression();
+                            }
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+                    }
                     if (expr) {
                         inline_constraints.push_back(std::move(expr));
                     }
@@ -2068,6 +2106,12 @@ std::unique_ptr<StatementNode> Parser::parse_case_statement(DecisionModifier mod
     auto sel = parse_expression();
     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing case selector");
 
+    if (match(TokenType::TOKEN_INSIDE)) {
+        ct = CaseType::CASE_INSIDE;
+    } else if (match(TokenType::TOKEN_MATCHES)) {
+        ct = CaseType::CASE_MATCHES;
+    }
+
     auto case_node = std::make_unique<CaseStatementNode>(std::move(sel), ct);
     case_node->modifier = mod;
     case_node->src_file = (mod != DecisionModifier::NONE && !mod_file.empty()) ? mod_file : origin_file;
@@ -2080,11 +2124,27 @@ std::unique_ptr<StatementNode> Parser::parse_case_statement(DecisionModifier mod
             match(TokenType::TOKEN_COLON);
         } else {
             while (true) {
-                auto expr = parse_expression();
-                if (!item.match_expr) {
-                    item.match_expr = expr->clone();
+                if (ct == CaseType::CASE_INSIDE && match(TokenType::TOKEN_LBRACKET)) {
+                    auto low = parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in case inside range");
+                    auto high = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in case inside range");
+                    item.range_exprs.push_back({std::move(low), std::move(high)});
+                } else if (ct == CaseType::CASE_MATCHES && match(TokenType::TOKEN_TAGGED)) {
+                    std::string tag_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after 'tagged'");
+                    std::unique_ptr<ExpressionNode> pat_val = nullptr;
+                    if (current.type == TokenType::TOKEN_APOSTROPHE || current.type == TokenType::TOKEN_LBRACE || (current.type != TokenType::TOKEN_COLON && current.type != TokenType::TOKEN_COMMA)) {
+                        pat_val = parse_expression();
+                    }
+                    item.match_exprs.push_back(std::make_unique<TaggedUnionExprNode>(tag_name, std::move(pat_val)));
+                } else {
+                    auto expr = parse_expression();
+                    if (!item.match_expr) {
+                        item.match_expr = expr->clone();
+                    }
+                    item.match_exprs.push_back(std::move(expr));
                 }
-                item.match_exprs.push_back(std::move(expr));
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }

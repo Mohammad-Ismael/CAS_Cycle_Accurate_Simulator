@@ -277,7 +277,13 @@ enum class TokenType {
     TOKEN_UNTYPED,
     TOKEN_TYPE,
     TOKEN_FORCE,
-    TOKEN_RELEASE
+    TOKEN_RELEASE,
+    TOKEN_DIST,
+    TOKEN_SOLVE,
+    TOKEN_BEFORE,
+    TOKEN_SOFT,
+    TOKEN_MATCHES,
+    TOKEN_COLON_DIV
 };
 
 struct Token {

@@ -318,6 +318,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            advance();
+            if (match(TokenType::TOKEN_STATIC)) {}
+            std::string class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+            expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            int cdepth = 1;
+            while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                advance();
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_CONFIG) {
             auto cfg = parse_config();
             if (cfg) {
@@ -1325,6 +1343,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     class_map[scls->name] = scls;
                     mod->class_map[scls->name] = scls.get();
                     mod->classes.push_back(scls);
+                }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_CONSTRAINT) {
+                advance();
+                if (match(TokenType::TOKEN_STATIC)) {}
+                std::string class_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+                expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+                std::string cname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+                expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+                int cdepth = 1;
+                while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                    else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                    advance();
                 }
                 continue;
             }
@@ -3561,6 +3597,15 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     parent_iface += "::" + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after '::'");
                 }
+                if (match(TokenType::TOKEN_HASH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in extended interface parameter list");
+                    int pdepth = 1;
+                    while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                        else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                        advance();
+                    }
+                }
                 cls->extended_interfaces.push_back(parent_iface);
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
@@ -3581,6 +3626,14 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             cls->base_class_name = base_class_name;
             if (match(TokenType::TOKEN_HASH)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in base class parameter list");
+                int pdepth = 1;
+                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                    advance();
+                }
+            }
+            if (match(TokenType::TOKEN_LPAREN)) {
                 int pdepth = 1;
                 while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
                     if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
@@ -3771,10 +3824,10 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             }
         }
 
-        if (is_pure && !is_virt) {
+        if (current.type != TokenType::TOKEN_CONSTRAINT && is_pure && !is_virt) {
             throw std::runtime_error("[CAS-DTINPCIL] Expected 'virtual' after 'pure' per IEEE 1800-2023 section 8.26");
         }
-        if (is_ext && is_pure) {
+        if (current.type != TokenType::TOKEN_CONSTRAINT && is_ext && is_pure) {
             throw std::runtime_error("[CAS-DTINPCIL] Method cannot be declared both 'pure' and 'extern' per IEEE 1800-2023 section 8.24");
         }
 
@@ -3824,12 +3877,80 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         }
         if (current.type == TokenType::TOKEN_CONSTRAINT) {
             advance();
+            if (match(TokenType::TOKEN_STATIC)) {
+                // static constraint
+            }
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            if (match(TokenType::TOKEN_SEMICOLON)) {
+                // External / pure constraint prototype (§18.5.1)
+                cls->add_constraint(std::make_unique<ConstraintBlockNode>(cname, std::vector<std::unique_ptr<ExpressionNode>>()));
+                continue;
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             std::vector<std::unique_ptr<ExpressionNode>> exprs;
             std::function<void(std::vector<std::unique_ptr<ExpressionNode>>&)> parse_constraint_item =
                 [&](std::vector<std::unique_ptr<ExpressionNode>>& out_exprs) {
+                    if (match(TokenType::TOKEN_SEMICOLON)) return;
+                    if (match(TokenType::TOKEN_SOLVE)) {
+                        while (current.type != TokenType::TOKEN_BEFORE && current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        if (match(TokenType::TOKEN_BEFORE)) {
+                            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                                advance();
+                            }
+                        }
+                        match(TokenType::TOKEN_SEMICOLON);
+                        return;
+                    }
+                    if (current.type == TokenType::TOKEN_DISABLE) {
+                        advance();
+                        if (match(TokenType::TOKEN_UNIQUE)) {
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'unique'");
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing unique constraint list");
+                        match(TokenType::TOKEN_SEMICOLON);
+                        return;
+                    }
+                    if (match(TokenType::TOKEN_SOFT)) {
+                            parse_expression();
+                        }
+                        match(TokenType::TOKEN_SEMICOLON);
+                        return;
+                    }
+                    if (match(TokenType::TOKEN_UNIQUE)) {
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'unique'");
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            parse_expression();
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing unique constraint list");
+                        match(TokenType::TOKEN_SEMICOLON);
+                        return;
+                    }
+                    if (match(TokenType::TOKEN_SOFT)) {
+                        // soft constraint
+                    }
+                    if (match(TokenType::TOKEN_FOREACH)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'foreach' in constraint");
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing foreach in constraint");
+                        if (match(TokenType::TOKEN_LBRACE)) {
+                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                                parse_constraint_item(out_exprs);
+                            }
+                            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing foreach constraint block");
+                        } else {
+                            parse_constraint_item(out_exprs);
+                        }
+                        return;
+                    }
                     if (current.type == TokenType::TOKEN_IF) {
                         advance(); // consume 'if'
                         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if' in constraint");
@@ -3865,13 +3986,58 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                             auto tern = std::make_unique<TernaryOpNode>(cond ? cond->clone() : nullptr, std::move(true_node), std::move(e));
                             out_exprs.push_back(std::move(tern));
                         }
-                    } else {
-                        auto expr = parse_expression();
-                        if (expr) {
-                            out_exprs.push_back(std::move(expr));
-                        }
-                        match(TokenType::TOKEN_SEMICOLON);
+                        return;
                     }
+
+                    auto expr = parse_expression();
+                    if (match(TokenType::TOKEN_TRIGGER)) {
+                        if (match(TokenType::TOKEN_LBRACE)) {
+                            std::vector<std::unique_ptr<ExpressionNode>> imp_exprs;
+                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                                parse_constraint_item(imp_exprs);
+                            }
+                            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing implication block");
+                            for (auto& ie : imp_exprs) {
+                                auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                                auto tern = std::make_unique<TernaryOpNode>(expr ? expr->clone() : nullptr, std::move(ie), std::move(true_node));
+                                out_exprs.push_back(std::move(tern));
+                            }
+                            return;
+                        } else {
+                            std::vector<std::unique_ptr<ExpressionNode>> imp_exprs;
+                            parse_constraint_item(imp_exprs);
+                            for (auto& ie : imp_exprs) {
+                                auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                                auto tern = std::make_unique<TernaryOpNode>(expr ? expr->clone() : nullptr, std::move(ie), std::move(true_node));
+                                out_exprs.push_back(std::move(tern));
+                            }
+                            return;
+                        }
+                    }
+
+                    if (match(TokenType::TOKEN_DIST)) {
+                        expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            if (match(TokenType::TOKEN_LBRACKET)) {
+                                parse_expression();
+                                expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
+                                parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
+                            } else {
+                                parse_expression();
+                            }
+                            if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
+                                parse_expression();
+                            }
+                            if (match(TokenType::TOKEN_COMMA)) continue;
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+                    }
+
+                    if (expr) {
+                        out_exprs.push_back(std::move(expr));
+                    }
+                    match(TokenType::TOKEN_SEMICOLON);
                 };
 
             while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
@@ -3879,6 +4045,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             }
             expect(TokenType::TOKEN_RBRACE, "Expected '}' closing constraint block");
             cls->add_constraint(std::make_unique<ConstraintBlockNode>(cname, std::move(exprs)));
+            continue;
         } else if (is_virt && current.type != TokenType::TOKEN_FUNCTION && current.type != TokenType::TOKEN_TASK) {
             std::string iface_name = "";
             std::string modport_name = "";
@@ -3927,14 +4094,29 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 return false;
             };
 
-            if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+            bool is_bare_unsigned = (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned"));
+            bool is_bare_signed = (current.type == TokenType::TOKEN_SIGNED);
+            if (is_bare_unsigned || is_bare_signed ||
+                current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
                 current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_STRING ||
                 current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_SHORTREAL ||
                 (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal" || current.text == "void" || is_type_identifier(current.text) || is_param_type(current.text)))) {
                 std::string member_type_name = current.text;
                 bool is_s = (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")));
-                advance();
+                if (is_bare_unsigned) {
+                    member_type_name = "int";
+                    is_s = false;
+                    advance();
+                    if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) advance();
+                } else if (is_bare_signed) {
+                    member_type_name = "int";
+                    is_s = true;
+                    advance();
+                    if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) advance();
+                } else {
+                    advance();
+                }
                 if (match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in type specialization");
                     int pdepth = 1;
@@ -3944,7 +4126,14 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                         advance();
                     }
                 }
-                if (match(TokenType::TOKEN_SIGNED)) is_s = true;
+                if (match(TokenType::TOKEN_SIGNED)) {
+                    is_s = true;
+                } else if (match(TokenType::TOKEN_UNSIGNED)) {
+                    is_s = false;
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                    is_s = false;
+                    advance();
+                }
                 uint32_t width = is_s ? 32 : 1;
                 if (member_type_name == "byte") width = 8;
                 else if (member_type_name == "shortint") width = 16;
@@ -5813,6 +6002,24 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            advance();
+            if (match(TokenType::TOKEN_STATIC)) {}
+            std::string class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+            expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            int cdepth = 1;
+            while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                advance();
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_INTERFACE && peek_token().type == TokenType::TOKEN_CLASS) {
             advance(); // consume 'interface'
             auto cls = parse_class(true);
@@ -5827,6 +6034,24 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            advance();
+            if (match(TokenType::TOKEN_STATIC)) {}
+            std::string class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+            expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            int cdepth = 1;
+            while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                advance();
+            }
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_CLASS) {
             auto cls = parse_class();
             if (cls) {
@@ -5836,6 +6061,24 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 class_map[scls->name] = scls;
                 class_map[pkg->name + "::" + scls->name] = scls;
                 global_classes.push_back(scls);
+            }
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            advance();
+            if (match(TokenType::TOKEN_STATIC)) {}
+            std::string class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+            expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            int cdepth = 1;
+            while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                advance();
             }
             continue;
         }

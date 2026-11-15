@@ -475,9 +475,35 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
                 if (match(TokenType::TOKEN_WITH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
+                    }
                     expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
                     while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                        if (match(TokenType::TOKEN_SEMICOLON)) continue;
+                        if (match(TokenType::TOKEN_SOFT)) {}
                         auto expr = parse_expression();
+                        if (match(TokenType::TOKEN_DIST)) {
+                            expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
+                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                                if (match(TokenType::TOKEN_LBRACKET)) {
+                                    parse_expression();
+                                    expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
+                                    parse_expression();
+                                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
+                                } else {
+                                    parse_expression();
+                                }
+                                if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
+                                    parse_expression();
+                                }
+                                if (match(TokenType::TOKEN_COMMA)) continue;
+                            }
+                            expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+                        }
                         if (expr) {
                             inline_constraints.push_back(std::move(expr));
                         }
@@ -549,7 +575,11 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return std::make_unique<UnpackedConcatNode>(std::move(elements), true);
             }
             while (true) {
-                if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_COLON) {
+                if (match(TokenType::TOKEN_DOT)) {
+                    std::string var_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier after '.' in pattern");
+                    elements.push_back(std::make_unique<IdentifierNode>("." + var_name));
+                } else if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_COLON) {
                     advance(); // consume 'default'
                     advance(); // consume ':'
                     auto val = parse_expression();
@@ -632,18 +662,54 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
 
         if (match(TokenType::TOKEN_COLON_COLON)) {
-            std::string member = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
-            while (match(TokenType::TOKEN_COLON_COLON)) {
-                name = name + "::" + member;
+            std::string member = "";
+            if (current.type == TokenType::TOKEN_NEW) {
+                member = "new";
+                advance();
+            } else {
                 member = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+            }
+            while (match(TokenType::TOKEN_COLON_COLON)) {
+                name = name + "::" + member;
+                if (current.type == TokenType::TOKEN_NEW) {
+                    member = "new";
+                    advance();
+                } else {
+                    member = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+                }
+            }
+            if (member == "new") {
+                std::vector<std::unique_ptr<ExpressionNode>> args;
+                std::vector<std::string> arg_names;
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    auto parsed = parse_call_argument_list();
+                    args = std::move(parsed.args);
+                    arg_names = std::move(parsed.arg_names);
+                }
+                return std::make_unique<ClassNewNode>(name, std::move(args), std::move(arg_names));
             }
             if (match(TokenType::TOKEN_LPAREN)) {
                 auto parsed = parse_call_argument_list();
                 const LetDeclNode* let_decl = find_visible_let(name + "::" + member);
                 if (let_decl) {
                     return expand_let(let_decl, std::move(parsed.args), parsed.arg_names);
+                }
+                if (match(TokenType::TOKEN_WITH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
+                    }
+                    expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
+                    int wdepth = 1;
+                    while (wdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LBRACE) wdepth++;
+                        else if (current.type == TokenType::TOKEN_RBRACE) wdepth--;
+                        advance();
+                    }
                 }
                 return std::make_unique<StaticMethodCallNode>(name, member, std::move(parsed.args), std::move(parsed.arg_names));
             }
@@ -792,9 +858,35 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
                 if (match(TokenType::TOKEN_WITH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                            advance();
+                        }
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
+                    }
                     expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
                     while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                        if (match(TokenType::TOKEN_SEMICOLON)) continue;
+                        if (match(TokenType::TOKEN_SOFT)) {}
                         auto expr = parse_expression();
+                        if (match(TokenType::TOKEN_DIST)) {
+                            expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
+                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                                if (match(TokenType::TOKEN_LBRACKET)) {
+                                    parse_expression();
+                                    expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
+                                    parse_expression();
+                                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
+                                } else {
+                                    parse_expression();
+                                }
+                                if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
+                                    parse_expression();
+                                }
+                                if (match(TokenType::TOKEN_COMMA)) continue;
+                            }
+                            expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+                        }
                         if (expr) {
                             inline_constraints.push_back(std::move(expr));
                         }

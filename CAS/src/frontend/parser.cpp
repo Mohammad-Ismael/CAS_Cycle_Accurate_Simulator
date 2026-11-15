@@ -388,6 +388,42 @@ endpackage
 }
 
 ClassNode* Parser::find_class(const std::string& name) const {
+    if (name == "process") {
+        static std::shared_ptr<ClassNode> proc_cls = []() {
+            auto cls = std::make_shared<ClassNode>("process");
+            auto self_fn = std::make_unique<FunctionNode>();
+            self_fn->name = "self";
+            self_fn->is_static = true;
+            self_fn->return_width = 64;
+            cls->add_function(std::move(self_fn));
+            auto status_fn = std::make_unique<FunctionNode>();
+            status_fn->name = "status";
+            status_fn->return_width = 32;
+            cls->add_function(std::move(status_fn));
+            auto kill_fn = std::make_unique<FunctionNode>();
+            kill_fn->name = "kill";
+            cls->add_function(std::move(kill_fn));
+            auto await_fn = std::make_unique<FunctionNode>();
+            await_fn->name = "await";
+            cls->add_function(std::move(await_fn));
+            auto suspend_fn = std::make_unique<FunctionNode>();
+            suspend_fn->name = "suspend";
+            cls->add_function(std::move(suspend_fn));
+            auto resume_fn = std::make_unique<FunctionNode>();
+            resume_fn->name = "resume";
+            cls->add_function(std::move(resume_fn));
+            auto get_rs_fn = std::make_unique<FunctionNode>();
+            get_rs_fn->name = "get_randstate";
+            get_rs_fn->return_type_name = "string";
+            get_rs_fn->return_width = 64;
+            cls->add_function(std::move(get_rs_fn));
+            auto set_rs_fn = std::make_unique<FunctionNode>();
+            set_rs_fn->name = "set_randstate";
+            cls->add_function(std::move(set_rs_fn));
+            return cls;
+        }();
+        return proc_cls.get();
+    }
     if (name.rfind("uvm_", 0) == 0) {
         ensure_package_loaded("uvm_pkg");
     }
@@ -449,6 +485,7 @@ bool Parser::is_forward_class(const std::string& name) const {
 }
 
 bool Parser::is_known_class(const std::string& name) const {
+    if (name == "process") return true;
     if (find_class(name) != nullptr) return true;
     if (is_forward_class(name)) return true;
     return false;
@@ -559,6 +596,21 @@ void Parser::parse_packages_only() {
                     }
                 }
                 if (!found) global_classes.push_back(scls);
+            }
+        } else if (current.type == TokenType::TOKEN_CONSTRAINT) {
+            advance();
+            if (match(TokenType::TOKEN_STATIC)) {}
+            std::string class_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected class name in out-of-block constraint");
+            expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
+            std::string cname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
+            int cdepth = 1;
+            while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LBRACE) cdepth++;
+                else if (current.type == TokenType::TOKEN_RBRACE) cdepth--;
+                advance();
             }
         } else {
             advance();

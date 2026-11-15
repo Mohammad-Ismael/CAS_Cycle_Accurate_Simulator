@@ -1,0 +1,11 @@
+{
+  "name": "v4_3_4_0_constraints_case_inside_and_class_elaboration",
+  "version": "v4.3.4.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§12.5, §18.5, §8.25",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v4_3_4_regression"
+}

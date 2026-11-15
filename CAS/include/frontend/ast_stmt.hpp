@@ -409,12 +409,15 @@ struct RepeatStatementNode : public StatementNode {
 enum class CaseType {
     CASE,
     CASEZ,
-    CASEX
+    CASEX,
+    CASE_INSIDE,
+    CASE_MATCHES
 };
 
 struct CaseItem {
     std::unique_ptr<ExpressionNode> match_expr;
     std::vector<std::unique_ptr<ExpressionNode>> match_exprs;
+    std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> range_exprs;
     std::vector<std::unique_ptr<StatementNode>> statements;
     bool is_default = false;
 };
@@ -437,6 +440,7 @@ struct CaseStatementNode : public StatementNode {
             ci.is_default = item.is_default;
             ci.match_expr = item.match_expr ? item.match_expr->clone() : nullptr;
             for (const auto& me : item.match_exprs) ci.match_exprs.push_back(me ? me->clone() : nullptr);
+            for (const auto& r : item.range_exprs) ci.range_exprs.push_back({r.first ? r.first->clone() : nullptr, r.second ? r.second->clone() : nullptr});
             for (const auto& st : item.statements) ci.statements.push_back(st ? st->clone() : nullptr);
             node->items.push_back(std::move(ci));
         }

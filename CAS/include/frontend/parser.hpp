@@ -99,7 +99,7 @@ public:
         return name == "int" || name == "byte" || name == "shortint" || name == "longint" ||
                name == "integer" || name == "time" || name == "realtime" || name == "real" ||
                name == "shortreal" || name == "string" || name == "chandle" || name == "semaphore" ||
-               name == "mailbox" || name == "bit" || name == "logic" || name == "reg" ||
+               name == "mailbox" || name == "process" || name == "bit" || name == "logic" || name == "reg" ||
                name == "wire" || name == "wand" || name == "wor" || name == "tri" ||
                name == "signed" || name == "unsigned" || name == "void";
     }

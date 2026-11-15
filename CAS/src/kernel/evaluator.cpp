@@ -1513,8 +1513,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 return LogicOps::casez_eq(sel_val, item_val).to_bool();
             } else if (case_stmt->case_type == CaseType::CASEX) {
                 return LogicOps::casex_eq(sel_val, item_val).to_bool();
+            } else if (case_stmt->case_type == CaseType::CASE_INSIDE) {
+                return LogicOps::casez_eq(item_val, sel_val).to_bool();
+            } else if (case_stmt->case_type == CaseType::CASE_MATCHES) {
+                return true;
             } else {
                 return LogicOps::case_eq(sel_val, item_val).to_bool();
+            }
+        };
+
+        auto in_range = [](const LogicVal& v, const LogicVal& lo, const LogicVal& hi) -> bool {
+            if (v.is_unknown() || lo.is_unknown() || hi.is_unknown()) return false;
+            if (v.is_signed) {
+                int64_t val = v.to_signed();
+                int64_t l = lo.to_signed();
+                int64_t h = hi.to_signed();
+                return (l <= val && val <= h) || (h <= val && val <= l);
+            } else {
+                uint64_t val = v.aval;
+                uint64_t l = lo.aval;
+                uint64_t h = hi.aval;
+                return (l <= val && val <= h) || (h <= val && val <= l);
             }
         };
 
@@ -1527,14 +1546,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
 
                 bool item_matched = false;
-                if (!item.match_exprs.empty()) {
+                for (const auto& r : item.range_exprs) {
+                    LogicVal low = eval_expr(r.first.get(), bp.scope);
+                    LogicVal high = eval_expr(r.second.get(), bp.scope);
+                    if (in_range(sel_val, low, high)) {
+                        item_matched = true;
+                        break;
+                    }
+                }
+                if (!item_matched && !item.match_exprs.empty()) {
                     for (const auto& m_expr : item.match_exprs) {
                         if (test_match(m_expr.get())) {
                             item_matched = true;
                             break;
                         }
                     }
-                } else if (item.match_expr) {
+                } else if (!item_matched && item.match_expr) {
                     item_matched = test_match(item.match_expr.get());
                 }
 
@@ -1570,14 +1597,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
 
             bool item_matched = false;
-            if (!item.match_exprs.empty()) {
+            for (const auto& r : item.range_exprs) {
+                LogicVal low = eval_expr(r.first.get(), bp.scope);
+                LogicVal high = eval_expr(r.second.get(), bp.scope);
+                if (in_range(sel_val, low, high)) {
+                    item_matched = true;
+                    break;
+                }
+            }
+            if (!item_matched && !item.match_exprs.empty()) {
                 for (const auto& m_expr : item.match_exprs) {
                     if (test_match(m_expr.get())) {
                         item_matched = true;
                         break;
                     }
                 }
-            } else if (item.match_expr) {
+            } else if (!item_matched && item.match_expr) {
                 item_matched = test_match(item.match_expr.get());
             }
 

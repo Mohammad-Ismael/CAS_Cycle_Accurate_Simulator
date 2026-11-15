@@ -71,8 +71,17 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
                 def_w = 64;
                 is_int = true;
             }
-            if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); }
+            if (match(TokenType::TOKEN_SIGNED)) {
+                is_s = true; has_explicit_type = true; def_w = 1; is_int = false;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed") {
+                is_s = true; has_explicit_type = true; def_w = 1; is_int = false;
+                advance();
+            } else if (match(TokenType::TOKEN_UNSIGNED)) {
+                is_s = false; has_explicit_type = true; def_w = 1; is_int = false;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                is_s = false; has_explicit_type = true; def_w = 1; is_int = false;
+                advance();
+            }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
@@ -110,7 +119,10 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) { is_s = true; has_explicit_type = true; }
-            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; has_explicit_type = true; advance(); } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+            else if (match(TokenType::TOKEN_UNSIGNED)) { is_s = false; has_explicit_type = true; }
+            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") {
+                is_s = false; has_explicit_type = true; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 has_explicit_type = true;
                 advance(); advance();
                 is_int = true;
