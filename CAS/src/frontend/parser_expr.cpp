@@ -624,25 +624,21 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
-        if (is_class(current.text)) {
-            std::string class_type = parse_class_type_and_specialize();
-            if (match(TokenType::TOKEN_COLON_COLON)) {
-                std::string member = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
-                if (match(TokenType::TOKEN_LPAREN)) {
-                    auto parsed = parse_call_argument_list();
-                    return std::make_unique<StaticMethodCallNode>(class_type, member, std::move(parsed.args), std::move(parsed.arg_names));
-                }
-                return std::make_unique<StaticMemberAccessNode>(class_type, member);
-            }
-        }
-
         std::string name = current.text;
-        advance();
+        if (is_class(current.text) || peek_token().type == TokenType::TOKEN_HASH) {
+            name = parse_class_type_and_specialize();
+        } else {
+            advance();
+        }
 
         if (match(TokenType::TOKEN_COLON_COLON)) {
             std::string member = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+            while (match(TokenType::TOKEN_COLON_COLON)) {
+                name = name + "::" + member;
+                member = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+            }
             if (match(TokenType::TOKEN_LPAREN)) {
                 auto parsed = parse_call_argument_list();
                 const LetDeclNode* let_decl = find_visible_let(name + "::" + member);

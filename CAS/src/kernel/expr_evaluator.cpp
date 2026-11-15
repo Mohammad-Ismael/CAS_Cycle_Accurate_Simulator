@@ -1333,6 +1333,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+        if (smc->method_name == "create") {
+            std::string target_cls = smc->class_type_name;
+            auto pos = target_cls.rfind("::type_id");
+            if (pos != std::string::npos) {
+                target_cls = target_cls.substr(0, pos);
+            }
+            if (!target_cls.empty()) {
+                auto obj = engine.allocate_class_object(target_cls);
+                FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
+                if (ctor) {
+                    std::vector<LogicVal> arg_vals;
+                    for (auto& a : smc->args) arg_vals.push_back(eval(a.get(), scope));
+                    LogicVal dummy;
+                    eval_class_method(obj.get(), ctor, arg_vals, dummy);
+                }
+                return LogicVal(64, obj->handle_id, 0);
+            }
+        }
+
         std::string full_fn = smc->class_type_name + "::" + smc->method_name;
         if (engine.function_map.find(full_fn) != engine.function_map.end() ||
             engine.function_map.find(smc->method_name) != engine.function_map.end()) {

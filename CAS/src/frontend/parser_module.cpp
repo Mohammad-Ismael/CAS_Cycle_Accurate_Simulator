@@ -2978,6 +2978,15 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 base_t += "::" + current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::' in typedef");
             }
+            if (match(TokenType::TOKEN_HASH)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in typedef");
+                int pdepth = 1;
+                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                    advance();
+                }
+            }
             bool is_sgn = (base_t == "integer" || base_t == "int" || base_t == "byte" || base_t == "shortint" || base_t == "longint" || base_t == "signed");
             if (match(TokenType::TOKEN_SIGNED)) {
                 is_sgn = true;
@@ -3482,11 +3491,29 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             base_class_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected base class name after 'extends'");
             cls->base_class_name = base_class_name;
+            if (match(TokenType::TOKEN_HASH)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in base class parameter list");
+                int pdepth = 1;
+                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                    advance();
+                }
+            }
         }
         if (match(TokenType::TOKEN_IMPLEMENTS)) {
             while (true) {
                 std::string iface_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after 'implements'");
+                if (match(TokenType::TOKEN_HASH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in implemented interface parameter list");
+                    int pdepth = 1;
+                    while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                        else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                        advance();
+                    }
+                }
                 cls->implemented_interfaces.push_back(iface_name);
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
@@ -3593,6 +3620,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 is_virt = true;
             } else if (match(TokenType::TOKEN_STATIC)) {
                 is_stat = true;
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "protected" || current.text == "local")) {
+                advance();
             } else {
                 break;
             }
@@ -3762,6 +3791,15 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 std::string member_type_name = current.text;
                 bool is_s = (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")));
                 advance();
+                if (match(TokenType::TOKEN_HASH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in type specialization");
+                    int pdepth = 1;
+                    while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                        else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                        advance();
+                    }
+                }
                 if (match(TokenType::TOKEN_SIGNED)) is_s = true;
                 uint32_t width = is_s ? 32 : 1;
                 if (member_type_name == "byte") width = 8;
@@ -4268,6 +4306,15 @@ std::string Parser::parse_class_type_and_specialize() {
     ClassNode* base_cls = find_class(base_name);
 
     if (!base_cls) {
+        if (match(TokenType::TOKEN_HASH)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class specialization");
+            int pdepth = 1;
+            while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                advance();
+            }
+        }
         return base_name;
     }
 
@@ -4437,12 +4484,18 @@ std::string Parser::parse_class_type_and_specialize() {
     }
     for (size_t i = 0; i < pos_args.size() && i < base_cls->parameters.size(); ++i) {
         if (auto id = dynamic_cast<IdentifierNode*>(pos_args[i].get())) {
-            if (id->name.rfind("virtual", 0) == 0 || is_type_identifier(id->name) || is_interface_type(id->name)) {
+            if (id->name.rfind("virtual", 0) == 0 || is_type_identifier(id->name) || is_class(id->name) || is_interface_type(id->name)) {
                 type_resolved[base_cls->parameters[i].name] = id->name;
                 continue;
             }
         }
-        resolved[base_cls->parameters[i].name] = eval_const_expr(pos_args[i].get());
+        try {
+            resolved[base_cls->parameters[i].name] = eval_const_expr(pos_args[i].get());
+        } catch (...) {
+            if (auto id2 = dynamic_cast<IdentifierNode*>(pos_args[i].get())) {
+                type_resolved[base_cls->parameters[i].name] = id2->name;
+            }
+        }
     }
     for (const auto& na : named_args) {
         resolved[na.first] = eval_const_expr(na.second.get());
