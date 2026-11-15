@@ -877,6 +877,10 @@ struct SvaLocalVar {
 
 struct SequenceItem {
     uint32_t cycle_delay = 0;
+    uint32_t max_cycle_delay = 0;
+    bool is_range = false;
+    std::string clock_signal = "";
+    EdgeType clock_edge = EdgeType::POSEDGE;
     std::unique_ptr<ExpressionNode> expr;
 };
 

@@ -4358,11 +4358,33 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
 
         PropertyNode* target_prop = nullptr;
+        std::shared_ptr<PropertyNode> seq_as_prop = nullptr;
         if (!asrt->property_name.empty()) {
             std::string full_pname = scope.empty() ? asrt->property_name : (scope + "." + asrt->property_name);
             if (result.property_defs.count(full_pname)) target_prop = result.property_defs[full_pname].get();
             else if (result.property_defs.count(asrt->property_name)) target_prop = result.property_defs[asrt->property_name].get();
             else if (mod->property_map.count(asrt->property_name)) target_prop = mod->property_map[asrt->property_name];
+
+            if (!target_prop) {
+                std::shared_ptr<SequenceNode> target_seq = nullptr;
+                if (result.sequence_defs.count(full_pname)) target_seq = result.sequence_defs[full_pname];
+                else if (result.sequence_defs.count(asrt->property_name)) target_seq = result.sequence_defs[asrt->property_name];
+                else if (mod->sequence_map.count(asrt->property_name)) target_seq = std::shared_ptr<SequenceNode>(mod->sequence_map[asrt->property_name], [](SequenceNode*){});
+                if (target_seq) {
+                    seq_as_prop = std::make_shared<PropertyNode>();
+                    seq_as_prop->name = target_seq->name;
+                    seq_as_prop->clock_edge = target_seq->clock_edge;
+                    seq_as_prop->clock_signal = target_seq->clock_signal;
+                    seq_as_prop->local_vars = target_seq->local_vars;
+                    std::vector<SequenceConcatItem> items;
+                    for (const auto& it : target_seq->items) {
+                        items.push_back({it.cycle_delay, it.max_cycle_delay, it.is_range, it.clock_signal, it.clock_edge, it.expr ? it.expr->clone() : nullptr});
+                    }
+                    seq_as_prop->antecedent = std::make_unique<SequenceConcatNode>(std::move(items));
+                    asrt->inlined_property = seq_as_prop;
+                    target_prop = seq_as_prop.get();
+                }
+            }
         } else if (asrt->inlined_property) {
             target_prop = asrt->inlined_property.get();
         }
@@ -4393,6 +4415,25 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (!scope.empty()) result.sva_local_var_names.insert(scope + "." + lv.name);
             }
             extract_sequence_steps(inst.consequent ? inst.consequent : inst.antecedent, inst.consequent_steps);
+
+            if (inst.clock_net_id == (size_t)-1 && !inst.consequent_steps.empty()) {
+                for (const auto& st : inst.consequent_steps) {
+                    if (!st.clock_signal.empty()) {
+                        std::string sc = prop_scope.empty() ? st.clock_signal : (prop_scope + "." + st.clock_signal);
+                        if (result.net_map.find(sc) != result.net_map.end()) {
+                            inst.clock_net_id = result.net_map.at(sc);
+                            inst.clock_edge = st.clock_edge;
+                            inst.clock_signal = st.clock_signal;
+                            break;
+                        } else if (result.net_map.find(st.clock_signal) != result.net_map.end()) {
+                            inst.clock_net_id = result.net_map.at(st.clock_signal);
+                            inst.clock_edge = st.clock_edge;
+                            inst.clock_signal = st.clock_signal;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         for (auto& s : asrt->pass_statements) {

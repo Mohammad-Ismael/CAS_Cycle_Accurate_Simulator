@@ -20,6 +20,10 @@ struct SvaSequenceStep {
     uint32_t min_count = 1;
     uint32_t max_count = 1;
     uint32_t cycle_delay = 0;
+    uint32_t max_cycle_delay = 0;
+    bool is_range_delay = false;
+    std::string clock_signal = "";
+    EdgeType clock_edge = EdgeType::POSEDGE;
 };
 
 struct SvaThread {
@@ -43,15 +47,15 @@ inline void extract_sequence_steps(ExpressionNode* node, std::vector<SvaSequence
     if (auto concat = dynamic_cast<SequenceConcatNode*>(node)) {
         for (const auto& item : concat->elements) {
             if (auto rep = dynamic_cast<SequenceRepetitionNode*>(item.expr.get())) {
-                steps.push_back({rep->expr.get(), rep->rep_type, rep->min_count, rep->max_count, item.delay});
+                steps.push_back({rep->expr.get(), rep->rep_type, rep->min_count, rep->max_count, item.delay, item.max_delay, item.is_range, item.clock_signal, item.clock_edge});
             } else {
-                steps.push_back({item.expr.get(), RepetitionType::CONSECUTIVE, 1, 1, item.delay});
+                steps.push_back({item.expr.get(), RepetitionType::CONSECUTIVE, 1, 1, item.delay, item.max_delay, item.is_range, item.clock_signal, item.clock_edge});
             }
         }
     } else if (auto rep = dynamic_cast<SequenceRepetitionNode*>(node)) {
-        steps.push_back({rep->expr.get(), rep->rep_type, rep->min_count, rep->max_count, 0});
+        steps.push_back({rep->expr.get(), rep->rep_type, rep->min_count, rep->max_count, 0, 0, false, "", EdgeType::POSEDGE});
     } else {
-        steps.push_back({node, RepetitionType::CONSECUTIVE, 1, 1, 0});
+        steps.push_back({node, RepetitionType::CONSECUTIVE, 1, 1, 0, 0, false, "", EdgeType::POSEDGE});
     }
 }
 

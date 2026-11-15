@@ -1249,6 +1249,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto assign_expr = parse_expression();
                         assigns.push_back(SequenceMatchAction(false, name, std::move(assign_expr)));
+                    } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
+                        auto rhs = parse_expression();
+                        auto add_expr = std::make_unique<BinaryOpNode>("+", std::make_unique<IdentifierNode>(name), std::move(rhs));
+                        assigns.push_back(SequenceMatchAction(false, name, std::move(add_expr)));
+                    } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
+                        auto rhs = parse_expression();
+                        auto sub_expr = std::make_unique<BinaryOpNode>("-", std::make_unique<IdentifierNode>(name), std::move(rhs));
+                        assigns.push_back(SequenceMatchAction(false, name, std::move(sub_expr)));
                     } else if (match(TokenType::TOKEN_LPAREN)) {
                         std::vector<std::unique_ptr<ExpressionNode>> args;
                         if (current.type != TokenType::TOKEN_RPAREN) {
@@ -1664,6 +1672,18 @@ std::unique_ptr<ExpressionNode> Parser::parse_expression() {
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_sequence_element() {
+    if (match(TokenType::TOKEN_AT)) {
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+        if (match(TokenType::TOKEN_POSEDGE)) {}
+        else if (match(TokenType::TOKEN_NEGEDGE)) {}
+        std::string clk = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected clock identifier");
+        while (match(TokenType::TOKEN_DOT)) {
+            clk += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in clock");
+        }
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clock");
+    }
     auto expr = parse_expression();
     if (current.type == TokenType::TOKEN_REP_CONSEC ||
         current.type == TokenType::TOKEN_REP_NON_CONSEC ||
@@ -1707,62 +1727,137 @@ std::unique_ptr<ExpressionNode> Parser::parse_sequence_element() {
     return expr;
 }
 
+static bool is_sequence_binary_op(const Token& tok) {
+    if (tok.type == TokenType::TOKEN_GATE_AND || tok.type == TokenType::TOKEN_GATE_OR) return true;
+    if (tok.type == TokenType::TOKEN_IDENTIFIER) {
+        if (tok.text == "and" || tok.text == "or" || tok.text == "intersect" ||
+            tok.text == "throughout" || tok.text == "within") {
+            return true;
+        }
+    }
+    return false;
+}
+
+static SequenceBinaryOp get_sequence_binary_op(const Token& tok) {
+    if (tok.type == TokenType::TOKEN_GATE_AND || tok.text == "and") return SequenceBinaryOp::AND;
+    if (tok.type == TokenType::TOKEN_GATE_OR || tok.text == "or") return SequenceBinaryOp::OR;
+    if (tok.text == "intersect") return SequenceBinaryOp::INTERSECT;
+    if (tok.text == "throughout") return SequenceBinaryOp::THROUGHOUT;
+    if (tok.text == "within") return SequenceBinaryOp::WITHIN;
+    return SequenceBinaryOp::AND;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_sequence_expression() {
+    auto parse_delay_and_clock = [this](uint32_t& delay, uint32_t& max_delay, bool& is_range, std::string& step_clk, EdgeType& step_edge) {
+        delay = 1;
+        max_delay = 1;
+        is_range = false;
+        step_clk = "";
+        step_edge = EdgeType::POSEDGE;
+
+        if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
+            advance();
+        } else {
+            advance(); advance();
+        }
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            is_range = true;
+            if (match(TokenType::TOKEN_STAR)) {
+                delay = 0;
+                max_delay = UINT32_MAX;
+            } else if (match(TokenType::TOKEN_PLUS)) {
+                delay = 1;
+                max_delay = UINT32_MAX;
+            } else {
+                auto min_expr = parse_expression();
+                if (auto num = dynamic_cast<NumberNode*>(min_expr.get())) {
+                    delay = static_cast<uint32_t>(num->aval);
+                    max_delay = delay;
+                }
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        max_delay = UINT32_MAX;
+                    } else {
+                        auto max_e = parse_expression();
+                        if (auto num2 = dynamic_cast<NumberNode*>(max_e.get())) {
+                            max_delay = static_cast<uint32_t>(num2->aval);
+                        }
+                    }
+                }
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in cycle delay range");
+        } else if (current.type == TokenType::TOKEN_NUMBER) {
+            delay = static_cast<uint32_t>(current.num_val);
+            max_delay = delay;
+            advance();
+        }
+
+        if (match(TokenType::TOKEN_AT)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@'");
+            if (match(TokenType::TOKEN_POSEDGE)) step_edge = EdgeType::POSEDGE;
+            else if (match(TokenType::TOKEN_NEGEDGE)) step_edge = EdgeType::NEGEDGE;
+            else step_edge = EdgeType::LEVEL;
+            step_clk = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected clock identifier");
+            while (match(TokenType::TOKEN_DOT)) {
+                step_clk += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in clock");
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clock");
+        }
+    };
+
+    std::unique_ptr<ExpressionNode> seq_res;
+
     if (current.type == TokenType::TOKEN_CYCLE_DELAY ||
         (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
         std::vector<SequenceConcatItem> items;
         while (current.type == TokenType::TOKEN_CYCLE_DELAY ||
                (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
-            uint32_t delay = 1;
-            if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
-                advance();
-                if (current.type == TokenType::TOKEN_NUMBER) {
-                    delay = static_cast<uint32_t>(current.num_val);
-                    advance();
-                }
-            } else {
-                advance(); advance();
-                if (current.type == TokenType::TOKEN_NUMBER) {
-                    delay = static_cast<uint32_t>(current.num_val);
-                    advance();
-                }
-            }
+            uint32_t delay = 1, max_delay = 1;
+            bool is_range = false;
+            std::string step_clk = "";
+            EdgeType step_edge = EdgeType::POSEDGE;
+            parse_delay_and_clock(delay, max_delay, is_range, step_clk, step_edge);
+
             auto next_elem = parse_sequence_element();
-            items.push_back({delay, std::move(next_elem)});
+            items.push_back({delay, max_delay, is_range, step_clk, step_edge, std::move(next_elem)});
         }
-        return std::make_unique<SequenceConcatNode>(std::move(items));
-    }
+        seq_res = std::make_unique<SequenceConcatNode>(std::move(items));
+    } else {
+        auto first = parse_sequence_element();
 
-    auto first = parse_sequence_element();
+        if (current.type == TokenType::TOKEN_CYCLE_DELAY ||
+            (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+            std::vector<SequenceConcatItem> items;
+            items.push_back({0, 0, false, "", EdgeType::POSEDGE, std::move(first)});
 
-    if (current.type != TokenType::TOKEN_CYCLE_DELAY &&
-        !(current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
-        return first;
-    }
+            while (current.type == TokenType::TOKEN_CYCLE_DELAY ||
+                   (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
+                uint32_t delay = 1, max_delay = 1;
+                bool is_range = false;
+                std::string step_clk = "";
+                EdgeType step_edge = EdgeType::POSEDGE;
+                parse_delay_and_clock(delay, max_delay, is_range, step_clk, step_edge);
 
-    std::vector<SequenceConcatItem> items;
-    items.push_back({0, std::move(first)});
-
-    while (current.type == TokenType::TOKEN_CYCLE_DELAY ||
-           (current.type == TokenType::TOKEN_HASH && peek_token().type == TokenType::TOKEN_HASH)) {
-        uint32_t delay = 1;
-        if (current.type == TokenType::TOKEN_CYCLE_DELAY) {
-            advance();
-            if (current.type == TokenType::TOKEN_NUMBER) {
-                delay = static_cast<uint32_t>(current.num_val);
-                advance();
+                auto next_elem = parse_sequence_element();
+                items.push_back({delay, max_delay, is_range, step_clk, step_edge, std::move(next_elem)});
             }
+            seq_res = std::make_unique<SequenceConcatNode>(std::move(items));
         } else {
-            advance(); advance();
-            if (current.type == TokenType::TOKEN_NUMBER) {
-                delay = static_cast<uint32_t>(current.num_val);
-                advance();
-            }
+            seq_res = std::move(first);
         }
-        auto next_elem = parse_sequence_element();
-        items.push_back({delay, std::move(next_elem)});
     }
-    return std::make_unique<SequenceConcatNode>(std::move(items));
+
+    while (is_sequence_binary_op(current)) {
+        SequenceBinaryOp op = get_sequence_binary_op(current);
+        advance();
+        auto rhs = parse_sequence_expression();
+        seq_res = std::make_unique<SequenceBinaryOpNode>(op, std::move(seq_res), std::move(rhs));
+    }
+
+    return seq_res;
 }
 
 const LetDeclNode* Parser::find_visible_let(const std::string& name) const {

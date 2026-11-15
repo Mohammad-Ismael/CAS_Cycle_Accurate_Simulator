@@ -4968,10 +4968,10 @@ std::unique_ptr<SequenceNode> Parser::parse_sequence() {
     auto seq_expr = parse_sequence_expression();
     if (auto concat = dynamic_cast<SequenceConcatNode*>(seq_expr.get())) {
         for (auto& item : concat->elements) {
-            seq->items.push_back({item.delay, std::move(item.expr)});
+            seq->items.push_back({item.delay, item.max_delay, item.is_range, item.clock_signal, item.clock_edge, std::move(item.expr)});
         }
     } else {
-        seq->items.push_back({0, std::move(seq_expr)});
+        seq->items.push_back({0, 0, false, "", EdgeType::POSEDGE, std::move(seq_expr)});
     }
 
     match(TokenType::TOKEN_SEMICOLON);

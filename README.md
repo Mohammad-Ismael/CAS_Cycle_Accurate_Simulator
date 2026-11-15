@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.2.3.0`  
-**Status:** Release v4.2.3.0 Clean (100% Synopsys VCS Golden Parity & Built-in uvm_pkg/uvm_macros.svh, SVA Deferred/Assume/Expect Assertions, 105/105 Milestone Regressions)  
+**Current Version:** `v4.3.0.0`  
+**Status:** Release v4.3.0.0 Clean (100% Full IEEE 1800-2023 sv-tests Parity 283/283, SVA Sequence Operators ##[M:N]/and/or/intersect/throughout, Sampled Value Functions, 106/106 Milestone Regressions)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regressions/             # 105/105 Comprehensive IEEE 1800-2023 Regression Testbenches
+├── regressions/             # 106/106 Comprehensive IEEE 1800-2023 Regression Testbenches
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
@@ -560,14 +560,15 @@ In addition to the 100% pass parity achieved on lowRISC Ibex, CAS is verified on
 
 ---
 
-## Key Achievements (v1.0.0.0 – v4.2.3.0)
+## Key Achievements (v1.0.0.0 – v4.3.0.0)
 
 From initial concept to a full commercial-grade SystemVerilog verification platform, the CAS development progression has delivered:
 
-1. **100% IEEE 1800-2023 Chapters 5–15, 18 & Chapters 20–26 sv-tests Parity (254/254 Passing Tests) + Chapter 16 UVM/SVA Parity**:
-   - Zero syntax, elaboration, or simulation failures across all simulation test suites of Chapters 5–15, Chapter 18 (`randcase` §18.16 and `randsequence` §18.17 grammar productions), Chapters 20–26 (Packages §26, System Tasks §20, File I/O §21, Compiler Directives §22, User Tasks §23, Programs §24), and built-in UVM harness / SVA assertions (`uvm_pkg`, `uvm_macros.svh`, immediate/deferred assertions, and interface-scoped properties).
-2. **105 / 105 Milestone Regressions Passing at 100% VCS Golden Parity**:
-   - 105 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
+1. **100% Full IEEE 1800-2023 sv-tests Parity Across Chapters 5–26 (283/283 Passing Tests)**:
+   - Zero syntax, elaboration, or simulation failures across every single positive simulation test in the entire `sv-tests` suite spanning Chapters 5–26.
+   - Comprehensive coverage across all chapters: Chapter 6 (1/1), Chapter 7 (90/90), Chapter 8 (6/6), Chapter 9 (5/5), Chapter 10 (2/2), Chapter 11 (51/51), Chapter 12 (2/2), Chapter 13 (12/12), Chapter 15 (2/2), Chapter 16 (29/29), Chapter 18 (14/14), Chapter 20 (38/38), Chapter 21 (27/27), Chapter 22 (1/1), Chapter 23 (1/1), Chapter 24 (1/1), Chapter 26 (1/1).
+2. **106 / 106 Milestone Regressions Passing at 100% VCS Golden Parity**:
+   - 106 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
 3. **Production RISC-V SoC Verification Parity**:
    - **lowRISC Ibex RV32IMC:** 137 modules, 2,710 nets, 125 memory arrays, booting bare-metal firmware with CSR setup, timer interrupts, and UART logging.
    - **Western Digital VeeR EL2:** Dual-issue superscalar execution with verified architectural register and pipeline retirement parity against Verilator.
@@ -580,12 +581,11 @@ From initial concept to a full commercial-grade SystemVerilog verification platf
 
 ---
 
-## Roadmap (Next Phase: Chapter 16 Completion)
+## Roadmap (Next Phase: Advanced Verification & Native Compilation)
 
 The subsequent architectural phases expand compliance across remaining verification chapters:
 
-### Phase A: IEEE 1800-2023 Chapter 16 SVA & Assertions Compliance
-- **Chapter 16 (Assertions & Sequences):** Full concurrent assertion engine, sampled value functions, multi-clock sequence composition, local variables, formal implication operators (`|->`, `|=>`), and UVM assertion integration.
+### Phase A: IEEE 1800-2023 Advanced Verification
 - **Chapter 17 (Checkers):** Procedural checker instantiation, auxiliary state encapsulation, and verification library binding.
 - **Chapter 19 (Functional Coverage):** Multi-dimensional cross-coverage bins, transition bins, sample conditions, and coverage database serialization (`UCIS` / `CDX`).
 

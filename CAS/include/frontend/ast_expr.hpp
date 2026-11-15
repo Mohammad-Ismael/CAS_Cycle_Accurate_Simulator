@@ -1,5 +1,6 @@
 #pragma once
 #include "ast_base.hpp"
+#include "common/edge_types.hpp"
 #include <string>
 #include <cstdint>
 #include <memory>
@@ -557,10 +558,39 @@ struct SequenceRepetitionNode : public ExpressionNode {
 
 struct SequenceConcatItem {
     uint32_t delay = 0;
+    uint32_t max_delay = 0;
+    bool is_range = false;
+    std::string clock_signal = "";
+    EdgeType clock_edge = EdgeType::POSEDGE;
     std::unique_ptr<ExpressionNode> expr;
 
     SequenceConcatItem clone() const {
-        return {delay, expr ? expr->clone() : nullptr};
+        return {delay, max_delay, is_range, clock_signal, clock_edge, expr ? expr->clone() : nullptr};
+    }
+};
+
+enum class SequenceBinaryOp {
+    AND,
+    INTERSECT,
+    OR,
+    THROUGHOUT,
+    WITHIN
+};
+
+struct SequenceBinaryOpNode : public ExpressionNode {
+    SequenceBinaryOp op;
+    std::unique_ptr<ExpressionNode> lhs;
+    std::unique_ptr<ExpressionNode> rhs;
+
+    SequenceBinaryOpNode(SequenceBinaryOp o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
+        : op(o), lhs(std::move(l)), rhs(std::move(r)) {}
+
+    std::unique_ptr<ExpressionNode> clone() const override {
+        return std::make_unique<SequenceBinaryOpNode>(
+            op,
+            lhs ? lhs->clone() : nullptr,
+            rhs ? rhs->clone() : nullptr
+        );
     }
 };
 

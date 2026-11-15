@@ -701,6 +701,36 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal(64, 0, 0);
     }
 
+    if (auto sbin = dynamic_cast<SequenceBinaryOpNode*>(expr)) {
+        LogicVal l = eval(sbin->lhs.get(), scope);
+        LogicVal r = eval(sbin->rhs.get(), scope);
+        bool l_true = (!l.is_unknown() && l.is_true());
+        bool r_true = (!r.is_unknown() && r.is_true());
+        switch (sbin->op) {
+            case SequenceBinaryOp::AND:
+            case SequenceBinaryOp::INTERSECT:
+            case SequenceBinaryOp::THROUGHOUT:
+            case SequenceBinaryOp::WITHIN:
+                return LogicVal(1, (l_true && r_true) ? 1 : 0, 0);
+            case SequenceBinaryOp::OR:
+                return LogicVal(1, (l_true || r_true) ? 1 : 0, 0);
+        }
+    }
+
+    if (auto sconcat = dynamic_cast<SequenceConcatNode*>(expr)) {
+        bool all_true = true;
+        for (const auto& elem : sconcat->elements) {
+            if (elem.expr) {
+                LogicVal v = eval(elem.expr.get(), scope);
+                if (v.is_unknown() || !v.is_true()) {
+                    all_true = false;
+                    break;
+                }
+            }
+        }
+        return LogicVal(1, all_true ? 1 : 0, 0);
+    }
+
     if (auto sfn = dynamic_cast<SysSampledFuncNode*>(expr)) {
         return eval_sampled_func(sfn, scope);
     }
@@ -4208,6 +4238,28 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             return res;
         }
+
+        if (engine.is_sequence(ident->name, scope)) {
+            std::string scoped_seq = scope.empty() ? ident->name : (scope + "." + ident->name);
+            std::shared_ptr<SequenceNode> seq_node = nullptr;
+            if (engine.sequence_defs.count(scoped_seq)) seq_node = engine.sequence_defs.at(scoped_seq);
+            else if (engine.sequence_defs.count(ident->name)) seq_node = engine.sequence_defs.at(ident->name);
+            if (seq_node) {
+                bool seq_ok = true;
+                for (const auto& item : seq_node->items) {
+                    if (item.expr) {
+                        LogicVal iv = eval(item.expr.get(), scope);
+                        if (iv.is_unknown() || !iv.is_true()) {
+                            seq_ok = false;
+                            break;
+                        }
+                    }
+                }
+                return LogicVal(1, seq_ok ? 1 : 0, 0);
+            }
+            return LogicVal(1, 1, 0);
+        }
+
         return LogicVal::make_x(1);
     }
 

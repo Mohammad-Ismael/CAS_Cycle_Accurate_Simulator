@@ -1,0 +1,8 @@
+{
+    "top_module": "tb_v4_3_0_regression",
+    "source_files": [
+        "design.sv",
+        "testbench.sv"
+    ],
+    "description": "Milestone regression suite for CAS v4.3.0.0: Full SVA Sequence Operators (##[M:N], and, or, intersect, throughout), Multi-Clock Sequences, Sampled Value Functions ($past, $rose, $fell, $changed, $stable), and 100% sv-tests Compliance (283/283)"
+}
