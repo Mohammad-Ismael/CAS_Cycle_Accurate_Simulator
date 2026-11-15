@@ -3517,6 +3517,12 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     }
 
     TaskActivationFrame frame(tcall->task_name, target_task, cl_obj);
+    if (!target_task->is_automatic) {
+        auto it = engine.static_task_frames.find(target_task);
+        if (it != engine.static_task_frames.end()) {
+            frame.local_frame = it->second;
+        }
+    }
 
     const size_t num_formals = target_task->ports.size();
     struct ArgBinding {
@@ -3709,7 +3715,9 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     // 3. Pre-declare task locals
     for (auto* s : frame.flattened_body) {
         if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(s)) {
-            frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+            if (!frame.local_frame.has_var(vdecl->var_name)) {
+                frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
+            }
         }
     }
 
@@ -4027,6 +4035,9 @@ void StratifiedScheduler::step_process(size_t pid) {
                         write_task_output(bp, binding.second, lv->value);
                     }
                 }
+                if (cur_frame.task_node && !cur_frame.task_node->is_automatic) {
+                    engine.static_task_frames[cur_frame.task_node] = cur_frame.local_frame;
+                }
                 bp.call_stack.pop_back();
                 ClassObject* next_this = nullptr;
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
@@ -4232,7 +4243,12 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // Var declaration inside task
             if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(stmt)) {
-                cur_frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed);
+                if (cur_frame.task_node && cur_frame.task_node->is_automatic) {
+                    engine.evaluator.execute_statement(stmt, bp);
+                } else if (cur_frame.task_node && !engine.initialized_static_tasks.count(cur_frame.task_node)) {
+                    engine.evaluator.execute_statement(stmt, bp);
+                    engine.initialized_static_tasks.insert(cur_frame.task_node);
+                }
                 cur_frame.pc++;
                 continue;
             }

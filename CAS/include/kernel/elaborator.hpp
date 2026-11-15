@@ -293,7 +293,7 @@ private:
     std::vector<NetAliasPair> alias_pairs;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false, NetKind kind = NetKind::WIRE);
-    uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope);
+    uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope, const std::unordered_map<std::string, uint64_t>* local_env = nullptr);
     uint64_t eval_bits(ExpressionNode* expr, const std::string& scope);
     uint32_t deduce_expr_width(ExpressionNode* expr, const std::string& scope);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);

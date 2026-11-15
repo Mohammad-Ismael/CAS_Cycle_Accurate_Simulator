@@ -74,6 +74,7 @@ struct ScopeFrame {
     bool returned = false;
     std::string func_return_name = "";
 
+    ScopeFrame() = default;
     explicit ScopeFrame(std::string name) : scope_name(std::move(name)) {}
 
     bool has_var(const std::string& name) const {

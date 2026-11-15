@@ -1,0 +1,6 @@
+{
+  "name": "v4_1_0_0_tasks_lifetime_and_const_functions",
+  "version": "4.1.0.0",
+  "top_module": "tb_v4_1_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

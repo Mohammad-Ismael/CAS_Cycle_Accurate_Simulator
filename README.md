@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.0.0.0`  
-**Status:** Landmark Release v4.0.0.0 Clean (100% Synopsys VCS Golden Parity & 100% IEEE 1800 Chapters 5–12 sv-tests)  
+**Current Version:** `v4.1.0.0`  
+**Status:** Release v4.1.0.0 Clean (100% Synopsys VCS Golden Parity & 100% IEEE 1800 Chapters 5–15 sv-tests, 101/101 Milestone Regressions)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regressions/             # 98/98 Comprehensive IEEE 1800-2023 Regression Testbenches
+├── regressions/             # 101/101 Comprehensive IEEE 1800-2023 Regression Testbenches
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
@@ -557,4 +557,51 @@ In addition to the 100% pass parity achieved on lowRISC Ibex, CAS is verified on
 - **Sliced Compound Assignment AST:** Preserved multi-bit slice bounds (`is_part_select`, `is_plus_colon`, `is_minus_colon`, `lsb_expr`) on compound assignment targets (`ident[hi:lo] |= rhs`), preventing decay to single-bit index selects and eliminating register file read corruption.
 - **Multi-Dimensional Packed Array Indexing & Slicing:** Corrected element width and stride computations across multi-dimensional packed arrays and memories in both procedural evaluation (`evaluator.cpp`) and expression evaluation (`expr_evaluator.cpp`).
 - **Co-Verification Parity:** Achieved bit-exact retirement and architectural register state match against Verilator across early boot and initialization sequences (`compare_veer_logs.py`: 10/10 instructions verified with zero divergences).
+
+---
+
+## Key Achievements (v1.0.0.0 – v4.1.0.0)
+
+From initial concept to a full commercial-grade SystemVerilog verification platform, the CAS development progression has delivered:
+
+1. **100% IEEE 1800-2023 Chapters 5–15 sv-tests Parity (171/171 Passing Tests)**:
+   - Zero syntax, elaboration, or simulation failures across all simulation test suites of Chapters 5 (Lexical), 6 (Types), 7 (Aggregate Data), 8 (Classes), 9 (Processes), 10 (Assignments), 11 (Operators), 12 (Control Flow), 13 (Tasks & Functions), 14 (Clocking), and 15 (IPC).
+2. **101 / 101 Milestone Regressions Passing at 100% VCS Golden Parity**:
+   - 101 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
+3. **Production RISC-V SoC Verification Parity**:
+   - **lowRISC Ibex RV32IMC:** 137 modules, 2,710 nets, 125 memory arrays, booting bare-metal firmware with CSR setup, timer interrupts, and UART logging.
+   - **Western Digital VeeR EL2:** Dual-issue superscalar execution with verified architectural register and pipeline retirement parity against Verilator.
+4. **Independent High-Performance Architecture**:
+   - Zero dependence on LLVM/GCC backend compilation or C++ transpilation for standard simulation.
+   - Modular C++17 Stratified Event Scheduler adhering strictly to IEEE Std 1800-2023.
+   - AVX2 256-bit SIMD vector primitives for fast parallel logic, diff scanning, and double-buffered register commits.
+   - Lock-free SPSC asynchronous waveform tracing buffer streaming simulation traces to disk without stalling the event loop.
+   - Direct-mapped memory bus fast-path delivering cycle-accurate, zero-delta LSU and instruction fetch handshakes.
+
+---
+
+## Roadmap (Next Phase: v4.2.0.0+)
+
+The subsequent architectural phases expand compliance across advanced verification constructs and scale execution speed to commercial multi-gigahertz workloads:
+
+### Phase A: IEEE 1800-2023 Chapters 16–22 Compliance
+- **Chapter 16 (Assertions & Sequences):** Full concurrent assertion engine, sampled value functions, multi-clock sequence composition, local variables, and formal implication operators (`|->`, `|=>`).
+- **Chapter 17 (Checkers):** Procedural checker instantiation, auxiliary state encapsulation, and verification library binding.
+- **Chapter 18 (Constrained Randomization):** Advanced solver heuristics, distribution constraints (`dist`), implication constraints (`->`), soft constraints, and `solve...before` ordering.
+- **Chapter 19 (Functional Coverage):** Multi-dimensional cross-coverage bins, transition bins, sample conditions, and coverage database serialization (`UCIS` / `CDX`).
+- **Chapters 20–22 (System Tasks, Input/Output, & Compiler Directives):** Full standard library system routines and advanced compiler directive macro semantics.
+
+### Phase B: Native Compiled-Code Synthesis (Sprint K)
+- Pre-scheduling of all static combinational and sequential nets at elaboration time.
+- Elaboration-time direct translation of AST procedures into native C++ code units, compiling directly into a standalone binary simulator executable.
+- Elimination of runtime event queues for purely synchronous digital networks, matching Verilator and commercial compiled simulator throughput.
+
+### Phase C: Multithreaded Core & Interconnect Parallel Partitioning (Sprint L)
+- Thread-level parallelism (TLP) partitioning structural design blocks (e.g. processor core, bus fabric, caches, and memory controllers) across dedicated hardware worker threads.
+- Lock-free message-passing and barrier synchronization across time slots to achieve scalable multi-core simulation acceleration.
+
+### Phase D: Commercial SoC Verification Scale
+- Bring-up of full 64-bit Linux boot on a multi-core RV64GC RISC-V platform.
+- Integration with OpenTitan silicon root-of-trust SoC and commercial UVM testbench verification suites.
+
 

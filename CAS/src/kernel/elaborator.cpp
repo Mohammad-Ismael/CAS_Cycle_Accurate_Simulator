@@ -478,6 +478,26 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
         return val;
     }
+    if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+        std::string fname = fc->func_name;
+        auto colon = fname.rfind("::");
+        if (colon != std::string::npos) fname = fname.substr(colon + 2);
+        std::string scoped_fn = scope.empty() ? fname : (scope + "." + fname);
+        FunctionNode* target_fn = nullptr;
+        if (result.function_map.count(scoped_fn)) {
+            target_fn = result.function_map.at(scoped_fn);
+        } else if (result.function_map.count(fname)) {
+            target_fn = result.function_map.at(fname);
+        } else if (result.function_map.count(scope.empty() ? fc->func_name : (scope + "." + fc->func_name))) {
+            target_fn = result.function_map.at(scope.empty() ? fc->func_name : (scope + "." + fc->func_name));
+        } else if (result.function_map.count(fc->func_name)) {
+            target_fn = result.function_map.at(fc->func_name);
+        }
+        uint64_t cval = eval_const_expr(fc, scope);
+        uint32_t rw = (target_fn && target_fn->return_width > 0) ? target_fn->return_width : 32;
+        bool rs = target_fn ? target_fn->return_signed : false;
+        return LogicVal::make_known(rw, cval, rs);
+    }
     uint64_t val = eval_const_expr(expr, scope);
     return LogicVal::make_known(32, val);
 }
@@ -663,12 +683,18 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
     return 32;
 }
 
-uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& scope) {
+uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& scope, const std::unordered_map<std::string, uint64_t>* local_env) {
     if (!expr) return 0;
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         return num->aval;
     }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        if (local_env) {
+            auto it_loc = local_env->find(id->name);
+            if (it_loc != local_env->end()) {
+                return it_loc->second;
+            }
+        }
         std::string cur_scope = scope;
         while (!cur_scope.empty()) {
             std::string scoped_id = cur_scope + "." + id->name;
@@ -721,7 +747,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         uint64_t res = 0;
         for (auto& elem : cat->elements) {
-            uint64_t val = eval_const_expr(elem.get(), scope);
+            uint64_t val = eval_const_expr(elem.get(), scope, local_env);
             uint32_t w = 1;
             if (auto num = dynamic_cast<NumberNode*>(elem.get())) {
                 w = num->width;
@@ -750,8 +776,8 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             return eq ? 0 : 1;
         }
 
-        uint64_t l = eval_const_expr(bin->lhs.get(), scope);
-        uint64_t r = eval_const_expr(bin->rhs.get(), scope);
+        uint64_t l = eval_const_expr(bin->lhs.get(), scope, local_env);
+        uint64_t r = eval_const_expr(bin->rhs.get(), scope, local_env);
         if (bin->op == "+") return l + r;
         if (bin->op == "-") return (l >= r) ? (l - r) : 0;
         if (bin->op == "*") return l * r;
@@ -781,14 +807,15 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "||") return (l || r) ? 1 : 0;
     }
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
-        uint64_t val = eval_const_expr(un->operand.get(), scope);
-        if (un->op == "!" || un->op == "~") return !val;
+        uint64_t val = eval_const_expr(un->operand.get(), scope, local_env);
+        if (un->op == "!") return !val ? 1 : 0;
+        if (un->op == "~") return ~val;
         if (un->op == "-") return -val;
         return val;
     }
     if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
-        uint64_t c = eval_const_expr(ter->condition.get(), scope);
-        return c ? eval_const_expr(ter->true_expr.get(), scope) : eval_const_expr(ter->false_expr.get(), scope);
+        uint64_t c = eval_const_expr(ter->condition.get(), scope, local_env);
+        return c ? eval_const_expr(ter->true_expr.get(), scope, local_env) : eval_const_expr(ter->false_expr.get(), scope, local_env);
     }
     if (auto adqn = dynamic_cast<ArrayDimensionQueryNode*>(expr)) {
         std::string var_name = adqn->type_name_arg;
@@ -962,7 +989,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (colon != std::string::npos) fname = fname.substr(colon + 2);
         if (fname == "$unsigned" || fname == "$signed") {
             if (!fc->args.empty()) {
-                return eval_const_expr(fc->args[0].get(), scope);
+                return eval_const_expr(fc->args[0].get(), scope, local_env);
             }
         }
         if (fname == "$bits" || fname == "bits") {
@@ -972,22 +999,132 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         }
         if (fname == "$clog2" || fname == "clog2") {
             if (!fc->args.empty()) {
-                uint64_t val = eval_const_expr(fc->args[0].get(), scope);
+                uint64_t val = eval_const_expr(fc->args[0].get(), scope, local_env);
                 return compute_clog2(val);
             }
         }
         if (fname == "vbits") {
             if (!fc->args.empty()) {
-                uint64_t val = eval_const_expr(fc->args[0].get(), scope);
+                uint64_t val = eval_const_expr(fc->args[0].get(), scope, local_env);
                 return (val == 1) ? 1 : compute_clog2(val);
             }
         }
         if (fname == "ceil_div") {
             if (fc->args.size() >= 2) {
-                uint64_t dividend = eval_const_expr(fc->args[0].get(), scope);
-                uint64_t divisor = eval_const_expr(fc->args[1].get(), scope);
+                uint64_t dividend = eval_const_expr(fc->args[0].get(), scope, local_env);
+                uint64_t divisor = eval_const_expr(fc->args[1].get(), scope, local_env);
                 return (divisor != 0) ? (dividend + divisor - 1) / divisor : 0;
             }
+        }
+
+        // Constant user function evaluation per IEEE 1800-2023 §13.4.3
+        FunctionNode* target_fn = nullptr;
+        std::string scoped_fn = scope.empty() ? fname : (scope + "." + fname);
+        if (result.function_map.count(scoped_fn)) {
+            target_fn = result.function_map.at(scoped_fn);
+        } else if (result.function_map.count(fname)) {
+            target_fn = result.function_map.at(fname);
+        } else if (result.function_map.count(scope.empty() ? fc->func_name : (scope + "." + fc->func_name))) {
+            target_fn = result.function_map.at(scope.empty() ? fc->func_name : (scope + "." + fc->func_name));
+        } else if (result.function_map.count(fc->func_name)) {
+            target_fn = result.function_map.at(fc->func_name);
+        }
+        if (!target_fn && colon != std::string::npos) {
+            std::string pkg_name = fc->func_name.substr(0, colon);
+            auto pit = Parser::global_packages.find(pkg_name);
+            if (pit != Parser::global_packages.end() && pit->second->function_map.count(fname)) {
+                target_fn = pit->second->function_map.at(fname);
+            }
+        }
+
+        if (target_fn) {
+            std::unordered_map<std::string, uint64_t> fn_env;
+            for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
+                const auto& in_p = target_fn->inputs[i];
+                uint64_t arg_val = 0;
+                if (i < fc->args.size() && fc->args[i]) {
+                    arg_val = eval_const_expr(fc->args[i].get(), scope, local_env);
+                } else if (in_p.default_value) {
+                    arg_val = eval_const_expr(in_p.default_value.get(), scope, local_env);
+                }
+                fn_env[in_p.name] = arg_val;
+            }
+            fn_env[target_fn->name] = 0;
+
+            bool returned = false;
+            uint64_t ret_val = 0;
+            std::function<void(StatementNode*)> eval_const_stmt = [&](StatementNode* s) {
+                if (!s || returned) return;
+                if (auto ret = dynamic_cast<ReturnStatementNode*>(s)) {
+                    if (ret->expr) {
+                        ret_val = eval_const_expr(ret->expr.get(), scope, &fn_env);
+                        fn_env[target_fn->name] = ret_val;
+                    } else {
+                        ret_val = fn_env[target_fn->name];
+                    }
+                    returned = true;
+                    return;
+                }
+                if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
+                    uint64_t rhs_val = eval_const_expr(ba->rhs.get(), scope, &fn_env);
+                    if (!ba->lhs_targets.empty()) {
+                        fn_env[ba->lhs_targets[0]] = rhs_val;
+                    }
+                    return;
+                }
+                if (auto vd = dynamic_cast<VarDeclStatementNode*>(s)) {
+                    uint64_t init_val = 0;
+                    if (vd->init_expr) {
+                        init_val = eval_const_expr(vd->init_expr.get(), scope, &fn_env);
+                    }
+                    fn_env[vd->var_name] = init_val;
+                    return;
+                }
+                if (auto if_s = dynamic_cast<IfStatementNode*>(s)) {
+                    uint64_t cond = eval_const_expr(if_s->condition.get(), scope, &fn_env);
+                    if (cond != 0) {
+                        for (auto& st : if_s->then_branch) {
+                            eval_const_stmt(st.get());
+                            if (returned) break;
+                        }
+                    } else {
+                        for (auto& st : if_s->else_branch) {
+                            eval_const_stmt(st.get());
+                            if (returned) break;
+                        }
+                    }
+                    return;
+                }
+                if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
+                    for (auto& child : blk->statements) {
+                        eval_const_stmt(child.get());
+                        if (returned) break;
+                    }
+                    return;
+                }
+                if (auto for_s = dynamic_cast<ForStatementNode*>(s)) {
+                    if (for_s->init_stmt) eval_const_stmt(for_s->init_stmt.get());
+                    while (!returned) {
+                        if (for_s->condition) {
+                            uint64_t c = eval_const_expr(for_s->condition.get(), scope, &fn_env);
+                            if (!c) break;
+                        }
+                        for (auto& st : for_s->body) {
+                            eval_const_stmt(st.get());
+                            if (returned) break;
+                        }
+                        if (returned) break;
+                        if (for_s->step_stmt) eval_const_stmt(for_s->step_stmt.get());
+                    }
+                    return;
+                }
+            };
+
+            for (auto& s : target_fn->get_body()) {
+                eval_const_stmt(s.get());
+                if (returned) break;
+            }
+            return returned ? ret_val : fn_env[target_fn->name];
         }
     }
     if (auto cbn = dynamic_cast<CountBitsNode*>(expr)) {
@@ -2421,6 +2558,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    for (auto& f : mod->functions) {
+        f->scope = scope;
+        result.function_map[scope + "." + f->name] = f.get();
+        result.function_map[f->name] = f.get();
+    }
+
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
@@ -2477,6 +2620,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
+        if (parent_scope.empty()) {
+            result.param_map[p.name] = val;
+            result.param_val_map[p.name] = lval;
+        }
         if (!p.type_name.empty()) {
             result.var_to_struct_type[scope + "." + p.name] = p.type_name;
             result.var_to_struct_type[p.name] = p.type_name;

@@ -76,6 +76,8 @@ private:
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;
     std::unordered_map<std::string, AssociativeArrayObject> assoc_array_map;
     std::unordered_map<std::string, TaskNode*> task_map;
+    std::unordered_map<TaskNode*, ScopeFrame> static_task_frames;
+    std::unordered_set<TaskNode*> initialized_static_tasks;
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
     std::unordered_map<std::string, LogicVal> param_val_map;
