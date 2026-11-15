@@ -1,0 +1,6 @@
+{
+  "name": "v3_96_0_0_unpacked_slices_and_locator_index",
+  "version": "3.96.0.0",
+  "top_module": "tb_v3_96_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

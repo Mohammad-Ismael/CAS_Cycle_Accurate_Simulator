@@ -3351,28 +3351,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                     } else if (nassign->bit_lsb && U <= 1) {
-                        LogicVal msb_val = eval_expr(nassign->bit_idx.get(), bp.scope);
-                        LogicVal lsb_val = eval_expr(nassign->bit_lsb.get(), bp.scope);
-                        uint32_t msb = 0, lsb = 0, slice_w = 0;
+                        std::vector<int64_t> lhs_indices;
                         if (nassign->is_plus_colon) {
-                            lsb = msb_val.aval;
-                            slice_w = lsb_val.aval;
-                            msb = lsb + slice_w - 1;
+                            int64_t base = (int64_t)eval_expr(nassign->bit_idx.get(), bp.scope).aval;
+                            int64_t width = nassign->bit_lsb ? (int64_t)eval_expr(nassign->bit_lsb.get(), bp.scope).aval : 1;
+                            for (int64_t i = 0; i < width; ++i) lhs_indices.push_back(base + i);
                         } else if (nassign->is_minus_colon) {
-                            slice_w = lsb_val.aval;
-                            msb = msb_val.aval;
-                            lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                            int64_t base = (int64_t)eval_expr(nassign->bit_idx.get(), bp.scope).aval;
+                            int64_t width = nassign->bit_lsb ? (int64_t)eval_expr(nassign->bit_lsb.get(), bp.scope).aval : 1;
+                            for (int64_t i = 0; i < width; ++i) lhs_indices.push_back(base - i);
                         } else {
-                            msb = msb_val.aval;
-                            lsb = lsb_val.aval;
-                            if (msb < lsb) std::swap(msb, lsb);
-                            slice_w = msb - lsb + 1;
+                            int64_t msb = (int64_t)eval_expr(nassign->bit_idx.get(), bp.scope).aval;
+                            int64_t lsb = nassign->bit_lsb ? (int64_t)eval_expr(nassign->bit_lsb.get(), bp.scope).aval : msb;
+                            if (msb >= lsb) {
+                                for (int64_t i = msb; i >= lsb; --i) lhs_indices.push_back(i);
+                            } else {
+                                for (int64_t i = msb; i <= lsb; ++i) lhs_indices.push_back(i);
+                            }
                         }
-                        if (nassign->intra_delay > 0) {
-                            uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
-                            engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                        std::vector<LogicVal> src_elems;
+                        if (rhs_val.is_unpacked) {
+                            src_elems = rhs_val.unpacked_elements;
                         } else {
-                            engine.scheduler.queue_nba_mem(scoped_mem_nba, addr, rhs_val, lsb, slice_w, true);
+                            src_elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
+                        }
+                        for (size_t k = 0; k < lhs_indices.size() && k < src_elems.size(); ++k) {
+                            int64_t lhs_idx = lhs_indices[k];
+                            int64_t target_addr = (int64_t)mem.to_word_offset(lhs_idx);
+                            if (nassign->intra_delay > 0) {
+                                uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                                engine.scheduler.queue_delayed_nba_mem(wake_time, scoped_mem_nba, target_addr, src_elems[k]);
+                            } else {
+                                engine.scheduler.queue_nba_mem(scoped_mem_nba, target_addr, src_elems[k]);
+                            }
                         }
                     } else if (num_u < U && mem_indices.size() == num_u) {
                         std::vector<LogicVal> src_elems;
@@ -4347,7 +4358,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         return;
                     } else {
-                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
                         local->queue_data.elements.assign(elems.begin(), elems.end());
                         return;
                     }
@@ -4586,7 +4602,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         return;
                     } else {
-                        auto elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        std::vector<LogicVal> elems;
+                        if (rhs_val.is_unpacked) {
+                            elems = rhs_val.unpacked_elements;
+                        } else {
+                            elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
+                        }
                         q->elements.assign(elems.begin(), elems.end());
                         return;
                     }
@@ -4837,29 +4858,35 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     mem.set_raw_word(linear_addr, word_val);
                                 }
                             } else if (assign->bit_lsb && U <= 1) {
-                                LogicVal word_val = mem.get_raw_word(linear_addr);
-                                LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
-                                LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
-                                uint32_t msb = 0, lsb = 0, slice_w = 0;
+                                std::vector<int64_t> lhs_indices;
                                 if (assign->is_plus_colon) {
-                                    lsb = msb_val.aval;
-                                    slice_w = lsb_val.aval;
-                                    msb = lsb + slice_w - 1;
+                                    int64_t base = (int64_t)eval_expr(assign->bit_idx.get(), bp.scope).aval;
+                                    int64_t width = assign->bit_lsb ? (int64_t)eval_expr(assign->bit_lsb.get(), bp.scope).aval : 1;
+                                    for (int64_t i = 0; i < width; ++i) lhs_indices.push_back(base + i);
                                 } else if (assign->is_minus_colon) {
-                                    slice_w = lsb_val.aval;
-                                    msb = msb_val.aval;
-                                    lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
+                                    int64_t base = (int64_t)eval_expr(assign->bit_idx.get(), bp.scope).aval;
+                                    int64_t width = assign->bit_lsb ? (int64_t)eval_expr(assign->bit_lsb.get(), bp.scope).aval : 1;
+                                    for (int64_t i = 0; i < width; ++i) lhs_indices.push_back(base - i);
                                 } else {
-                                    msb = msb_val.aval;
-                                    lsb = lsb_val.aval;
-                                    if (msb < lsb) std::swap(msb, lsb);
-                                    slice_w = msb - lsb + 1;
+                                    int64_t msb = (int64_t)eval_expr(assign->bit_idx.get(), bp.scope).aval;
+                                    int64_t lsb = assign->bit_lsb ? (int64_t)eval_expr(assign->bit_lsb.get(), bp.scope).aval : msb;
+                                    if (msb >= lsb) {
+                                        for (int64_t i = msb; i >= lsb; --i) lhs_indices.push_back(i);
+                                    } else {
+                                        for (int64_t i = msb; i <= lsb; ++i) lhs_indices.push_back(i);
+                                    }
                                 }
-                                if (lsb >= (uint32_t)mem.packed_lsb) {
-                                    lsb -= (uint32_t)mem.packed_lsb;
+                                std::vector<LogicVal> src_elems;
+                                if (rhs_val.is_unpacked) {
+                                    src_elems = rhs_val.unpacked_elements;
+                                } else {
+                                    src_elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                                 }
-                                word_val.deposit_slice(lsb, slice_w, rhs_val);
-                                mem.set_raw_word(linear_addr, word_val);
+                                for (size_t k = 0; k < lhs_indices.size() && k < src_elems.size(); ++k) {
+                                    int64_t lhs_idx = lhs_indices[k];
+                                    size_t target_word = mem.to_word_offset(lhs_idx);
+                                    mem.set_raw_word(target_word, src_elems[k]);
+                                }
                             } else if (num_u < U && mem_indices.size() == num_u) {
                                 std::vector<LogicVal> src_elems;
                                 if (rhs_val.is_unpacked) {

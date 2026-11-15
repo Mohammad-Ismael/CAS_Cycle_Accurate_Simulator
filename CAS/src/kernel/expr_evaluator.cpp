@@ -2082,7 +2082,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (method == "find" || method == "find_index" || method == "find_first" || method == "find_last" ||
                 method == "find_first_index" || method == "find_last_index") {
                 auto loc_res = eval_array_locator(method, array_elems, a_elem_width, a_is_signed, method_node->with_expr.get(), iter_name, scope);
-                return LogicVal::make_known(32, (uint64_t)loc_res.size());
+                LogicVal res(a_elem_width, 0, 0);
+                res.is_unpacked = true;
+                res.unpacked_elements = std::move(loc_res);
+                return res;
             }
         }
 
@@ -2799,6 +2802,15 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         std::string var_name = member_node->var_name;
         std::string member_name = member_node->member_name;
+
+        if (member_name == "index") {
+            if (context.has_active_frame()) {
+                LocalVar* loc = context.lookup_local(var_name + ".index");
+                if (!loc) loc = context.lookup_local(var_name + "_index");
+                if (!loc) loc = context.lookup_local("index");
+                if (loc) return loc->value;
+            }
+        }
 
         if (member_name == "size") {
             DynamicArrayObject* da = nullptr;
@@ -4042,6 +4054,40 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             // target_val already set from SVA local variable
         } else if (local) {
             if (local->is_unpacked_array) {
+                if (idx_node->is_part_select && !idx_node->has_bit_select && idx_node->extra_indices.empty()) {
+                    std::vector<int64_t> slice_indices;
+                    if (idx_node->is_plus_colon) {
+                        int64_t base = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t width = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : 1;
+                        for (int64_t i = 0; i < width; ++i) slice_indices.push_back(base + i);
+                    } else if (idx_node->is_minus_colon) {
+                        int64_t base = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t width = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : 1;
+                        for (int64_t i = 0; i < width; ++i) slice_indices.push_back(base - i);
+                    } else {
+                        int64_t msb = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t lsb = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : msb;
+                        if (msb >= lsb) {
+                            for (int64_t i = msb; i >= lsb; --i) slice_indices.push_back(i);
+                        } else {
+                            for (int64_t i = msb; i <= lsb; ++i) slice_indices.push_back(i);
+                        }
+                    }
+                    std::vector<LogicVal> slice_elems;
+                    slice_elems.reserve(slice_indices.size());
+                    for (int64_t s_idx : slice_indices) {
+                        int64_t rel_idx = s_idx - local->arr_start_idx;
+                        if (rel_idx >= 0 && (size_t)rel_idx < local->unpacked_elements.size()) {
+                            slice_elems.push_back(local->unpacked_elements[rel_idx]);
+                        } else {
+                            slice_elems.push_back(LogicVal::make_x(local->elem_width));
+                        }
+                    }
+                    LogicVal res(local->elem_width, 0, 0);
+                    res.is_unpacked = true;
+                    res.unpacked_elements = std::move(slice_elems);
+                    return res;
+                }
                 LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
                 if (addr_val.is_unknown()) {
                     return LogicVal::make_x(local->elem_width);
@@ -4080,6 +4126,36 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                 const auto& mem = engine.memory_map.at(scoped_mem);
+                if (idx_node->is_part_select && !idx_node->has_bit_select && idx_node->extra_indices.empty()) {
+                    std::vector<int64_t> slice_indices;
+                    if (idx_node->is_plus_colon) {
+                        int64_t base = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t width = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : 1;
+                        for (int64_t i = 0; i < width; ++i) slice_indices.push_back(base + i);
+                    } else if (idx_node->is_minus_colon) {
+                        int64_t base = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t width = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : 1;
+                        for (int64_t i = 0; i < width; ++i) slice_indices.push_back(base - i);
+                    } else {
+                        int64_t msb = (int64_t)eval(idx_node->msb_expr.get(), scope).aval;
+                        int64_t lsb = idx_node->lsb_expr ? (int64_t)eval(idx_node->lsb_expr.get(), scope).aval : msb;
+                        if (msb >= lsb) {
+                            for (int64_t i = msb; i >= lsb; --i) slice_indices.push_back(i);
+                        } else {
+                            for (int64_t i = msb; i <= lsb; ++i) slice_indices.push_back(i);
+                        }
+                    }
+                    std::vector<LogicVal> slice_elems;
+                    slice_elems.reserve(slice_indices.size());
+                    for (int64_t s_idx : slice_indices) {
+                        size_t word_off = mem.to_word_offset(s_idx);
+                        slice_elems.push_back(mem.get_raw_word(word_off));
+                    }
+                    LogicVal res(mem.word_width, 0, 0);
+                    res.is_unpacked = true;
+                    res.unpacked_elements = std::move(slice_elems);
+                    return res;
+                }
                 std::vector<ExpressionNode*> mem_indices;
                 if (idx_node->msb_expr) mem_indices.push_back(idx_node->msb_expr.get());
                 if (idx_node->has_bit_select && idx_node->bit_msb_expr) mem_indices.push_back(idx_node->bit_msb_expr.get());
@@ -4622,6 +4698,45 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
+
+        if ((l.is_unpacked || r.is_unpacked) && (bin->op == "==" || bin->op == "!=" || bin->op == "===" || bin->op == "!==")) {
+            if (l.unpacked_elements.size() != r.unpacked_elements.size()) {
+                bool eq = false;
+                if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, eq ? 1 : 0);
+                else return LogicVal::make_known(1, eq ? 0 : 1);
+            }
+            if (bin->op == "===" || bin->op == "!==") {
+                bool all_match = true;
+                for (size_t k = 0; k < l.unpacked_elements.size(); ++k) {
+                    if (l.unpacked_elements[k].aval != r.unpacked_elements[k].aval ||
+                        l.unpacked_elements[k].bval != r.unpacked_elements[k].bval) {
+                        all_match = false;
+                        break;
+                    }
+                }
+                if (bin->op == "===") return LogicVal::make_known(1, all_match ? 1 : 0);
+                else return LogicVal::make_known(1, all_match ? 0 : 1);
+            } else {
+                bool has_unknown = false;
+                bool all_equal = true;
+                for (size_t k = 0; k < l.unpacked_elements.size(); ++k) {
+                    LogicVal cmp = LogicOps::logical_eq(l.unpacked_elements[k], r.unpacked_elements[k]);
+                    if (cmp.is_unknown()) {
+                        has_unknown = true;
+                    } else if (cmp.aval == 0) {
+                        all_equal = false;
+                        break;
+                    }
+                }
+                if (!all_equal) {
+                    return LogicVal::make_known(1, (bin->op == "==") ? 0 : 1);
+                }
+                if (has_unknown) {
+                    return LogicVal::make_x(1);
+                }
+                return LogicVal::make_known(1, (bin->op == "==") ? 1 : 0);
+            }
+        }
 
         bool l_signed = l.is_signed;
         if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
@@ -5474,12 +5589,18 @@ LogicVal ExprEvaluator::eval_array_reduction(
     LogicVal acc;
     bool has_acc = false;
 
-    for (const auto& elem : elements) {
-        LogicVal val = elem;
+    for (size_t i = 0; i < elements.size(); ++i) {
+        LogicVal val = elements[i];
         if (with_expr) {
             context.push_frame("with_frame");
             context.declare_local(iter_name, elem_width, is_signed);
-            context.set_local_value(iter_name, elem);
+            context.set_local_value(iter_name, elements[i]);
+            context.declare_local(iter_name + ".index", 32, false);
+            context.set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)i));
+            context.declare_local(iter_name + "_index", 32, false);
+            context.set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)i));
+            context.declare_local("index", 32, false);
+            context.set_local_value("index", LogicVal::make_known(32, (uint64_t)i));
             val = eval(with_expr, scope);
             context.pop_frame();
         }
@@ -5549,6 +5670,12 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
                 context.push_frame("with_frame");
                 context.declare_local(iter_name, elem_width, is_signed);
                 context.set_local_value(iter_name, elements[i]);
+                context.declare_local(iter_name + ".index", 32, false);
+                context.set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local(iter_name + "_index", 32, false);
+                context.set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local("index", 32, false);
+                context.set_local_value("index", LogicVal::make_known(32, (uint64_t)i));
                 key = eval(with_expr, scope);
                 context.pop_frame();
             }
@@ -5585,6 +5712,12 @@ std::vector<LogicVal> ExprEvaluator::eval_array_locator(
                 context.push_frame("with_frame");
                 context.declare_local(iter_name, elem_width, is_signed);
                 context.set_local_value(iter_name, elements[i]);
+                context.declare_local(iter_name + ".index", 32, false);
+                context.set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local(iter_name + "_index", 32, false);
+                context.set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)i));
+                context.declare_local("index", 32, false);
+                context.set_local_value("index", LogicVal::make_known(32, (uint64_t)i));
                 LogicVal cond = eval(with_expr, scope);
                 context.pop_frame();
                 matches = (!cond.is_unknown() && cond.aval != 0);
@@ -7169,4 +7302,21 @@ std::string ExprEvaluator::format_systemverilog_string(
         else if (val.width <= 64) result += std::to_string(val.aval);
         else result += val.to_dec_string();
     }
-    r                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+    return result;
+}
+
+LogicVal ExprEvaluator::eval_sformatf(SFormatfNode* node, const std::string& scope) {
+    if (!node || node->args.empty()) {
+        throw std::runtime_error("[CAS-DTINPCIL] $sformatf requires at least 1 argument per IEEE 1800-2023 section 20.14");
+    }
+    LogicVal fmt_val = eval(node->args[0].get(), scope);
+    if (!fmt_val.is_string) {
+        throw std::runtime_error("[CAS-DTINPCIL] Format argument in $sformatf must evaluate to a string type per IEEE 1800-2023 section 20.14");
+    }
+    std::vector<LogicVal> arg_vals;
+    for (size_t i = 1; i < node->args.size(); ++i) {
+        arg_vals.push_back(eval(node->args[i].get(), scope));
+    }
+    std::string formatted = format_systemverilog_string(fmt_val.str_val, arg_vals, engine.get_sim_time());
+    return LogicVal::make_string(formatted);
+}
