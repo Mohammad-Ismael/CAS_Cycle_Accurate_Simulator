@@ -1,0 +1,6 @@
+{
+  "name": "v3_97_0_0_array_reduction_and_ordering",
+  "version": "3.97.0.0",
+  "top_module": "tb_v3_97_0_regression",
+  "source_files": ["design.sv", "testbench.sv"]
+}

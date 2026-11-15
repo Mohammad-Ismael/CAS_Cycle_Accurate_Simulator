@@ -2920,8 +2920,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (assoc) { assoc->delete_all(); return LogicVal::make_known(32, 0); }
         }
 
-        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        if (member_name == "sum" || member_name == "product" || member_name == "and" || member_name == "or" || member_name == "xor") {
+            std::vector<LogicVal> array_elems;
+            uint32_t a_elem_width = 32;
+            bool a_is_signed = false;
+            if (get_array_elements(var_name, scope, array_elems, a_elem_width, a_is_signed)) {
+                return eval_array_reduction(member_name, array_elems, a_elem_width, a_is_signed, nullptr, "item", scope);
+            }
+        }
 
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
         std::string full_sig = scoped_var + "." + member_name;
         if (engine.net_map.find(full_sig) != engine.net_map.end()) {
             size_t nid = engine.net_map.at(full_sig);

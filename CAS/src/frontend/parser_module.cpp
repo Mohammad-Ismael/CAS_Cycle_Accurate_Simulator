@@ -6289,20 +6289,37 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             pnode.type_name = tname;
             pnode.packed_dimensions = packed_dims;
             while (match(TokenType::TOKEN_LBRACKET)) {
-                pnode.is_array = true;
-                auto l = parse_expression();
-                std::unique_ptr<ExpressionNode> r = nullptr;
-                bool is_single = true;
-                if (match(TokenType::TOKEN_COLON)) {
-                    r = parse_expression();
-                    is_single = false;
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    pnode.is_queue = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        pnode.queue_bound_expr = parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    break;
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    pnode.is_dynamic_array = true;
+                    break;
+                } else if (is_assoc_key_token(current)) {
+                    pnode.is_associative_array = true;
+                    parse_assoc_key_type(pnode.assoc_key_type, pnode.assoc_key_width);
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                    break;
+                } else {
+                    pnode.is_array = true;
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in array dimension");
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    pnode.unpacked_dimensions.push_back(std::move(ad));
                 }
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in array dimension");
-                AstDimension ad;
-                ad.left_expr = std::move(l);
-                ad.right_expr = std::move(r);
-                ad.is_single = is_single;
-                pnode.unpacked_dimensions.push_back(std::move(ad));
             }
 
             if (match(TokenType::TOKEN_EQUAL)) {

@@ -53,6 +53,10 @@ struct DynamicArrayObject {
         if (idx < 0 || (size_t)idx >= elements.size()) {
             return; // IEEE 1800-2023 §7.5.4: Out-of-bounds write is ignored
         }
-        elements[(size_t)idx] = cast_elem(val, elem_width);
+        if (val.is_string) {
+            elements[(size_t)idx] = val;
+        } else {
+            elements[(size_t)idx] = cast_elem(val, elem_width);
+        }
     }
 };

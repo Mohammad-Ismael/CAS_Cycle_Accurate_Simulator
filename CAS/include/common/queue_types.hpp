@@ -27,7 +27,7 @@ struct QueueObject {
     }
 
     void push_back(const LogicVal& val) {
-        LogicVal casted = cast_elem(val, elem_width);
+        LogicVal casted = val.is_string ? val : cast_elem(val, elem_width);
         if (max_bound >= 0 && (int64_t)elements.size() > max_bound) {
             return;
         }
@@ -38,7 +38,7 @@ struct QueueObject {
     }
 
     void push_front(const LogicVal& val) {
-        LogicVal casted = cast_elem(val, elem_width);
+        LogicVal casted = val.is_string ? val : cast_elem(val, elem_width);
         elements.push_front(casted);
         if (max_bound >= 0 && (int64_t)elements.size() > max_bound + 1) {
             elements.resize(max_bound + 1);
@@ -86,6 +86,10 @@ struct QueueObject {
         if (idx < 0 || (size_t)idx >= elements.size()) {
             return; // IEEE 1800-2023 §7.10.3: Out-of-bounds write is ignored
         }
-        elements[(size_t)idx] = cast_elem(val, elem_width);
+        if (val.is_string) {
+            elements[(size_t)idx] = val;
+        } else {
+            elements[(size_t)idx] = cast_elem(val, elem_width);
+        }
     }
 };

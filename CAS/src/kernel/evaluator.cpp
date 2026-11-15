@@ -2236,6 +2236,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         q->delete_at((int64_t)idx_v.aval);
                     }
                     return;
+                } else if (method == "reverse") {
+                    std::reverse(q->elements.begin(), q->elements.end());
+                    return;
+                } else if (method == "sort") {
+                    std::stable_sort(q->elements.begin(), q->elements.end(), [](const LogicVal& a, const LogicVal& b) {
+                        if (a.is_string && b.is_string) return a.str_val < b.str_val;
+                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() < (int64_t)b.to_signed();
+                        return a.aval < b.aval;
+                    });
+                    return;
+                } else if (method == "rsort") {
+                    std::stable_sort(q->elements.begin(), q->elements.end(), [](const LogicVal& a, const LogicVal& b) {
+                        if (a.is_string && b.is_string) return a.str_val > b.str_val;
+                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() > (int64_t)b.to_signed();
+                        return a.aval > b.aval;
+                    });
+                    return;
                 }
             }
             DynamicArrayObject* da = nullptr;
@@ -2261,6 +2278,23 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (da) {
                 if (method == "delete") {
                     da->delete_all();
+                    return;
+                } else if (method == "reverse") {
+                    std::reverse(da->elements.begin(), da->elements.end());
+                    return;
+                } else if (method == "sort") {
+                    std::stable_sort(da->elements.begin(), da->elements.end(), [](const LogicVal& a, const LogicVal& b) {
+                        if (a.is_string && b.is_string) return a.str_val < b.str_val;
+                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() < (int64_t)b.to_signed();
+                        return a.aval < b.aval;
+                    });
+                    return;
+                } else if (method == "rsort") {
+                    std::stable_sort(da->elements.begin(), da->elements.end(), [](const LogicVal& a, const LogicVal& b) {
+                        if (a.is_string && b.is_string) return a.str_val > b.str_val;
+                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() > (int64_t)b.to_signed();
+                        return a.aval > b.aval;
+                    });
                     return;
                 }
             }
@@ -4442,7 +4476,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             uint32_t ew = local->dyn_array_data.elem_width;
                             bool is_s = local->dyn_array_data.is_signed;
                             for (auto& el : elems) {
-                                el = LogicOps::cast_width(el, ew, is_s);
+                                if (!el.is_string) {
+                                    el = LogicOps::cast_width(el, ew, is_s);
+                                }
                             }
                             local->dyn_array_data.elements = std::move(elems);
                             return;
@@ -4706,7 +4742,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             uint32_t ew = da->elem_width;
                             bool is_s = da->is_signed;
                             for (auto& el : elems) {
-                                el = LogicOps::cast_width(el, ew, is_s);
+                                if (!el.is_string) {
+                                    el = LogicOps::cast_width(el, ew, is_s);
+                                }
                             }
                             da->elements = std::move(elems);
                             return;

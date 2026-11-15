@@ -98,7 +98,8 @@ suites = [
     ("v3.93.0.0", "v3_93_0_0_classes_and_interface_typedefs", ["design.sv", "testbench.sv"]),
     ("v3.94.0.0", "v3_94_0_0_dynamic_arrays_and_hex_pad", ["design.sv", "testbench.sv"]),
     ("v3.95.0.0", "v3_95_0_0_multidim_subarrays_and_subroutine_arrays", ["design.sv", "testbench.sv"]),
-    ("v3.96.0.0", "v3_96_0_0_unpacked_slices_and_locator_index", ["design.sv", "testbench.sv"])
+    ("v3.96.0.0", "v3_96_0_0_unpacked_slices_and_locator_index", ["design.sv", "testbench.sv"]),
+    ("v3.97.0.0", "v3_97_0_0_array_reduction_and_ordering", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
