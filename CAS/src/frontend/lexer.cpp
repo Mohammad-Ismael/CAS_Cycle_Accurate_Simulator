@@ -570,6 +570,8 @@ void Lexer::skip_whitespace_and_comments() {
                         std::vector<std::string> actuals;
                         std::string current_arg = "";
                         int paren_depth = 0;
+                        int brace_depth = 0;
+                        int bracket_depth = 0;
                         bool in_str = false;
                         while (peek() != '\0') {
                             if (peek() == '"' && (current_arg.empty() || current_arg.back() != '\\')) {
@@ -581,7 +583,17 @@ void Lexer::skip_whitespace_and_comments() {
                                 if (paren_depth > 0) { paren_depth--; current_arg += advance(); }
                                 else { advance(); actuals.push_back(current_arg); break; }
                             }
-                            else if (!in_str && peek() == ',' && paren_depth == 0) {
+                            else if (!in_str && peek() == '{') { brace_depth++; current_arg += advance(); }
+                            else if (!in_str && peek() == '}') {
+                                if (brace_depth > 0) brace_depth--;
+                                current_arg += advance();
+                            }
+                            else if (!in_str && peek() == '[') { bracket_depth++; current_arg += advance(); }
+                            else if (!in_str && peek() == ']') {
+                                if (bracket_depth > 0) bracket_depth--;
+                                current_arg += advance();
+                            }
+                            else if (!in_str && peek() == ',' && paren_depth == 0 && brace_depth == 0 && bracket_depth == 0) {
                                 advance();
                                 actuals.push_back(current_arg);
                                 current_arg = "";

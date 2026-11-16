@@ -5225,10 +5225,14 @@ void StratifiedScheduler::run_simulation() {
             if (n.modified) n.commit_time_slot();
         }
     }
+    AsyncTraceBuffer::instance().flush();
     AsyncTraceBuffer::instance().stop();
     for (auto& pair : engine.open_files) {
         if (pair.second.stream) {
             pair.second.stream->flush();
+        }
+        if (pair.second.fp) {
+            std::fflush(pair.second.fp);
         }
     }
     std::cout << "[PROFILE] slice_ms=" << t_slice_ms << " rca_ms=" << t_rca_ms << " proc_ms=" << t_proc_ms << std::endl;

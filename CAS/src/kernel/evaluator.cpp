@@ -1830,6 +1830,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         if (tcall->task_name == "$finish" || tcall->task_name == "$stop") {
+            AsyncTraceBuffer::instance().flush();
+            for (auto& pair : engine.open_files) {
+                if (pair.second.stream) pair.second.stream->flush();
+                if (pair.second.fp) std::fflush(pair.second.fp);
+            }
             if (engine.is_finish_msg_allowed()) {
                 std::cout << "[CAS $finish] Simulation Terminated at time " << engine.get_sim_time() << ".\n";
             }
@@ -2018,9 +2023,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::fflush(it->second.fp);
                 } else if (out_stream) {
                     *out_stream << out_str;
-                    if (out_str.find('\n') != std::string::npos) {
-                        out_stream->flush();
-                    }
+                    out_stream->flush();
                 }
             }
             return;
@@ -3687,6 +3690,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto fin = dynamic_cast<FinishStatementNode*>(stmt)) {
+        AsyncTraceBuffer::instance().flush();
+        for (auto& pair : engine.open_files) {
+            if (pair.second.stream) pair.second.stream->flush();
+            if (pair.second.fp) std::fflush(pair.second.fp);
+        }
         if (engine.is_finish_msg_allowed()) {
             if (!fin->src_file.empty() && fin->src_line > 0) {
                 std::cout << "[CAS $finish " << fin->src_file << ":" << fin->src_line << "] Simulation Terminated at time " << engine.get_sim_time() << ".\n";

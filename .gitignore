@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 codes.txt
 requested_code.txt
+tb_tmp.txt
+*.tmp
+*.txt.tmp
 *.so
 **/*.so
 *.o

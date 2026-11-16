@@ -135,11 +135,10 @@ void AsyncTraceBuffer::worker_loop() {
             if (pkt.packet_type == TracePacketType::LOG_STRING || pkt.packet_type == TracePacketType::UART_CHAR) {
                 if (pkt.fd == 1) {
                     std::cout.write(pkt.text, pkt.text_len);
+                    std::cout.flush();
                 } else if (target_stream) {
                     target_stream->write(pkt.text, pkt.text_len);
-                    if (std::memchr(pkt.text, '\n', pkt.text_len) != nullptr) {
-                        target_stream->flush();
-                    }
+                    target_stream->flush();
                 }
             } else if (pkt.packet_type == TracePacketType::CORE_TRACE) {
                 if (target_stream) {
