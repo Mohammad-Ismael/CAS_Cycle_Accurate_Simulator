@@ -468,7 +468,21 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
     }
 }
 
+void StratifiedScheduler::execute_final_processes() {
+    if (final_processes_executed) return;
+    final_processes_executed = true;
+    for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
+        auto& bp = engine.processes[pid];
+        if (bp.proc && (bp.proc->type == ProcessType::FINAL || bp.proc->is_final)) {
+            bp.completed = false;
+            bp.pc = 0;
+            step_process(pid);
+        }
+    }
+}
+
 void StratifiedScheduler::terminate() {
+    execute_final_processes();
     simulation_active = false;
     time_wheel.clear();
 }
@@ -3106,7 +3120,18 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
         if (triggered) {
             comb_dirty = true;
             bp.fired_in_time_slot = true;
-            if (bp.is_pure_fast_proc) {
+            bool has_delay = false;
+            for (auto& s : bp.proc->body) {
+                if (dynamic_cast<DelayStatementNode*>(s.get())) {
+                    has_delay = true;
+                    break;
+                }
+            }
+            if (has_delay) {
+                bp.completed = false;
+                bp.pc = 0;
+                step_process(bp.pid);
+            } else if (bp.is_pure_fast_proc) {
                 engine.evaluator.execute_fast_assignments(bp);
             } else {
                 for (auto& stmt : bp.proc->body) {
@@ -5225,6 +5250,7 @@ void StratifiedScheduler::run_simulation() {
             if (n.modified) n.commit_time_slot();
         }
     }
+    execute_final_processes();
     AsyncTraceBuffer::instance().flush();
     AsyncTraceBuffer::instance().stop();
     for (auto& pair : engine.open_files) {

@@ -168,6 +168,10 @@ public:
     void bind_all_ast_nodes();
     void build_fanout_graph();
     size_t get_canonical_net_id(size_t nid) const { return (nid < canonical_net_map.size()) ? canonical_net_map[nid] : nid; }
+    FunctionNode* find_function(const std::string& name) const {
+        auto it = function_map.find(name);
+        return (it != function_map.end()) ? it->second : nullptr;
+    }
     const std::vector<size_t>& get_canonical_net_map() const { return canonical_net_map; }
     const std::vector<std::vector<size_t>>& get_alias_members() const { return alias_members; }
     const TopologicalCombOrder& get_topological_order() const { return topological_order; }

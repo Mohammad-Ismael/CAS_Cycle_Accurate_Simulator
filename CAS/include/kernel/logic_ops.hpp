@@ -111,7 +111,7 @@ public:
             uint64_t new_a = v.aval;
             uint64_t new_b = v.bval;
 
-            if (is_signed && v.width > 0) {
+            if ((is_signed || v.is_signed) && v.width > 0) {
                 bool sign_bit_a = (v.aval >> (v.width - 1)) & 1;
                 bool sign_bit_b = (v.bval >> (v.width - 1)) & 1;
 
@@ -136,7 +136,7 @@ public:
         }
         LogicVal res(target_width, 0, 0, is_signed);
         res.deposit_slice(0, v.width, v);
-        if (is_signed && v.width > 0) {
+        if ((is_signed || v.is_signed) && v.width > 0) {
             bool sign_a = v.get_bit_a(v.width - 1);
             bool sign_b = v.get_bit_b(v.width - 1);
             for (uint32_t i = v.width; i < target_width; ++i) {

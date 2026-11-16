@@ -376,9 +376,16 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
     expect(TokenType::TOKEN_ENDTASK, "Expected 'endtask'");
     if (match(TokenType::TOKEN_COLON)) {
         if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            std::string end_id = current.text;
             advance();
             if (match(TokenType::TOKEN_COLON_COLON)) {
-                if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    end_id = current.text;
+                    advance();
+                }
+            }
+            if (!task_node->name.empty() && end_id != task_node->name) {
+                throw std::runtime_error("End label '" + end_id + "' does not match task name '" + task_node->name + "'");
             }
         }
     }

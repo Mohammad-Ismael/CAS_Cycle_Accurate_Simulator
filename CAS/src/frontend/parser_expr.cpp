@@ -1709,7 +1709,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_equality() {
     auto lhs = parse_relational();
 
     while (current.type == TokenType::TOKEN_EQ       || current.type == TokenType::TOKEN_NEQ ||
-           current.type == TokenType::TOKEN_CASE_EQ  || current.type == TokenType::TOKEN_CASE_NEQ) {
+           current.type == TokenType::TOKEN_CASE_EQ  || current.type == TokenType::TOKEN_CASE_NEQ ||
+           current.type == TokenType::TOKEN_WILD_EQ  || current.type == TokenType::TOKEN_WILD_NEQ) {
         std::string op = current.text;
         advance();
         auto rhs = parse_relational();
@@ -1796,8 +1797,20 @@ std::unique_ptr<ExpressionNode> Parser::parse_logical_or() {
     return lhs;
 }
 
+std::unique_ptr<ExpressionNode> Parser::parse_logical_implies_equiv() {
+    auto lhs = parse_logical_or();
+
+    while (current.type == TokenType::TOKEN_TRIGGER || current.type == TokenType::TOKEN_EQUIV) {
+        std::string op = current.text;
+        advance();
+        auto rhs = parse_logical_or();
+        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    }
+    return lhs;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_expression() {
-    auto cond = parse_logical_or();
+    auto cond = parse_logical_implies_equiv();
 
     if (match(TokenType::TOKEN_QUESTION)) {
         auto true_expr = parse_expression();

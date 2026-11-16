@@ -5321,6 +5321,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.to_bool() || r.to_bool()) ? 1 : 0);
         }
+        if (bin->op == "->") {
+            LogicVal l = eval(bin->lhs.get(), scope);
+            if (!l.is_unknown() && !l.to_bool()) {
+                return LogicVal::from_u64_2state(1, 1);
+            }
+            LogicVal r = eval(bin->rhs.get(), scope);
+            if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
+                return LogicVal::from_u64_2state((l.get_raw_u64() == 0 || r.get_raw_u64() != 0) ? 1 : 0, 1);
+            }
+            if (!l.is_unknown() && !l.to_bool()) return LogicVal::make_known(1, 1);
+            if (!r.is_unknown() && r.to_bool()) return LogicVal::make_known(1, 1);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (!l.to_bool() || r.to_bool()) ? 1 : 0);
+        }
+        if (bin->op == "<->") {
+            LogicVal l = eval(bin->lhs.get(), scope);
+            LogicVal r = eval(bin->rhs.get(), scope);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            bool eq = (l.to_bool() == r.to_bool());
+            return LogicVal::make_known(1, eq ? 1 : 0);
+        }
 
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
@@ -5650,6 +5671,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (bin->op == "===") return LogicOps::case_eq(l, r);
         if (bin->op == "!==") return LogicOps::case_neq(l, r);
+        if (bin->op == "==?" || bin->op == "!=?") {
+            if (l.is_real || r.is_real) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            if (bin->op == "==?") return LogicOps::wildcard_eq(l, r);
+            return LogicOps::wildcard_neq(l, r);
+        }
         if (bin->op == "<") {
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             if (expr_signed) {

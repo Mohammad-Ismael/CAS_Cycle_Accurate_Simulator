@@ -127,6 +127,9 @@ enum class TokenType {
     TOKEN_NEQ,
     TOKEN_CASE_EQ,
     TOKEN_CASE_NEQ,
+    TOKEN_WILD_EQ,
+    TOKEN_WILD_NEQ,
+    TOKEN_EQUIV,
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_STAR,
@@ -288,7 +291,9 @@ enum class TokenType {
     TOKEN_SPECPARAM,
     TOKEN_INTERCONNECT,
     TOKEN_NETTYPE,
-    TOKEN_GLOBAL
+    TOKEN_GLOBAL,
+    TOKEN_TIMEUNIT,
+    TOKEN_TIMEPRECISION
 };
 
 struct Token {

@@ -853,6 +853,10 @@ Token Lexer::next_token() {
                 advance();
                 return {TokenType::TOKEN_CASE_NEQ, "!==", 0, 0, cur_file, cur_line, 0};
             }
+            if (peek() == '?') {
+                advance();
+                return {TokenType::TOKEN_WILD_NEQ, "!=?", 0, 0, cur_file, cur_line, 0};
+            }
             return {TokenType::TOKEN_NEQ, "!=", 0, 0, cur_file, cur_line, 0};
         }
         return {TokenType::TOKEN_NOT, "!", 0, 0, cur_file, cur_line, 0};
@@ -865,6 +869,10 @@ Token Lexer::next_token() {
                 advance();
                 return {TokenType::TOKEN_CASE_EQ, "===", 0, 0, cur_file, cur_line, 0};
             }
+            if (peek() == '?') {
+                advance();
+                return {TokenType::TOKEN_WILD_EQ, "==?", 0, 0, cur_file, cur_line, 0};
+            }
             return {TokenType::TOKEN_EQ, "==", 0, 0, cur_file, cur_line, 0};
         }
         if (peek() == '>') {
@@ -875,6 +883,14 @@ Token Lexer::next_token() {
     }
     if (c == '<') {
         advance();
+        if (peek() == '-') {
+            advance();
+            if (peek() == '>') {
+                advance();
+                return {TokenType::TOKEN_EQUIV, "<->", 0, 0, cur_file, cur_line, 0};
+            }
+            return {TokenType::TOKEN_LT, "<", 0, 0, cur_file, cur_line, 0};
+        }
         if (peek() == '=') { advance(); return {TokenType::TOKEN_LE, "<=", 0, 0, cur_file, cur_line, 0}; }
         if (peek() == '<') {
             advance();
@@ -1377,6 +1393,8 @@ Token Lexer::next_token() {
         if (ident == "interconnect") return {TokenType::TOKEN_INTERCONNECT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "nettype") return {TokenType::TOKEN_NETTYPE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "global") return {TokenType::TOKEN_GLOBAL, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "timeunit") return {TokenType::TOKEN_TIMEUNIT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "timeprecision") return {TokenType::TOKEN_TIMEPRECISION, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

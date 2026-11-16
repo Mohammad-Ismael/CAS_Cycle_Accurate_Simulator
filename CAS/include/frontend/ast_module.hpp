@@ -96,6 +96,10 @@ struct ParameterDef {
     std::unique_ptr<ExpressionNode> default_expr;
     bool is_localparam = false;
     std::string type_name;
+    std::unique_ptr<ExpressionNode> msb_expr;
+    std::unique_ptr<ExpressionNode> lsb_expr;
+    bool has_range = false;
+    bool is_signed = false;
 
     ParameterDef() = default;
     ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false, std::string t = "")
@@ -104,13 +108,21 @@ struct ParameterDef {
         : name(other.name),
           default_expr(other.default_expr ? other.default_expr->clone() : nullptr),
           is_localparam(other.is_localparam),
-          type_name(other.type_name) {}
+          type_name(other.type_name),
+          msb_expr(other.msb_expr ? other.msb_expr->clone() : nullptr),
+          lsb_expr(other.lsb_expr ? other.lsb_expr->clone() : nullptr),
+          has_range(other.has_range),
+          is_signed(other.is_signed) {}
     ParameterDef& operator=(const ParameterDef& other) {
         if (this != &other) {
             name = other.name;
             default_expr = other.default_expr ? other.default_expr->clone() : nullptr;
             is_localparam = other.is_localparam;
             type_name = other.type_name;
+            msb_expr = other.msb_expr ? other.msb_expr->clone() : nullptr;
+            lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
+            has_range = other.has_range;
+            is_signed = other.is_signed;
         }
         return *this;
     }
@@ -254,6 +266,7 @@ struct FunctionNode : public ASTNode {
 struct PortConnection {
     std::string port_name;
     std::unique_ptr<ExpressionNode> expr;
+    bool is_implicit_name_only = false;
 };
 
 struct InstantiationNode : public ASTNode {
@@ -589,6 +602,7 @@ struct ClassMemberVar {
     std::string class_type_name = "";
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
+    std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> unpacked_dimensions;
 
     ClassMemberVar() = default;
     ClassMemberVar(ClassMemberVar&&) = default;
@@ -612,6 +626,10 @@ struct ClassMemberVar {
         class_type_name = other.class_type_name;
         if (other.msb_expr) msb_expr = other.msb_expr->clone();
         if (other.lsb_expr) lsb_expr = other.lsb_expr->clone();
+        for (const auto& udim : other.unpacked_dimensions) {
+            unpacked_dimensions.push_back({udim.first ? udim.first->clone() : nullptr,
+                                           udim.second ? udim.second->clone() : nullptr});
+        }
     }
     ClassMemberVar& operator=(const ClassMemberVar& other) {
         if (this != &other) {
@@ -633,6 +651,11 @@ struct ClassMemberVar {
             class_type_name = other.class_type_name;
             msb_expr = other.msb_expr ? other.msb_expr->clone() : nullptr;
             lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
+            unpacked_dimensions.clear();
+            for (const auto& udim : other.unpacked_dimensions) {
+                unpacked_dimensions.push_back({udim.first ? udim.first->clone() : nullptr,
+                                               udim.second ? udim.second->clone() : nullptr});
+            }
         }
         return *this;
     }
@@ -929,6 +952,24 @@ struct AssertPropertyStatementNode : public StatementNode {
     bool is_expect = false;
     bool is_deferred_zero = false;
     bool is_final = false;
+
+    std::unique_ptr<StatementNode> clone() const override {
+        auto c = std::make_unique<AssertPropertyStatementNode>();
+        c->label = label;
+        c->property_name = property_name;
+        c->inlined_property = inlined_property;
+        for (const auto& s : pass_statements) {
+            if (s) c->pass_statements.push_back(s->clone());
+        }
+        for (const auto& s : fail_statements) {
+            if (s) c->fail_statements.push_back(s->clone());
+        }
+        c->is_assume = is_assume;
+        c->is_expect = is_expect;
+        c->is_deferred_zero = is_deferred_zero;
+        c->is_final = is_final;
+        return c;
+    }
 };
 
 struct DpiImportNode : public ASTNode {
@@ -984,6 +1025,7 @@ struct PackageNode : public ASTNode {
     std::unordered_set<std::string> forward_interface_classes;
     std::unordered_set<std::string> specparam_names;
     std::unordered_set<std::string> vectored_signals;
+    std::vector<std::string> events;
 
     PackageNode() = default;
 };
@@ -1055,6 +1097,8 @@ struct CaseGenerateNode : public ASTNode {
 
 struct ModuleNode : public ASTNode {
     std::string name;
+    std::string timeunit_val = "";
+    std::string timeprecision_val = "";
     bool is_interface = false;
     bool is_program = false;
     std::string defined_in_file = "";

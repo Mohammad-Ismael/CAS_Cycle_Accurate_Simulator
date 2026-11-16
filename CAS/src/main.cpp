@@ -128,7 +128,10 @@ int main(int argc, char* argv[]) {
     };
 
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--no-profile") == 0) {
+        if (std::strcmp(argv[i], "-S") == 0) {
+            std::cerr << "Error: Synthesis (-S) is not supported in simulation mode.\n";
+            return 1;
+        } else if (std::strcmp(argv[i], "--no-profile") == 0) {
             enable_profiling = false;
         } else if (std::strcmp(argv[i], "--quiet") == 0) {
             verbose = false;

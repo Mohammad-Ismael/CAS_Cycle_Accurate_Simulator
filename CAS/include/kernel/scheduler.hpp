@@ -192,6 +192,9 @@ public:
     void queue_intra_event_nba(size_t trigger_net_id, EdgeType edge, size_t net_id, const LogicVal& val, uint32_t offset = 0, uint32_t slice_width = 0, bool is_slice = false);
     void queue_intra_event_blocking(size_t trigger_net_id, EdgeType edge, size_t pid, const std::string& target_name, const std::string& scope, const LogicVal& val);
 
+    bool final_processes_executed = false;
+    void execute_final_processes();
+
     void terminate();
     bool is_active() const { return simulation_active; }
 

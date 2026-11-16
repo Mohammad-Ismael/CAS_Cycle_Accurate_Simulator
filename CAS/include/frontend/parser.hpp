@@ -61,6 +61,8 @@ public:
     std::unordered_map<std::string, std::shared_ptr<CovergroupNode>> covergroup_map;
     std::vector<std::shared_ptr<CovergroupNode>> global_covergroups;
     ModuleNode* current_parsing_module = nullptr;
+    std::string global_timeunit_val = "";
+    std::string global_timeprec_val = "";
 
     std::unordered_set<std::string> known_interfaces;
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;
@@ -660,6 +662,7 @@ public:
     void parse_generate_item(ModuleNode* mod, GenerateBlock* blk);
 
     std::unique_ptr<ExpressionNode> parse_expression();
+    std::unique_ptr<ExpressionNode> parse_logical_implies_equiv();
     std::unique_ptr<ExpressionNode> parse_logical_or();
     std::unique_ptr<ExpressionNode> parse_logical_and();
     std::unique_ptr<ExpressionNode> parse_bitwise_or();

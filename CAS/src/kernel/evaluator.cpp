@@ -1283,50 +1283,142 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto fe_stmt = dynamic_cast<ForeachStatementNode*>(stmt)) {
-        DynamicArrayObject* da = nullptr;
+        std::vector<ArrayDimInfo> dims;
+        // 1. Check local variable
         if (expr_eval.get_context().has_active_frame()) {
             LocalVar* local = expr_eval.get_context().lookup_local(fe_stmt->array_name);
-            if (local && local->is_dynamic_array) da = &local->dyn_array_data;
+            if (local) {
+                if (!local->dimensions.empty()) {
+                    dims = local->dimensions;
+                } else if (local->is_dynamic_array) {
+                    dims.push_back({0, (int64_t)local->dyn_array_data.size() - 1, true, true, false});
+                } else if (local->is_queue) {
+                    dims.push_back({0, (int64_t)local->queue_data.size() - 1, true, false, true});
+                }
+            }
         }
-        if (!da && !bp.call_stack.empty()) {
+        // 2. Check call stack
+        if (dims.empty() && !bp.call_stack.empty()) {
             for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                 LocalVar* local = it->local_frame.get_var(fe_stmt->array_name);
-                if (local && local->is_dynamic_array) {
-                    da = &local->dyn_array_data;
+                if (local) {
+                    if (!local->dimensions.empty()) {
+                        dims = local->dimensions;
+                    } else if (local->is_dynamic_array) {
+                        dims.push_back({0, (int64_t)local->dyn_array_data.size() - 1, true, true, false});
+                    } else if (local->is_queue) {
+                        dims.push_back({0, (int64_t)local->queue_data.size() - 1, true, false, true});
+                    }
                     break;
                 }
             }
         }
-        if (!da && expr_eval.get_current_this() && expr_eval.get_current_this()->has_dynamic_array(fe_stmt->array_name)) {
-            da = expr_eval.get_current_this()->get_dynamic_array(fe_stmt->array_name);
-        }
-        if (!da) {
-            da = engine.get_dynamic_array(fe_stmt->array_name, bp.scope);
-        }
-        size_t n = da ? da->size() : 0;
-        if (expr_eval.get_context().has_active_frame()) {
-            if (!expr_eval.get_context().lookup_local(fe_stmt->loop_var)) {
-                expr_eval.get_context().declare_local(fe_stmt->loop_var, 32, true);
+        // 3. Check class member in current_this
+        if (dims.empty() && expr_eval.get_current_this()) {
+            auto obj = expr_eval.get_current_this();
+            if (obj->has_dynamic_array(fe_stmt->array_name)) {
+                auto da = obj->get_dynamic_array(fe_stmt->array_name);
+                dims.push_back({0, (int64_t)da->size() - 1, true, true, false});
+            } else if (obj->class_def) {
+                auto mvar = obj->class_def->find_member_var(fe_stmt->array_name);
+                if (mvar) {
+                    for (const auto& udim : mvar->unpacked_dimensions) {
+                        int64_t b1 = 0, b2 = 0;
+                        if (udim.first) b1 = eval_expr(udim.first.get(), bp.scope).to_signed();
+                        if (udim.second) b2 = eval_expr(udim.second.get(), bp.scope).to_signed();
+                        dims.push_back({b1, b2, true, false, false});
+                    }
+                }
             }
         }
-        for (size_t i = 0; i < n; ++i) {
-            if (has_returned(bp) || bp.loop_break) break;
-            if (expr_eval.get_context().has_active_frame()) {
-                expr_eval.get_context().set_local_value(fe_stmt->loop_var, LogicVal::make_known(32, (uint64_t)i));
-            }
-            for (auto& s : fe_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
-                execute_statement(s.get(), bp);
-            }
-            if (has_returned(bp)) break;
-            if (bp.loop_break) {
-                bp.loop_break = false;
-                break;
-            }
-            if (bp.loop_continue) {
-                bp.loop_continue = false;
+        // 4. Check engine dynamic array / queue
+        if (dims.empty()) {
+            DynamicArrayObject* da = engine.get_dynamic_array(fe_stmt->array_name, bp.scope);
+            if (da) {
+                dims.push_back({0, (int64_t)da->size() - 1, true, true, false});
+            } else {
+                QueueObject* q = engine.get_queue(fe_stmt->array_name, bp.scope);
+                if (q) {
+                    dims.push_back({0, (int64_t)q->size() - 1, true, false, true});
+                }
             }
         }
+        // 5. Check engine.memory_map
+        if (dims.empty()) {
+            std::string scoped_var = bp.scope.empty() ? fe_stmt->array_name : (bp.scope + "." + fe_stmt->array_name);
+            std::string mem_key = "";
+            if (engine.memory_map.find(scoped_var) != engine.memory_map.end()) mem_key = scoped_var;
+            else if (engine.memory_map.find(fe_stmt->array_name) != engine.memory_map.end()) mem_key = fe_stmt->array_name;
+            if (!mem_key.empty()) {
+                const auto& mem = engine.memory_map.at(mem_key);
+                dims = mem.dimensions;
+            }
+        }
+        // 6. Check engine.var_dimensions
+        if (dims.empty()) {
+            std::string scoped_var = bp.scope.empty() ? fe_stmt->array_name : (bp.scope + "." + fe_stmt->array_name);
+            if (engine.var_dimensions.find(scoped_var) != engine.var_dimensions.end()) {
+                dims = engine.var_dimensions.at(scoped_var).dimensions;
+            } else if (engine.var_dimensions.find(fe_stmt->array_name) != engine.var_dimensions.end()) {
+                dims = engine.var_dimensions.at(fe_stmt->array_name).dimensions;
+            }
+        }
+        // 7. Check engine.netlist
+        if (dims.empty()) {
+            size_t nid = engine.get_net_id(bp.scope, fe_stmt->array_name);
+            if (nid != (size_t)-1) {
+                const auto& net = engine.netlist[nid];
+                if (net.width > 1) {
+                    dims.push_back({(int64_t)net.width - 1, 0, false, false, false});
+                }
+            }
+        }
+
+        expr_eval.get_context().push_frame(bp.scope + ".foreach");
+        for (const auto& var : fe_stmt->loop_vars) {
+            if (!var.empty()) {
+                expr_eval.get_context().declare_local(var, 32, true);
+            }
+        }
+
+        std::function<void(size_t)> run_dim = [&](size_t dim_idx) {
+            if (has_returned(bp) || bp.loop_break) return;
+            if (dim_idx >= fe_stmt->loop_vars.size() || dim_idx >= dims.size()) {
+                for (auto& s : fe_stmt->body) {
+                    if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                    execute_statement(s.get(), bp);
+                }
+                if (bp.loop_continue) bp.loop_continue = false;
+                return;
+            }
+
+            const auto& dim = dims[dim_idx];
+            const std::string& var = fe_stmt->loop_vars[dim_idx];
+
+            if (dim.size() <= 0 || ((dim.is_dynamic || dim.is_queue) && dim.right < dim.left)) {
+                return;
+            }
+
+            int64_t start = dim.left;
+            int64_t end = dim.right;
+            int64_t step = (start <= end) ? 1 : -1;
+
+            for (int64_t val = start; ; val += step) {
+                if (has_returned(bp) || bp.loop_break) break;
+                if (!var.empty()) {
+                    expr_eval.get_context().set_local_value(var, LogicVal::make_known(32, (uint64_t)val));
+                }
+                run_dim(dim_idx + 1);
+                if (has_returned(bp) || bp.loop_break) break;
+                if (val == end) break;
+            }
+        };
+
+        if (!dims.empty() && !fe_stmt->loop_vars.empty()) {
+            run_dim(0);
+        }
+        if (bp.loop_break) bp.loop_break = false;
+        expr_eval.get_context().pop_frame();
         return;
     }
 

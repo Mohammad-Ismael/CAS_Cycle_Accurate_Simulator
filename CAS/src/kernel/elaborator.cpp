@@ -479,6 +479,22 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         return val;
     }
     if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
+        if (fc->func_name == "$signed") {
+            if (!fc->args.empty()) {
+                LogicVal arg = eval_const_logic_val(fc->args[0].get(), scope);
+                arg.is_signed = true;
+                return arg;
+            }
+            return LogicVal::make_known(32, 0, true);
+        }
+        if (fc->func_name == "$unsigned") {
+            if (!fc->args.empty()) {
+                LogicVal arg = eval_const_logic_val(fc->args[0].get(), scope);
+                arg.is_signed = false;
+                return arg;
+            }
+            return LogicVal::make_known(32, 0, false);
+        }
         std::string fname = fc->func_name;
         auto colon = fname.rfind("::");
         if (colon != std::string::npos) fname = fname.substr(colon + 2);
@@ -497,6 +513,41 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         uint32_t rw = (target_fn && target_fn->return_width > 0) ? target_fn->return_width : 32;
         bool rs = target_fn ? target_fn->return_signed : false;
         return LogicVal::make_known(rw, cval, rs);
+    }
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        if (bin->op == "==?" || bin->op == "!=?") {
+            auto is_real_expr = [](ExpressionNode* e) -> bool {
+                if (!e) return false;
+                if (auto num = dynamic_cast<NumberNode*>(e)) {
+                    if (num->is_real) return true;
+                }
+                return false;
+            };
+            if (is_real_expr(bin->lhs.get()) || is_real_expr(bin->rhs.get())) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            LogicVal l = eval_const_logic_val(bin->lhs.get(), scope);
+            LogicVal r = eval_const_logic_val(bin->rhs.get(), scope);
+            if (l.is_real || r.is_real) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            if (bin->op == "==?") return LogicOps::wildcard_eq(l, r);
+            return LogicOps::wildcard_neq(l, r);
+        }
+        if (bin->op == "->") {
+            LogicVal l = eval_const_logic_val(bin->lhs.get(), scope);
+            if (!l.is_unknown() && !l.to_bool()) return LogicVal::make_known(1, 1);
+            LogicVal r = eval_const_logic_val(bin->rhs.get(), scope);
+            if (!r.is_unknown() && r.to_bool()) return LogicVal::make_known(1, 1);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (!l.to_bool() || r.to_bool()) ? 1 : 0);
+        }
+        if (bin->op == "<->") {
+            LogicVal l = eval_const_logic_val(bin->lhs.get(), scope);
+            LogicVal r = eval_const_logic_val(bin->rhs.get(), scope);
+            if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
+            return LogicVal::make_known(1, (l.to_bool() == r.to_bool()) ? 1 : 0);
+        }
     }
     uint64_t val = eval_const_expr(expr, scope);
     return LogicVal::make_known(32, val);
@@ -803,8 +854,48 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == ">=") return (l >= r) ? 1 : 0;
         if (bin->op == "==" || bin->op == "===") return (l == r) ? 1 : 0;
         if (bin->op == "!=" || bin->op == "!==") return (l != r) ? 1 : 0;
+        if (bin->op == "==?") {
+            auto is_real_expr = [](ExpressionNode* e) -> bool {
+                if (!e) return false;
+                if (auto num = dynamic_cast<NumberNode*>(e)) {
+                    if (num->is_real) return true;
+                }
+                return false;
+            };
+            if (is_real_expr(bin->lhs.get()) || is_real_expr(bin->rhs.get())) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            LogicVal lv_l = eval_const_logic_val(bin->lhs.get(), scope);
+            LogicVal lv_r = eval_const_logic_val(bin->rhs.get(), scope);
+            if (lv_l.is_real || lv_r.is_real) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            LogicVal res = LogicOps::wildcard_eq(lv_l, lv_r);
+            return (res.aval & 1);
+        }
+        if (bin->op == "!=?") {
+            auto is_real_expr = [](ExpressionNode* e) -> bool {
+                if (!e) return false;
+                if (auto num = dynamic_cast<NumberNode*>(e)) {
+                    if (num->is_real) return true;
+                }
+                return false;
+            };
+            if (is_real_expr(bin->lhs.get()) || is_real_expr(bin->rhs.get())) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            LogicVal lv_l = eval_const_logic_val(bin->lhs.get(), scope);
+            LogicVal lv_r = eval_const_logic_val(bin->rhs.get(), scope);
+            if (lv_l.is_real || lv_r.is_real) {
+                throw std::runtime_error("[CAS-REAL] Wildcard equality operators (==?, !=?) cannot have real operands per IEEE 1800-2023 §11.4.6");
+            }
+            LogicVal res = LogicOps::wildcard_neq(lv_l, lv_r);
+            return (res.aval & 1);
+        }
         if (bin->op == "&&") return (l && r) ? 1 : 0;
         if (bin->op == "||") return (l || r) ? 1 : 0;
+        if (bin->op == "->") return (!l || r) ? 1 : 0;
+        if (bin->op == "<->") return ((!l && !r) || (l && r)) ? 1 : 0;
     }
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
         uint64_t val = eval_const_expr(un->operand.get(), scope, local_env);
@@ -2845,6 +2936,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             val = lval.aval;
             if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
         }
+        if (p.has_range && p.msb_expr) {
+            uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
+            uint64_t lsb = p.lsb_expr ? eval_const_expr(p.lsb_expr.get(), scope) : 0;
+            uint32_t width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            lval = LogicOps::cast_width(lval, width, p.is_signed);
+            val = lval.aval;
+        }
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
         bool is_unb = false;
@@ -4691,6 +4789,8 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                 if (explicit_ports.find(p.name) == explicit_ports.end()) {
                     if (candidate_exists(p.name)) {
                         expanded_conns.push_back({p.name, std::make_unique<IdentifierNode>(p.name)});
+                    } else if (!p.default_value) {
+                        throw std::runtime_error("[CAS-PORT] Port '" + p.name + "' cannot be connected by .* because no variable or net of that name exists in instantiating scope per IEEE 1800-2023 §23.3.2.4");
                     }
                 }
             }
@@ -4699,6 +4799,30 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
 
         for (size_t conn_idx = 0; conn_idx < inst->connections.size(); ++conn_idx) {
             auto& conn = inst->connections[conn_idx];
+            if (conn.is_implicit_name_only) {
+                auto candidate_exists_here = [&](const std::string& name) -> bool {
+                    std::string cur_s = scope;
+                    while (true) {
+                        std::string cand = cur_s.empty() ? name : (cur_s + "." + name);
+                        if (result.net_map.find(cand) != result.net_map.end() ||
+                            result.interface_instances.find(cand) != result.interface_instances.end() ||
+                            result.interface_port_map.find(cand) != result.interface_port_map.end() ||
+                            result.memory_map.find(cand) != result.memory_map.end() ||
+                            result.assoc_array_map.find(cand) != result.assoc_array_map.end() ||
+                            result.dynamic_array_map.find(cand) != result.dynamic_array_map.end()) {
+                            return true;
+                        }
+                        if (cur_s.empty()) break;
+                        auto dot = cur_s.rfind('.');
+                        if (dot == std::string::npos) cur_s = "";
+                        else cur_s = cur_s.substr(0, dot);
+                    }
+                    return false;
+                };
+                if (!candidate_exists_here(conn.port_name)) {
+                    throw std::runtime_error("[CAS-PORT] Port '" + conn.port_name + "' cannot be connected by .name because no variable or net of that name exists in instantiating scope per IEEE 1800-2023 §23.3.2.3");
+                }
+            }
             std::string target_port_name;
             if (inst->is_positional) {
                 if (conn_idx >= submod->ports.size()) {
@@ -4960,6 +5084,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     for (const auto& kv : Parser::global_packages) {
         const std::string& pkg_name = kv.first;
         const auto& pkg = kv.second;
+
+        for (const auto& ev_name : pkg->events) {
+            std::string scoped_ev = pkg_name + "::" + ev_name;
+            size_t ev_id = result.named_events.size();
+            result.named_events.push_back({scoped_ev, (uint64_t)-1, {}});
+            result.named_event_map[scoped_ev] = ev_id;
+            if (result.named_event_map.find(ev_name) == result.named_event_map.end()) {
+                result.named_event_map[ev_name] = ev_id;
+            }
+        }
 
         for (const auto& td : pkg->type_dimensions) {
             result.var_dimensions[td.first] = td.second;
@@ -5606,11 +5740,13 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
+    std::vector<ModuleNode*> top_modules;
     ModuleNode* top = nullptr;
 
     if (!effective_top_name.empty()) {
         if (module_defs.find(effective_top_name) != module_defs.end()) {
             top = module_defs.at(effective_top_name);
+            top_modules.push_back(top);
             if (debug_out) *debug_out << "  -> Using explicit top module: '" << top->name << "'\n";
         } else {
             throw std::runtime_error("Elaboration error: Top module '" + effective_top_name + "' was not found in parsed sources.");
@@ -5629,29 +5765,30 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 if (mod->name.rfind("tb_", 0) == 0 || mod->name.find("_tb") != std::string::npos || 
                     mod->name.find("testbench") != std::string::npos || mod->name.find("regression") != std::string::npos) {
                     top = mod.get();
+                    top_modules.push_back(top);
                     break;
                 }
             }
         }
-        if (!top) {
+        if (top_modules.empty()) {
             for (auto& mod : modules) {
                 if (mod->is_interface || mod->is_program) continue;
                 if (!is_instantiated[mod->name]) {
-                    top = mod.get();
-                    break;
+                    top_modules.push_back(mod.get());
                 }
             }
         }
-        if (!top) {
+        if (top_modules.empty()) {
             for (auto& mod : modules) {
-                if (!mod->is_interface && !mod->is_program) { top = mod.get(); break; }
+                if (!mod->is_interface && !mod->is_program) { top_modules.push_back(mod.get()); break; }
             }
         }
-        if (!top && !modules.empty()) top = modules.front().get();
-        if (!top) {
+        if (top_modules.empty() && !modules.empty()) top_modules.push_back(modules.front().get());
+        if (top_modules.empty()) {
             if (debug_out) *debug_out << "  -> No modules found in parsed source.\n";
             return std::move(result);
         }
+        top = top_modules.front();
         if (debug_out) *debug_out << "  -> Auto-detected top-level root module: '" << top->name << "'\n";
     }
 
@@ -5700,7 +5837,9 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 }
             }
         };
-    map_hierarchy(top, top->name);
+    for (auto* m : top_modules) {
+        map_hierarchy(m, m->name);
+    }
 
     // Collect pending defparam statements across all instantiated modules
     struct PendingDefparam {
@@ -5814,7 +5953,9 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
-    elaborate_module(top, top->name, module_defs, nullptr, "", debug_out);
+    for (auto* m : top_modules) {
+        elaborate_module(m, m->name, module_defs, nullptr, "", debug_out);
+    }
     result.top_scope = top->name;
 
     // IEEE 1800-2023 §10.6: Net Aliasing & Canonical Net Unification
@@ -6103,6 +6244,106 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     for (size_t i = 0; i < result.processes.size(); ++i) {
         auto& bp = result.processes[i];
         bool is_strict_proc = bp.proc->is_always_ff || bp.proc->is_always_comb || bp.proc->is_always_latch;
+
+        if (is_strict_proc) {
+            std::function<void(const StatementNode*)> check_strict_stmts = [&](const StatementNode* s) {
+                if (!s) return;
+                if (dynamic_cast<const DelayStatementNode*>(s)) {
+                    throw std::runtime_error("[CAS-STC] Delay statement (#) is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                }
+                if (dynamic_cast<const EventControlStatementNode*>(s)) {
+                    throw std::runtime_error("[CAS-STC] Event control (@) is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                }
+                if (dynamic_cast<const WaitConditionStatementNode*>(s) ||
+                    dynamic_cast<const WaitForkStatementNode*>(s) ||
+                    dynamic_cast<const WaitEventTriggeredStatementNode*>(s)) {
+                    throw std::runtime_error("[CAS-STC] Wait statement is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                }
+                if (bp.proc->is_always_comb || bp.proc->is_always_latch) {
+                    if (dynamic_cast<const ForkStatementNode*>(s)) {
+                        throw std::runtime_error("[CAS-STC] Fork-join statement is illegal inside always_comb / always_latch per IEEE 1800-2023 §9.2.2");
+                    }
+                }
+                if (auto ba = dynamic_cast<const BlockingAssignNode*>(s)) {
+                    if (ba->intra_delay > 0 || ba->has_intra_event) {
+                        throw std::runtime_error("[CAS-STC] Intra-assignment timing control is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                    }
+                }
+                if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(s)) {
+                    if (nba->intra_delay > 0 || nba->has_intra_event) {
+                        throw std::runtime_error("[CAS-STC] Intra-assignment timing control is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                    }
+                }
+                if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {
+                    for (const auto& sub : blk->statements) check_strict_stmts(sub.get());
+                } else if (auto if_s = dynamic_cast<const IfStatementNode*>(s)) {
+                    for (const auto& sub : if_s->then_branch) check_strict_stmts(sub.get());
+                    for (const auto& sub : if_s->else_branch) check_strict_stmts(sub.get());
+                } else if (auto cs = dynamic_cast<const CaseStatementNode*>(s)) {
+                    for (const auto& ci : cs->items) {
+                        for (const auto& sub : ci.statements) check_strict_stmts(sub.get());
+                    }
+                } else if (auto for_s = dynamic_cast<const ForStatementNode*>(s)) {
+                    for (const auto& sub : for_s->body) check_strict_stmts(sub.get());
+                } else if (auto wh = dynamic_cast<const WhileStatementNode*>(s)) {
+                    for (const auto& sub : wh->body) check_strict_stmts(sub.get());
+                } else if (auto rep = dynamic_cast<const RepeatStatementNode*>(s)) {
+                    for (const auto& sub : rep->body) check_strict_stmts(sub.get());
+                } else if (auto fo = dynamic_cast<const ForeverStatementNode*>(s)) {
+                    for (const auto& sub : fo->body) check_strict_stmts(sub.get());
+                } else if (auto fe = dynamic_cast<const ForeachStatementNode*>(s)) {
+                    for (const auto& sub : fe->body) check_strict_stmts(sub.get());
+                }
+            };
+            for (const auto& s : bp.proc->body) {
+                check_strict_stmts(s.get());
+            }
+            if (bp.proc->is_always_latch) {
+                bool reads_any = false;
+                std::function<void(const ExpressionNode*)> check_expr_reads = [&](const ExpressionNode* e) {
+                    if (!e || reads_any) return;
+                    if (dynamic_cast<const IdentifierNode*>(e) || dynamic_cast<const IndexSelectNode*>(e) || dynamic_cast<const MemberAccessNode*>(e)) {
+                        reads_any = true;
+                        return;
+                    }
+                    if (auto un = dynamic_cast<const UnaryOpNode*>(e)) check_expr_reads(un->operand.get());
+                    else if (auto bin = dynamic_cast<const BinaryOpNode*>(e)) { check_expr_reads(bin->lhs.get()); check_expr_reads(bin->rhs.get()); }
+                    else if (auto tern = dynamic_cast<const TernaryOpNode*>(e)) { check_expr_reads(tern->condition.get()); check_expr_reads(tern->true_expr.get()); check_expr_reads(tern->false_expr.get()); }
+                    else if (auto cat = dynamic_cast<const ConcatNode*>(e)) { for (const auto& el : cat->elements) check_expr_reads(el.get()); }
+                    else if (auto fc = dynamic_cast<const FunctionCallNode*>(e)) { for (const auto& a : fc->args) check_expr_reads(a.get()); }
+                };
+                std::function<void(const StatementNode*)> check_stmt_reads = [&](const StatementNode* s) {
+                    if (!s || reads_any) return;
+                    if (auto ba = dynamic_cast<const BlockingAssignNode*>(s)) {
+                        check_expr_reads(ba->rhs.get());
+                        check_expr_reads(ba->bit_idx.get());
+                        check_expr_reads(ba->bit_lsb.get());
+                    } else if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(s)) {
+                        check_expr_reads(nba->rhs.get());
+                        check_expr_reads(nba->bit_idx.get());
+                        check_expr_reads(nba->bit_lsb.get());
+                    } else if (auto if_s = dynamic_cast<const IfStatementNode*>(s)) {
+                        check_expr_reads(if_s->condition.get());
+                        for (const auto& sub : if_s->then_branch) check_stmt_reads(sub.get());
+                        for (const auto& sub : if_s->else_branch) check_stmt_reads(sub.get());
+                    } else if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {
+                        for (const auto& sub : blk->statements) check_stmt_reads(sub.get());
+                    } else if (auto cs = dynamic_cast<const CaseStatementNode*>(s)) {
+                        check_expr_reads(cs->selector.get());
+                        for (const auto& item : cs->items) {
+                            if (item.match_expr) check_expr_reads(item.match_expr.get());
+                            for (const auto& exp : item.match_exprs) check_expr_reads(exp.get());
+                            for (const auto& sub : item.statements) check_stmt_reads(sub.get());
+                        }
+                    }
+                };
+                for (const auto& s : bp.proc->body) check_stmt_reads(s.get());
+                if (!reads_any) {
+                    throw std::runtime_error("[CAS-LATCH] always_latch procedure body shall read at least one variable to determine latch behavior per IEEE 1800-2023 §9.2.2.3");
+                }
+            }
+        }
+
         std::unordered_set<std::string> local_vars;
         for (auto& s : bp.proc->body) {
             collect_local_vars(s.get(), local_vars);

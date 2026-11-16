@@ -556,9 +556,16 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     expect(TokenType::TOKEN_ENDFUNCTION, "Expected 'endfunction'");
     if (match(TokenType::TOKEN_COLON)) {
         if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) {
+            std::string end_id = current.text;
             advance();
             if (match(TokenType::TOKEN_COLON_COLON)) {
-                if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NEW) {
+                    end_id = current.text;
+                    advance();
+                }
+            }
+            if (!func->name.empty() && end_id != func->name) {
+                throw std::runtime_error("End label '" + end_id + "' does not match function name '" + func->name + "'");
             }
         }
     }

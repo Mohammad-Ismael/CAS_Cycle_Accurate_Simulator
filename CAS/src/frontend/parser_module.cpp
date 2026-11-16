@@ -2,6 +2,50 @@
 #include <functional>
 #include <stdexcept>
 
+static bool validate_time_literal_str(const std::string& s) {
+    if (s.empty()) return false;
+    std::string num_part = "";
+    size_t i = 0;
+    while (i < s.size() && (std::isdigit(s[i]) || s[i] == '_')) {
+        if (s[i] == '_') return false;
+        num_part += s[i];
+        i++;
+    }
+    std::string unit_part = s.substr(i);
+    if (num_part != "1" && num_part != "10" && num_part != "100") return false;
+    if (unit_part != "s" && unit_part != "ms" && unit_part != "us" && unit_part != "ns" && unit_part != "ps" && unit_part != "fs") return false;
+    return true;
+}
+
+static bool expr_has_xz(const ExpressionNode* node) {
+    if (!node) return false;
+    if (auto num = dynamic_cast<const NumberNode*>(node)) {
+        return num->bval != 0;
+    }
+    if (auto rep = dynamic_cast<const ReplicateNode*>(node)) {
+        return expr_has_xz(rep->count_expr.get()) || expr_has_xz(rep->target_expr.get());
+    }
+    if (auto cat = dynamic_cast<const ConcatNode*>(node)) {
+        for (const auto& elem : cat->elements) {
+            if (expr_has_xz(elem.get())) return true;
+        }
+        return false;
+    }
+    if (auto un = dynamic_cast<const UnaryOpNode*>(node)) {
+        return expr_has_xz(un->operand.get());
+    }
+    if (auto bin = dynamic_cast<const BinaryOpNode*>(node)) {
+        return expr_has_xz(bin->lhs.get()) || expr_has_xz(bin->rhs.get());
+    }
+    if (auto tern = dynamic_cast<const TernaryOpNode*>(node)) {
+        return expr_has_xz(tern->condition.get()) || expr_has_xz(tern->true_expr.get()) || expr_has_xz(tern->false_expr.get());
+    }
+    if (auto cast_node = dynamic_cast<const CastNode*>(node)) {
+        return expr_has_xz(cast_node->expr.get());
+    }
+    return false;
+}
+
 std::unique_ptr<ExpressionNode> Parser::parse_net_lvalue() {
     std::string name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected net identifier in alias statement");
@@ -284,6 +328,49 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             continue;
         }
 
+        if (match(TokenType::TOKEN_TIMEUNIT)) {
+            std::string t_unit = current.text;
+            advance();
+            std::string t_prec = "";
+            if (match(TokenType::TOKEN_SLASH)) {
+                t_prec = current.text;
+                advance();
+            }
+            if (!validate_time_literal_str(t_unit)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
+            }
+            if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeunit_val.empty() && global_timeunit_val != t_unit) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeunit_val = t_unit;
+            if (!t_prec.empty()) {
+                if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                global_timeprec_val = t_prec;
+            }
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+        if (match(TokenType::TOKEN_TIMEPRECISION)) {
+            std::string t_prec = current.text;
+            advance();
+            if (!validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeprec_val = t_prec;
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_COVERGROUP) {
             auto cg = parse_covergroup();
             if (cg) {
@@ -396,6 +483,49 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 dpi_export_map[sexp->sv_name] = sexp;
                 global_dpi_exports.push_back(sexp);
             }
+            continue;
+        }
+
+        if (match(TokenType::TOKEN_TIMEUNIT)) {
+            std::string t_unit = current.text;
+            advance();
+            std::string t_prec = "";
+            if (match(TokenType::TOKEN_SLASH)) {
+                t_prec = current.text;
+                advance();
+            }
+            if (!validate_time_literal_str(t_unit)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
+            }
+            if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeunit_val.empty() && global_timeunit_val != t_unit) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeunit_val = t_unit;
+            if (!t_prec.empty()) {
+                if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                global_timeprec_val = t_prec;
+            }
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+        if (match(TokenType::TOKEN_TIMEPRECISION)) {
+            std::string t_prec = current.text;
+            advance();
+            if (!validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeprec_val = t_prec;
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
             continue;
         }
 
@@ -533,6 +663,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         for (const auto& kv : global_explicit_imports) {
             mod->explicit_imports[kv.first] = kv.second;
         }
+        if (current.type == TokenType::TOKEN_AUTOMATIC || current.type == TokenType::TOKEN_STATIC) {
+            advance();
+        }
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
         mod->name = current.text;
@@ -611,6 +744,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 bool has_type = false;
                 std::string ptype = "";
+                bool is_signed = false;
+                std::unique_ptr<ExpressionNode> p_msb;
+                std::unique_ptr<ExpressionNode> p_lsb;
+                bool has_range = false;
                 while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                        current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
                        current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
@@ -618,6 +755,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                        (!has_type && is_type_identifier(current.text)) ||
                        (!has_type && current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_COLON_COLON || peek_token().type == TokenType::TOKEN_IDENTIFIER))) {
                     has_type = true;
+                    if (current.type == TokenType::TOKEN_SIGNED) is_signed = true;
                     if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                         ptype = current.text;
                         advance();
@@ -631,19 +769,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     while (current.type == TokenType::TOKEN_LBRACKET) {
                         advance();
-                        parse_expression();
+                        p_msb = parse_expression();
                         if (match(TokenType::TOKEN_COLON)) {
-                            parse_expression();
+                            p_lsb = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                        has_range = true;
                     }
                 }
                 while (match(TokenType::TOKEN_LBRACKET)) {
-                    parse_expression();
+                    p_msb = parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
-                        parse_expression();
+                        p_lsb = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                    has_range = true;
                 }
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
@@ -656,7 +796,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter definition");
                 auto pexpr = parse_expression();
-                mod->parameters.push_back(ParameterDef(pname, std::move(pexpr), is_local, ptype));
+                ParameterDef pdef(pname, std::move(pexpr), is_local, ptype);
+                if (has_range && p_msb) {
+                    pdef.has_range = true;
+                    pdef.msb_expr = p_msb->clone();
+                    if (p_lsb) pdef.lsb_expr = p_lsb->clone();
+                }
+                pdef.is_signed = is_signed;
+                mod->parameters.push_back(std::move(pdef));
 
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 else break;
@@ -780,21 +927,33 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
                     advance();
-                } else if (current.type == TokenType::TOKEN_WIRE) {
-                    port_kind = NetKind::WIRE;
+                } else if (current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_WAND ||
+                           current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
+                           (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "uwire" || current.text == "trireg" || current.text == "tri0" || current.text == "tri1"))) {
+                    port_kind = (current.type == TokenType::TOKEN_WAND) ? NetKind::WAND :
+                                ((current.type == TokenType::TOKEN_WOR) ? NetKind::WOR :
+                                 ((current.type == TokenType::TOKEN_TRI) ? NetKind::TRI : NetKind::WIRE));
                     advance();
-                } else if (current.type == TokenType::TOKEN_WAND) {
-                    port_kind = NetKind::WAND;
-                    advance();
-                } else if (current.type == TokenType::TOKEN_WOR) {
-                    port_kind = NetKind::WOR;
-                    advance();
-                } else if (current.type == TokenType::TOKEN_TRI) {
-                    port_kind = NetKind::TRI;
-                    advance();
+                    if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                        is_signed_port = true; advance();
+                    } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                        is_signed_port = false; advance();
+                    }
+                    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+                        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_REAL ||
+                        current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || is_type_identifier(current.text)))) {
+                        if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                        advance();
+                    }
                 }
-                if (current.type == TokenType::TOKEN_SIGNED) {
+                if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
                     is_signed_port = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                    is_signed_port = false;
                     advance();
                 }
 
@@ -896,6 +1055,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (port.type_name.empty() && !port_user_type.empty()) {
                         port.type_name = port_user_type;
                     }
+                    if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                        port.default_value = parse_expression();
+                    }
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
@@ -903,8 +1065,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                             current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
                             current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED ||
+                            current.type == TokenType::TOKEN_UNSIGNED || current.type == TokenType::TOKEN_BIT ||
                             current.type == TokenType::TOKEN_INTERFACE ||
-                            (current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_IDENTIFIER || peek_token().type == TokenType::TOKEN_DOT))) {
+                            (current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_IDENTIFIER || peek_token().type == TokenType::TOKEN_DOT || peek_token().type == TokenType::TOKEN_SIGNED || peek_token().type == TokenType::TOKEN_UNSIGNED))) {
                             break;
                         }
                         continue;
@@ -925,6 +1088,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : (is_prog ? TokenType::TOKEN_ENDPROGRAM : TokenType::TOKEN_ENDMODULE);
         while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
+            if (match(TokenType::TOKEN_TIMEUNIT)) {
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+                match(TokenType::TOKEN_SEMICOLON);
+                continue;
+            }
+            if (match(TokenType::TOKEN_TIMEPRECISION)) {
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+                match(TokenType::TOKEN_SEMICOLON);
+                continue;
+            }
             if (current.type == TokenType::TOKEN_LET) {
                 auto let_decl = parse_let_declaration();
                 if (let_decl) {
@@ -935,6 +1108,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
             if (is_prog && (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE || current.type == TokenType::TOKEN_PROGRAM)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program declaration is illegal in program scope per IEEE 1800-2023 section 24.3");
+            }
+            if (current.type == TokenType::TOKEN_PROGRAM) {
+                advance(); // consume 'program'
+                std::string prog_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected program identifier");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after program name");
+                continue;
+            }
+            if (match(TokenType::TOKEN_ENDPROGRAM)) {
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+                continue;
             }
             if (current.type == TokenType::TOKEN_MODPORT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "modport")) {
                 advance();
@@ -1101,6 +1288,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 bool has_type = false;
                 std::string ptype = "";
+                bool is_signed = false;
+                std::unique_ptr<ExpressionNode> p_msb;
+                std::unique_ptr<ExpressionNode> p_lsb;
+                bool has_range = false;
                 while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                        current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
                        current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
@@ -1108,6 +1299,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                        (!has_type && is_type_identifier(current.text)) ||
                        (!has_type && current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_COLON_COLON || peek_token().type == TokenType::TOKEN_IDENTIFIER))) {
                     has_type = true;
+                    if (current.type == TokenType::TOKEN_SIGNED) is_signed = true;
                     if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                         ptype = current.text;
                         advance();
@@ -1121,19 +1313,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     while (current.type == TokenType::TOKEN_LBRACKET) {
                         advance();
-                        parse_expression();
+                        p_msb = parse_expression();
                         if (match(TokenType::TOKEN_COLON)) {
-                            parse_expression();
+                            p_lsb = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                        has_range = true;
                     }
                 }
                 while (match(TokenType::TOKEN_LBRACKET)) {
-                    parse_expression();
+                    p_msb = parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
-                        parse_expression();
+                        p_lsb = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                    has_range = true;
                 }
                 while (true) {
                     std::string pname = current.text;
@@ -1147,7 +1341,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
                     auto val_expr = parse_expression();
-                    mod->parameters.push_back(ParameterDef(pname, std::move(val_expr), is_local, ptype));
+                    ParameterDef pdef(pname, std::move(val_expr), is_local, ptype);
+                    if (has_range && p_msb) {
+                        pdef.has_range = true;
+                        pdef.msb_expr = p_msb->clone();
+                        if (p_lsb) pdef.lsb_expr = p_lsb->clone();
+                    }
+                    pdef.is_signed = is_signed;
+                    mod->parameters.push_back(std::move(pdef));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
@@ -1213,21 +1414,33 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
                     advance();
-                } else if (current.type == TokenType::TOKEN_WIRE) {
-                    port_kind = NetKind::WIRE;
+                } else if (current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_WAND ||
+                           current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
+                           (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "uwire" || current.text == "trireg" || current.text == "tri0" || current.text == "tri1"))) {
+                    port_kind = (current.type == TokenType::TOKEN_WAND) ? NetKind::WAND :
+                                ((current.type == TokenType::TOKEN_WOR) ? NetKind::WOR :
+                                 ((current.type == TokenType::TOKEN_TRI) ? NetKind::TRI : NetKind::WIRE));
                     advance();
-                } else if (current.type == TokenType::TOKEN_WAND) {
-                    port_kind = NetKind::WAND;
-                    advance();
-                } else if (current.type == TokenType::TOKEN_WOR) {
-                    port_kind = NetKind::WOR;
-                    advance();
-                } else if (current.type == TokenType::TOKEN_TRI) {
-                    port_kind = NetKind::TRI;
-                    advance();
+                    if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                        is_signed_port = true; advance();
+                    } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                        is_signed_port = false; advance();
+                    }
+                    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+                        current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_REAL ||
+                        current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || is_type_identifier(current.text)))) {
+                        if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                        advance();
+                    }
                 }
-                if (current.type == TokenType::TOKEN_SIGNED) {
+                if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
                     is_signed_port = true;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                    is_signed_port = false;
                     advance();
                 }
 
@@ -1328,7 +1541,50 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_COVERGROUP) {
+            if (match(TokenType::TOKEN_TIMEUNIT)) {
+            std::string t_unit = current.text;
+            advance();
+            std::string t_prec = "";
+            if (match(TokenType::TOKEN_SLASH)) {
+                t_prec = current.text;
+                advance();
+            }
+            if (!validate_time_literal_str(t_unit)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
+            }
+            if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeunit_val.empty() && global_timeunit_val != t_unit) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeunit_val = t_unit;
+            if (!t_prec.empty()) {
+                if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                global_timeprec_val = t_prec;
+            }
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+        if (match(TokenType::TOKEN_TIMEPRECISION)) {
+            std::string t_prec = current.text;
+            advance();
+            if (!validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeprec_val = t_prec;
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+
+        if (current.type == TokenType::TOKEN_COVERGROUP) {
                 auto cg = parse_covergroup();
                 if (cg) {
                     std::string cg_name = cg->name;
@@ -1620,23 +1876,44 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 uint32_t e_width = 32;
                 bool e_signed = true;
                 std::string e_base = "int";
-                if (current.type == TokenType::TOKEN_INTEGER || current.text == "int") {
-                    e_width = 32; e_signed = true; e_base = "int"; advance();
-                } else if (current.text == "byte") {
-                    e_width = 8; e_signed = true; e_base = "byte"; advance();
+                // Optional signedness prefix
+                if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                    e_signed = true; advance();
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                    e_signed = false; advance();
+                }
+
+                if (current.type == TokenType::TOKEN_INTEGER) {
+                    e_width = 32; e_base = "integer"; advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
+                    e_width = 32; e_base = "int"; advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                    e_width = 8; e_base = "byte"; advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                    e_width = 16; e_base = "shortint"; advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                    e_width = 64; e_base = "longint"; advance();
                 } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG) {
                     e_base = current.text; e_width = 1; e_signed = false; advance();
-                    if (match(TokenType::TOKEN_LBRACKET)) {
-                        auto msb_e = parse_expression();
-                        expect(TokenType::TOKEN_COLON, "Expected ':' in range");
-                        auto lsb_e = parse_expression();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
-                        try {
-                            uint64_t m = eval_const_expr(msb_e.get());
-                            uint64_t l = eval_const_expr(lsb_e.get());
-                            e_width = (m >= l) ? (m - l + 1) : (l - m + 1);
-                        } catch (...) {}
-                    }
+                }
+
+                // Optional signedness suffix
+                if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                    e_signed = true; advance();
+                } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                    e_signed = false; advance();
+                }
+
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    auto msb_e = parse_expression();
+                    expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                    auto lsb_e = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                    try {
+                        uint64_t m = eval_const_expr(msb_e.get());
+                        uint64_t l = eval_const_expr(lsb_e.get());
+                        e_width = (m >= l) ? (m - l + 1) : (l - m + 1);
+                    } catch (...) {}
                 }
                 expect(TokenType::TOKEN_LBRACE, "Expected '{' in enum declaration");
                 auto enum_node = std::make_shared<EnumTypeNode>();
@@ -1684,7 +1961,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 }
                             }
                         } else {
-                            curr_had_xz = true;
+                            if (expr_has_xz(val_expr.get())) {
+                                curr_had_xz = true;
+                                if (e_base == "bit" || e_base == "byte" || e_base == "int" || e_base == "shortint" || e_base == "longint") {
+                                    throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                                }
+                            }
+                            try {
+                                current_val = eval_const_expr(val_expr.get());
+                            } catch (...) {}
                         }
                     } else {
                         if (prev_had_xz) {
@@ -1831,6 +2116,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             sig.is_queue = true;
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
+                                if (auto un = dynamic_cast<UnaryOpNode*>(sig.queue_bound_expr.get())) {
+                                    if (un->op == "-") throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a non-negative integral constant expression per IEEE 1800-2023 §7.10.1");
+                                }
+                                if (auto num = dynamic_cast<NumberNode*>(sig.queue_bound_expr.get())) {
+                                    if (num->is_unknown() || num->is_real) throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a non-negative integral constant expression per IEEE 1800-2023 §7.10.1");
+                                }
+                                if (dynamic_cast<IdentifierNode*>(sig.queue_bound_expr.get())) {
+                                    throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a constant expression per IEEE 1800-2023 §7.10.1");
+                                }
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                             break;
@@ -1852,6 +2146,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 is_single = false;
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            if (is_single) {
+                                if (auto un = dynamic_cast<UnaryOpNode*>(l.get())) {
+                                    if (un->op == "-") throw std::runtime_error("[CAS-DIM] Array dimension size must be greater than 0 per IEEE 1800-2023 §7.4.2");
+                                }
+                                if (auto num = dynamic_cast<NumberNode*>(l.get())) {
+                                    if (!num->is_real && !num->is_unknown() && num->aval == 0) throw std::runtime_error("[CAS-DIM] Array dimension size must be greater than 0 per IEEE 1800-2023 §7.4.2");
+                                }
+                            }
                             AstDimension ad;
                             ad.left_expr = std::move(l);
                             ad.right_expr = std::move(r);
@@ -1970,6 +2272,61 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig_kind = NetKind::WIRE;
                 }
                 advance();
+                if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+                    auto struct_node = parse_struct_or_union_body();
+                    std::string anon_type = "__anon_struct_or_union_" + std::to_string(anon_struct_counter++);
+                    struct_typedef_map[anon_type] = struct_node;
+                    mod->struct_typedefs[anon_type] = struct_node;
+                    mod->typedefs.push_back(std::make_unique<TypedefNode>(anon_type, struct_node));
+                    if (struct_node->is_packed && struct_node->total_width > 0) {
+                        VariableDimMetadata svdm;
+                        svdm.name = anon_type;
+                        svdm.dimensions.push_back(ArrayDimInfo{(int64_t)struct_node->total_width - 1, 0, false});
+                        svdm.unpacked_dims = 0;
+                        svdm.is_vector_or_array = true;
+                        global_type_dimensions[anon_type] = svdm;
+                        mod->type_dimensions[anon_type] = svdm;
+                    }
+
+                    while (true) {
+                        std::string signame = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                        auto msb = std::make_unique<NumberNode>(struct_node->total_width > 0 ? struct_node->total_width - 1 : 0, 32);
+                        auto lsb = std::make_unique<NumberNode>(0, 32);
+                        PortNode sig(signame, "internal", std::move(msb), std::move(lsb), struct_node->is_signed, sig_kind);
+                        sig.type_name = anon_type;
+                        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                            auto init_expr = parse_expression();
+                            sig.default_value = init_expr->clone();
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        }
+                        mod->signals.push_back(std::move(sig));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                    continue;
+                }
+                Token peek_t = peek_token();
+                bool is_followed_by_name = (peek_t.type == TokenType::TOKEN_IDENTIFIER ||
+                                            peek_t.type == TokenType::TOKEN_SIGNED ||
+                                            peek_t.type == TokenType::TOKEN_UNSIGNED ||
+                                            peek_t.type == TokenType::TOKEN_LBRACKET);
+                if (is_followed_by_name &&
+                    (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
+                     current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER ||
+                     (current.type == TokenType::TOKEN_IDENTIFIER &&
+                      (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")))) {
+                    if (current.type == TokenType::TOKEN_BIT) is_bit_type = true;
+                    if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
+                        is_int = true;
+                        int_type_name = current.text;
+                    }
+                    advance();
+                }
                 bool is_vectored_decl = false;
                 if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "scalared" || current.text == "vectored")) {
                     if (current.text == "vectored") is_vectored_decl = true;
@@ -2071,6 +2428,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             sig.is_queue = true;
                             if (match(TokenType::TOKEN_COLON)) {
                                 sig.queue_bound_expr = parse_expression();
+                                if (auto un = dynamic_cast<UnaryOpNode*>(sig.queue_bound_expr.get())) {
+                                    if (un->op == "-") throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a non-negative integral constant expression per IEEE 1800-2023 §7.10.1");
+                                }
+                                if (auto num = dynamic_cast<NumberNode*>(sig.queue_bound_expr.get())) {
+                                    if (num->is_unknown() || num->is_real) throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a non-negative integral constant expression per IEEE 1800-2023 §7.10.1");
+                                }
+                                if (dynamic_cast<IdentifierNode*>(sig.queue_bound_expr.get())) {
+                                    throw std::runtime_error("[CAS-QUEUE] Queue maximum bound must be a constant expression per IEEE 1800-2023 §7.10.1");
+                                }
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                             break;
@@ -2092,6 +2458,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 is_single = false;
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            if (is_single) {
+                                if (auto un = dynamic_cast<UnaryOpNode*>(l.get())) {
+                                    if (un->op == "-") throw std::runtime_error("[CAS-DIM] Array dimension size must be greater than 0 per IEEE 1800-2023 §7.4.2");
+                                }
+                                if (auto num = dynamic_cast<NumberNode*>(l.get())) {
+                                    if (!num->is_real && !num->is_unknown() && num->aval == 0) throw std::runtime_error("[CAS-DIM] Array dimension size must be greater than 0 per IEEE 1800-2023 §7.4.2");
+                                }
+                            }
                             AstDimension ad;
                             ad.left_expr = std::move(l);
                             ad.right_expr = std::move(r);
@@ -2368,6 +2742,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in assign statement");
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assign");
+                std::string var_type = "";
+                for (const auto& s : mod->signals) {
+                    if (s.name == target) {
+                        var_type = s.type_name;
+                        break;
+                    }
+                }
+                if (!var_type.empty() && get_enum_typedef(var_type) != nullptr) {
+                    if (dynamic_cast<NumberNode*>(rhs.get()) || dynamic_cast<BinaryOpNode*>(rhs.get())) {
+                        throw std::runtime_error("Assigning numerical expression to enum variable '" + target + "' without explicit cast is illegal per IEEE 1800-2023 6.19.3/6.19.4");
+                    }
+                }
                 auto ca = std::make_unique<ContinuousAssignNode>(target, std::move(rhs));
                 ca->target_index_expr = std::move(target_idx);
                 ca->member_name = member_name;
@@ -2854,11 +3240,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 edge = EdgeType::LEVEL;
                             }
 
+                            if (current.type == TokenType::TOKEN_NOT || current.type == TokenType::TOKEN_TILDE ||
+                                current.type == TokenType::TOKEN_AND || current.type == TokenType::TOKEN_OR_BIT) {
+                                advance();
+                            }
                             std::string sig = current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                             while (match(TokenType::TOKEN_DOT)) {
                                 sig += "." + current.text;
                                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                            }
+                            while (match(TokenType::TOKEN_LBRACKET)) {
+                                parse_expression();
+                                if (match(TokenType::TOKEN_COLON)) parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in sensitivity list select");
                             }
                             if (match(TokenType::TOKEN_IFF)) {
                                 parse_expression();
@@ -2949,6 +3344,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                 std::string iname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
+                }
+                if (match(TokenType::TOKEN_SEMICOLON)) {
+                    auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
+                    inst->param_overrides = std::move(param_overrides);
+                    mod->instantiations.push_back(std::move(inst));
+                    continue;
+                }
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
 
                 bool positional = false;
@@ -2968,7 +3376,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
                                 conns.push_back({port_name, std::move(expr)});
                             } else {
-                                conns.push_back({port_name, std::make_unique<IdentifierNode>(port_name)});
+                                PortConnection pc;
+                                pc.port_name = port_name;
+                                pc.expr = std::make_unique<IdentifierNode>(port_name);
+                                pc.is_implicit_name_only = true;
+                                conns.push_back(std::move(pc));
                             }
                         }
                     } else {
@@ -3003,7 +3415,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             expect(TokenType::TOKEN_ENDMODULE, "Expected 'endmodule'");
         }
         if (match(TokenType::TOKEN_COLON)) {
-            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                if (!mod->name.empty() && current.text != mod->name) {
+                    throw std::runtime_error("End label '" + current.text + "' does not match definition name '" + mod->name + "'");
+                }
+                advance();
+            }
         }
         match(TokenType::TOKEN_SEMICOLON);
 
@@ -3758,16 +4175,25 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
         current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
         current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_SIGNED ||
-        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit"))) {
+        current.type == TokenType::TOKEN_UNSIGNED ||
+        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "bit" || current.text == "signed" || current.text == "unsigned"))) {
 
-        if (current.type == TokenType::TOKEN_SIGNED) {
+        if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
             is_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+            is_signed = false;
             advance();
         } else {
             is_signed = false;
         }
 
-        if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+        if (current.type == TokenType::TOKEN_INTEGER) {
+            width = 32;
+            is_signed = true;
+            base_type_name = "integer";
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
             width = 32;
             is_signed = true;
             base_type_name = "int";
@@ -3777,14 +4203,27 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             is_signed = true;
             base_type_name = "byte";
             advance();
-        } else {
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+            width = 16;
+            is_signed = true;
+            base_type_name = "shortint";
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+            width = 64;
+            is_signed = true;
+            base_type_name = "longint";
+            advance();
+        } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG) {
             base_type_name = current.text;
             width = 1;
             advance();
         }
 
-        if (current.type == TokenType::TOKEN_SIGNED) {
+        if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
             is_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+            is_signed = false;
             advance();
         }
 
@@ -3840,7 +4279,15 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                     }
                 }
             } else {
-                curr_had_xz = true;
+                if (expr_has_xz(val_expr.get())) {
+                    curr_had_xz = true;
+                    if (base_type_name == "bit" || base_type_name == "byte" || base_type_name == "int" || base_type_name == "shortint" || base_type_name == "longint") {
+                        throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                    }
+                }
+                try {
+                    current_val = eval_const_expr(val_expr.get());
+                } catch (...) {}
             }
         } else {
             if (prev_had_xz) {
@@ -4599,28 +5046,33 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     bool is_dyn = false;
                     bool is_assoc = false;
                     std::string assoc_key_type = "";
-                    if (match(TokenType::TOKEN_REP_CONSEC)) {
-                        is_assoc = true;
-                        assoc_key_type = "*";
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                    } else if (match(TokenType::TOKEN_LBRACKET)) {
-                        if (match(TokenType::TOKEN_RBRACKET)) {
-                            is_dyn = true;
-                        } else if (match(TokenType::TOKEN_STAR)) {
+                    std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> mvar_unpacked;
+                    while (current.type == TokenType::TOKEN_REP_CONSEC || current.type == TokenType::TOKEN_LBRACKET) {
+                        if (match(TokenType::TOKEN_REP_CONSEC)) {
                             is_assoc = true;
                             assoc_key_type = "*";
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                        } else if (current.type == TokenType::TOKEN_STRING || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || is_type_identifier(current.text)))) {
-                            is_assoc = true;
-                            assoc_key_type = current.text;
-                            advance();
-                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                        } else {
-                            parse_expression();
-                            if (match(TokenType::TOKEN_COLON)) {
-                                parse_expression();
+                        } else if (match(TokenType::TOKEN_LBRACKET)) {
+                            if (match(TokenType::TOKEN_RBRACKET)) {
+                                is_dyn = true;
+                            } else if (match(TokenType::TOKEN_STAR)) {
+                                is_assoc = true;
+                                assoc_key_type = "*";
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            } else if (current.type == TokenType::TOKEN_STRING || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || is_type_identifier(current.text)))) {
+                                is_assoc = true;
+                                assoc_key_type = current.text;
+                                advance();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            } else {
+                                auto d_msb = parse_expression();
+                                std::unique_ptr<ExpressionNode> d_lsb = nullptr;
+                                if (match(TokenType::TOKEN_COLON)) {
+                                    d_lsb = parse_expression();
+                                }
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                                mvar_unpacked.push_back({std::move(d_msb), std::move(d_lsb)});
                             }
-                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         }
                     }
                     std::unique_ptr<ExpressionNode> def_val = nullptr;
@@ -4639,6 +5091,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     mvar.is_rand = is_rand;
                     mvar.is_randc = is_randc;
                     mvar.is_static = is_stat;
+                    mvar.unpacked_dimensions = std::move(mvar_unpacked);
                     if (mvar_msb) mvar.msb_expr = mvar_msb->clone();
                     if (mvar_lsb) mvar.lsb_expr = mvar_lsb->clone();
                     cls->add_member_var(std::move(mvar));
@@ -4652,6 +5105,16 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 while (true) {
                     std::string var_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                    std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> mvar_unpacked;
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        auto d_msb = parse_expression();
+                        std::unique_ptr<ExpressionNode> d_lsb = nullptr;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            d_lsb = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        mvar_unpacked.push_back({std::move(d_msb), std::move(d_lsb)});
+                    }
                     ClassMemberVar mvar;
                     mvar.name = var_name;
                     mvar.width = 64;
@@ -4661,6 +5124,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     mvar.is_static = is_stat;
                     mvar.is_class_handle = true;
                     mvar.class_type_name = class_type;
+                    mvar.unpacked_dimensions = std::move(mvar_unpacked);
                     cls->add_member_var(std::move(mvar));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -4673,7 +5137,12 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     }
     expect(TokenType::TOKEN_ENDCLASS, "Expected 'endclass'");
     if (match(TokenType::TOKEN_COLON)) {
-        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            if (!cls->name.empty() && current.text != cls->name) {
+                throw std::runtime_error("End label '" + current.text + "' does not match class name '" + cls->name + "'");
+            }
+            advance();
+        }
     }
     match(TokenType::TOKEN_SEMICOLON);
     for (const auto& tname : local_class_typedef_names) {
@@ -6369,6 +6838,18 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        if (match(TokenType::TOKEN_EVENT)) {
+            while (true) {
+                std::string ev_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier in package");
+                pkg->events.push_back(ev_name);
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after event declaration");
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
             if (td) {
@@ -6579,6 +7060,49 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             continue;
         }
 
+        if (match(TokenType::TOKEN_TIMEUNIT)) {
+            std::string t_unit = current.text;
+            advance();
+            std::string t_prec = "";
+            if (match(TokenType::TOKEN_SLASH)) {
+                t_prec = current.text;
+                advance();
+            }
+            if (!validate_time_literal_str(t_unit)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
+            }
+            if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeunit_val.empty() && global_timeunit_val != t_unit) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeunit_val = t_unit;
+            if (!t_prec.empty()) {
+                if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                global_timeprec_val = t_prec;
+            }
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+        if (match(TokenType::TOKEN_TIMEPRECISION)) {
+            std::string t_prec = current.text;
+            advance();
+            if (!validate_time_literal_str(t_prec)) {
+                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
+            }
+            if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
+                throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
+            }
+            global_timeprec_val = t_prec;
+            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+            match(TokenType::TOKEN_SEMICOLON);
+            continue;
+        }
+
         if (current.type == TokenType::TOKEN_COVERGROUP) {
             auto cg = parse_covergroup();
             if (cg) {
@@ -6633,11 +7157,20 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
 
         if (current.type == TokenType::TOKEN_IDENTIFIER) {
             Token next = peek_token();
-            if (next.type == TokenType::TOKEN_IDENTIFIER || next.type == TokenType::TOKEN_HASH) {
+            if (next.type == TokenType::TOKEN_HASH) {
                 std::string loc = current.filename.empty() 
                     ? ("line " + std::to_string(current.line)) 
                     : (current.filename + ":" + std::to_string(current.line));
                 throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Module or interface declarations and instantiations are illegal in package scope");
+            }
+            if (next.type == TokenType::TOKEN_IDENTIFIER) {
+                Token after_next = peek_token_n(2);
+                if (after_next.type == TokenType::TOKEN_LPAREN || after_next.type == TokenType::TOKEN_LBRACKET) {
+                    std::string loc = current.filename.empty() 
+                        ? ("line " + std::to_string(current.line)) 
+                        : (current.filename + ":" + std::to_string(current.line));
+                    throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Module or interface declarations and instantiations are illegal in package scope");
+                }
             }
             advance();
             continue;
@@ -6649,6 +7182,9 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
     expect(TokenType::TOKEN_ENDPACKAGE, "Expected 'endpackage'");
     if (match(TokenType::TOKEN_COLON)) {
         if (current.type == TokenType::TOKEN_IDENTIFIER) {
+            if (!pkg->name.empty() && current.text != pkg->name) {
+                throw std::runtime_error("End label '" + current.text + "' does not match package name '" + pkg->name + "'");
+            }
             advance();
         }
     }
@@ -6953,7 +7489,9 @@ std::shared_ptr<CaseGenerateNode> Parser::parse_generate_case(ModuleNode* mod) {
 
 void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
     if (match(TokenType::TOKEN_BEGIN)) {
+        std::string gen_label = "";
         if (match(TokenType::TOKEN_COLON)) {
+            gen_label = current.text;
             match(TokenType::TOKEN_IDENTIFIER);
         }
         while (current.type != TokenType::TOKEN_END && current.type != TokenType::TOKEN_EOF) {
@@ -6961,7 +7499,12 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         }
         expect(TokenType::TOKEN_END, "Expected 'end'");
         if (match(TokenType::TOKEN_COLON)) {
-            match(TokenType::TOKEN_IDENTIFIER);
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                if (!gen_label.empty() && current.text != gen_label) {
+                    throw std::runtime_error("Generate block end label '" + current.text + "' does not match begin label '" + gen_label + "'");
+                }
+                advance();
+            }
         }
         return;
     }
@@ -7331,11 +7874,20 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                         advance();
                         edge = EdgeType::LEVEL;
                     }
+                    if (current.type == TokenType::TOKEN_NOT || current.type == TokenType::TOKEN_TILDE ||
+                        current.type == TokenType::TOKEN_AND || current.type == TokenType::TOKEN_OR_BIT) {
+                        advance();
+                    }
                     std::string sig = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                     while (match(TokenType::TOKEN_DOT)) {
                         sig += "." + current.text;
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                    }
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in sensitivity list select");
                     }
                     if (match(TokenType::TOKEN_IFF)) {
                         parse_expression();
@@ -7539,6 +8091,20 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
 
         std::string iname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
+        }
+        if (match(TokenType::TOKEN_SEMICOLON)) {
+            auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
+            inst->param_overrides = std::move(param_overrides);
+            if (blk) blk->instantiations.push_back(std::move(inst));
+            else mod->instantiations.push_back(std::move(inst));
+            return;
+        }
         expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
 
         bool positional = false;
@@ -7558,7 +8124,11 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
                         conns.push_back({port_name, std::move(expr)});
                     } else {
-                        conns.push_back({port_name, std::make_unique<IdentifierNode>(port_name)});
+                        PortConnection pc;
+                        pc.port_name = port_name;
+                        pc.expr = std::make_unique<IdentifierNode>(port_name);
+                        pc.is_implicit_name_only = true;
+                        conns.push_back(std::move(pc));
                     }
                 }
             } else {
