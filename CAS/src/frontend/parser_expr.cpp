@@ -48,6 +48,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             auto parsed = parse_call_argument_list();
             args = std::move(parsed.args);
             arg_names = std::move(parsed.arg_names);
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS) {
+            auto src_expr = parse_primary();
+            args.push_back(std::move(src_expr));
         }
         return std::make_unique<ClassNewNode>("", std::move(args), std::move(arg_names));
     }
@@ -1433,7 +1436,17 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_LBRACE, "Expected '{' in streaming concatenation");
             std::vector<std::unique_ptr<ExpressionNode>> items;
             while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                items.push_back(parse_expression());
+                auto item_expr = parse_expression();
+                if (match(TokenType::TOKEN_WITH) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "with")) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                    expect(TokenType::TOKEN_LBRACKET, "Expected '[' after 'with' in stream expression");
+                    parse_expression();
+                    if (match(TokenType::TOKEN_PLUS_COLON) || match(TokenType::TOKEN_MINUS_COLON) || match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in with range");
+                }
+                items.push_back(std::move(item_expr));
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
@@ -1474,7 +1487,16 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
 
         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation expression");
-        return std::make_unique<ConcatNode>(std::move(elements));
+        auto cat_node = std::make_unique<ConcatNode>(std::move(elements));
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            cat_node->has_select = true;
+            cat_node->msb_expr = parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                cat_node->lsb_expr = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bit select");
+        }
+        return cat_node;
     }
 
     if (match(TokenType::TOKEN_DOLLAR)) {
@@ -1615,8 +1637,25 @@ std::unique_ptr<ExpressionNode> Parser::parse_relational() {
 
     while (current.type == TokenType::TOKEN_LT || current.type == TokenType::TOKEN_LE ||
            current.type == TokenType::TOKEN_GT || current.type == TokenType::TOKEN_GE ||
-           current.type == TokenType::TOKEN_INSIDE) {
-        if (current.type == TokenType::TOKEN_INSIDE) {
+           current.type == TokenType::TOKEN_INSIDE || current.type == TokenType::TOKEN_MATCHES ||
+           (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "matches")) {
+        if (current.type == TokenType::TOKEN_MATCHES || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "matches")) {
+            advance();
+            std::unique_ptr<ExpressionNode> pat = nullptr;
+            if (match(TokenType::TOKEN_TAGGED)) {
+                std::string tag_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after 'tagged'");
+                std::unique_ptr<ExpressionNode> pat_val = nullptr;
+                if (current.type == TokenType::TOKEN_APOSTROPHE || current.type == TokenType::TOKEN_LBRACE ||
+                    (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_QUESTION && current.type != TokenType::TOKEN_SEMICOLON)) {
+                    pat_val = parse_expression();
+                }
+                pat = std::make_unique<TaggedUnionExprNode>(tag_name, std::move(pat_val));
+            } else {
+                pat = parse_shift();
+            }
+            lhs = std::make_unique<BinaryOpNode>("matches", std::move(lhs), std::move(pat));
+        } else if (current.type == TokenType::TOKEN_INSIDE) {
             advance();
             if (!match(TokenType::TOKEN_LBRACE)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Expected '{' opening inside open range list per IEEE 1800-2023 section 11.4.13");

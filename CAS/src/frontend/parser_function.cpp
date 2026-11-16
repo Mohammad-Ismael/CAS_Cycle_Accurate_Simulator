@@ -60,6 +60,14 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_width = 32;
             func->return_signed = true;
             advance();
+        } else if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "real")) {
+            func->return_width = 64;
+            func->return_type_name = "real";
+            advance();
+        } else if (current.type == TokenType::TOKEN_SHORTREAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal")) {
+            func->return_width = 32;
+            func->return_type_name = "shortreal";
+            advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
             if (current.text == "string") { func->return_width = 64; func->return_type_name = "string"; }
             else if (current.text == "void") func->return_width = 0;

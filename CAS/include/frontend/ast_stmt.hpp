@@ -391,6 +391,21 @@ struct WhileStatementNode : public StatementNode {
     }
 };
 
+struct DoWhileStatementNode : public StatementNode {
+    std::unique_ptr<ExpressionNode> condition;
+    std::vector<std::unique_ptr<StatementNode>> body;
+
+    DoWhileStatementNode(std::unique_ptr<ExpressionNode> cond,
+                         std::vector<std::unique_ptr<StatementNode>> b)
+        : condition(std::move(cond)), body(std::move(b)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        std::vector<std::unique_ptr<StatementNode>> b;
+        for (const auto& s : body) b.push_back(s ? s->clone() : nullptr);
+        return std::make_unique<DoWhileStatementNode>(condition ? condition->clone() : nullptr, std::move(b));
+    }
+};
+
 struct RepeatStatementNode : public StatementNode {
     std::unique_ptr<ExpressionNode> count_expr;
     std::vector<std::unique_ptr<StatementNode>> body;

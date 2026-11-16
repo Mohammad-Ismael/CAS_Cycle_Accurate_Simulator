@@ -337,7 +337,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             bool is_assoc = false;
             std::string assoc_key_type = "";
             uint32_t assoc_key_width = 32;
-            if (match(TokenType::TOKEN_LBRACKET)) {
+            while (match(TokenType::TOKEN_LBRACKET)) {
                 if (match(TokenType::TOKEN_DOLLAR)) {
                     is_q = true;
                     if (match(TokenType::TOKEN_COLON)) {
@@ -352,9 +352,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
                 } else {
                     parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                 }
-            } else if (match(TokenType::TOKEN_REP_CONSEC)) {
+            }
+            if (match(TokenType::TOKEN_REP_CONSEC)) {
                 is_assoc = true;
                 assoc_key_type = "*";
                 assoc_key_width = 64;
@@ -725,6 +729,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             advance();
         } else if (match(TokenType::TOKEN_LPAREN)) {
             delay_expr = parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                auto typ_e = parse_expression();
+                delay_expr = std::move(typ_e);
+                if (match(TokenType::TOKEN_COLON)) {
+                    parse_expression();
+                }
+            }
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing delay expression");
         } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
             std::string id_name = current.text;
@@ -753,12 +764,22 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 EdgeType edge = EdgeType::LEVEL;
                 if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
                 else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "edge") {
+                    advance();
+                    edge = EdgeType::LEVEL;
+                }
 
                 std::string sig = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in event control");
                 while (match(TokenType::TOKEN_DOT)) {
                     sig += "." + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event control");
+                }
+                if (match(TokenType::TOKEN_IFF)) {
+                    parse_expression();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff") {
+                    advance();
+                    parse_expression();
                 }
                 events.push_back({edge, sig});
                 if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
@@ -876,12 +897,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (match(TokenType::TOKEN_TRIGGER)) {
         std::string ev_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier after '->'");
+        while (match(TokenType::TOKEN_DOT)) {
+            ev_name += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event trigger");
+        }
         match(TokenType::TOKEN_SEMICOLON);
         return std::make_unique<EventTriggerStatementNode>(ev_name, /*is_nonblocking=*/false);
     }
     if (match(TokenType::TOKEN_NONBLOCKING_TRIGGER)) {
         std::string ev_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier after '->>'");
+        while (match(TokenType::TOKEN_DOT)) {
+            ev_name += "." + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in event trigger");
+        }
         match(TokenType::TOKEN_SEMICOLON);
         return std::make_unique<EventTriggerStatementNode>(ev_name, /*is_nonblocking=*/true);
     }
@@ -1011,6 +1040,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing while condition");
         auto body = parse_statement_or_block();
         return std::make_unique<WhileStatementNode>(std::move(cond), std::move(body));
+    }
+
+    // Do-While Loop (IEEE 1800-2023 §12.7.5)
+    if (match(TokenType::TOKEN_DO)) {
+        auto body = parse_statement_or_block();
+        expect(TokenType::TOKEN_WHILE, "Expected 'while' after 'do' body");
+        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'while'");
+        auto cond = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing while condition");
+        match(TokenType::TOKEN_SEMICOLON);
+        return std::make_unique<DoWhileStatementNode>(std::move(cond), std::move(body));
     }
 
     // 7. Repeat Loop
@@ -1514,6 +1554,22 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (match(TokenType::TOKEN_HASH)) {
             intra_delay = current.num_val;
             expect(TokenType::TOKEN_NUMBER, "Expected numerical intra-assignment delay value");
+        } else if (match(TokenType::TOKEN_REPEAT)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'repeat' in intra-assignment event control");
+            auto rpt_cnt = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' after repeat expression");
+            expect(TokenType::TOKEN_AT, "Expected '@' after repeat(...) in intra-assignment event control");
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@' in intra-assignment event control");
+            if (match(TokenType::TOKEN_POSEDGE)) intra_edge = EdgeType::POSEDGE;
+            else if (match(TokenType::TOKEN_NEGEDGE)) intra_edge = EdgeType::NEGEDGE;
+            intra_sig = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in intra-assignment event control");
+            while (match(TokenType::TOKEN_DOT)) {
+                intra_sig += "." + current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in intra-assignment event control");
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing intra-assignment event control");
+            has_intra_ev = true;
         } else if (match(TokenType::TOKEN_AT)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' after '@' in intra-assignment event control");
             if (match(TokenType::TOKEN_POSEDGE)) intra_edge = EdgeType::POSEDGE;
@@ -1561,7 +1617,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             expect(TokenType::TOKEN_LBRACE, "Expected '{' in streaming concatenation");
             std::vector<std::unique_ptr<ExpressionNode>> items;
             while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                items.push_back(parse_expression());
+                auto item_expr = parse_expression();
+                if (match(TokenType::TOKEN_WITH) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "with")) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                    expect(TokenType::TOKEN_LBRACKET, "Expected '[' after 'with' in stream expression");
+                    parse_expression();
+                    if (match(TokenType::TOKEN_PLUS_COLON) || match(TokenType::TOKEN_MINUS_COLON) || match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in with range");
+                }
+                items.push_back(std::move(item_expr));
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
@@ -1657,7 +1723,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return node;
     }
 
-    if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || current.type == TokenType::TOKEN_EXPECT) {
+    if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || current.type == TokenType::TOKEN_EXPECT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {
         return parse_assert_property(stmt_label);
     }
 

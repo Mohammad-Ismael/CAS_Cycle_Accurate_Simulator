@@ -287,6 +287,21 @@ void Lexer::skip_whitespace_and_comments() {
                 advance();
             }
             if (peek() != '\0') { advance(); advance(); }
+        } else if (c == '(' && cur.cursor + 1 < cur.src.size() && cur.src[cur.cursor + 1] == '*') {
+            // Check if this is an attribute (* ... *) or a sensitivity list (*)
+            size_t look = cur.cursor + 2;
+            while (look < cur.src.size() && std::isspace(static_cast<unsigned char>(cur.src[look]))) look++;
+            if (look < cur.src.size() && cur.src[look] == ')') {
+                // This is (*), not an attribute instance
+                break;
+            }
+            // Skip attribute instance (* ... *)
+            advance(); advance();
+            while (!(peek() == '*' && cur.cursor + 1 < cur.src.size() && cur.src[cur.cursor + 1] == ')')) {
+                if (peek() == '\0') break;
+                advance();
+            }
+            if (peek() != '\0') { advance(); advance(); }
         } else if (c == '`') {
             advance();
             std::string directive = "";
@@ -479,7 +494,7 @@ void Lexer::skip_whitespace_and_comments() {
             } else if (directive == "default_nettype" || directive == "celldefine" || 
                        directive == "endcelldefine" || directive == "resetall" || 
                        directive == "unconnected_drive" || directive == "nounconnected_drive" ||
-                       directive == "pragma") {
+                       directive == "pragma" || directive == "begin_keywords" || directive == "end_keywords") {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
                 if (is_active) {
@@ -872,11 +887,42 @@ Token Lexer::next_token() {
     // Numeric Literals
     if (std::isdigit(c)) {
         std::string num_str;
-        while (std::isdigit(peek())) num_str += advance();
+        while (std::isdigit(peek()) || peek() == '_') {
+            char p = advance();
+            if (p != '_') num_str += p;
+        }
 
-        if (peek() == '.' && std::isdigit(peek_next())) {
+        if (peek() == '.' && (std::isdigit(peek_next()) || peek_next() == '_')) {
             num_str += advance();
-            while (std::isdigit(peek())) num_str += advance();
+            while (std::isdigit(peek()) || peek() == '_') {
+                char p = advance();
+                if (p != '_') num_str += p;
+            }
+            if (peek() == 'e' || peek() == 'E') {
+                num_str += advance();
+                if (peek() == '+' || peek() == '-') num_str += advance();
+                while (std::isdigit(peek()) || peek() == '_') {
+                    char p = advance();
+                    if (p != '_') num_str += p;
+                }
+            }
+            if (std::isalpha(peek())) {
+                std::string tunit = "";
+                while (std::isalpha(peek())) tunit += advance();
+            }
+            double dval = std::stod(num_str);
+            uint64_t aval = static_cast<uint64_t>(dval);
+            Token tok{TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0, true, dval};
+            return tok;
+        }
+
+        if ((peek() == 'e' || peek() == 'E') && (std::isdigit(peek_next()) || peek_next() == '+' || peek_next() == '-')) {
+            num_str += advance();
+            if (peek() == '+' || peek() == '-') num_str += advance();
+            while (std::isdigit(peek()) || peek() == '_') {
+                char p = advance();
+                if (p != '_') num_str += p;
+            }
             double dval = std::stod(num_str);
             uint64_t aval = static_cast<uint64_t>(dval);
             Token tok{TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0, true, dval};
@@ -888,6 +934,11 @@ Token Lexer::next_token() {
             while (std::isalnum(peek()) || peek() == '_') alnum_part += advance();
             if (num_str == "1" && alnum_part == "step") {
                 return {TokenType::TOKEN_1STEP, "1step", 0, 0, cur_file, cur_line, 0};
+            }
+            if (alnum_part == "fs" || alnum_part == "ps" || alnum_part == "ns" ||
+                alnum_part == "us" || alnum_part == "ms" || alnum_part == "s") {
+                uint64_t aval = num_str.empty() ? 0 : std::stoull(num_str);
+                return {TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0};
             }
             num_str += alnum_part;
         }
@@ -1194,6 +1245,12 @@ Token Lexer::next_token() {
         if (ident == "type") return {TokenType::TOKEN_TYPE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "force") return {TokenType::TOKEN_FORCE, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "release") return {TokenType::TOKEN_RELEASE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "macromodule") return {TokenType::TOKEN_MODULE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "do") return {TokenType::TOKEN_DO, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "specparam") return {TokenType::TOKEN_SPECPARAM, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "interconnect") return {TokenType::TOKEN_INTERCONNECT, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "nettype") return {TokenType::TOKEN_NETTYPE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "global") return {TokenType::TOKEN_GLOBAL, ident, 0, 0, cur_file, cur_line, 0};
 
         return {TokenType::TOKEN_IDENTIFIER, ident, 0, 0, cur_file, cur_line, 0};
     }

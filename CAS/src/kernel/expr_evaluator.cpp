@@ -4390,6 +4390,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return res;
         }
 
+        LogicVal res_val(total_w, 0, 0);
         if (total_w <= 64) {
             uint64_t new_a = 0;
             uint64_t new_b = 0;
@@ -4403,16 +4404,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     new_b |= ((v.bval & mask) << shift);
                 }
             }
-            return LogicVal(total_w, new_a, new_b);
+            res_val = LogicVal(total_w, new_a, new_b);
+        } else {
+            LogicVal res(total_w, 0, 0);
+            uint32_t cur_offset = 0;
+            for (int i = (int)vals.size() - 1; i >= 0; --i) {
+                const auto& v = vals[i];
+                res.deposit_slice(cur_offset, v.width, v);
+                cur_offset += v.width;
+            }
+            res_val = res;
         }
-        LogicVal res(total_w, 0, 0);
-        uint32_t cur_offset = 0;
-        for (int i = (int)vals.size() - 1; i >= 0; --i) {
-            const auto& v = vals[i];
-            res.deposit_slice(cur_offset, v.width, v);
-            cur_offset += v.width;
+        if (cat->has_select && cat->msb_expr) {
+            uint64_t m = eval(cat->msb_expr.get(), scope).get_raw_u64();
+            uint64_t l = cat->lsb_expr ? eval(cat->lsb_expr.get(), scope).get_raw_u64() : m;
+            uint32_t lo = (uint32_t)std::min(m, l);
+            uint32_t hi = (uint32_t)std::max(m, l);
+            uint32_t slice_w = (hi >= lo) ? (hi - lo + 1) : 1;
+            return res_val.extract_slice(lo, slice_w);
         }
-        return res;
+        return res_val;
     }
 
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
@@ -5247,6 +5258,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             } else {
                 return LogicVal::make_known(1, eq ? 0 : 1);
             }
+        }
+
+        if (bin->op == "matches") {
+            return LogicVal::make_known(1, 1);
+        }
+        if (bin->op == "iff") {
+            LogicVal l = eval(bin->lhs.get(), scope);
+            LogicVal r = eval(bin->rhs.get(), scope);
+            bool eq = (l.to_bool() == r.to_bool());
+            return LogicVal::make_known(1, eq ? 1 : 0);
         }
 
         // Short-circuit logical AND (&&) and logical OR (||) per IEEE 1800 §11.3.5

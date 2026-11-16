@@ -1346,6 +1346,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto do_while_stmt = dynamic_cast<DoWhileStatementNode*>(stmt)) {
+        uint64_t iters = 0;
+        do {
+            if (has_returned(bp) || bp.loop_break) break;
+            for (auto& s : do_while_stmt->body) {
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                execute_statement(s.get(), bp);
+            }
+            if (has_returned(bp)) break;
+            if (bp.loop_break) {
+                bp.loop_break = false;
+                break;
+            }
+            if (bp.loop_continue) {
+                bp.loop_continue = false;
+            }
+            iters++;
+            if (iters > 100000) break;
+        } while (eval_expr(do_while_stmt->condition.get(), bp.scope).to_bool());
+        return;
+    }
+
     if (auto rep_stmt = dynamic_cast<RepeatStatementNode*>(stmt)) {
         LogicVal count_val = eval_expr(rep_stmt->count_expr.get(), bp.scope);
         uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;

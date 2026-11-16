@@ -1,0 +1,13 @@
+{
+  "name": "v4_3_5_0_full_positive_elaboration_parity",
+  "top": "testbench",
+  "sources": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "clock": "clk",
+  "reset": "rst_n",
+  "reset_active_low": true,
+  "cycles": 100,
+  "waveform": false
+}

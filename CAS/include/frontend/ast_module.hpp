@@ -180,6 +180,7 @@ struct ProcessNode : public ASTNode {
     bool is_always_comb = false;
     bool is_always_latch = false;
     bool is_final = false;
+    bool is_decl_init = false;
 
     ProcessNode() = default;
     explicit ProcessNode(ProcessType t) : type(t) {
@@ -193,6 +194,7 @@ struct ProcessNode : public ASTNode {
         p->is_always_comb = is_always_comb;
         p->is_always_latch = is_always_latch;
         p->is_final = is_final;
+        p->is_decl_init = is_decl_init;
         for (const auto& s : body) {
             p->body.push_back(s ? s->clone() : nullptr);
         }

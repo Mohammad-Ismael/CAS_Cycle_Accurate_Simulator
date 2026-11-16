@@ -577,6 +577,31 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                     advance();
                 }
+                bool is_type_param = false;
+                if (current.type == TokenType::TOKEN_TYPE || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "type")) {
+                    is_type_param = true;
+                    advance();
+                }
+                if (is_type_param) {
+                    while (true) {
+                        std::string pname = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                        std::unique_ptr<ExpressionNode> def_expr = nullptr;
+                        if (match(TokenType::TOKEN_EQUAL)) {
+                            if (current.type == TokenType::TOKEN_TYPE) {
+                                def_expr = parse_expression();
+                            } else {
+                                std::string def_type = current.text;
+                                advance();
+                                def_expr = std::make_unique<IdentifierNode>(def_type);
+                            }
+                        }
+                        mod->parameters.push_back(ParameterDef(pname, std::move(def_expr), is_local, "type"));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    continue;
+                }
                 bool has_type = false;
                 std::string ptype = "";
                 while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
@@ -1047,6 +1072,26 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
                 bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
                 advance();
+                bool is_type_param = false;
+                if (current.type == TokenType::TOKEN_TYPE || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "type")) {
+                    is_type_param = true;
+                    advance();
+                }
+                if (is_type_param) {
+                    while (true) {
+                        std::string pname = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' in type parameter assignment");
+                        std::string def_type = current.text;
+                        advance();
+                        mod->simple_typedefs[pname] = {pname, def_type, 1, false};
+                        mod->parameters.push_back(ParameterDef(pname, std::make_unique<IdentifierNode>(def_type), is_local, "type"));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after type parameter declaration");
+                    continue;
+                }
                 bool has_type = false;
                 std::string ptype = "";
                 while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
@@ -1390,6 +1435,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+                advance(); // consume optional const modifier
+            }
+
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
                 std::string class_type = parse_class_type_and_specialize();
                 while (true) {
@@ -1445,38 +1494,78 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_TYPE) {
-                TypeInferenceResult inf = parse_type_spec_from_type_op();
-                auto msb = inf.msb ? inf.msb->clone() : std::make_unique<NumberNode>(inf.width > 0 ? inf.width - 1 : 0, 32);
-                auto lsb = inf.lsb ? inf.lsb->clone() : std::make_unique<NumberNode>(0, 32);
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+                advance(); // consume optional const modifier
+            }
 
+            if (match(TokenType::TOKEN_NETTYPE)) {
+                std::string base_t = current.text;
+                advance();
+                std::string net_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected nettype name");
+                if (match(TokenType::TOKEN_WITH)) {
+                    std::string res_fn = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected resolution function name");
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "with") {
+                    advance();
+                    std::string res_fn = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected resolution function name");
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after nettype declaration");
+                continue;
+            }
+
+            if (match(TokenType::TOKEN_SPECPARAM)) {
                 while (true) {
-                    std::string signame = current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, inf.is_signed, NetKind::VAR);
-                    sig.type_name = inf.type_name;
-                    sig.is_class_handle = inf.is_class_handle;
-                    sig.class_type_name = inf.class_type_name;
-                    sig.is_covergroup_handle = inf.is_covergroup_handle;
-                    sig.covergroup_type_name = inf.covergroup_type_name;
-                    sig.is_virtual_interface = inf.is_virtual_interface;
-                    sig.interface_name = inf.interface_name;
-                    sig.modport_name = inf.modport_name;
-
-                    if (match(TokenType::TOKEN_EQUAL)) {
-                        auto init_expr = parse_expression();
-                        sig.default_value = init_expr->clone();
-                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                        mod->processes.push_back(std::move(init_proc));
-                    }
-
-                    mod->signals.push_back(std::move(sig));
+                    std::string sname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected specparam identifier");
+                    expect(TokenType::TOKEN_EQUAL, "Expected '=' in specparam");
+                    auto val = parse_expression();
+                    mod->parameters.push_back(ParameterDef(sname, std::move(val), true));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
-                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after specparam");
                 continue;
+            }
+
+            bool has_var_kw = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var");
+            if (has_var_kw) advance();
+            if (has_var_kw || current.type == TokenType::TOKEN_TYPE) {
+                if (current.type == TokenType::TOKEN_TYPE) {
+                    TypeInferenceResult inf = parse_type_spec_from_type_op();
+                    auto msb = inf.msb ? inf.msb->clone() : std::make_unique<NumberNode>(inf.width > 0 ? inf.width - 1 : 0, 32);
+                    auto lsb = inf.lsb ? inf.lsb->clone() : std::make_unique<NumberNode>(0, 32);
+
+                    while (true) {
+                        std::string signame = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                        PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, inf.is_signed, NetKind::VAR);
+                        sig.type_name = inf.type_name;
+                        sig.is_class_handle = inf.is_class_handle;
+                        sig.class_type_name = inf.class_type_name;
+                        sig.is_covergroup_handle = inf.is_covergroup_handle;
+                        sig.covergroup_type_name = inf.covergroup_type_name;
+                        sig.is_virtual_interface = inf.is_virtual_interface;
+                        sig.interface_name = inf.interface_name;
+                        sig.modport_name = inf.modport_name;
+
+                        if (match(TokenType::TOKEN_EQUAL)) {
+                            auto init_expr = parse_expression();
+                            sig.default_value = init_expr->clone();
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        }
+
+                        mod->signals.push_back(std::move(sig));
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                    continue;
+                }
             }
 
             if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
@@ -1506,6 +1595,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
                         init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                         mod->processes.push_back(std::move(init_proc));
                     }
@@ -1514,6 +1604,117 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     break;
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after signal declaration");
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_ENUM) {
+                advance(); // consume enum
+                uint32_t e_width = 32;
+                bool e_signed = true;
+                std::string e_base = "int";
+                if (current.type == TokenType::TOKEN_INTEGER || current.text == "int") {
+                    e_width = 32; e_signed = true; e_base = "int"; advance();
+                } else if (current.text == "byte") {
+                    e_width = 8; e_signed = true; e_base = "byte"; advance();
+                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG) {
+                    e_base = current.text; e_width = 1; e_signed = false; advance();
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        auto msb_e = parse_expression();
+                        expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                        auto lsb_e = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                        try {
+                            uint64_t m = eval_const_expr(msb_e.get());
+                            uint64_t l = eval_const_expr(lsb_e.get());
+                            e_width = (m >= l) ? (m - l + 1) : (l - m + 1);
+                        } catch (...) {}
+                    }
+                }
+                expect(TokenType::TOKEN_LBRACE, "Expected '{' in enum declaration");
+                auto enum_node = std::make_shared<EnumTypeNode>();
+                enum_node->base_width = e_width;
+                enum_node->is_signed = e_signed;
+                enum_node->base_type_name = e_base;
+                uint64_t current_val = 0;
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    std::string mname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
+                    bool is_seq = false;
+                    int64_t seq_start = 0, seq_end = 0;
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        is_seq = true;
+                        auto l = parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            auto r = parse_expression();
+                            try {
+                                seq_start = eval_const_expr(l.get());
+                                seq_end = eval_const_expr(r.get());
+                            } catch (...) {}
+                        } else {
+                            try {
+                                int64_t cnt = eval_const_expr(l.get());
+                                seq_start = 0; seq_end = (cnt > 0) ? (cnt - 1) : 0;
+                            } catch (...) {}
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in enum sequence");
+                    }
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        auto val_expr = parse_expression();
+                        if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
+                            current_val = num->aval;
+                        }
+                    }
+                    if (is_seq) {
+                        int64_t lo = std::min(seq_start, seq_end);
+                        int64_t hi = std::max(seq_start, seq_end);
+                        for (int64_t idx = lo; idx <= hi; ++idx) {
+                            std::string s_name = mname + std::to_string(idx);
+                            LogicVal mval(e_width, current_val, 0);
+                            enum_node->members.push_back({s_name, mval});
+                            ParameterDef pdef;
+                            pdef.name = s_name;
+                            pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
+                            mod->parameters.push_back(std::move(pdef));
+                            current_val++;
+                        }
+                    } else {
+                        LogicVal mval(e_width, current_val, 0);
+                        enum_node->members.push_back({mname, mval});
+                        ParameterDef pdef;
+                        pdef.name = mname;
+                        pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
+                        mod->parameters.push_back(std::move(pdef));
+                        current_val++;
+                    }
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing enum member list");
+
+                std::string anon_enum_name = "__anon_enum_" + std::to_string(anon_struct_counter++);
+                typedef_map[anon_enum_name] = enum_node;
+                mod->enum_typedefs[anon_enum_name] = enum_node;
+
+                while (true) {
+                    std::string signame = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    auto msb = std::make_unique<NumberNode>(e_width > 0 ? e_width - 1 : 0, 32);
+                    auto lsb = std::make_unique<NumberNode>(0, 32);
+                    PortNode sig(signame, "internal", std::move(msb), std::move(lsb), e_signed, NetKind::VAR);
+                    sig.type_name = anon_enum_name;
+                    if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                        auto init_expr = parse_expression();
+                        sig.default_value = init_expr->clone();
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
+                    }
+                    mod->signals.push_back(std::move(sig));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after enum signal declaration");
                 continue;
             }
 
@@ -1646,6 +1847,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
                         init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                         mod->processes.push_back(std::move(init_proc));
                     }
@@ -1673,7 +1875,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             bool is_ident_int = (current.type == TokenType::TOKEN_IDENTIFIER && 
-                                 (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"));
+                                 (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "time" || current.text == "realtime"));
             bool is_ident_unsigned = (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned"));
             bool is_chandle_mod = (current.type == TokenType::TOKEN_CHANDLE || 
                                    (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle"));
@@ -1684,14 +1886,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             bool is_ident_string_sig = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
             bool is_shortreal_sig = (current.type == TokenType::TOKEN_SHORTREAL || 
                                      (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal"));
-            bool is_real_sig = (current.type == TokenType::TOKEN_REAL || is_shortreal_sig);
+            bool is_real_sig = (current.type == TokenType::TOKEN_REAL || is_shortreal_sig || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "realtime"));
+            bool is_time_sig = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "time");
+            bool is_extra_net = (current.type == TokenType::TOKEN_INTERCONNECT ||
+                                 (current.type == TokenType::TOKEN_IDENTIFIER && 
+                                  (current.text == "interconnect" || current.text == "uwire" || 
+                                   current.text == "tri0" || current.text == "tri1" || 
+                                   current.text == "triand" || current.text == "trior" || 
+                                   current.text == "supply0" || current.text == "supply1")));
 
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                 current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
-                current.type == TokenType::TOKEN_TRI   ||
+                current.type == TokenType::TOKEN_TRI   || is_extra_net ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER || 
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SHORTREAL || is_shortreal_sig ||
+                current.type == TokenType::TOKEN_SHORTREAL || is_shortreal_sig || is_real_sig || is_time_sig ||
                 current.type == TokenType::TOKEN_SIGNED || is_ident_int || is_ident_string_sig || is_ident_unsigned || is_chandle_mod ||
                 is_semaphore_mod || is_mailbox_mod) {
                 
@@ -1716,7 +1925,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 NetKind sig_kind = NetKind::WIRE;
                 if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
                     sig_kind = NetKind::VAR;
-                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig) {
+                } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT || is_int || is_real_sig || is_time_sig) {
                     sig_kind = NetKind::VAR;
                 } else if (current.type == TokenType::TOKEN_WAND) {
                     sig_kind = NetKind::WAND;
@@ -1724,10 +1933,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig_kind = NetKind::WOR;
                 } else if (current.type == TokenType::TOKEN_TRI) {
                     sig_kind = NetKind::TRI;
-                } else if (current.type == TokenType::TOKEN_WIRE) {
+                } else if (current.type == TokenType::TOKEN_WIRE || is_extra_net) {
                     sig_kind = NetKind::WIRE;
                 }
                 advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "scalared" || current.text == "vectored")) {
+                    advance();
+                }
+                if (match(TokenType::TOKEN_HASH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing net delay");
+                    } else {
+                        parse_expression();
+                    }
+                }
                 if (is_mailbox_mod && match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' in mailbox parameter");
                     while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
@@ -1776,7 +1996,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         else if (int_type_name == "longint") iw = 64;
                         msb = std::make_unique<NumberNode>(iw - 1, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
-                    } else if (is_real_sig) {
+                    } else if (is_real_sig || is_time_sig) {
                         uint32_t rw = is_shortreal_sig ? 32 : 64;
                         msb = std::make_unique<NumberNode>(rw - 1, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
@@ -1784,7 +2004,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 while (true) {
                     std::string signame = current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_IDENTIFIER) {
+                        advance();
+                    } else {
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    }
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     sig.packed_dimensions = packed_dims;
                     if (is_chandle_mod) {
@@ -1856,6 +2080,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
                         init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                         mod->processes.push_back(std::move(init_proc));
                     }
@@ -2565,7 +2790,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     advance();
                     if (match(TokenType::TOKEN_STAR)) {
                         auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                        proc->is_always_comb = true;
                         proc->body = parse_statement_or_block();
                         mod->processes.push_back(std::move(proc));
                         continue;
@@ -2574,7 +2798,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (match(TokenType::TOKEN_STAR)) {
                             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
                             auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                            proc->is_always_comb = true;
                             proc->body = parse_statement_or_block();
                             mod->processes.push_back(std::move(proc));
                             continue;
@@ -2584,12 +2807,22 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             EdgeType edge = EdgeType::LEVEL;
                             if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
                             else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                            else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "edge") {
+                                advance();
+                                edge = EdgeType::LEVEL;
+                            }
 
                             std::string sig = current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                             while (match(TokenType::TOKEN_DOT)) {
                                 sig += "." + current.text;
                                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                            }
+                            if (match(TokenType::TOKEN_IFF)) {
+                                parse_expression();
+                            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff") {
+                                advance();
+                                parse_expression();
                             }
                             proc->sensitivity_list.push_back({edge, sig});
 
@@ -2619,7 +2852,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME) {
+            if (match(TokenType::TOKEN_SEMICOLON)) continue;
+
+            if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {
                 auto asrt = parse_assert_property("");
                 if (asrt) {
                     mod->assertions.push_back(std::move(asrt));
@@ -2631,7 +2866,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string label = current.text;
                 advance(); // ident
                 advance(); // colon
-                if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME) {
+                if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {
                     auto asrt = parse_assert_property(label);
                     if (asrt) {
                         mod->assertions.push_back(std::move(asrt));
@@ -2814,7 +3049,16 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
         std::string mem_type = "logic";
         uint32_t field_width = 1;
 
-        if (match(TokenType::TOKEN_VOID)) {
+        std::shared_ptr<StructTypeNode> nested_st = nullptr;
+        if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+            nested_st = parse_struct_or_union_body();
+            std::string anon_st_name = "__anon_nested_struct_" + std::to_string(anon_struct_counter++);
+            struct_typedef_map[anon_st_name] = nested_st;
+            if (current_parsing_module) current_parsing_module->struct_typedefs[anon_st_name] = nested_st;
+            mem_type = anon_st_name;
+            field_width = nested_st->total_width;
+            mem_signed = nested_st->is_signed;
+        } else if (match(TokenType::TOKEN_VOID)) {
             mem_type = "void";
             field_width = 0;
         } else {
@@ -5261,6 +5505,14 @@ std::unique_ptr<PropertyNode> Parser::parse_property() {
     }
 
     auto first_expr = parse_sequence_expression();
+    if (match(TokenType::TOKEN_IFF)) {
+        auto rhs_expr = parse_sequence_expression();
+        first_expr = std::make_unique<BinaryOpNode>("iff", std::move(first_expr), std::move(rhs_expr));
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff") {
+        advance();
+        auto rhs_expr = parse_sequence_expression();
+        first_expr = std::make_unique<BinaryOpNode>("iff", std::move(first_expr), std::move(rhs_expr));
+    }
     if (match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
         prop->imp_type = ImplicationType::NON_OVERLAPPING;
         prop->antecedent = std::move(first_expr);
@@ -5488,6 +5740,16 @@ std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const
             }
         }
         auto first_expr = parse_sequence_expression();
+        if (is_property || is_expect) {
+            if (match(TokenType::TOKEN_IFF)) {
+                auto rhs_expr = parse_sequence_expression();
+                first_expr = std::make_unique<BinaryOpNode>("iff", std::move(first_expr), std::move(rhs_expr));
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff") {
+                advance();
+                auto rhs_expr = parse_sequence_expression();
+                first_expr = std::make_unique<BinaryOpNode>("iff", std::move(first_expr), std::move(rhs_expr));
+            }
+        }
         if ((is_property || is_expect) && match(TokenType::TOKEN_NON_OVERLAP_IMP)) {
             inlined->imp_type = ImplicationType::NON_OVERLAPPING;
             inlined->antecedent = std::move(first_expr);
@@ -6822,7 +7084,6 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             advance();
             if (match(TokenType::TOKEN_STAR)) {
                 auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                proc->is_always_comb = true;
                 proc->body = parse_statement_or_block();
                 if (blk) blk->processes.push_back(std::move(proc));
                 else mod->processes.push_back(std::move(proc));
@@ -6832,7 +7093,6 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                 if (match(TokenType::TOKEN_STAR)) {
                     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sensitivity list");
                     auto proc = std::make_unique<ProcessNode>(ProcessType::COMBINATIONAL);
-                    proc->is_always_comb = true;
                     proc->body = parse_statement_or_block();
                     if (blk) blk->processes.push_back(std::move(proc));
                     else mod->processes.push_back(std::move(proc));
@@ -6843,11 +7103,21 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                     EdgeType edge = EdgeType::LEVEL;
                     if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
                     else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
+                    else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "edge") {
+                        advance();
+                        edge = EdgeType::LEVEL;
+                    }
                     std::string sig = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
                     while (match(TokenType::TOKEN_DOT)) {
                         sig += "." + current.text;
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                    }
+                    if (match(TokenType::TOKEN_IFF)) {
+                        parse_expression();
+                    } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff") {
+                        advance();
+                        parse_expression();
                     }
                     proc->sensitivity_list.push_back({edge, sig});
                     if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
@@ -6984,6 +7254,7 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                     else mod->continuous_assigns.push_back(std::move(ca));
                 } else {
                     auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                    init_proc->is_decl_init = true;
                     init_proc->body.push_back(std::make_unique<BlockingAssignNode>(sname, std::move(init_expr)));
                     if (blk) blk->processes.push_back(std::move(init_proc));
                     else mod->processes.push_back(std::move(init_proc));
@@ -7422,19 +7693,36 @@ TypeInferenceResult Parser::parse_type_spec_from_type_op() {
     }
 
     // 2. An expression or identifier
-    std::string ident = current.text;
-    std::string full_name = ident;
-    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+    std::string full_name = "";
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_RPAREN) {
+        full_name = current.text;
         advance();
-        if (match(TokenType::TOKEN_COLON_COLON)) {
-            std::string sub = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
-            full_name = ident + "::" + sub;
-        }
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+        std::string ident = current.text;
+        advance(); advance();
+        std::string sub = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+        full_name = ident + "::" + sub;
     } else {
         auto expr = parse_expression();
         if (auto id = dynamic_cast<IdentifierNode*>(expr.get())) {
             full_name = id->name;
+        } else if (expr) {
+            std::function<std::string(const ExpressionNode*)> find_first_id = [&](const ExpressionNode* e) -> std::string {
+                if (!e) return "";
+                if (auto id_node = dynamic_cast<const IdentifierNode*>(e)) return id_node->name;
+                if (auto b = dynamic_cast<const BinaryOpNode*>(e)) {
+                    std::string l = find_first_id(b->lhs.get());
+                    if (!l.empty()) return l;
+                    return find_first_id(b->rhs.get());
+                }
+                if (auto u = dynamic_cast<const UnaryOpNode*>(e)) return find_first_id(u->operand.get());
+                return "";
+            };
+            std::string sample_id = find_first_id(expr.get());
+            if (!sample_id.empty()) {
+                full_name = sample_id;
+            }
         }
     }
 

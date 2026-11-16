@@ -1555,6 +1555,11 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
             dot_pos = iname.rfind('.', dot_pos - 1);
         }
+        if (ident->name.find('.') == std::string::npos) {
+            std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
+            size_t new_id = get_or_create_net(full_name, 1, false, NetKind::WIRE);
+            return {new_id, 0, 1};
+        }
         throw std::runtime_error("Cannot resolve net reference for '" + ident->name + "' in scope '" + scope + "'");
     }
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
@@ -1808,7 +1813,11 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
         std::vector<std::unique_ptr<ExpressionNode>> els;
         for (auto& e : cat->elements) els.push_back(substitute_genvar_in_expr(e.get(), gname, val));
-        return std::make_unique<ConcatNode>(std::move(els));
+        auto node = std::make_unique<ConcatNode>(std::move(els));
+        node->has_select = cat->has_select;
+        if (cat->msb_expr) node->msb_expr = substitute_genvar_in_expr(cat->msb_expr.get(), gname, val);
+        if (cat->lsb_expr) node->lsb_expr = substitute_genvar_in_expr(cat->lsb_expr.get(), gname, val);
+        return node;
     }
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
         std::vector<std::unique_ptr<ExpressionNode>> els;
@@ -4017,6 +4026,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     }
                     result.memory_continuous_assigns.push_back({scope, ca->target_name, std::move(idx_node), std::move(rhs_elem), ca->member_name});
                 }
+            } else if (ca->target_name.find('.') == std::string::npos && effective_member.empty()) {
+                std::string full_target = scope.empty() ? ca->target_name : (scope + "." + ca->target_name);
+                target_id = get_or_create_net(full_target, 1, false, NetKind::WIRE);
+                auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
+                auto rhs_ptr = new_ca->rhs.get();
+                result.generated_continuous_assigns.push_back(std::move(new_ca));
+                result.continuous_assigns.push_back({scope, {target_id, 0, 1}, rhs_ptr});
             }
         }
     }
@@ -5207,7 +5223,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     // 3. Verify that concrete classes implement all pure virtual methods of implemented interfaces
     for (auto& kv : result.class_defs) {
         ClassNode* cls = const_cast<ClassNode*>(kv.second);
-        if (cls->is_interface_class) continue;
+        if (cls->is_interface_class || cls->is_abstract) continue;
 
         for (const auto& iface_name : cls->all_implemented_interfaces) {
             auto it = result.class_defs.find(iface_name);
@@ -5960,13 +5976,13 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     if (act_lsb < (int64_t)w) {
                         int64_t high = std::min(act_msb, (int64_t)w - 1);
                         for (int64_t b = act_lsb; b <= high; ++b) {
-                            net_bit_drivers[nid][b].writing_procs.insert(i);
+                            if (!bp.proc->is_decl_init) net_bit_drivers[nid][b].writing_procs.insert(i);
                             if (is_strict_proc) net_bit_drivers[nid][b].driven_by_strict_proc = true;
                         }
                     }
                 } else {
                     for (uint32_t b = 0; b < w; ++b) {
-                        net_bit_drivers[nid][b].writing_procs.insert(i);
+                        if (!bp.proc->is_decl_init) net_bit_drivers[nid][b].writing_procs.insert(i);
                         if (is_strict_proc) net_bit_drivers[nid][b].driven_by_strict_proc = true;
                     }
                 }

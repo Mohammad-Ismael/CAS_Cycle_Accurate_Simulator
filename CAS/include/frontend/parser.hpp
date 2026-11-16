@@ -231,6 +231,7 @@ public:
 
     bool is_simple_typedef(const std::string& name) const {
         if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
+        if (current_parsing_module && current_parsing_module->simple_typedefs.find(name) != current_parsing_module->simple_typedefs.end()) return true;
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
             std::string pkg = name.substr(0, colon_pos);

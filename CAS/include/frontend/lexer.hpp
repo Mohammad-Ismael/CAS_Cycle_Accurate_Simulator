@@ -283,7 +283,12 @@ enum class TokenType {
     TOKEN_BEFORE,
     TOKEN_SOFT,
     TOKEN_MATCHES,
-    TOKEN_COLON_DIV
+    TOKEN_COLON_DIV,
+    TOKEN_DO,
+    TOKEN_SPECPARAM,
+    TOKEN_INTERCONNECT,
+    TOKEN_NETTYPE,
+    TOKEN_GLOBAL
 };
 
 struct Token {

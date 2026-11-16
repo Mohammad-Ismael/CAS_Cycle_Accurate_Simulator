@@ -222,6 +222,7 @@ bool BytecodeCompiler::compile_node(ExpressionNode* node, CompileContext& ctx, u
     }
 
     if (auto cat = dynamic_cast<ConcatNode*>(node)) {
+        if (cat->has_select) return false;
         if (cat->elements.empty()) return false;
         uint32_t total_w = 0;
         for (auto& elem : cat->elements) {

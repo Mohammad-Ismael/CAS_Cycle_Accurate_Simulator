@@ -113,6 +113,9 @@ struct IndexSelectNode : public ExpressionNode {
 
 struct ConcatNode : public ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> elements;
+    bool has_select = false;
+    std::unique_ptr<ExpressionNode> msb_expr = nullptr;
+    std::unique_ptr<ExpressionNode> lsb_expr = nullptr;
 
     ConcatNode() = default;
     explicit ConcatNode(std::vector<std::unique_ptr<ExpressionNode>> elems)
@@ -123,7 +126,11 @@ struct ConcatNode : public ExpressionNode {
         for (const auto& elem : elements) {
             cloned.push_back(elem ? elem->clone() : nullptr);
         }
-        return std::make_unique<ConcatNode>(std::move(cloned));
+        auto node = std::make_unique<ConcatNode>(std::move(cloned));
+        node->has_select = has_select;
+        node->msb_expr = msb_expr ? msb_expr->clone() : nullptr;
+        node->lsb_expr = lsb_expr ? lsb_expr->clone() : nullptr;
+        return node;
     }
 };
 
