@@ -21,4 +21,4 @@ requested_code.txt
 **/*.d
 projects/ibex/
 projects/veer_el2/
-external_suites/
+benchmarks/sv-tests/

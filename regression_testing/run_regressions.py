@@ -131,7 +131,7 @@ print(f"{'Milestone':<12} | {'Suite Directory':<35} | {'Status':<8} | {'Details'
 print("-" * 80)
 
 for ver, s_dir, files in suites:
-    dir_path = os.path.join(repo_root, "projects", s_dir)
+    dir_path = os.path.join(script_dir, s_dir)
     c_source = os.path.join(dir_path, "c_model.c")
     if os.path.exists(c_source):
         subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
