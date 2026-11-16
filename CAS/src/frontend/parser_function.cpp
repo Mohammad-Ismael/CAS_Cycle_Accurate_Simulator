@@ -51,14 +51,17 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
         }
         if (current.type == TokenType::TOKEN_VOID) {
             func->return_width = 0;
+            func->return_type_name = "void";
             advance();
         } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
             current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
             func->return_width = 1;
+            func->return_type_name = "logic";
             advance();
         } else if (current.type == TokenType::TOKEN_INTEGER) {
             func->return_width = 32;
             func->return_signed = true;
+            func->return_type_name = "integer";
             advance();
         } else if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "real")) {
             func->return_width = 64;
@@ -70,11 +73,11 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
             if (current.text == "string") { func->return_width = 64; func->return_type_name = "string"; }
-            else if (current.text == "void") func->return_width = 0;
-            else if (current.text == "byte") func->return_width = 8;
-            else if (current.text == "shortint") func->return_width = 16;
-            else if (current.text == "int") { func->return_width = 32; func->return_signed = true; }
-            else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; }
+            else if (current.text == "void") { func->return_width = 0; func->return_type_name = "void"; }
+            else if (current.text == "byte") { func->return_width = 8; func->return_type_name = "byte"; }
+            else if (current.text == "shortint") { func->return_width = 16; func->return_type_name = "shortint"; }
+            else if (current.text == "int") { func->return_width = 32; func->return_signed = true; func->return_type_name = "int"; }
+            else if (current.text == "longint") { func->return_width = 64; func->return_signed = true; func->return_type_name = "longint"; }
             advance();
             if (match(TokenType::TOKEN_UNSIGNED)) {
                 func->return_signed = false;
@@ -161,6 +164,28 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
         if (func->is_static) {
             throw std::runtime_error("[CAS-DTINPCIL] Out-of-body method implementation cannot specify qualifiers ('virtual', 'static', 'extern') per IEEE 1800-2023 section 8.24: '" + func->name + "'");
         }
+    }
+
+    std::string bare_name = func->name;
+    auto col_p = bare_name.rfind("::");
+    if (col_p != std::string::npos) bare_name = bare_name.substr(col_p + 2);
+    if (bare_name == "randomize") {
+        throw std::runtime_error("The randomize() method is built-in and cannot be overridden per IEEE 1800-2023 18.6.3");
+    }
+    if (bare_name == "rand_mode") {
+        throw std::runtime_error("The rand_mode() method is built-in and cannot be overridden per IEEE 1800-2023 18.8");
+    }
+    if (bare_name == "constraint_mode") {
+        throw std::runtime_error("The constraint_mode() method is built-in and cannot be overridden per IEEE 1800-2023 18.9");
+    }
+
+    FunctionNode* prev_func = current_parsing_function;
+    current_parsing_function = func.get();
+    ClassNode* prev_cls = current_parsing_class;
+    if (col_p != std::string::npos) {
+        std::string class_prefix = func->name.substr(0, col_p);
+        ClassNode* ob_cls = find_class(class_prefix);
+        if (ob_cls) current_parsing_class = ob_cls;
     }
 
     if (match(TokenType::TOKEN_LPAREN)) {
@@ -284,6 +309,15 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 is_int = false;
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+                bool is_valid_type = is_type_identifier(current.text) || is_interface_type(current.text) || is_covergroup(current.text);
+                if (!is_valid_type && current_parsing_module) {
+                    for (const auto& p : current_parsing_module->parameters) {
+                        if (p.name == current.text) { is_valid_type = true; break; }
+                    }
+                }
+                if (!is_valid_type) {
+                    throw std::runtime_error("Undefined data type '" + current.text + "' for function argument per IEEE 1800-2023");
+                }
                 has_explicit_type = true;
                 arg_type_name = current.text;
                 def_w = 32;
@@ -452,6 +486,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after function header");
 
     if (is_pure || is_extern) {
+        current_parsing_function = prev_func;
+        current_parsing_class = prev_cls;
         return func;
     }
 
@@ -526,5 +562,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             }
         }
     }
+    current_parsing_function = prev_func;
+    current_parsing_class = prev_cls;
     return func;
 }

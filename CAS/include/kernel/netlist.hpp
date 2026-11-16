@@ -31,6 +31,8 @@ struct Net {
     bool is_virtual_interface = false;
     std::string interface_name = "";
     std::string modport_name = "";
+    bool is_vectored = false;
+    bool is_port = false;
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),

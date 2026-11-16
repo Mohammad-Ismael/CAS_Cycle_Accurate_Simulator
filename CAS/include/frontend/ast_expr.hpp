@@ -13,6 +13,7 @@ struct NumberNode : public ExpressionNode {
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
+    bool explicit_size = false;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
 
@@ -34,6 +35,7 @@ struct NumberNode : public ExpressionNode {
         auto node = std::make_unique<NumberNode>(aval, bval, width, is_signed);
         node->is_real = is_real;
         node->real_val = real_val;
+        node->explicit_size = explicit_size;
         node->wide_aval = wide_aval;
         node->wide_bval = wide_bval;
         return node;

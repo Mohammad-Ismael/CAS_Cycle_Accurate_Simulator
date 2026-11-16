@@ -38,6 +38,7 @@ struct PortNode : public ASTNode {
     std::string covergroup_type_name = "";
     bool is_chandle = false;
     bool is_open_array = false;
+    bool is_vectored = false;
     bool is_semaphore = false;
     bool is_mailbox = false;
     bool is_virtual_interface = false;
@@ -84,6 +85,7 @@ struct PortNode : public ASTNode {
         p.is_mailbox = is_mailbox;
         p.is_virtual_interface = is_virtual_interface;
         p.interface_name = interface_name;
+        p.is_vectored = is_vectored;
         if (default_value) p.default_value = default_value->clone();
         return p;
     }
@@ -643,6 +645,9 @@ struct ClassMemberVar {
 struct ConstraintBlockNode : public ASTNode {
     std::string name;
     std::vector<std::unique_ptr<ExpressionNode>> exprs;
+    bool is_extern = false;
+    bool is_pure = false;
+    bool has_body = true;
 
     ConstraintBlockNode(std::string n, std::vector<std::unique_ptr<ExpressionNode>> e)
         : name(std::move(n)), exprs(std::move(e)) {}
@@ -674,12 +679,21 @@ struct ClassNode : public ASTNode {
     std::unordered_map<std::string, FunctionNode*> vtable_functions;
     std::unordered_map<std::string, TaskNode*> vtable_tasks;
     std::unordered_set<std::string> virtual_method_names;
+    std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
 
     bool has_static_member(const std::string& mname) const {
         for (const auto& m : member_vars) {
             if (m.name == mname && m.is_static) return true;
         }
         if (base_class) return base_class->has_static_member(mname);
+        return false;
+    }
+
+    bool is_randc_property(const std::string& pname) const {
+        for (const auto& m : member_vars) {
+            if (m.name == pname && m.is_randc) return true;
+        }
+        if (base_class) return base_class->is_randc_property(pname);
         return false;
     }
 
@@ -968,6 +982,8 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
     std::unordered_set<std::string> forward_classes;
     std::unordered_set<std::string> forward_interface_classes;
+    std::unordered_set<std::string> specparam_names;
+    std::unordered_set<std::string> vectored_signals;
 
     PackageNode() = default;
 };
@@ -1090,6 +1106,8 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
     std::unordered_set<std::string> forward_classes;
     std::unordered_set<std::string> forward_interface_classes;
+    std::unordered_set<std::string> specparam_names;
+    std::unordered_set<std::string> vectored_signals;
 
     ModuleNode() = default;
 };

@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.3.5.0`  
-**Status:** Release v4.3.5.0 Clean (100% Positive Default Elaboration sv-tests Parity 412/412 across Chapters 5–26, 100% Total Positive Chapter Tests 644/644, 100% Generic sv-tests Parity 180/180, 100% UVM Testbenches sv-tests 12/12, 100% Positive Parsing/Preprocessing sv-tests 62/62, 100% Full Simulation sv-tests Parity 283/283, 111/111 Milestone Regressions)  
+**Current Version:** `v4.4.0.0`  
+**Status:** Release v4.4.0.0 Clean (100% Full sv-tests Repository Compliance 1,028/1,028: 283/283 Positive Simulation across Chapters 5–26, 62/62 Positive Parsing/Preprocessing across Chapters 5–26, 412/412 Positive Default Elaboration across Chapters 5–26, 12/12 UVM Testbenches, 180/180 Generic Benchmarks, 79/79 Negative Diagnostic Tests, and 112/112 Milestone Regressions)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regressions/             # 110/110 Comprehensive IEEE 1800-2023 Regression Testbenches
+├── regressions/             # 112/112 Comprehensive IEEE 1800-2023 Regression Testbenches
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
@@ -562,26 +562,29 @@ In addition to the 100% pass parity achieved on lowRISC Ibex, CAS is verified on
 
 ---
 
-## Key Achievements (v1.0.0.0 – v4.3.5.0)
+## Key Achievements (v1.0.0.0 – v4.4.0.0)
 
 From initial concept to a full commercial-grade SystemVerilog verification platform, the CAS development progression has delivered:
 
-1. **100% Full Positive Default Elaboration sv-tests Parity Across Chapters 5–26 (412/412 Passing Tests & 644/644 Total Positive Chapter Tests)**:
+1. **100% Full IEEE 1800-2023 sv-tests Repository Compliance (1,028 / 1,028 Passing Tests Across All Categories = 100.0%)**:
+   - Complete grand total compliance across the entire external `sv-tests` suite: Positive Simulation (283/283), Positive Parsing/Preprocessing (62/62), Positive Default Elaboration (412/412), UVM Testbenches (12/12), Generic Benchmarks (180/180), and Negative Diagnostic Tests (79/79).
+   - Robust diagnostic rules engine strictly enforcing negative semantics: macro argument completeness (§22.5.1), `` `resetall `` isolation (§22.3), parameterized class specialization scope checks (§8.25.1), enum typed assignment/compound assignment casts (§6.19.3/§6.19.4), subroutine return validity (§9.3.3, §13.4.1, §13.4.4), randsequence variable scoping (§18.17), procedural net write prohibition (§10.3), driver exclusivity (§6.5), specparam parameter isolation (§6.20.5), and interface class conflict resolution / diamond rules (§8.26).
+2. **100% Full Positive Default Elaboration sv-tests Parity Across Chapters 5–26 (412/412 Passing Tests & 644/644 Total Positive Chapter Tests)**:
    - Zero syntax or elaboration failures across every single positive test in the entire `sv-tests` suite spanning Chapters 5–26.
    - Comprehensive support for procedural `do-while` loops (§12.7.2), concatenation part-selects `{a, b}[hi:lo]` (§11.4.12), implicit net ingestion (§6.10), net delays, scientific notation, time literals, user nettypes, event controls with `iff` conditions, and interface class virtual inheritance.
-2. **100% Full IEEE 1800-2023 sv-tests Simulation Parity Across Chapters 5–26 (283/283 Passing Simulation Tests)**:
+3. **100% Full IEEE 1800-2023 sv-tests Simulation Parity Across Chapters 5–26 (283/283 Passing Simulation Tests)**:
    - Zero syntax, elaboration, or simulation failures across every single positive simulation test in the entire `sv-tests` suite spanning Chapters 5–26.
    - Comprehensive coverage across all chapters: Chapter 6 (1/1), Chapter 7 (90/90), Chapter 8 (6/6), Chapter 9 (5/5), Chapter 10 (2/2), Chapter 11 (51/51), Chapter 12 (2/2), Chapter 13 (12/12), Chapter 15 (2/2), Chapter 16 (29/29), Chapter 18 (14/14), Chapter 20 (38/38), Chapter 21 (27/27), Chapter 22 (1/1), Chapter 23 (1/1), Chapter 24 (1/1), Chapter 26 (1/1).
-3. **100% Chapter 18 (Constrained Randomization) Elaboration Compliance (119/119 Passing Tests)**:
+4. **100% Chapter 18 (Constrained Randomization) Elaboration Compliance (119/119 Passing Tests)**:
    - Full syntax and elaboration support for constraint blocks (`dist`, `solve ... before`, `soft`, `unique`, prototypes, out-of-block definitions), inline `randomize() with`, pattern matching `case ... inside`, bare `unsigned`/`signed` formal arguments, and parameterized base class extensions.
-4. **100% Full Positive Generic sv-tests Parity (180/180 Passing Tests)**:
+5. **100% Full Positive Generic sv-tests Parity (180/180 Passing Tests)**:
    - Complete sweep and pass rate across all 180 positive generic benchmarks (`tests/generic/`), covering forward typedefs, embedded spaces in based literals, nested classes, `rand`/`randc` in structs, vector enum bases, associative array typedefs, and class parameter type defaults.
-5. **100% Full Positive Parsing & Preprocessing sv-tests Parity Across Chapters 5–26 (62/62 Passing Tests)**:
+6. **100% Full Positive Parsing & Preprocessing sv-tests Parity Across Chapters 5–26 (62/62 Passing Tests)**:
    - Full compliance for empty macro arguments and trailing commas (§22.5.1), `line directives (§22.12), gate delay parsing, and display consecutive comma support (§21.2.1).
-6. **100% UVM Testbenches Compliance Across `sv-tests` (12/12 Passing Benchmarks)**:
+7. **100% UVM Testbenches Compliance Across `sv-tests` (12/12 Passing Benchmarks)**:
    - Full UVM architecture verification: items, monitors, scoreboards, drivers, sequencers, agents, envs, tests, `uvm_config_db`, `uvm_resource_db`, `uvm_analysis_port`, and `run_test()`.
-7. **111 / 111 Milestone Regressions Passing at 100% VCS Golden Parity**:
-   - 111 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
+8. **112 / 112 Milestone Regressions Passing at 100% VCS Golden Parity**:
+   - 112 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
 3. **Production RISC-V SoC Verification Parity**:
    - **lowRISC Ibex RV32IMC:** 137 modules, 2,710 nets, 125 memory arrays, booting bare-metal firmware with CSR setup, timer interrupts, and UART logging.
    - **Western Digital VeeR EL2:** Dual-issue superscalar execution with verified architectural register and pipeline retirement parity against Verilator.

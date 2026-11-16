@@ -1523,6 +1523,72 @@ size_t Elaborator::get_net_id(const std::string& scope, const std::string& name)
     return (size_t)-1;
 }
 
+size_t Elaborator::resolve_target_net_id(const std::string& target, const std::string& scope) const {
+    std::string resolved_target = target;
+    auto dot_pos_if = target.find('.');
+    if (dot_pos_if != std::string::npos) {
+        std::string prefix = target.substr(0, dot_pos_if);
+        std::string suffix = target.substr(dot_pos_if + 1);
+        std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
+        if (result.interface_port_map.find(scoped_prefix) != result.interface_port_map.end()) {
+            resolved_target = result.interface_port_map.at(scoped_prefix) + "." + suffix;
+        } else if (result.interface_port_map.find(prefix) != result.interface_port_map.end()) {
+            resolved_target = result.interface_port_map.at(prefix) + "." + suffix;
+        }
+        std::string scoped_cb = scope.empty() ? prefix : (scope + "." + prefix);
+        if (result.clocking_block_map.find(scoped_cb) != result.clocking_block_map.end()) {
+            size_t cb_idx = result.clocking_block_map.at(scoped_cb);
+            const auto& cb = result.clocking_blocks[cb_idx];
+            auto it_sig = cb.signals.find(suffix);
+            if (it_sig != cb.signals.end()) {
+                return it_sig->second.net_id;
+            }
+        } else if (result.clocking_block_map.find(prefix) != result.clocking_block_map.end()) {
+            size_t cb_idx = result.clocking_block_map.at(prefix);
+            const auto& cb = result.clocking_blocks[cb_idx];
+            auto it_sig = cb.signals.find(suffix);
+            if (it_sig != cb.signals.end()) {
+                return it_sig->second.net_id;
+            }
+        }
+    }
+    std::string scoped = scope.empty() ? resolved_target : (scope + "." + resolved_target);
+    if (result.net_map.find(scoped) != result.net_map.end()) {
+        return result.net_map.at(scoped);
+    }
+    std::string cur_s = scope;
+    while (!cur_s.empty()) {
+        std::string candidate = cur_s + "." + resolved_target;
+        if (result.net_map.find(candidate) != result.net_map.end()) {
+            return result.net_map.at(candidate);
+        }
+        auto dot = cur_s.rfind('.');
+        if (dot == std::string::npos) cur_s = "";
+        else cur_s = cur_s.substr(0, dot);
+    }
+    if (result.net_map.find(resolved_target) != result.net_map.end()) {
+        return result.net_map.at(resolved_target);
+    }
+    for (const auto& kv : result.net_map) {
+        if (kv.first.size() > target.size() &&
+            kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
+            return kv.second;
+        }
+    }
+    auto dot_pos = target.rfind('.');
+    if (dot_pos != std::string::npos) {
+        std::string base_target = target.substr(0, dot_pos);
+        std::string scoped_base = scope.empty() ? base_target : (scope + "." + base_target);
+        if (result.net_map.find(scoped_base) != result.net_map.end()) {
+            return result.net_map.at(scoped_base);
+        }
+        if (result.net_map.find(base_target) != result.net_map.end()) {
+            return result.net_map.at(base_target);
+        }
+    }
+    return (size_t)-1;
+}
+
 NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::string& scope) {
     if (!expr) {
         throw std::runtime_error("Cannot resolve null expression in resolve_slice_ref");
@@ -2759,6 +2825,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (overridden) {
             if (debug_out) *debug_out << "     * Parameter override: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
         } else {
+            if (!p.is_localparam && p.default_expr) {
+                std::function<void(ExpressionNode*)> check_no_specparam = [&](ExpressionNode* e) {
+                    if (!e) return;
+                    if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                        if (mod->specparam_names.count(id->name)) {
+                            throw std::runtime_error("A specparam shall not be used in a parameter value assignment per IEEE 1800-2023 6.20.5");
+                        }
+                    } else if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
+                        check_no_specparam(bin->lhs.get());
+                        check_no_specparam(bin->rhs.get());
+                    } else if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
+                        check_no_specparam(un->operand.get());
+                    }
+                };
+                check_no_specparam(p.default_expr.get());
+            }
             lval = eval_const_logic_val(p.default_expr.get(), scope);
             val = lval.aval;
             if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
@@ -2975,6 +3057,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             continue;
         }
         size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
+        result.netlist[pid].is_port = true;
         if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" ||
             p.type_name == "shortint" || p.type_name == "longint") {
             result.netlist[pid].type_name = p.type_name;
@@ -3408,6 +3491,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.var_to_struct_type[scope + "." + s.name] = s.type_name;
                 result.var_to_struct_type[s.name] = s.type_name;
             }
+            result.netlist[sid].is_vectored = s.is_vectored || mod->vectored_signals.count(s.name);
             if (s.default_value) {
                 uint64_t init_val = eval_const_expr(s.default_value.get(), scope);
                 LogicVal iv = LogicVal(w, init_val, 0);
@@ -3501,17 +3585,6 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& ca : mod->continuous_assigns) {
         if (ca->target_name.empty() && ca->concat_targets.empty() && !ca->stream_target) {
-            std::function<void(ExpressionNode*)> check_expr = [&](ExpressionNode* expr) {
-                if (!expr) return;
-                if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
-                    std::string s_id = scope + "." + id->name;
-                    if (result.covergroup_handle_names.find(s_id) != result.covergroup_handle_names.end() ||
-                        result.covergroup_handle_names.find(id->name) != result.covergroup_handle_names.end()) {
-                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: covergroup handle '" + id->name + "' used in continuous assignment per IEEE 1800-2023 section 19");
-                    }
-                }
-            };
-            check_expr(ca->rhs.get());
             continue;
         }
         std::string scoped_target = ca->target_name.empty() ? "" : (scope + "." + ca->target_name);
@@ -3798,6 +3871,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: DPI-C exported function '" + fc->func_name + "' used in continuous assignment per IEEE 1800-2023 section 35");
                 }
                 for (auto& a : fc->args) check_expr(a.get());
+            } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+                size_t nid = resolve_target_net_id(idx->name, scope);
+                if (nid != (size_t)-1) {
+                    if (result.netlist[nid].is_vectored) {
+                        throw std::runtime_error("Bit-select or part-select on vectored net '" + idx->name + "' is illegal per IEEE 1800-2023 6.9.2");
+                    }
+                    if (result.netlist[nid].type_name == "real" || result.netlist[nid].type_name == "shortreal" || result.netlist[nid].value.is_real) {
+                        throw std::runtime_error("Bit-select or part-select on real data type is illegal: '" + idx->name + "' per IEEE 1800-2023 6.12");
+                    }
+                }
+                if (idx->msb_expr) {
+                    if (auto id_idx = dynamic_cast<IdentifierNode*>(idx->msb_expr.get())) {
+                        size_t inid = resolve_target_net_id(id_idx->name, scope);
+                        if (inid != (size_t)-1 && (result.netlist[inid].type_name == "real" || result.netlist[inid].value.is_real)) {
+                            throw std::runtime_error("Bit-select index cannot be real: '" + id_idx->name + "' per IEEE 1800-2023 6.12");
+                        }
+                    }
+                    check_expr(idx->msb_expr.get());
+                }
+                if (idx->lsb_expr) check_expr(idx->lsb_expr.get());
             }
         };
         if (ca->stream_target) {
@@ -3875,6 +3968,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             continue;
         }
         if (ca->target_index_expr) {
+            check_expr(ca->target_index_expr.get());
+            size_t nid = resolve_target_net_id(ca->target_name, scope);
+            if (nid != (size_t)-1) {
+                if (result.netlist[nid].is_vectored) {
+                    throw std::runtime_error("Bit-select or part-select on vectored net '" + ca->target_name + "' is illegal per IEEE 1800-2023 6.9.2");
+                }
+                if (result.netlist[nid].type_name == "real" || result.netlist[nid].value.is_real) {
+                    throw std::runtime_error("Bit-select or part-select on real data type is illegal: '" + ca->target_name + "' per IEEE 1800-2023 6.12");
+                }
+            }
             check_expr(ca->rhs.get());
             size_t tid = (size_t)-1;
             std::string full_combined = ca->member_name.empty() ? ca->target_name : (ca->target_name + "." + ca->member_name);
@@ -4300,6 +4403,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     for (auto& proc : mod->processes) {
+        for (const auto& sens : proc->sensitivity_list) {
+            if (sens.edge == EdgeType::POSEDGE || sens.edge == EdgeType::NEGEDGE) {
+                size_t nid = resolve_target_net_id(sens.signal_name, scope);
+                if (nid != (size_t)-1 && (result.netlist[nid].type_name == "real" || result.netlist[nid].type_name == "shortreal" || result.netlist[nid].value.is_real)) {
+                    throw std::runtime_error("Edge event control (posedge/negedge) illegal on real type: '" + sens.signal_name + "' per IEEE 1800-2023 6.12");
+                }
+            }
+        }
         auto proc_copy = proc->clone();
         if (proc_copy->type == ProcessType::SEQUENTIAL && !proc_copy->sensitivity_list.empty()) {
             bool all_events = true;
@@ -4396,7 +4507,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     for (const auto& it : target_seq->items) {
                         items.push_back({it.cycle_delay, it.max_cycle_delay, it.is_range, it.clock_signal, it.clock_edge, it.expr ? it.expr->clone() : nullptr});
                     }
-                    seq_as_prop->antecedent = std::make_unique<SequenceConcatNode>(std::move(items));
+                    if (items.size() > 1) {
+                        std::vector<SequenceConcatItem> ant_items;
+                        ant_items.push_back(std::move(items[0]));
+                        seq_as_prop->antecedent = std::make_unique<SequenceConcatNode>(std::move(ant_items));
+                        std::vector<SequenceConcatItem> cons_items;
+                        for (size_t k = 1; k < items.size(); ++k) {
+                            cons_items.push_back(std::move(items[k]));
+                        }
+                        seq_as_prop->consequent = std::make_unique<SequenceConcatNode>(std::move(cons_items));
+                        seq_as_prop->imp_type = ImplicationType::OVERLAPPING;
+                    } else {
+                        seq_as_prop->antecedent = std::make_unique<SequenceConcatNode>(std::move(items));
+                    }
                     asrt->inlined_property = seq_as_prop;
                     target_prop = seq_as_prop.get();
                 }
@@ -5140,7 +5263,10 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
         // Extended interfaces for interface classes
         for (const auto& parent_iface_name : cls->extended_interfaces) {
-            auto it = result.class_defs.find(parent_iface_name);
+            std::string base_iface_name = parent_iface_name;
+            auto hpos = base_iface_name.find('#');
+            if (hpos != std::string::npos) base_iface_name = base_iface_name.substr(0, hpos);
+            auto it = result.class_defs.find(base_iface_name);
             if (it == result.class_defs.end()) {
                 throw std::runtime_error("Interface class '" + cls->name + "' extends unknown interface class '" + parent_iface_name + "'");
             }
@@ -5151,7 +5277,10 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
         // Implemented interfaces for normal classes
         for (const auto& iface_name : cls->implemented_interfaces) {
-            auto it = result.class_defs.find(iface_name);
+            std::string base_if_name = iface_name;
+            auto hpos = base_if_name.find('#');
+            if (hpos != std::string::npos) base_if_name = base_if_name.substr(0, hpos);
+            auto it = result.class_defs.find(base_if_name);
             if (it == result.class_defs.end()) {
                 throw std::runtime_error("Class '" + cls->name + "' implements unknown interface class '" + iface_name + "'");
             }
@@ -5172,7 +5301,10 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         active_path.insert(iface);
         iface->all_implemented_interfaces.insert(iface->name);
         for (const auto& parent_name : iface->extended_interfaces) {
-            auto pit = result.class_defs.find(parent_name);
+            std::string base_pname = parent_name;
+            auto hpos = base_pname.find('#');
+            if (hpos != std::string::npos) base_pname = base_pname.substr(0, hpos);
+            auto pit = result.class_defs.find(base_pname);
             if (pit != result.class_defs.end()) {
                 ClassNode* pcls = const_cast<ClassNode*>(pit->second);
                 compute_iface_closure(pcls, active_path);
@@ -5203,7 +5335,10 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             }
         }
         for (const auto& iface_name : cls->implemented_interfaces) {
-            auto it = result.class_defs.find(iface_name);
+            std::string base_if_name = iface_name;
+            auto hpos = base_if_name.find('#');
+            if (hpos != std::string::npos) base_if_name = base_if_name.substr(0, hpos);
+            auto it = result.class_defs.find(base_if_name);
             if (it != result.class_defs.end()) {
                 ClassNode* iface_cls = const_cast<ClassNode*>(it->second);
                 for (const auto& anc : iface_cls->all_implemented_interfaces) {
@@ -5340,6 +5475,111 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
     for (auto& kv : result.class_defs) {
         build_vtable(const_cast<ClassNode*>(kv.second));
+    }
+
+    auto find_class_node = [&](const std::string& name) -> ClassNode* {
+        std::string base_name = name;
+        auto hpos = base_name.find('#');
+        if (hpos != std::string::npos) base_name = base_name.substr(0, hpos);
+        auto it = Parser::class_map.find(base_name);
+        if (it != Parser::class_map.end()) return it->second.get();
+        for (const auto& mod : modules) {
+            auto mit = mod->class_map.find(base_name);
+            if (mit != mod->class_map.end()) return mit->second;
+        }
+        return nullptr;
+    };
+
+    std::vector<ClassNode*> all_check_classes;
+    for (const auto& cls_pair : Parser::class_map) {
+        if (cls_pair.second) all_check_classes.push_back(cls_pair.second.get());
+    }
+    for (const auto& mod : modules) {
+        for (const auto& kv : mod->class_map) {
+            if (kv.second) all_check_classes.push_back(kv.second);
+        }
+    }
+
+    for (ClassNode* cls : all_check_classes) {
+        if (!cls) continue;
+        for (const auto& cb : cls->constraints) {
+            if (cb->is_extern && !cb->has_body) {
+                throw std::runtime_error("External constraint '" + cb->name + "' has no out-of-block definition per IEEE 1800-2023 18.5.1");
+            }
+        }
+        if (!cls->is_abstract && cls->base_class) {
+            ClassNode* bcls = cls->base_class;
+            while (bcls) {
+                for (const auto& bcb : bcls->constraints) {
+                    if (bcb->is_pure) {
+                        bool implemented = false;
+                        for (const auto& ccb : cls->constraints) {
+                            if (ccb->name == bcb->name && ccb->has_body) { implemented = true; break; }
+                        }
+                        if (!implemented) {
+                            throw std::runtime_error("Concrete class '" + cls->name + "' missing implementation of pure constraint '" + bcb->name + "' per IEEE 1800-2023 18.5.2");
+                        }
+                    }
+                }
+                bcls = bcls->base_class;
+            }
+        }
+        if (cls->implemented_interfaces.size() > 1) {
+            struct MethodSig {
+                std::string ret_type;
+                uint32_t ret_width;
+                bool ret_signed;
+                size_t num_inputs;
+            };
+            std::unordered_map<std::string, MethodSig> iface_methods;
+            for (const auto& if_name : cls->implemented_interfaces) {
+                ClassNode* if_node = find_class_node(if_name);
+                if (if_node) {
+                    for (const auto& fn : if_node->functions) {
+                        if (iface_methods.count(fn->name)) {
+                            auto prev = iface_methods[fn->name];
+                            if (prev.ret_type != fn->return_type_name || prev.ret_width != fn->return_width ||
+                                prev.ret_signed != fn->return_signed || prev.num_inputs != fn->inputs.size()) {
+                                throw std::runtime_error("Unresolved interface class method name conflict: '" + fn->name + "' per IEEE 1800-2023 8.26.6.1");
+                            }
+                        } else {
+                            iface_methods[fn->name] = {fn->return_type_name, fn->return_width, fn->return_signed, fn->inputs.size()};
+                        }
+                    }
+                }
+            }
+        }
+        if (cls->extended_interfaces.size() > 1) {
+            std::unordered_map<std::string, std::string> seen_bases;
+            std::unordered_map<std::string, std::string> inherited_type_params;
+            for (const auto& ext : cls->extended_interfaces) {
+                ClassNode* ec = find_class_node(ext);
+                if (ec) {
+                    for (const auto& p : ec->parameters) {
+                        if (inherited_type_params.count(p.name) && inherited_type_params[p.name] != ec->name) {
+                            bool resolved_in_sub = false;
+                            for (const auto& sub_p : cls->parameters) {
+                                if (sub_p.name == p.name) { resolved_in_sub = true; break; }
+                            }
+                            if (cls->simple_typedefs.count(p.name)) resolved_in_sub = true;
+                            if (!resolved_in_sub) {
+                                throw std::runtime_error("Superclass type declaration conflicts must be resolved in subclass: '" + p.name + "' per IEEE 1800-2023 8.26.6.2");
+                            }
+                        } else {
+                            inherited_type_params[p.name] = ec->name;
+                        }
+                    }
+                    for (const auto& b : ec->extended_interfaces) {
+                        auto hash_p = b.find('#');
+                        std::string base_id = (hash_p != std::string::npos) ? b.substr(0, hash_p) : b;
+                        if (seen_bases.count(base_id) && seen_bases[base_id] != b) {
+                            throw std::runtime_error("Different specializations of interface class '" + base_id + "' inherited per IEEE 1800-2023 8.26.6.3");
+                        }
+                        seen_bases[base_id] = b;
+                    }
+                }
+            }
+        }
     }
 
     std::unordered_map<std::string, ModuleNode*> module_defs;
@@ -5676,72 +5916,6 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     }
 
     // IEEE Std 1800-2023 §9.2.2.4: Driver Exclusivity & ICPD Check
-    auto resolve_target_net_id = [&](const std::string& target, const std::string& scope) -> size_t {
-        std::string resolved_target = target;
-        auto dot_pos_if = target.find('.');
-        if (dot_pos_if != std::string::npos) {
-            std::string prefix = target.substr(0, dot_pos_if);
-            std::string suffix = target.substr(dot_pos_if + 1);
-            std::string scoped_prefix = scope.empty() ? prefix : (scope + "." + prefix);
-            if (result.interface_port_map.find(scoped_prefix) != result.interface_port_map.end()) {
-                resolved_target = result.interface_port_map.at(scoped_prefix) + "." + suffix;
-            } else if (result.interface_port_map.find(prefix) != result.interface_port_map.end()) {
-                resolved_target = result.interface_port_map.at(prefix) + "." + suffix;
-            }
-            std::string scoped_cb = scope.empty() ? prefix : (scope + "." + prefix);
-            if (result.clocking_block_map.find(scoped_cb) != result.clocking_block_map.end()) {
-                size_t cb_idx = result.clocking_block_map.at(scoped_cb);
-                const auto& cb = result.clocking_blocks[cb_idx];
-                auto it_sig = cb.signals.find(suffix);
-                if (it_sig != cb.signals.end()) {
-                    return it_sig->second.net_id;
-                }
-            } else if (result.clocking_block_map.find(prefix) != result.clocking_block_map.end()) {
-                size_t cb_idx = result.clocking_block_map.at(prefix);
-                const auto& cb = result.clocking_blocks[cb_idx];
-                auto it_sig = cb.signals.find(suffix);
-                if (it_sig != cb.signals.end()) {
-                    return it_sig->second.net_id;
-                }
-            }
-        }
-        std::string scoped = scope.empty() ? resolved_target : (scope + "." + resolved_target);
-        if (result.net_map.find(scoped) != result.net_map.end()) {
-            return result.net_map.at(scoped);
-        }
-        std::string cur_s = scope;
-        while (!cur_s.empty()) {
-            std::string candidate = cur_s + "." + resolved_target;
-            if (result.net_map.find(candidate) != result.net_map.end()) {
-                return result.net_map.at(candidate);
-            }
-            auto dot = cur_s.rfind('.');
-            if (dot == std::string::npos) cur_s = "";
-            else cur_s = cur_s.substr(0, dot);
-        }
-        if (result.net_map.find(resolved_target) != result.net_map.end()) {
-            return result.net_map.at(resolved_target);
-        }
-        for (const auto& kv : result.net_map) {
-            if (kv.first.size() > target.size() &&
-                kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
-                return kv.second;
-            }
-        }
-        auto dot_pos = target.rfind('.');
-        if (dot_pos != std::string::npos) {
-            std::string base_target = target.substr(0, dot_pos);
-            std::string scoped_base = scope.empty() ? base_target : (scope + "." + base_target);
-            if (result.net_map.find(scoped_base) != result.net_map.end()) {
-                return result.net_map.at(scoped_base);
-            }
-            if (result.net_map.find(base_target) != result.net_map.end()) {
-                return result.net_map.at(base_target);
-            }
-        }
-        return (size_t)-1;
-    };
-
     struct NetBitDriverInfo {
         std::unordered_set<size_t> writing_procs;
         bool driven_by_strict_proc = false;
@@ -6038,6 +6212,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         uint32_t w = net.width > 0 ? net.width : 1;
         for (uint32_t b = 0; b < w; ++b) {
             const auto& bd = net_bit_drivers[nid][b];
+            // Check procedural write to net (wire)
+            if (net.kind == NetKind::WIRE && !bd.writing_procs.empty()) {
+                throw std::runtime_error("Procedural assignment to net '" + net.name + "' is illegal per IEEE 1800-2023 10.3");
+            }
+
+            // Check variable driven by both continuous assign and procedural block
+            if (net.kind == NetKind::VAR && bd.has_continuous_assign && !bd.writing_procs.empty()) {
+                throw std::runtime_error("[CAS-MVPD] Variable '" + net.name + "' driven by continuous assignment and procedural statement per IEEE 1800-2023 6.5");
+            }
+
             if (bd.driven_by_strict_proc) {
                 if (bd.writing_procs.size() > 1 || bd.targeted_by_pca || bd.has_continuous_assign) {
                     std::string var_name = net.name;

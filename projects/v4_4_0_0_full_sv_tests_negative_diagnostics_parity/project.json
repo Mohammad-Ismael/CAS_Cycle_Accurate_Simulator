@@ -1,0 +1,14 @@
+{
+  "name": "v4_4_0_0_full_sv_tests_negative_diagnostics_parity",
+  "top": "tb_v4_4_0_regression",
+  "top_module": "tb_v4_4_0_regression",
+  "sources": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "clock": "clk",
+  "reset": "rst_n",
+  "reset_active_low": true,
+  "cycles": 100,
+  "waveform": false
+}

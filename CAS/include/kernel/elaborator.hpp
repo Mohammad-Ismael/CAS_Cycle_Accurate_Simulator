@@ -300,6 +300,7 @@ private:
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
     std::string resolve_scoped_name(const std::string& scope, const std::string& name) const;
     size_t get_net_id(const std::string& scope, const std::string& name) const;
+    size_t resolve_target_net_id(const std::string& target, const std::string& scope) const;
 
     void elaborate_module(ModuleNode* mod, const std::string& scope,
                           const std::unordered_map<std::string, ModuleNode*>& module_defs,

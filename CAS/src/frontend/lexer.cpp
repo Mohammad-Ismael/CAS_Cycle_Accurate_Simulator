@@ -172,22 +172,43 @@ void Lexer::handle_timescale() {
         if (!std::isspace(cur.src[cur.cursor])) prec_str += cur.src[cur.cursor];
         cur.cursor++;
     }
-    if (!unit_str.empty() && !prec_str.empty()) {
-        global_time_unit_str = unit_str;
-        global_time_precision_str = prec_str;
-        size_t u_idx = 0;
-        while (u_idx < prec_str.size() && (std::isdigit((unsigned char)prec_str[u_idx]) || std::isspace((unsigned char)prec_str[u_idx]))) {
-            u_idx++;
-        }
-        global_time_precision_unit = (u_idx < prec_str.size()) ? prec_str.substr(u_idx) : "ps";
+    if (unit_str.empty() || prec_str.empty()) {
+        throw std::runtime_error("Invalid `timescale directive: requires unit and precision per IEEE 1800-2023 22.7");
+    }
 
-        uint64_t unit_fs = parse_time_fs(unit_str);
-        uint64_t prec_fs = parse_time_fs(prec_str);
-        if (prec_fs > 0 && unit_fs >= prec_fs) {
-            global_timescale_ratio = unit_fs / prec_fs;
-        } else {
-            global_timescale_ratio = 1;
+    auto validate_time_spec = [](const std::string& str) {
+        size_t idx = 0;
+        while (idx < str.size() && std::isdigit((unsigned char)str[idx])) idx++;
+        if (idx == 0) throw std::runtime_error("Invalid `timescale integer part: '" + str + "'");
+        int num = std::stoi(str.substr(0, idx));
+        if (num != 1 && num != 10 && num != 100) {
+            throw std::runtime_error("`timescale integer part must be 1, 10, or 100 per IEEE 1800-2023 22.7 (got " + std::to_string(num) + ")");
         }
+        std::string unit = str.substr(idx);
+        if (unit != "s" && unit != "ms" && unit != "us" && unit != "ns" && unit != "ps" && unit != "fs") {
+            throw std::runtime_error("Invalid `timescale unit: '" + unit + "' per IEEE 1800-2023 22.7");
+        }
+    };
+    validate_time_spec(unit_str);
+    validate_time_spec(prec_str);
+
+    global_time_unit_str = unit_str;
+    global_time_precision_str = prec_str;
+    size_t u_idx = 0;
+    while (u_idx < prec_str.size() && (std::isdigit((unsigned char)prec_str[u_idx]) || std::isspace((unsigned char)prec_str[u_idx]))) {
+        u_idx++;
+    }
+    global_time_precision_unit = (u_idx < prec_str.size()) ? prec_str.substr(u_idx) : "ps";
+
+    uint64_t unit_fs = parse_time_fs(unit_str);
+    uint64_t prec_fs = parse_time_fs(prec_str);
+    if (prec_fs > unit_fs) {
+        throw std::runtime_error("`timescale precision cannot be larger than time unit per IEEE 1800-2023 22.7");
+    }
+    if (prec_fs > 0 && unit_fs >= prec_fs) {
+        global_timescale_ratio = unit_fs / prec_fs;
+    } else {
+        global_timescale_ratio = 1;
     }
 }
 
@@ -320,6 +341,11 @@ void Lexer::skip_whitespace_and_comments() {
                     while (std::isspace(peek()) && peek() != '\n') advance();
                     std::string mname = "";
                     while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                    if (mname == "define" || mname == "undef" || mname == "ifdef" || mname == "ifndef" ||
+                        mname == "else" || mname == "elsif" || mname == "endif" || mname == "include" ||
+                        mname == "timescale" || mname == "resetall" || mname == "line" || mname == "pragma") {
+                        throw std::runtime_error("Compiler directive name cannot be redefined as a macro per IEEE 1800-2023 22.5.1");
+                    }
                     std::vector<std::string> formals;
                     std::vector<std::string> defaults;
                     bool has_args = false;
@@ -476,7 +502,9 @@ void Lexer::skip_whitespace_and_comments() {
                 while (std::isdigit(peek())) num_str += advance();
                 while (std::isspace(peek()) && peek() != '\n') advance();
                 std::string fname = "";
+                bool has_quotes = false;
                 if (peek() == '"') {
+                    has_quotes = true;
                     advance();
                     while (peek() != '"' && peek() != '\n' && peek() != '\0') fname += advance();
                     if (peek() == '"') advance();
@@ -485,16 +513,40 @@ void Lexer::skip_whitespace_and_comments() {
                 std::string level_str = "";
                 while (std::isdigit(peek())) level_str += advance();
                 while (peek() != '\n' && peek() != '\0') advance();
-                if (!num_str.empty()) {
-                    cur.line = std::stoi(num_str);
+                if (num_str.empty() || std::stoi(num_str) <= 0 || !has_quotes || fname.empty() || level_str.empty() || (level_str != "0" && level_str != "1" && level_str != "2")) {
+                    throw std::runtime_error("Invalid `line directive per IEEE 1800-2023 22.12");
                 }
-                if (!fname.empty()) {
-                    cur.filename = fname;
+                cur.line = std::stoi(num_str);
+                cur.filename = fname;
+            } else if (directive == "pragma") {
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string pname = "";
+                while (std::isalnum(peek()) || peek() == '_') pname += advance();
+                if (pname.empty()) {
+                    throw std::runtime_error("`pragma directive requires pragma name per IEEE 1800-2023 22.11");
                 }
+                while (peek() != '\n' && peek() != '\0') advance();
+            } else if (directive == "unconnected_drive") {
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string uarg = "";
+                while (std::isalnum(peek()) || peek() == '_') uarg += advance();
+                if (uarg != "pull0" && uarg != "pull1") {
+                    throw std::runtime_error("`unconnected_drive requires pull0 or pull1 per IEEE 1800-2023 22.9");
+                }
+                while (peek() != '\n' && peek() != '\0') advance();
+            } else if (directive == "nounconnected_drive") {
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                if (peek() != '\n' && peek() != '\0' && peek() != '/') {
+                    throw std::runtime_error("`nounconnected_drive takes no arguments per IEEE 1800-2023 22.9");
+                }
+                while (peek() != '\n' && peek() != '\0') advance();
+            } else if (directive == "resetall") {
+                if (design_element_depth > 0) {
+                    throw std::runtime_error("`resetall is not permitted inside a design element per IEEE 1800-2023 22.3");
+                }
+                while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "default_nettype" || directive == "celldefine" || 
-                       directive == "endcelldefine" || directive == "resetall" || 
-                       directive == "unconnected_drive" || directive == "nounconnected_drive" ||
-                       directive == "pragma" || directive == "begin_keywords" || directive == "end_keywords") {
+                       directive == "endcelldefine" || directive == "begin_keywords" || directive == "end_keywords") {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
                 if (is_active) {
@@ -511,41 +563,58 @@ void Lexer::skip_whitespace_and_comments() {
                     if (mit != global_macro_defs.end() && mit->second.has_args) {
                         const auto& mdef = mit->second;
                         while (std::isspace(peek()) && peek() != '\n') advance();
-                        if (peek() == '(') {
-                            advance(); // consume '('
-                            std::vector<std::string> actuals;
-                            std::string current_arg = "";
-                            int paren_depth = 0;
-                            bool in_str = false;
-                            while (peek() != '\0') {
-                                if (peek() == '"' && (current_arg.empty() || current_arg.back() != '\\')) {
-                                    in_str = !in_str;
-                                    current_arg += advance();
+                        if (peek() != '(') {
+                            throw std::runtime_error("Macro `" + directive + " was defined with arguments and requires argument list per IEEE 1800-2023 22.5.1");
+                        }
+                        advance(); // consume '('
+                        std::vector<std::string> actuals;
+                        std::string current_arg = "";
+                        int paren_depth = 0;
+                        bool in_str = false;
+                        while (peek() != '\0') {
+                            if (peek() == '"' && (current_arg.empty() || current_arg.back() != '\\')) {
+                                in_str = !in_str;
+                                current_arg += advance();
+                            }
+                            else if (!in_str && peek() == '(') { paren_depth++; current_arg += advance(); }
+                            else if (!in_str && peek() == ')') {
+                                if (paren_depth > 0) { paren_depth--; current_arg += advance(); }
+                                else { advance(); actuals.push_back(current_arg); break; }
+                            }
+                            else if (!in_str && peek() == ',' && paren_depth == 0) {
+                                advance();
+                                actuals.push_back(current_arg);
+                                current_arg = "";
+                            } else {
+                                current_arg += advance();
+                            }
+                        }
+                        for (auto& a : actuals) {
+                            while (!a.empty() && std::isspace(a.front())) a.erase(a.begin());
+                            while (!a.empty() && std::isspace(a.back())) a.pop_back();
+                        }
+                        if (mdef.args.empty() && actuals.size() == 1 && actuals[0].empty()) {
+                            actuals.clear();
+                        }
+                        if (actuals.size() > mdef.args.size()) {
+                            throw std::runtime_error("Too many arguments supplied to macro `" + directive + " per IEEE 1800-2023 22.5.1");
+                        }
+                        for (size_t i = 0; i < mdef.args.size(); i++) {
+                            const std::string& formal = mdef.args[i];
+                            std::string actual = "";
+                            if (i < actuals.size()) {
+                                actual = actuals[i];
+                                if (actual.empty() && i < mdef.defaults.size() && !mdef.defaults[i].empty()) {
+                                    actual = mdef.defaults[i];
                                 }
-                                else if (!in_str && peek() == '(') { paren_depth++; current_arg += advance(); }
-                                else if (!in_str && peek() == ')') {
-                                    if (paren_depth > 0) { paren_depth--; current_arg += advance(); }
-                                    else { advance(); actuals.push_back(current_arg); break; }
-                                }
-                                else if (!in_str && peek() == ',' && paren_depth == 0) {
-                                    advance();
-                                    actuals.push_back(current_arg);
-                                    current_arg = "";
+                            } else {
+                                if (i < mdef.defaults.size() && !mdef.defaults[i].empty()) {
+                                    actual = mdef.defaults[i];
                                 } else {
-                                    current_arg += advance();
+                                    throw std::runtime_error("Missing required argument '" + formal + "' without default value in macro `" + directive + " per IEEE 1800-2023 22.5.1");
                                 }
                             }
-                            for (auto& a : actuals) {
-                                while (!a.empty() && std::isspace(a.front())) a.erase(a.begin());
-                                while (!a.empty() && std::isspace(a.back())) a.pop_back();
-                            }
-                            if (mdef.args.empty() && actuals.size() == 1 && actuals[0].empty()) {
-                                actuals.clear();
-                            }
-                            for (size_t i = 0; i < mdef.args.size(); i++) {
-                                const std::string& formal = mdef.args[i];
-                                std::string actual = (i < actuals.size() && !actuals[i].empty()) ? actuals[i] : (i < mdef.defaults.size() ? mdef.defaults[i] : "");
-                                std::string paste1 = "``" + formal;
+                            std::string paste1 = "``" + formal;
                                 size_t p = 0;
                                 while ((p = expanded.find(paste1, p)) != std::string::npos) {
                                     expanded.replace(p, paste1.length(), actual);
@@ -578,7 +647,6 @@ void Lexer::skip_whitespace_and_comments() {
                                 expanded.replace(p, 2, "\"");
                                 p += 1;
                             }
-                        }
                     } else {
                         size_t p = 0;
                         while ((p = expanded.find("`\"", p)) != std::string::npos) {
@@ -872,6 +940,9 @@ Token Lexer::next_token() {
             }
             char base = advance();
             while (peek() == ' ' || peek() == '\t') advance();
+            if (peek() == '-') {
+                throw std::runtime_error("Sign cannot follow base specification per IEEE 1800-2023 5.7.1");
+            }
             std::string digits;
             while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z' || peek() == '?') {
                 if (peek() != '_') digits += peek();
@@ -940,7 +1011,7 @@ Token Lexer::next_token() {
                 uint64_t aval = num_str.empty() ? 0 : std::stoull(num_str);
                 return {TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0};
             }
-            num_str += alnum_part;
+            throw std::runtime_error("Invalid numeric literal: '" + num_str + alnum_part + "' per IEEE 1800-2023 5.7.1");
         }
 
         // Sized based literal with optional whitespace between size and apostrophe: e.g. 1 'b x, 32 'd 1
@@ -994,6 +1065,9 @@ Token Lexer::next_token() {
                 }
                 char base = advance();
                 while (peek() == ' ' || peek() == '\t') advance();
+                if (peek() == '-') {
+                    throw std::runtime_error("Sign cannot follow base specification per IEEE 1800-2023 5.7.1");
+                }
                 std::string digits;
                 while (std::isxdigit(peek()) || peek() == '_' || peek() == 'x' || peek() == 'X' || peek() == 'z' || peek() == 'Z' || peek() == '?') {
                     if (peek() != '_') digits += peek();
@@ -1004,6 +1078,7 @@ Token Lexer::next_token() {
                 Token tok = {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval, false, 0.0, pnum.is_signed};
                 tok.wide_aval = std::move(pnum.wide_aval);
                 tok.wide_bval = std::move(pnum.wide_bval);
+                tok.is_sized = true;
                 return tok;
             }
         }
@@ -1038,8 +1113,30 @@ Token Lexer::next_token() {
             ident += advance();
         }
 
-        if (ident == "module") return {TokenType::TOKEN_MODULE, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "endmodule") return {TokenType::TOKEN_ENDMODULE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "module" || ident == "macromodule") {
+            design_element_depth++;
+            return {TokenType::TOKEN_MODULE, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "package") {
+            design_element_depth++;
+            return {TokenType::TOKEN_PACKAGE, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "program") {
+            design_element_depth++;
+            return {TokenType::TOKEN_PROGRAM, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "endmodule") {
+            if (design_element_depth > 0) design_element_depth--;
+            return {TokenType::TOKEN_ENDMODULE, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "endpackage") {
+            if (design_element_depth > 0) design_element_depth--;
+            return {TokenType::TOKEN_ENDPACKAGE, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "endprogram") {
+            if (design_element_depth > 0) design_element_depth--;
+            return {TokenType::TOKEN_ENDPROGRAM, ident, 0, 0, cur_file, cur_line, 0};
+        }
         if (ident == "input") return {TokenType::TOKEN_INPUT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "output") return {TokenType::TOKEN_OUTPUT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "inout") return {TokenType::TOKEN_INOUT, ident, 0, 0, cur_file, cur_line, 0};
@@ -1136,8 +1233,25 @@ Token Lexer::next_token() {
         if (ident == "$dumpvars") return {TokenType::TOKEN_DUMPVARS, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "$") return {TokenType::TOKEN_DOLLAR, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "new") return {TokenType::TOKEN_NEW, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "interface") return {TokenType::TOKEN_INTERFACE, ident, 0, 0, cur_file, cur_line, 0};
-        if (ident == "endinterface") return {TokenType::TOKEN_ENDINTERFACE, ident, 0, 0, cur_file, cur_line, 0};
+        if (ident == "interface") {
+            if (!file_stack.empty()) {
+                const auto& buf = file_stack.back();
+                size_t p = buf.cursor;
+                while (p < buf.src.size() && (buf.src[p] == ' ' || buf.src[p] == '\t' || buf.src[p] == '\r' || buf.src[p] == '\n')) p++;
+                if (p + 5 <= buf.src.size() && buf.src.compare(p, 5, "class") == 0 && (p + 5 == buf.src.size() || (!std::isalnum(buf.src[p + 5]) && buf.src[p + 5] != '_'))) {
+                    // It is 'interface class', not an interface design element
+                } else {
+                    design_element_depth++;
+                }
+            } else {
+                design_element_depth++;
+            }
+            return {TokenType::TOKEN_INTERFACE, ident, 0, 0, cur_file, cur_line, 0};
+        }
+        if (ident == "endinterface") {
+            if (design_element_depth > 0) design_element_depth--;
+            return {TokenType::TOKEN_ENDINTERFACE, ident, 0, 0, cur_file, cur_line, 0};
+        }
         if (ident == "modport") return {TokenType::TOKEN_MODPORT, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "clocking") return {TokenType::TOKEN_CLOCKING, ident, 0, 0, cur_file, cur_line, 0};
         if (ident == "endclocking") return {TokenType::TOKEN_ENDCLOCKING, ident, 0, 0, cur_file, cur_line, 0};

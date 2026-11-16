@@ -638,6 +638,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         uint64_t b = current.bval;
         uint32_t w = current.width;
         bool s = current.is_signed;
+        bool is_sz = current.is_sized;
         auto w_a = std::move(current.wide_aval);
         auto w_b = std::move(current.wide_bval);
         advance();
@@ -651,12 +652,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return std::make_unique<StaticCastExprNode>(static_cast<uint32_t>(a), std::move(cast_expr));
         }
         auto node = std::make_unique<NumberNode>(a, b, w, s);
+        node->explicit_size = is_sz;
         node->wide_aval = std::move(w_a);
         node->wide_bval = std::move(w_b);
         return node;
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER) {
+        std::string raw_name = current.text;
+        bool had_hash = (peek_token().type == TokenType::TOKEN_HASH);
         std::string name = current.text;
         if (is_class(current.text) || peek_token().type == TokenType::TOKEN_HASH) {
             name = parse_class_type_and_specialize();
@@ -665,6 +669,12 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
 
         if (match(TokenType::TOKEN_COLON_COLON)) {
+            if (!had_hash && is_class(raw_name)) {
+                ClassNode* cl_def = find_class(raw_name);
+                if (cl_def && (!cl_def->parameters.empty() || cl_def->is_parameterized)) {
+                    throw std::runtime_error("Accessing member of parameterized class '" + raw_name + "' using unspecialized class name is illegal per IEEE 1800-2023 8.25.1");
+                }
+            }
             std::string member = "";
             if (current.type == TokenType::TOKEN_NEW) {
                 member = "new";

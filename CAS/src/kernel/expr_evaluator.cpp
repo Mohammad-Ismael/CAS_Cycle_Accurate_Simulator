@@ -3311,6 +3311,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         if (st) {
+            if (st->is_tagged && st->tag_bits > 0) {
+                LogicVal current_tag = var_val.extract_slice(st->payload_width, st->tag_bits);
+                int expected_idx = st->get_member_index(member_name);
+                if ((int)current_tag.aval != expected_idx) {
+                    throw std::runtime_error("Member access of tagged union when tag is not active: '" + member_name + "' per IEEE 1800-2023 11.9");
+                }
+            }
             const StructMember* sm = st->get_member(member_name);
             if (sm) {
                 uint32_t m_offset = sm->offset;
@@ -4498,11 +4505,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -4549,11 +4558,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -4965,6 +4976,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 } else {
                     target_val = engine.netlist[nid].value;
                 }
+                if (engine.netlist[nid].is_vectored) {
+                    throw std::runtime_error("Bit-select or part-select on vectored net '" + engine.netlist[nid].name + "' is illegal per IEEE 1800-2023 6.9.2");
+                }
+                if (engine.netlist[nid].type_name == "real" || engine.netlist[nid].type_name == "shortreal" || target_val.is_real) {
+                    throw std::runtime_error("Bit-select or part-select on real data type is illegal: '" + idx_node->name + "' per IEEE 1800-2023 6.12");
+                }
             } else if (found_struct_member) {
                 // target_val already extracted above
             } else if (engine.param_val_map.count(idx_node->name)) {
@@ -5122,6 +5139,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         if (!idx_node->is_part_select) {
             LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
+            if (idx_val.is_real) {
+                throw std::runtime_error("Bit-select or part-select index cannot be real: '" + idx_node->name + "' per IEEE 1800-2023 6.12");
+            }
             if (idx_val.is_unknown()) return LogicVal::make_x(elem_w);
             int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
             if (base_low > 0 && raw_idx >= base_low) raw_idx -= base_low;
@@ -5134,11 +5154,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -5159,10 +5181,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (idx_node->is_plus_colon) {
                 lsb = base_v.aval;
                 slice_w = w_v.aval;
+                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                 msb = lsb + slice_w - 1;
                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
             } else if (idx_node->is_minus_colon) {
                 slice_w = w_v.aval;
+                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                 msb = base_v.aval;
                 lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;

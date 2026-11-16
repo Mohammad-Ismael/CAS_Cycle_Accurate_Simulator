@@ -304,6 +304,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (all_modules.empty()) {
+            Elaborator elab;
+            elab.elaborate(all_modules);
             if (verbose) {
                 std::cout << debug_ss.str();
             }

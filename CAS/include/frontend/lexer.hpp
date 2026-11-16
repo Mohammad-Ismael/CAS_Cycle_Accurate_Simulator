@@ -302,6 +302,7 @@ struct Token {
     bool is_real = false;
     double real_val = 0.0;
     bool is_signed = false;
+    bool is_sized = false;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
 };
@@ -325,6 +326,7 @@ private:
         bool branch_taken;
     };
     std::vector<CondStackEntry> cond_stack;
+    int design_element_depth = 0;
     void skip_inactive_block();
 
     char peek() const;

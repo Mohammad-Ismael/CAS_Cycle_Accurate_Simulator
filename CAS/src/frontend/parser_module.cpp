@@ -326,6 +326,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            ClassNode* target_cls = find_class(class_name);
+            if (target_cls) {
+                auto it_c = target_cls->constraint_map.find(cname);
+                if (it_c != target_cls->constraint_map.end()) {
+                    it_c->second->is_extern = false;
+                }
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             int cdepth = 1;
             while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
@@ -1522,6 +1529,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_EQUAL, "Expected '=' in specparam");
                     auto val = parse_expression();
                     mod->parameters.push_back(ParameterDef(sname, std::move(val), true));
+                    mod->specparam_names.insert(sname);
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
@@ -1636,6 +1644,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 enum_node->is_signed = e_signed;
                 enum_node->base_type_name = e_base;
                 uint64_t current_val = 0;
+                bool prev_had_xz = false;
                 while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
                     std::string mname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
@@ -1658,12 +1667,31 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in enum sequence");
                     }
+                    bool has_eq = false;
+                    bool curr_had_xz = false;
                     if (match(TokenType::TOKEN_EQUAL)) {
+                        has_eq = true;
                         auto val_expr = parse_expression();
                         if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
                             current_val = num->aval;
+                            if (num->explicit_size && num->width != e_width) {
+                                throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
+                            }
+                            if (num->bval != 0) {
+                                curr_had_xz = true;
+                                if (e_base == "bit" || e_base == "byte" || e_base == "int" || e_base == "shortint" || e_base == "longint") {
+                                    throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                                }
+                            }
+                        } else {
+                            curr_had_xz = true;
+                        }
+                    } else {
+                        if (prev_had_xz) {
+                            throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
                         }
                     }
+                    prev_had_xz = curr_had_xz;
                     if (is_seq) {
                         int64_t lo = std::min(seq_start, seq_end);
                         int64_t hi = std::max(seq_start, seq_end);
@@ -1865,6 +1893,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     }
                     if (!is_port) {
+                        for (const auto& existing : mod->signals) {
+                            if (existing.name == signame) {
+                                throw std::runtime_error("Identifier '" + signame + "' is already declared in module '" + mod->name + "' per IEEE 1800-2023 6.5");
+                            }
+                        }
                         mod->signals.push_back(std::move(sig));
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -1937,7 +1970,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig_kind = NetKind::WIRE;
                 }
                 advance();
+                bool is_vectored_decl = false;
                 if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "scalared" || current.text == "vectored")) {
+                    if (current.text == "vectored") is_vectored_decl = true;
                     advance();
                 }
                 if (match(TokenType::TOKEN_HASH)) {
@@ -2109,6 +2144,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     }
                     if (!is_port) {
+                        for (const auto& existing : mod->signals) {
+                            if (existing.name == signame) {
+                                throw std::runtime_error("Identifier '" + signame + "' is already declared in module '" + mod->name + "' per IEEE 1800-2023 6.5");
+                            }
+                        }
+                        sig.is_vectored = is_vectored_decl;
+                        if (is_vectored_decl) mod->vectored_signals.insert(signame);
                         mod->signals.push_back(std::move(sig));
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2991,6 +3033,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         modules.push_back(std::move(mod));
     }
 
+    for (const auto& ft : forward_typedefs) {
+        if (!resolved_typedefs.count(ft)) {
+            throw std::runtime_error("missing forward typedef declaration, type_identifier '" + ft + "' does not resolve to a data type per IEEE 1800-2023 6.18");
+        }
+    }
+
     return modules;
 }
 std::string Parser::parse_skew_spec() {
@@ -3105,6 +3153,39 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 expect(TokenType::TOKEN_COLON, "Expected ':' in member range");
                 auto lsb_e = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member range");
+                auto check_ident_defined = [&](ExpressionNode* e) {
+                    std::function<void(ExpressionNode*)> walk = [&](ExpressionNode* node) {
+                        if (!node) return;
+                        if (auto id = dynamic_cast<IdentifierNode*>(node)) {
+                            bool found = false;
+                            if (current_parsing_module) {
+                                for (const auto& p : current_parsing_module->parameters) {
+                                    if (p.name == id->name) { found = true; break; }
+                                }
+                            }
+                            if (!found) {
+                                for (const auto& kv : global_packages) {
+                                    if (kv.second->param_constants.count(id->name)) { found = true; break; }
+                                }
+                            }
+                            if (!found) {
+                                for (const auto& gp : global_parameters) {
+                                    if (gp.name == id->name) { found = true; break; }
+                                }
+                            }
+                            if (!found) {
+                                throw std::runtime_error("Undefined parameter or identifier '" + id->name + "' in struct/union member range per IEEE 1800-2023 6.18");
+                            }
+                        } else if (auto bin = dynamic_cast<BinaryOpNode*>(node)) {
+                            walk(bin->lhs.get()); walk(bin->rhs.get());
+                        } else if (auto un = dynamic_cast<UnaryOpNode*>(node)) {
+                            walk(un->operand.get());
+                        }
+                    };
+                    walk(e);
+                };
+                check_ident_defined(msb_e.get());
+                check_ident_defined(lsb_e.get());
                 bool ok = false;
                 try {
                     msb_v = eval_const_expr(msb_e.get());
@@ -3118,6 +3199,9 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                             ok = true;
                         }
                     }
+                }
+                if (!ok) {
+                    throw std::runtime_error("Undefined parameter or expression in struct/union member range per IEEE 1800-2023 6.18");
                 }
                 uint32_t dim_w = 1;
                 if (ok) {
@@ -3185,6 +3269,9 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             sm.is_signed = mem_signed;
             sm.type_name = mem_type;
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                if (is_packed) {
+                    throw std::runtime_error("Packed struct member declarations cannot have default values per IEEE 1800-2023 7.2.1");
+                }
                 sm.default_value = parse_expression();
             }
             struct_node->members.push_back(sm);
@@ -3322,6 +3409,21 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             auto enum_def = get_enum_typedef(base_t);
             SimpleTypedef sm_def;
             bool has_sm = get_simple_typedef(base_t, sm_def);
+            bool is_builtin = (base_t == "logic" || base_t == "bit" || base_t == "reg" || base_t == "wire" ||
+                               base_t == "tri" || base_t == "wand" || base_t == "wor" ||
+                               base_t == "integer" || base_t == "int" || base_t == "byte" ||
+                               base_t == "shortint" || base_t == "longint" || base_t == "string" ||
+                               base_t == "chandle" || base_t == "real" || base_t == "shortreal" ||
+                               base_t == "void" || base_t == "signed" || base_t == "unsigned");
+            bool is_type_param = false;
+            if (current_parsing_class) {
+                for (const auto& p : current_parsing_class->parameters) {
+                    if (p.name == base_t) { is_type_param = true; break; }
+                }
+            }
+            if (!is_builtin && !struct_def && !enum_def && !has_sm && !is_class(base_t) && !is_forward_class(base_t) && !is_type_param) {
+                throw std::runtime_error("Defining a type using undefined type '" + base_t + "' per IEEE 1800-2023 6.18");
+            }
             if (struct_def) {
                 width = struct_def->total_width;
                 is_sgn = struct_def->is_signed;
@@ -3585,6 +3687,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                         if (current_parsing_package) current_parsing_package->enum_typedefs[tname] = enum_def;
                         else if (current_parsing_module) current_parsing_module->enum_typedefs[tname] = enum_def;
                     }
+                    resolved_typedefs.insert(tname);
                 }
                 return td;
             }
@@ -3596,6 +3699,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         std::string type_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+        resolved_typedefs.insert(type_name);
 
         if (is_forward_class(type_name)) {
             throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + type_name + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
@@ -3716,16 +3820,34 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     enum_node->base_type_name = base_type_name;
 
     uint64_t current_val = 0;
+    bool prev_had_xz = false;
     while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
         std::string mname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
 
+        bool curr_had_xz = false;
         if (match(TokenType::TOKEN_EQUAL)) {
             auto val_expr = parse_expression();
             if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
                 current_val = num->aval;
+                if (num->explicit_size && num->width != width) {
+                    throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
+                }
+                if (num->bval != 0) {
+                    curr_had_xz = true;
+                    if (base_type_name == "bit" || base_type_name == "byte" || base_type_name == "int" || base_type_name == "shortint" || base_type_name == "longint") {
+                        throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                    }
+                }
+            } else {
+                curr_had_xz = true;
+            }
+        } else {
+            if (prev_had_xz) {
+                throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
             }
         }
+        prev_had_xz = curr_had_xz;
 
         LogicVal mval(width, current_val, 0);
         enum_node->members.push_back({mname, mval});
@@ -3739,6 +3861,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     std::string type_name = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+    resolved_typedefs.insert(type_name);
 
     if (is_forward_class(type_name)) {
         throw std::runtime_error("[CAS-DTINPCIL] Identifier '" + type_name + "' was declared as 'typedef class' but subsequently defined as a non-class type per IEEE 1800-2023 §6.18");
@@ -3779,6 +3902,9 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     auto cls = std::make_unique<ClassNode>(class_name);
     cls->is_interface_class = is_interface_class;
     cls->is_abstract = is_abstract;
+    std::vector<std::string> local_class_typedef_names;
+    ClassNode* prev_cls = current_parsing_class;
+    current_parsing_class = cls.get();
 
     if (match(TokenType::TOKEN_HASH)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class parameter list");
@@ -3842,15 +3968,35 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after '::'");
                 }
                 if (match(TokenType::TOKEN_HASH)) {
+                    parent_iface += "#(";
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in extended interface parameter list");
                     int pdepth = 1;
                     while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
                         if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
-                        else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                        else if (current.type == TokenType::TOKEN_RPAREN) {
+                            pdepth--;
+                            if (pdepth == 0) {
+                                advance();
+                                break;
+                            }
+                        }
+                        parent_iface += current.text;
                         advance();
                     }
+                    parent_iface += ")";
                 }
                 cls->extended_interfaces.push_back(parent_iface);
+                std::string base_parent = parent_iface;
+                auto hash_pos = base_parent.find('#');
+                if (hash_pos != std::string::npos) base_parent = base_parent.substr(0, hash_pos);
+                ClassNode* p_cls = find_class(base_parent);
+                if (p_cls) {
+                    for (const auto& kv : p_cls->simple_typedefs) {
+                        cls->simple_typedefs[kv.first] = kv.second;
+                        simple_typedef_map[kv.first] = kv.second;
+                        local_class_typedef_names.push_back(kv.first);
+                    }
+                }
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
@@ -3868,6 +4014,14 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected class name after '::'");
             }
             cls->base_class_name = base_class_name;
+            ClassNode* b_cls = find_class(base_class_name);
+            if (b_cls) {
+                for (const auto& kv : b_cls->simple_typedefs) {
+                    cls->simple_typedefs[kv.first] = kv.second;
+                    simple_typedef_map[kv.first] = kv.second;
+                    local_class_typedef_names.push_back(kv.first);
+                }
+            }
             if (match(TokenType::TOKEN_HASH)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in base class parameter list");
                 int pdepth = 1;
@@ -3893,6 +4047,9 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 while (match(TokenType::TOKEN_COLON_COLON)) {
                     iface_name += "::" + current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected interface class name after '::'");
+                }
+                if (is_forward_interface_class(iface_name) && !find_class(iface_name)) {
+                    throw std::runtime_error("Implementing forward-declared interface class '" + iface_name + "' before its definition is illegal per IEEE 1800-2023 8.26.4");
                 }
                 if (match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in implemented interface parameter list");
@@ -3931,6 +4088,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
             if (td) {
+                cls->simple_typedefs[td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
+                local_class_typedef_names.push_back(td->type_name);
                 simple_typedef_map[class_name + "::" + td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
                 if (current_parsing_module) {
                     current_parsing_module->simple_typedefs[class_name + "::" + td->type_name] = {td->type_name, td->base_type, td->width, td->is_signed};
@@ -4128,7 +4287,11 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
             if (match(TokenType::TOKEN_SEMICOLON)) {
                 // External / pure constraint prototype (§18.5.1)
-                cls->add_constraint(std::make_unique<ConstraintBlockNode>(cname, std::vector<std::unique_ptr<ExpressionNode>>()));
+                auto cb = std::make_unique<ConstraintBlockNode>(cname, std::vector<std::unique_ptr<ExpressionNode>>());
+                cb->is_extern = is_ext;
+                cb->is_pure = is_pure;
+                cb->has_body = false;
+                cls->add_constraint(std::move(cb));
                 continue;
             }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
@@ -4137,15 +4300,25 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 [&](std::vector<std::unique_ptr<ExpressionNode>>& out_exprs) {
                     if (match(TokenType::TOKEN_SEMICOLON)) return;
                     if (match(TokenType::TOKEN_SOLVE)) {
+                        std::vector<std::string> before_vars;
                         while (current.type != TokenType::TOKEN_BEFORE && current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) before_vars.push_back(current.text);
                             advance();
                         }
+                        std::vector<std::string> after_vars;
                         if (match(TokenType::TOKEN_BEFORE)) {
                             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                                if (current.type == TokenType::TOKEN_IDENTIFIER) after_vars.push_back(current.text);
                                 advance();
                             }
                         }
                         match(TokenType::TOKEN_SEMICOLON);
+                        for (const auto& v : before_vars) {
+                            if (cls->is_randc_property(v)) throw std::runtime_error("randc variable '" + v + "' cannot be specified in solve...before constraint per IEEE 1800-2023 18.5.10");
+                        }
+                        for (const auto& v : after_vars) {
+                            if (cls->is_randc_property(v)) throw std::runtime_error("randc variable '" + v + "' cannot be specified in solve...before constraint per IEEE 1800-2023 18.5.10");
+                        }
                         return;
                     }
                     if (current.type == TokenType::TOKEN_DISABLE) {
@@ -4176,8 +4349,9 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                         match(TokenType::TOKEN_SEMICOLON);
                         return;
                     }
+                    bool is_soft_c = false;
                     if (match(TokenType::TOKEN_SOFT)) {
-                        // soft constraint
+                        is_soft_c = true;
                     }
                     if (match(TokenType::TOKEN_FOREACH)) {
                         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'foreach' in constraint");
@@ -4260,6 +4434,11 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     }
 
                     if (match(TokenType::TOKEN_DIST)) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(expr.get())) {
+                            if (cls->is_randc_property(id->name)) {
+                                throw std::runtime_error("randc variable '" + id->name + "' cannot be used in dist expression per IEEE 1800-2023 18.5.4");
+                            }
+                        }
                         expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
                         while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
                             if (match(TokenType::TOKEN_LBRACKET)) {
@@ -4276,6 +4455,23 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                             if (match(TokenType::TOKEN_COMMA)) continue;
                         }
                         expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+                    }
+
+                    if (is_soft_c && expr) {
+                        std::function<void(ExpressionNode*)> check_soft_randc = [&](ExpressionNode* e) {
+                            if (!e) return;
+                            if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                                if (cls->is_randc_property(id->name)) {
+                                    throw std::runtime_error("soft constraint cannot be applied to randc variable '" + id->name + "' per IEEE 1800-2023 18.5.14");
+                                }
+                            } else if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
+                                check_soft_randc(bin->lhs.get());
+                                check_soft_randc(bin->rhs.get());
+                            } else if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
+                                check_soft_randc(un->operand.get());
+                            }
+                        };
+                        check_soft_randc(expr.get());
                     }
 
                     if (expr) {
@@ -4480,6 +4676,13 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
         if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
     match(TokenType::TOKEN_SEMICOLON);
+    for (const auto& tname : local_class_typedef_names) {
+        simple_typedef_map.erase(tname);
+        if (current_parsing_module) {
+            current_parsing_module->simple_typedefs.erase(tname);
+        }
+    }
+    current_parsing_class = prev_cls;
     return cls;
 }
 
@@ -6272,6 +6475,13 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            ClassNode* target_cls = find_class(class_name);
+            if (target_cls) {
+                auto it_c = target_cls->constraint_map.find(cname);
+                if (it_c != target_cls->constraint_map.end()) {
+                    it_c->second->is_extern = false;
+                }
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             int cdepth = 1;
             while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
@@ -6304,6 +6514,13 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            ClassNode* target_cls = find_class(class_name);
+            if (target_cls) {
+                auto it_c = target_cls->constraint_map.find(cname);
+                if (it_c != target_cls->constraint_map.end()) {
+                    it_c->second->is_extern = false;
+                }
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             int cdepth = 1;
             while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {
@@ -6335,6 +6552,13 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            ClassNode* target_cls = find_class(class_name);
+            if (target_cls) {
+                auto it_c = target_cls->constraint_map.find(cname);
+                if (it_c != target_cls->constraint_map.end()) {
+                    it_c->second->is_extern = false;
+                }
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             int cdepth = 1;
             while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {

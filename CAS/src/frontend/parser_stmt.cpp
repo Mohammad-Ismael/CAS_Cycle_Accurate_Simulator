@@ -114,11 +114,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // Return Statement (§13.4.1)
     if (match(TokenType::TOKEN_RETURN)) {
+        if (in_fork_depth > 0) {
+            throw std::runtime_error("Return statement is not permitted inside a fork-join block per IEEE 1800-2023 9.3.3");
+        }
         std::unique_ptr<ExpressionNode> ret_expr = nullptr;
         if (current.type != TokenType::TOKEN_SEMICOLON) {
             ret_expr = parse_expression();
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after return");
+        if (current_parsing_function && (current_parsing_function->return_type_name == "void" || current_parsing_function->return_width == 0) && ret_expr != nullptr) {
+            throw std::runtime_error("Void function cannot return an expression per IEEE 1800-2023 13.4.1");
+        }
         return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
     }
 
@@ -369,6 +375,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 init_expr = parse_expression();
             }
             uint32_t var_decl_w = is_dyn ? (uarr_info ? uarr_info->elem_width : width) : width;
+            current_scope_var_types[vname] = type_name;
             auto vstmt = std::make_unique<VarDeclStatementNode>(vname, var_decl_w, is_signed_var, type_name, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
             vstmt->is_static = is_procedural_static;
             if (uarr_info && !uarr_info->is_dynamic_array) {
@@ -621,6 +628,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 init_expr = parse_expression();
             }
+            current_scope_var_types[vname] = tname;
             auto vnode = std::make_unique<VarDeclStatementNode>(vname, width, is_signed_var, tname, is_q, is_dyn, is_assoc, assoc_key_type, assoc_key_width);
             vnode->is_static = is_procedural_static;
             std::vector<AstDimension> cloned_packed;
@@ -826,6 +834,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             expect(TokenType::TOKEN_IDENTIFIER, "Expected fork block label");
         }
 
+        in_fork_depth++;
         std::vector<std::unique_ptr<StatementNode>> branches;
         while (current.type != TokenType::TOKEN_JOIN &&
                current.type != TokenType::TOKEN_JOIN_ANY &&
@@ -833,6 +842,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                current.type != TokenType::TOKEN_EOF) {
             branches.push_back(parse_statement());
         }
+        in_fork_depth--;
 
         JoinType jt = JoinType::JOIN;
         if (match(TokenType::TOKEN_JOIN)) {
@@ -843,6 +853,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             jt = JoinType::JOIN_NONE;
         } else {
             throw std::runtime_error("Expected 'join', 'join_any', or 'join_none'");
+        }
+
+        if (current_parsing_function != nullptr && jt != JoinType::JOIN_NONE) {
+            throw std::runtime_error("Functions cannot contain fork-join or fork-join_any blocks per IEEE 1800-2023 13.4.4");
         }
 
         if (match(TokenType::TOKEN_COLON)) {
@@ -1337,6 +1351,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // 13.2. Randsequence Statement (IEEE Std 1800-2023 §18.17)
     if (match(TokenType::TOKEN_RANDSEQUENCE)) {
+        in_randsequence_depth++;
+        struct RSGuard {
+            int& d;
+            RSGuard(int& depth) : d(depth) {}
+            ~RSGuard() { d--; }
+        } rsg(in_randsequence_depth);
+
         auto rseq = std::make_unique<RandSequenceStatementNode>();
         rseq->src_file = current.filename;
         rseq->src_line = current.line;
@@ -1484,6 +1505,54 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
         expect(TokenType::TOKEN_ENDSEQUENCE, "Expected 'endsequence' closing randsequence statement");
         match(TokenType::TOKEN_SEMICOLON);
+
+        std::unordered_set<std::string> defined_prods;
+        for (const auto& r : rseq->rules) {
+            defined_prods.insert(r.name);
+        }
+        for (const auto& r : rseq->rules) {
+            auto check_items = [&](const std::vector<RandSeqProdItem>& items) {
+                for (const auto& it : items) {
+                    if (!it.is_action_block) {
+                        if (!defined_prods.count(it.prod_name)) {
+                            throw std::runtime_error("Undefined production '" + it.prod_name + "' in randsequence per IEEE 1800-2023 18.17");
+                        }
+                    }
+                }
+            };
+            if (r.kind == RandSeqRuleKind::IF_ELSE) {
+                check_items(r.then_items);
+                check_items(r.else_items);
+            } else if (r.kind == RandSeqRuleKind::CASE) {
+                for (const auto& ci : r.case_items) check_items(ci.items);
+            } else if (r.kind == RandSeqRuleKind::REPEAT) {
+                check_items(r.repeat_items);
+            } else {
+                for (const auto& b : r.branches) check_items(b.items);
+            }
+        }
+
+        auto check_expr_vars = [&](ExpressionNode* expr) {
+            std::function<void(ExpressionNode*)> walk = [&](ExpressionNode* e) {
+                if (!e) return;
+                if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                    if (!is_declared_variable(id->name)) {
+                        throw std::runtime_error("Variable '" + id->name + "' not declared in randsequence per IEEE 1800-2023 18.17");
+                    }
+                } else if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
+                    walk(bin->lhs.get()); walk(bin->rhs.get());
+                } else if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
+                    walk(un->operand.get());
+                }
+            };
+            walk(expr);
+        };
+        for (const auto& r : rseq->rules) {
+            if (r.if_cond) check_expr_vars(r.if_cond.get());
+            if (r.case_expr) check_expr_vars(r.case_expr.get());
+            if (r.repeat_count) check_expr_vars(r.repeat_count.get());
+        }
+
         return rseq;
     }
 
@@ -2026,6 +2095,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (!comp_op.empty()) {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                if (current_scope_var_types.count(ident) && get_enum_typedef(current_scope_var_types[ident]) != nullptr) {
+                    throw std::runtime_error("Compound assignment to enum variable '" + ident + "' requires explicit cast per IEEE 1800-2023 6.19.4");
+                }
                 auto lhs_id = std::make_unique<IdentifierNode>(ident);
                 auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_id), std::move(rhs));
                 return std::make_unique<BlockingAssignNode>(ident, std::move(op_expr));
@@ -2041,6 +2113,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
             auto rhs = parse_expression();
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after blocking assignment");
+            if (current_scope_var_types.count(ident) && get_enum_typedef(current_scope_var_types[ident]) != nullptr) {
+                if (dynamic_cast<NumberNode*>(rhs.get()) || dynamic_cast<BinaryOpNode*>(rhs.get())) {
+                    throw std::runtime_error("Assigning numerical expression to enum variable '" + ident + "' without explicit cast is illegal per IEEE 1800-2023 6.19.3/6.19.4");
+                }
+            }
             auto node = std::make_unique<BlockingAssignNode>(ident, std::move(rhs), nullptr, intra_delay);
             if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
             return node;
@@ -2146,6 +2223,14 @@ std::unique_ptr<StatementNode> Parser::parse_if_statement(DecisionModifier mod, 
     expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if'");
     auto cond = parse_expression();
     expect(TokenType::TOKEN_RPAREN, "Expected ')' after 'if' condition");
+
+    if (in_randsequence_depth > 0) {
+        if (auto id = dynamic_cast<IdentifierNode*>(cond.get())) {
+            if (!is_declared_variable(id->name)) {
+                throw std::runtime_error("Variable '" + id->name + "' not declared in randsequence per IEEE 1800-2023 18.17");
+            }
+        }
+    }
 
     auto if_node = std::make_unique<IfStatementNode>(std::move(cond));
     if_node->modifier = mod;

@@ -886,6 +886,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        if (init_val.is_streaming && init_val.width > lv->width) {
+                            throw std::runtime_error("Stream is wider than assignment target (" + std::to_string(init_val.width) + " > " + std::to_string(lv->width) + ") per IEEE 1800-2023 11.4.14.3");
+                        }
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
@@ -1055,6 +1058,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                        if (init_val.is_streaming && init_val.width > lv->width) {
+                            throw std::runtime_error("Stream is wider than assignment target (" + std::to_string(init_val.width) + " > " + std::to_string(lv->width) + ") per IEEE 1800-2023 11.4.14.3");
+                        }
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
@@ -1233,6 +1239,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     LogicVal init_val = eval_expr(vdecl->init_expr.get(), bp.scope);
+                    if (init_val.is_streaming && init_val.width > lv->width) {
+                        throw std::runtime_error("Stream is wider than assignment target (" + std::to_string(init_val.width) + " > " + std::to_string(lv->width) + ") per IEEE 1800-2023 11.4.14.3");
+                    }
                     if (vdecl->type_name == "string") {
                         lv->value = init_val;
                     } else {
@@ -5216,9 +5225,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             if (assign->is_plus_colon) {
                                 lsb = msb_val.aval;
                                 slice_w = lsb_val.aval;
+                                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                                 msb = lsb + slice_w - 1;
                             } else if (assign->is_minus_colon) {
                                 slice_w = lsb_val.aval;
+                                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
                                 msb = msb_val.aval;
                                 lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
                             } else {

@@ -88,6 +88,7 @@ public:
         global_classes.clear();
         global_forward_classes.clear();
         global_forward_interface_classes.clear();
+        resolved_typedefs.clear();
     }
 
     bool is_package(const std::string& name) const {
@@ -106,9 +107,15 @@ public:
 
     static std::unordered_set<std::string> global_forward_classes;
     static std::unordered_set<std::string> global_forward_interface_classes;
+    inline static std::unordered_set<std::string> resolved_typedefs;
+    std::unordered_map<std::string, std::string> current_scope_var_types;
+    int in_randsequence_depth = 0;
     bool is_forward_class(const std::string& name) const;
+    bool is_forward_interface_class(const std::string& name) const;
 
+    ClassNode* current_parsing_class = nullptr;
     bool is_class(const std::string& name) const {
+        if (current_parsing_class && (current_parsing_class->name == name || (current_parsing_package && current_parsing_package->name + "::" + current_parsing_class->name == name))) return true;
         if (is_known_class(name)) return true;
         if (is_forward_class(name)) return true;
         if (class_map.find(name) != class_map.end()) return true;
@@ -123,6 +130,12 @@ public:
     std::unordered_set<std::string> forward_typedefs;
     void register_forward_type(const std::string& name);
     bool is_type_identifier(const std::string& name) const {
+        if (current_parsing_class) {
+            if (current_parsing_class->name == name) return true;
+            for (const auto& p : current_parsing_class->parameters) {
+                if (p.name == name) return true;
+            }
+        }
         return is_builtin_type_name(name) || is_typedef(name) || is_simple_typedef(name) || is_unpacked_array_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name) || forward_typedefs.find(name) != forward_typedefs.end();
     }
     std::unique_ptr<ClassNode> parse_class(bool is_interface_class = false, bool is_abstract = false);
@@ -230,6 +243,7 @@ public:
     std::unordered_map<std::string, SimpleTypedef> simple_typedef_map;
 
     bool is_simple_typedef(const std::string& name) const {
+        if (current_parsing_class && current_parsing_class->simple_typedefs.find(name) != current_parsing_class->simple_typedefs.end()) return true;
         if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
         if (current_parsing_module && current_parsing_module->simple_typedefs.find(name) != current_parsing_module->simple_typedefs.end()) return true;
         auto colon_pos = name.find("::");
@@ -259,6 +273,13 @@ public:
     }
 
     bool get_simple_typedef(const std::string& name, SimpleTypedef& out) const {
+        if (current_parsing_class) {
+            auto it = current_parsing_class->simple_typedefs.find(name);
+            if (it != current_parsing_class->simple_typedefs.end()) {
+                out = it->second;
+                return true;
+            }
+        }
         auto it = simple_typedef_map.find(name);
         if (it != simple_typedef_map.end()) {
             out = it->second;
@@ -554,7 +575,40 @@ public:
 
     static std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> global_let_decls;
     std::shared_ptr<PackageNode> current_parsing_package = nullptr;
+    FunctionNode* current_parsing_function = nullptr;
+    int in_fork_depth = 0;
     std::unordered_set<std::string> active_let_expansions;
+
+    bool is_declared_variable(const std::string& name) const {
+        if (current_scope_var_types.count(name)) return true;
+        for (auto it = local_var_scopes.rbegin(); it != local_var_scopes.rend(); ++it) {
+            if (it->count(name)) return true;
+        }
+        if (current_parsing_function) {
+            for (const auto& inp : current_parsing_function->inputs) {
+                if (inp.name == name) return true;
+            }
+        }
+        if (current_parsing_class) {
+            for (const auto& mv : current_parsing_class->member_vars) {
+                if (mv.name == name) return true;
+            }
+        }
+        if (current_parsing_module) {
+            for (const auto& s : current_parsing_module->signals) {
+                if (s.name == name) return true;
+            }
+            for (const auto& p : current_parsing_module->parameters) {
+                if (p.name == name) return true;
+            }
+        }
+        if (current_parsing_package) {
+            for (const auto& p : current_parsing_package->parameters) {
+                if (p.name == name) return true;
+            }
+        }
+        return false;
+    }
 
     std::vector<std::unordered_map<std::string, DeclaredVarInfo>> local_var_scopes;
 

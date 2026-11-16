@@ -437,6 +437,16 @@ ClassNode* Parser::find_class(const std::string& name) const {
     }
     auto it = class_map.find(name);
     if (it != class_map.end()) return it->second.get();
+    auto col = name.find("::");
+    if (col != std::string::npos) {
+        std::string pkg_name = name.substr(0, col);
+        std::string cls_name = name.substr(col + 2);
+        auto pit = global_packages.find(pkg_name);
+        if (pit != global_packages.end()) {
+            auto cit = pit->second->class_map.find(cls_name);
+            if (cit != pit->second->class_map.end()) return cit->second;
+        }
+    }
     for (const auto& c : global_classes) {
         if (c->name == name) return c.get();
     }
@@ -484,6 +494,43 @@ bool Parser::is_forward_class(const std::string& name) const {
     return false;
 }
 
+bool Parser::is_forward_interface_class(const std::string& name) const {
+    auto colon_pos = name.find("::");
+    if (colon_pos != std::string::npos) {
+        std::string pkg = name.substr(0, colon_pos);
+        std::string cls = name.substr(colon_pos + 2);
+        auto pit = global_packages.find(pkg);
+        if (pit != global_packages.end()) {
+            if (pit->second->forward_interface_classes.count(cls)) return true;
+        }
+        return false;
+    }
+
+    if (current_parsing_package) {
+        if (current_parsing_package->forward_interface_classes.count(name)) return true;
+    }
+    if (current_parsing_module) {
+        if (current_parsing_module->forward_interface_classes.count(name)) return true;
+        for (const auto& w : current_parsing_module->wildcard_imports) {
+            auto pit = global_packages.find(w);
+            if (pit != global_packages.end()) {
+                if (pit->second->forward_interface_classes.count(name)) return true;
+            }
+        }
+    }
+    if (global_forward_interface_classes.count(name)) return true;
+    for (const auto& w : global_wildcard_imports) {
+        auto pit = global_packages.find(w);
+        if (pit != global_packages.end()) {
+            if (pit->second->forward_interface_classes.count(name)) return true;
+        }
+    }
+    for (const auto& p : global_packages) {
+        if (p.second->forward_interface_classes.count(name)) return true;
+    }
+    return false;
+}
+
 bool Parser::is_known_class(const std::string& name) const {
     if (name == "process") return true;
     if (find_class(name) != nullptr) return true;
@@ -509,6 +556,62 @@ void Parser::parse_packages_only() {
             if (udp) {
                 global_udp_defs[udp->name] = udp;
             }
+        } else if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
+            bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
+            advance();
+            std::string ptype = "";
+            while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
+                   current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
+                   current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
+                   current.type == TokenType::TOKEN_BIT ||
+                   (!ptype.empty() ? false : is_type_identifier(current.text)) ||
+                   (current.type == TokenType::TOKEN_IDENTIFIER && 
+                    (current.text == "int" || current.text == "byte" || current.text == "shortint" || 
+                     current.text == "longint" || current.text == "unsigned" || current.text == "signed" ||
+                     current.text == "string" || current.text == "real" || current.text == "chandle" ||
+                     peek_token().type == TokenType::TOKEN_IDENTIFIER ||
+                     peek_token().type == TokenType::TOKEN_UNSIGNED ||
+                     peek_token().type == TokenType::TOKEN_SIGNED))) {
+                if (ptype.empty()) ptype = current.text;
+                advance();
+                if (current.type == TokenType::TOKEN_LBRACKET) {
+                    advance();
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                }
+            }
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                parse_expression();
+                if (match(TokenType::TOKEN_COLON)) {
+                    parse_expression();
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+            }
+
+            while (true) {
+                std::string pname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        parse_expression();
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                }
+                expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
+                auto val_expr = parse_expression();
+
+                ParameterDef pdef(pname, std::move(val_expr), is_local, ptype);
+                global_parameters.push_back(std::move(pdef));
+
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after parameter declaration");
+            continue;
         } else if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
             if (td) {
@@ -605,6 +708,13 @@ void Parser::parse_packages_only() {
             expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after class name");
             std::string cname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected constraint name");
+            ClassNode* target_cls = find_class(class_name);
+            if (target_cls) {
+                auto it_c = target_cls->constraint_map.find(cname);
+                if (it_c != target_cls->constraint_map.end()) {
+                    it_c->second->is_extern = false;
+                }
+            }
             expect(TokenType::TOKEN_LBRACE, "Expected '{' after constraint name");
             int cdepth = 1;
             while (cdepth > 0 && current.type != TokenType::TOKEN_EOF) {

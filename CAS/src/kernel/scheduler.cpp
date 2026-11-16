@@ -331,6 +331,9 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
                     }
                     asrt.threads.push_back(new_th);
                 }
+            } else if (!asrt.consequent) {
+                new_th.state = SvaThreadState::FAILED;
+                asrt.threads.push_back(new_th);
             }
         }
 
