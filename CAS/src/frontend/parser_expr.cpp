@@ -1220,6 +1220,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 if (match(TokenType::TOKEN_LPAREN)) {
                     std::string idx_str = "0";
                     if (auto num = dynamic_cast<NumberNode*>(msb.get())) idx_str = std::to_string(num->aval);
+                    else if (auto id = dynamic_cast<IdentifierNode*>(msb.get())) idx_str = id->name;
                     std::string path = name + "[" + idx_str + "]";
                     auto parsed = parse_call_argument_list();
                     std::unique_ptr<ExpressionNode> with_expr = nullptr;
@@ -1232,6 +1233,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 } else if (match(TokenType::TOKEN_WITH)) {
                     std::string idx_str = "0";
                     if (auto num = dynamic_cast<NumberNode*>(msb.get())) idx_str = std::to_string(num->aval);
+                    else if (auto id = dynamic_cast<IdentifierNode*>(msb.get())) idx_str = id->name;
                     std::string path = name + "[" + idx_str + "]";
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
                     auto with_expr = parse_expression();

@@ -354,11 +354,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
+            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
+                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -378,6 +381,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -524,11 +528,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
+            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
+                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -548,6 +555,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -1179,6 +1187,71 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
             if (is_prog && (current.type == TokenType::TOKEN_MODULE || current.type == TokenType::TOKEN_INTERFACE || current.type == TokenType::TOKEN_PROGRAM)) {
                 throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program declaration is illegal in program scope per IEEE 1800-2023 section 24.3");
+            }
+            if (current.type == TokenType::TOKEN_MODULE || (current.type == TokenType::TOKEN_INTERFACE && peek_token().type != TokenType::TOKEN_CLASS)) {
+                // Nested module or interface declaration (IEEE 1800-2023 §23.4)
+                advance();
+                std::string nested_name = "";
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    nested_name = current.text;
+                    advance();
+                }
+                std::string nested_tu = "", nested_tp = "";
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
+                match(TokenType::TOKEN_SEMICOLON);
+                int nest_depth = 1;
+                while (nest_depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_MODULE || (current.type == TokenType::TOKEN_INTERFACE && peek_token().type != TokenType::TOKEN_CLASS)) {
+                        nest_depth++;
+                    } else if (current.type == TokenType::TOKEN_ENDMODULE || current.type == TokenType::TOKEN_ENDINTERFACE) {
+                        nest_depth--;
+                        if (nest_depth == 0) {
+                            advance();
+                            break;
+                        }
+                    } else if (current.type == TokenType::TOKEN_TIMEUNIT) {
+                        advance();
+                        if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NUMBER) {
+                            nested_tu = current.text;
+                            advance();
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                                nested_tu += current.text;
+                                advance();
+                            }
+                            if (match(TokenType::TOKEN_SLASH)) {
+                                if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NUMBER) {
+                                    nested_tp = current.text;
+                                    advance();
+                                    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                                        nested_tp += current.text;
+                                        advance();
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    } else if (current.type == TokenType::TOKEN_TIMEPRECISION) {
+                        advance();
+                        if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_NUMBER) {
+                            nested_tp = current.text;
+                            advance();
+                            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                                nested_tp += current.text;
+                                advance();
+                            }
+                            continue;
+                        }
+                    }
+                    advance();
+                }
+                if (!nested_name.empty()) {
+                    mod->nested_timescales[nested_name] = {nested_tu, nested_tp};
+                }
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+                match(TokenType::TOKEN_SEMICOLON);
+                continue;
             }
             if (current.type == TokenType::TOKEN_PROGRAM) {
                 advance(); // consume 'program'
@@ -1896,10 +1969,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
-                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                        init_proc->is_decl_init = true;
-                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                        mod->processes.push_back(std::move(init_proc));
+                        if (sig.net_kind == NetKind::VAR) {
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        } else {
+                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        }
                     }
                     mod->signals.push_back(std::move(sig));
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2098,10 +2176,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
-                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                        init_proc->is_decl_init = true;
-                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                        mod->processes.push_back(std::move(init_proc));
+                        if (sig.net_kind == NetKind::VAR) {
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        } else {
+                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        }
                     }
                     mod->signals.push_back(std::move(sig));
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2259,10 +2342,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
                         }
                         sig.default_value = init_expr->clone();
-                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                        init_proc->is_decl_init = true;
-                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                        mod->processes.push_back(std::move(init_proc));
+                        if (sig.net_kind == NetKind::VAR) {
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        } else {
+                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        }
                     }
 
                     bool is_port = false;
@@ -2574,10 +2662,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
                         }
                         sig.default_value = init_expr->clone();
-                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                        init_proc->is_decl_init = true;
-                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                        mod->processes.push_back(std::move(init_proc));
+                        if (sig.net_kind == NetKind::VAR) {
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                            mod->processes.push_back(std::move(init_proc));
+                        } else {
+                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        }
                     }
 
                     bool is_port = false;
@@ -7174,11 +7267,14 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
+            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
+                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -7198,6 +7294,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
+            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -7428,12 +7525,15 @@ std::shared_ptr<ConfigNode> Parser::parse_config() {
 std::shared_ptr<LoopGenerateNode> Parser::parse_generate_for(ModuleNode* mod) {
     expect(TokenType::TOKEN_FOR, "Expected 'for' in loop generate");
     expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");
+    bool inline_genvar = false;
     if (match(TokenType::TOKEN_GENVAR)) {
-        // inline genvar
+        inline_genvar = true;
     }
     std::string gname = current.text;
     expect(TokenType::TOKEN_IDENTIFIER, "Expected genvar identifier in for loop header");
-    mod->genvars.insert(gname);
+    if (!inline_genvar) {
+        mod->genvars.insert(gname);
+    }
     expect(TokenType::TOKEN_EQUAL, "Expected '=' in for loop header");
     auto init_e = parse_expression();
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for loop init");

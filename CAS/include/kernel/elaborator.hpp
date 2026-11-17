@@ -258,6 +258,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, const CovergroupNode*> covergroup_defs;
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> timescale_map;
     std::vector<SvaAssertionInstance> sva_assertions;
     std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
     std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;
@@ -298,7 +299,10 @@ private:
     std::vector<NetAliasPair> alias_pairs;
 
     size_t get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed = false, NetKind kind = NetKind::WIRE);
-    uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope, const std::unordered_map<std::string, uint64_t>* local_env = nullptr);
+    uint64_t eval_const_expr(ExpressionNode* expr, const std::string& scope,
+                             const std::unordered_map<std::string, uint64_t>* local_env = nullptr,
+                             const std::unordered_map<std::string, bool>* local_signed = nullptr,
+                             const std::unordered_map<std::string, uint32_t>* local_width = nullptr);
     uint64_t eval_bits(ExpressionNode* expr, const std::string& scope);
     uint32_t deduce_expr_width(ExpressionNode* expr, const std::string& scope);
     NetSliceRef resolve_slice_ref(ExpressionNode* expr, const std::string& scope);
@@ -345,6 +349,7 @@ private:
     std::unordered_map<std::string, std::string> active_cell_rebind_map;
     std::unordered_set<std::string> valid_instance_paths;
     std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> defparam_overrides;
+    std::unordered_map<std::string, std::unordered_map<std::string, LogicVal>> defparam_val_overrides;
     std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
     const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
     bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb) const;

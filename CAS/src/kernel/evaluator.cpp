@@ -2017,6 +2017,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        if (tcall->task_name == "$printtimescale") {
+            std::string target_name = "";
+            if (!tcall->args.empty() && tcall->args[0]) {
+                if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[0].get())) {
+                    target_name = id->name;
+                } else if (auto ma = dynamic_cast<MemberAccessNode*>(tcall->args[0].get())) {
+                    target_name = ma->var_name + "." + ma->member_name;
+                }
+            }
+            if (target_name.empty()) target_name = bp.scope;
+            auto it = engine.timescale_map.find(target_name);
+            if (it == engine.timescale_map.end()) {
+                if (!bp.scope.empty()) it = engine.timescale_map.find(bp.scope + "." + target_name);
+            }
+            if (it != engine.timescale_map.end()) {
+                std::cout << "Time scale of (" << target_name << ") is " << it->second.first << " / " << it->second.second << "\n";
+            } else {
+                std::cout << "Time scale of (" << target_name << ") is " << Lexer::global_time_unit_str << " / " << Lexer::global_time_precision_str << "\n";
+            }
+            return;
+        }
+
         if (tcall->task_name == "$readmemh" || tcall->task_name == "$readmemb") {
             if (tcall->args.size() < 2) return;
             bool is_hex = (tcall->task_name == "$readmemh");

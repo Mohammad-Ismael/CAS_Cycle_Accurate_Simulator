@@ -946,7 +946,7 @@ Token Lexer::next_token() {
         } else if (next_c == 's' || next_c == 'S') {
             char after_s = '\0';
             if (!file_stack.empty()) {
-                size_t cur = file_stack.back().cursor;
+                size_t cur = file_stack.back().cursor + 1;
                 const auto& src = file_stack.back().src;
                 size_t cur2 = cur + ap_ws + 1;
                 while (cur2 < src.size() && (src[cur2] == ' ' || src[cur2] == '\t')) cur2++;
@@ -977,7 +977,11 @@ Token Lexer::next_token() {
                 advance();
             }
             auto pnum = NumberParser::parse_sized_literal(32, is_signed, base, digits);
-            return {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval};
+            Token tok = {TokenType::TOKEN_NUMBER, pnum.text, pnum.aval, pnum.width, cur_file, cur_line, pnum.bval, false, 0.0, pnum.is_signed};
+            tok.is_sized = false;
+            tok.wide_aval = pnum.wide_aval;
+            tok.wide_bval = pnum.wide_bval;
+            return tok;
         }
         advance();
         return {TokenType::TOKEN_APOSTROPHE, "'", 0, 0, cur_file, cur_line, 0};

@@ -23,6 +23,8 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     if (!target_fn) return false;
 
     std::string frame_name = func_name + "__call";
+    auto fn_dot = func_name.rfind('.');
+    std::string fn_scope = !target_fn->scope.empty() ? target_fn->scope : (fn_dot != std::string::npos ? func_name.substr(0, fn_dot) : "");
     context.push_frame(frame_name);
     if (context.depth() > 100) {
         result_out = LogicVal::make_x(target_fn->return_width);
@@ -164,7 +166,7 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
                 context.set_local_value(in_p.name, arg_vals[i]);
             }
         } else if (in_p.default_value) {
-            LogicVal def_v = eval(in_p.default_value.get(), target_fn->scope);
+            LogicVal def_v = eval(in_p.default_value.get(), fn_scope);
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv && lv->is_unpacked_array && def_v.is_unpacked) {
                 lv->unpacked_elements = def_v.unpacked_elements;
@@ -765,10 +767,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto aqn = dynamic_cast<ArrayQueryNode*>(expr)) {
         std::string var_name = "";
+        bool is_index_select = false;
         if (auto id = dynamic_cast<IdentifierNode*>(aqn->array_expr.get())) {
             var_name = id->name;
         } else if (auto ma = dynamic_cast<MemberAccessNode*>(aqn->array_expr.get())) {
             var_name = ma->var_name + "." + ma->member_name;
+        } else if (auto idx = dynamic_cast<IndexSelectNode*>(aqn->array_expr.get())) {
+            var_name = idx->name;
+            is_index_select = true;
         }
 
         VariableDimMetadata meta;
@@ -945,6 +951,37 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 meta = *tmeta;
                 found = true;
             }
+        }
+
+        if (!found && !var_name.empty()) {
+            std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+            LogicVal pval;
+            bool has_pval = false;
+            if (engine.param_val_map.count(scoped_var)) {
+                pval = engine.param_val_map.at(scoped_var);
+                has_pval = true;
+            } else if (engine.param_val_map.count(var_name)) {
+                pval = engine.param_val_map.at(var_name);
+                has_pval = true;
+            } else if (engine.param_map.count(scoped_var)) {
+                pval = LogicVal::make_known(32, engine.param_map.at(scoped_var));
+                has_pval = true;
+            } else if (engine.param_map.count(var_name)) {
+                pval = LogicVal::make_known(32, engine.param_map.at(var_name));
+                has_pval = true;
+            }
+            if (has_pval) {
+                uint32_t w = pval.width > 0 ? pval.width : 32;
+                meta.dimensions.push_back({(int64_t)w - 1, 0, false, false, false});
+                meta.unpacked_dims = 0;
+                meta.is_vector_or_array = true;
+                found = true;
+            }
+        }
+
+        if (found && is_index_select && !meta.dimensions.empty()) {
+            meta.dimensions.erase(meta.dimensions.begin());
+            if (meta.unpacked_dims > 0) meta.unpacked_dims--;
         }
 
         // Diagnostic enforcement: non-array / non-vector variables
@@ -2545,6 +2582,45 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (!found_target && current_this && current_this->has_property(var_name)) {
                 str_val = current_this->get_property(var_name);
                 found_target = true;
+            }
+
+            if (!found_target) {
+                std::string cur_s = scope;
+                while (true) {
+                    std::string s_id = cur_s.empty() ? var_name : (cur_s + "." + var_name);
+                    if (engine.param_val_map.count(s_id)) {
+                        str_val = engine.param_val_map.at(s_id);
+                        var_tname = "string";
+                        found_target = true;
+                        break;
+                    }
+                    if (cur_s.empty()) break;
+                    auto d = cur_s.rfind('.');
+                    if (d == std::string::npos) cur_s.clear();
+                    else cur_s = cur_s.substr(0, d);
+                }
+            }
+
+            if (!found_target) {
+                size_t b_open = var_name.find('[');
+                if (b_open != std::string::npos && var_name.back() == ']') {
+                    std::string base_id = var_name.substr(0, b_open);
+                    std::string idx_str = var_name.substr(b_open + 1, var_name.size() - b_open - 2);
+                    std::unique_ptr<ExpressionNode> idx_expr;
+                    if (!idx_str.empty() && (std::isdigit(idx_str[0]) || idx_str[0] == '-')) {
+                        idx_expr = std::make_unique<NumberNode>(std::stoll(idx_str), 32);
+                    } else if (!idx_str.empty()) {
+                        idx_expr = std::make_unique<IdentifierNode>(idx_str);
+                    }
+                    if (idx_expr) {
+                        try {
+                            IndexSelectNode isn(base_id, std::move(idx_expr));
+                            str_val = eval(&isn, scope);
+                            var_tname = "string";
+                            found_target = true;
+                        } catch (...) {}
+                    }
+                }
             }
 
             if (!found_target || (!str_val.is_string && var_tname != "string")) {
@@ -7614,12 +7690,16 @@ LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node
     }
 
     std::string var_name = "";
+    bool is_index_select = false;
     if (!node->type_name_arg.empty()) {
         var_name = node->type_name_arg;
     } else if (auto id = dynamic_cast<IdentifierNode*>(node->target.get())) {
         var_name = id->name;
     } else if (auto ma = dynamic_cast<MemberAccessNode*>(node->target.get())) {
         var_name = ma->var_name + "." + ma->member_name;
+    } else if (auto idx = dynamic_cast<IndexSelectNode*>(node->target.get())) {
+        var_name = idx->name;
+        is_index_select = true;
     }
 
     VariableDimMetadata meta;
@@ -7749,6 +7829,38 @@ LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node
         }
     }
 
+    // 10. Check engine.param_val_map and engine.param_map
+    if (!found && !var_name.empty()) {
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        LogicVal pval;
+        bool has_pval = false;
+        if (engine.param_val_map.count(scoped_var)) {
+            pval = engine.param_val_map.at(scoped_var);
+            has_pval = true;
+        } else if (engine.param_val_map.count(var_name)) {
+            pval = engine.param_val_map.at(var_name);
+            has_pval = true;
+        } else if (engine.param_map.count(scoped_var)) {
+            pval = LogicVal::make_known(32, engine.param_map.at(scoped_var));
+            has_pval = true;
+        } else if (engine.param_map.count(var_name)) {
+            pval = LogicVal::make_known(32, engine.param_map.at(var_name));
+            has_pval = true;
+        }
+        if (has_pval) {
+            uint32_t w = pval.width > 0 ? pval.width : 32;
+            meta.dimensions.push_back({(int64_t)w - 1, 0, false, false, false});
+            meta.unpacked_dims = 0;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    if (found && is_index_select && !meta.dimensions.empty()) {
+        meta.dimensions.erase(meta.dimensions.begin());
+        if (meta.unpacked_dims > 0) meta.unpacked_dims--;
+    }
+
     if (!found || !meta.is_vector_or_array || meta.dimensions.empty()) {
         throw std::runtime_error("[CAS-DTINPCIL] Illegal first argument to array query system function; please pass an array identifier or array data type");
     }
@@ -7762,11 +7874,15 @@ LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node
 
 LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const std::string& scope) {
     std::string var_name = node->type_name_arg;
+    bool is_index_select = false;
     if (var_name.empty()) {
         if (auto id = dynamic_cast<IdentifierNode*>(node->target.get())) {
             var_name = id->name;
         } else if (auto ma = dynamic_cast<MemberAccessNode*>(node->target.get())) {
             var_name = ma->var_name + "." + ma->member_name;
+        } else if (auto idx = dynamic_cast<IndexSelectNode*>(node->target.get())) {
+            var_name = idx->name;
+            is_index_select = true;
         }
     }
 
@@ -7924,6 +8040,38 @@ LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const 
             }
             pos = epos + 1;
         }
+    }
+
+    // 10. Check engine.param_val_map and engine.param_map
+    if (!found && !var_name.empty()) {
+        std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+        LogicVal pval;
+        bool has_pval = false;
+        if (engine.param_val_map.count(scoped_var)) {
+            pval = engine.param_val_map.at(scoped_var);
+            has_pval = true;
+        } else if (engine.param_val_map.count(var_name)) {
+            pval = engine.param_val_map.at(var_name);
+            has_pval = true;
+        } else if (engine.param_map.count(scoped_var)) {
+            pval = LogicVal::make_known(32, engine.param_map.at(scoped_var));
+            has_pval = true;
+        } else if (engine.param_map.count(var_name)) {
+            pval = LogicVal::make_known(32, engine.param_map.at(var_name));
+            has_pval = true;
+        }
+        if (has_pval) {
+            uint32_t w = pval.width > 0 ? pval.width : 32;
+            meta.dimensions.push_back({(int64_t)w - 1, 0, false, false, false});
+            meta.unpacked_dims = 0;
+            meta.is_vector_or_array = true;
+            found = true;
+        }
+    }
+
+    if (found && is_index_select && !meta.dimensions.empty()) {
+        meta.dimensions.erase(meta.dimensions.begin());
+        if (meta.unpacked_dims > 0) meta.unpacked_dims--;
     }
 
     if (!found || !meta.is_vector_or_array || meta.dimensions.empty()) {

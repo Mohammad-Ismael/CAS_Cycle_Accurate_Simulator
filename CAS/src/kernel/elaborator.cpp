@@ -811,7 +811,10 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
     return 32;
 }
 
-uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& scope, const std::unordered_map<std::string, uint64_t>* local_env) {
+uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& scope,
+                                     const std::unordered_map<std::string, uint64_t>* local_env,
+                                     const std::unordered_map<std::string, bool>* local_signed,
+                                     const std::unordered_map<std::string, uint32_t>* local_width) {
     if (!expr) return 0;
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
         return num->aval;
@@ -870,6 +873,44 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         return eval_const_logic_val(idx, scope).aval;
     }
     if (auto scst = dynamic_cast<StaticCastExprNode*>(expr)) {
+        if (local_env) {
+            uint64_t val = eval_const_expr(scst->expr.get(), scope, local_env, local_signed, local_width);
+            if (scst->kind == CastKind::SIZE) {
+                uint32_t width = scst->target_width;
+                if (width == 0 && !scst->target_type_name.empty()) {
+                    if (local_env->count(scst->target_type_name)) {
+                        width = (uint32_t)local_env->at(scst->target_type_name);
+                    } else if (result.param_map.count(scst->target_type_name)) {
+                        width = (uint32_t)result.param_map.at(scst->target_type_name);
+                    }
+                }
+                bool is_s = false;
+                uint32_t orig_w = 0;
+                if (auto id = dynamic_cast<IdentifierNode*>(scst->expr.get())) {
+                    if (local_signed && local_signed->count(id->name)) is_s = local_signed->at(id->name);
+                    if (local_width && local_width->count(id->name)) orig_w = local_width->at(id->name);
+                } else if (auto num = dynamic_cast<NumberNode*>(scst->expr.get())) {
+                    is_s = num->is_signed;
+                    orig_w = num->width;
+                }
+                if (is_s && orig_w > 0 && width > orig_w && orig_w < 64) {
+                    if (val & (1ULL << (orig_w - 1))) {
+                        val |= (~0ULL << orig_w);
+                    }
+                }
+                uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                return val & mask;
+            }
+            if (scst->kind == CastKind::TYPE) {
+                std::string target_type = scst->target_type_name;
+                if (target_type == "byte") return (int64_t)(int8_t)val;
+                if (target_type == "shortint") return (int64_t)(int16_t)val;
+                if (target_type == "int") return (int64_t)(int32_t)val;
+                if (target_type == "longint") return val;
+                if (target_type == "bit" || target_type == "logic" || target_type == "reg") return val & 1;
+            }
+            return val;
+        }
         return eval_const_logic_val(scst, scope).aval;
     }
     if (auto cst = dynamic_cast<CastNode*>(expr)) {
@@ -907,9 +948,60 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             return eq ? 0 : 1;
         }
 
-        uint64_t l = eval_const_expr(bin->lhs.get(), scope, local_env);
-        uint64_t r = eval_const_expr(bin->rhs.get(), scope, local_env);
-        if (bin->op == "+") return l + r;
+        uint64_t l = eval_const_expr(bin->lhs.get(), scope, local_env, local_signed, local_width);
+        uint64_t r = eval_const_expr(bin->rhs.get(), scope, local_env, local_signed, local_width);
+        if (bin->op == "+") {
+            auto get_expr_info = [&](ExpressionNode* e, uint32_t& w, bool& sgn) {
+                w = 32;
+                sgn = false;
+                if (auto num = dynamic_cast<NumberNode*>(e)) {
+                    w = num->width;
+                    sgn = num->is_signed;
+                    return;
+                }
+                if (auto sc = dynamic_cast<StaticCastExprNode*>(e)) {
+                    w = sc->target_width;
+                    if (auto id = dynamic_cast<IdentifierNode*>(sc->expr.get())) {
+                        if (local_signed && local_signed->count(id->name)) {
+                            sgn = local_signed->at(id->name);
+                        }
+                    }
+                    return;
+                }
+                if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                    if (local_signed && local_signed->count(id->name)) sgn = local_signed->at(id->name);
+                    if (local_width && local_width->count(id->name)) w = local_width->at(id->name);
+                    return;
+                }
+            };
+            uint32_t lw = 32, rw = 32;
+            bool ls = false, rs = false;
+            get_expr_info(bin->lhs.get(), lw, ls);
+            get_expr_info(bin->rhs.get(), rw, rs);
+            if (ls && rs) {
+                int64_t sl = (lw < 64 && (l & (1ULL << (lw - 1)))) ? (int64_t)(l | (~0ULL << lw)) : (int64_t)l;
+                int64_t sr = (rw < 64 && (r & (1ULL << (rw - 1)))) ? (int64_t)(r | (~0ULL << rw)) : (int64_t)r;
+                return (uint64_t)(sl + sr);
+            } else {
+                if (auto sc = dynamic_cast<StaticCastExprNode*>(bin->lhs.get())) {
+                    if (sc->kind == CastKind::SIZE && sc->target_width > 0) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(sc->expr.get())) {
+                            if (local_signed && local_signed->count(id->name) && local_signed->at(id->name)) {
+                                uint32_t orig_w = (local_width && local_width->count(id->name)) ? local_width->at(id->name) : 0;
+                                if (sc->target_width > orig_w && orig_w > 0) {
+                                    uint64_t orig_val = eval_const_expr(sc->expr.get(), scope, local_env, local_signed, local_width);
+                                    if (orig_val & (1ULL << (orig_w - 1))) {
+                                        uint64_t mask = (sc->target_width >= 64) ? ~0ULL : ((1ULL << sc->target_width) - 1);
+                                        l = (orig_val | (~0ULL << orig_w)) & mask;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return l + r;
+            }
+        }
         if (bin->op == "-") return (l >= r) ? (l - r) : 0;
         if (bin->op == "*") return l * r;
         if (bin->op == "**") {
@@ -1232,17 +1324,33 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
 
         if (target_fn) {
             std::unordered_map<std::string, uint64_t> fn_env;
+            std::unordered_map<std::string, bool> fn_signed;
+            std::unordered_map<std::string, uint32_t> fn_width;
             for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
                 const auto& in_p = target_fn->inputs[i];
                 uint64_t arg_val = 0;
                 if (i < fc->args.size() && fc->args[i]) {
-                    arg_val = eval_const_expr(fc->args[i].get(), scope, local_env);
+                    arg_val = eval_const_expr(fc->args[i].get(), scope, local_env, local_signed, local_width);
                 } else if (in_p.default_value) {
-                    arg_val = eval_const_expr(in_p.default_value.get(), scope, &fn_env);
+                    arg_val = eval_const_expr(in_p.default_value.get(), scope, &fn_env, &fn_signed, &fn_width);
                 }
                 fn_env[in_p.name] = arg_val;
+                fn_signed[in_p.name] = in_p.is_signed;
+                uint32_t w = in_p.width;
+                if (w == 0) {
+                    if (in_p.msb_expr) {
+                        uint64_t m = eval_const_expr(in_p.msb_expr.get(), scope);
+                        uint64_t l = in_p.lsb_expr ? eval_const_expr(in_p.lsb_expr.get(), scope) : 0;
+                        w = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                    } else {
+                        w = 1;
+                    }
+                }
+                fn_width[in_p.name] = w;
             }
             fn_env[target_fn->name] = 0;
+            fn_signed[target_fn->name] = target_fn->return_signed;
+            fn_width[target_fn->name] = target_fn->return_width;
 
             bool returned = false;
             uint64_t ret_val = 0;
@@ -1250,7 +1358,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 if (!s || returned) return;
                 if (auto ret = dynamic_cast<ReturnStatementNode*>(s)) {
                     if (ret->expr) {
-                        ret_val = eval_const_expr(ret->expr.get(), scope, &fn_env);
+                        ret_val = eval_const_expr(ret->expr.get(), scope, &fn_env, &fn_signed, &fn_width);
                         fn_env[target_fn->name] = ret_val;
                     } else {
                         ret_val = fn_env[target_fn->name];
@@ -1259,7 +1367,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                     return;
                 }
                 if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
-                    uint64_t rhs_val = eval_const_expr(ba->rhs.get(), scope, &fn_env);
+                    uint64_t rhs_val = eval_const_expr(ba->rhs.get(), scope, &fn_env, &fn_signed, &fn_width);
                     if (!ba->lhs_targets.empty()) {
                         fn_env[ba->lhs_targets[0]] = rhs_val;
                     }
@@ -1268,13 +1376,15 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 if (auto vd = dynamic_cast<VarDeclStatementNode*>(s)) {
                     uint64_t init_val = 0;
                     if (vd->init_expr) {
-                        init_val = eval_const_expr(vd->init_expr.get(), scope, &fn_env);
+                        init_val = eval_const_expr(vd->init_expr.get(), scope, &fn_env, &fn_signed, &fn_width);
                     }
                     fn_env[vd->var_name] = init_val;
+                    fn_signed[vd->var_name] = vd->is_signed;
+                    fn_width[vd->var_name] = vd->width;
                     return;
                 }
                 if (auto if_s = dynamic_cast<IfStatementNode*>(s)) {
-                    uint64_t cond = eval_const_expr(if_s->condition.get(), scope, &fn_env);
+                    uint64_t cond = eval_const_expr(if_s->condition.get(), scope, &fn_env, &fn_signed, &fn_width);
                     if (cond != 0) {
                         for (auto& st : if_s->then_branch) {
                             eval_const_stmt(st.get());
@@ -2836,6 +2946,17 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
 
+    std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : Lexer::global_time_unit_str;
+    std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : Lexer::global_time_precision_str;
+    result.timescale_map[mod->name] = {eff_tu, eff_tp};
+    result.timescale_map[scope] = {eff_tu, eff_tp};
+    for (const auto& kv : mod->nested_timescales) {
+        std::string ntu = !kv.second.first.empty() ? kv.second.first : eff_tu;
+        std::string ntp = !kv.second.second.empty() ? kv.second.second : eff_tp;
+        result.timescale_map[mod->name + "." + kv.first] = {ntu, ntp};
+        result.timescale_map[scope + "." + kv.first] = {ntu, ntp};
+    }
+
     // Bind wildcard package imports
     for (const auto& pkg_name : mod->wildcard_imports) {
         auto it = Parser::global_packages.find(pkg_name);
@@ -3005,7 +3126,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 auto dp_it = dp_inst_it->second.find(p.name);
                 if (dp_it != dp_inst_it->second.end()) {
                     val = dp_it->second;
-                    lval = LogicVal::make_known(32, val);
+                    if (defparam_val_overrides.count(scope) && defparam_val_overrides.at(scope).count(p.name)) {
+                        lval = defparam_val_overrides.at(scope).at(p.name);
+                    } else {
+                        lval = LogicVal::make_known(32, val);
+                    }
                     overridden = true;
                 }
             }
@@ -3712,11 +3837,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             result.netlist[sid].is_vectored = s.is_vectored || mod->vectored_signals.count(s.name);
             if (s.default_value) {
-                uint64_t init_val = eval_const_expr(s.default_value.get(), scope);
-                LogicVal iv = LogicVal(w, init_val, 0);
-                result.netlist[sid].value = iv;
-                result.netlist[sid].prev_value = iv;
-                result.netlist[sid].modified = false;
+                try {
+                    uint64_t init_val = eval_const_expr(s.default_value.get(), scope);
+                    LogicVal iv = LogicVal(w, init_val, 0);
+                    result.netlist[sid].value = iv;
+                    result.netlist[sid].prev_value = iv;
+                    result.netlist[sid].modified = false;
+                } catch (...) {
+                    // Non-constant default value or initialization expression
+                }
             } else if (!s.type_name.empty()) {
                 const PackedStructType* st = find_struct_type(s.type_name, scope);
                 if (st) {
@@ -4935,6 +5064,21 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
         }
 
         if (module_defs.find(effective_mod_type) == module_defs.end()) {
+            if (Parser::global_udp_defs.find(effective_mod_type) != Parser::global_udp_defs.end()) {
+                GateInstance gi;
+                gi.type = GateType::UDP;
+                gi.scope = scope;
+                gi.instance_name = inst->instance_name;
+                gi.udp_name = effective_mod_type;
+                if (!inst->connections.empty() && inst->connections[0].expr) {
+                    gi.out_target = resolve_slice_ref(inst->connections[0].expr.get(), scope);
+                    for (size_t i = 1; i < inst->connections.size(); ++i) {
+                        if (inst->connections[i].expr) gi.in_exprs.push_back(inst->connections[i].expr.get());
+                    }
+                }
+                result.gates.push_back(gi);
+                return;
+            }
             throw std::runtime_error("Undefined module type instantiated: " + effective_mod_type);
         }
         ModuleNode* submod = module_defs.at(effective_mod_type);
@@ -6013,6 +6157,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     }
 
     defparam_overrides.clear();
+    defparam_val_overrides.clear();
 
     // Map instance hierarchy across the design tree starting at top
     std::unordered_map<std::string, ModuleNode*> instance_to_module;
@@ -6135,12 +6280,16 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     for (int pass = 0; pass < 10 && changed; ++pass) {
         changed = false;
         for (const auto& rdp : resolved_defparams) {
-            uint64_t val = eval_const_expr(rdp.expr, rdp.declaring_scope);
+            LogicVal lval = eval_const_logic_val(rdp.expr, rdp.declaring_scope);
+            uint64_t val = lval.aval;
             auto& inst_map = defparam_overrides[rdp.target_inst_scope];
+            auto& inst_val_map = defparam_val_overrides[rdp.target_inst_scope];
             auto it = inst_map.find(rdp.target_param);
-            if (it == inst_map.end() || it->second != val) {
+            if (it == inst_map.end() || it->second != val || inst_val_map[rdp.target_param] != lval) {
                 inst_map[rdp.target_param] = val;
+                inst_val_map[rdp.target_param] = lval;
                 result.param_map[rdp.target_inst_scope + "." + rdp.target_param] = val;
+                result.param_val_map[rdp.target_inst_scope + "." + rdp.target_param] = lval;
                 changed = true;
             }
         }
@@ -6149,7 +6298,11 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     if (debug_out) {
         for (const auto& kv : defparam_overrides) {
             for (const auto& p : kv.second) {
-                *debug_out << "  -> Defparam applied: " << kv.first << "." << p.first << " = " << p.second << "\n";
+                if (defparam_val_overrides.count(kv.first) && defparam_val_overrides.at(kv.first).count(p.first) && defparam_val_overrides.at(kv.first).at(p.first).is_string) {
+                    *debug_out << "  -> Defparam applied: " << kv.first << "." << p.first << " = \"" << defparam_val_overrides.at(kv.first).at(p.first).str_val << "\"\n";
+                } else {
+                    *debug_out << "  -> Defparam applied: " << kv.first << "." << p.first << " = " << p.second << "\n";
+                }
             }
         }
     }

@@ -1101,6 +1101,7 @@ struct ModuleNode : public ASTNode {
     std::string name;
     std::string timeunit_val = "";
     std::string timeprecision_val = "";
+    std::unordered_map<std::string, std::pair<std::string, std::string>> nested_timescales;
     bool is_interface = false;
     bool is_program = false;
     std::string defined_in_file = "";

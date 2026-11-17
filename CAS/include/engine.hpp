@@ -145,6 +145,7 @@ private:
 public:
     ConstraintSolver solver;
     DpiRegistry dpi_registry;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> timescale_map;
     std::vector<std::string> source_search_paths;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;

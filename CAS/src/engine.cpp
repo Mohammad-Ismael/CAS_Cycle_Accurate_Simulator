@@ -68,6 +68,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     queue_map = std::move(elab_res.queue_map);
     dynamic_array_map = std::move(elab_res.dynamic_array_map);
     assoc_array_map = std::move(elab_res.assoc_array_map);
+    timescale_map = std::move(elab_res.timescale_map);
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
     param_val_map = std::move(elab_res.param_val_map);
@@ -299,6 +300,12 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             target_fn = engine.find_function(fn->func_name);
         }
         if (target_fn) {
+            std::string fn_scope = target_fn->scope.empty() ? scope : target_fn->scope;
+            for (size_t i = fn->args.size(); i < target_fn->inputs.size(); ++i) {
+                if (target_fn->inputs[i].default_value) {
+                    collect_read_nets_internal(target_fn->inputs[i].default_value.get(), fn_scope, engine, out_net_ids, out_reads_mem, act_ctx);
+                }
+            }
             std::vector<std::string> added_shadows;
             if (act_ctx->shadowed_names.insert(target_fn->name).second) {
                 added_shadows.push_back(target_fn->name);

@@ -2044,7 +2044,21 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
 
         if (current_parsing_module && current_parsing_module->genvars.count(ident)) {
-            throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: genvar '" + ident + "' modified in procedural context per IEEE 1800-2023 section 27.4");
+            bool is_declared_var = false;
+            for (const auto& s : current_parsing_module->signals) {
+                if (s.name == ident) { is_declared_var = true; break; }
+            }
+            if (!is_declared_var) {
+                for (const auto& p : current_parsing_module->ports) {
+                    if (p.name == ident) { is_declared_var = true; break; }
+                }
+            }
+            if (!is_declared_var && lookup_local_decl_var(ident) != nullptr) {
+                is_declared_var = true;
+            }
+            if (!is_declared_var) {
+                throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: genvar '" + ident + "' modified in procedural context per IEEE 1800-2023 section 27.4");
+            }
         }
 
         if (match(TokenType::TOKEN_LBRACKET)) {

@@ -112,13 +112,18 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
 }
 
 void StratifiedScheduler::capture_preponed_samples() {
+    if (engine.clocking_blocks.empty() && engine.sva_assertions.empty()) {
+        return;
+    }
     preponed_net_values.resize(engine.netlist.size());
     for (size_t i = 0; i < engine.netlist.size(); ++i) {
         preponed_net_values[i] = engine.netlist[i].value;
     }
-    net_time_history[current_sim_time] = preponed_net_values;
-    while (net_time_history.size() > 1024) {
-        net_time_history.erase(net_time_history.begin());
+    if (!engine.clocking_blocks.empty()) {
+        net_time_history[current_sim_time] = preponed_net_values;
+        while (net_time_history.size() > 1024) {
+            net_time_history.erase(net_time_history.begin());
+        }
     }
 }
 
@@ -2338,10 +2343,7 @@ void StratifiedScheduler::propagate_comb() {
                        ? llvm_dispatch.topological_comb_fn
                        : (native_dispatch.is_active ? native_dispatch.topological_comb_fn : nullptr);
         if (topo_fn != nullptr) {
-            auto t_topo_0 = std::chrono::high_resolution_clock::now();
             topo_fn(native_nets_u64.data());
-            auto t_topo_1 = std::chrono::high_resolution_clock::now();
-            t_rca_ms += std::chrono::duration<double, std::milli>(t_topo_1 - t_topo_0).count();
 
             for (const auto& rec : topological_target_records) {
                 uint64_t val = native_nets_u64[rec.net_id];
@@ -2372,7 +2374,6 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        auto t0 = std::chrono::high_resolution_clock::now();
         if (!dirty_slice_bindings.empty()) {
             std::vector<uint32_t> current_slice_batch;
             current_slice_batch.swap(dirty_slice_bindings);
@@ -2405,9 +2406,6 @@ void StratifiedScheduler::propagate_comb() {
                 }
             }
         }
-        auto t1 = std::chrono::high_resolution_clock::now();
-        t_slice_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-
         for (auto& mbind : engine.memory_bindings) {
             if (!mbind.resolved) {
                 auto it_src = engine.memory_map.find(mbind.src);
@@ -2520,7 +2518,6 @@ void StratifiedScheduler::propagate_comb() {
             }
         }
 
-        auto t2 = std::chrono::high_resolution_clock::now();
         // 1. Drain and evaluate all dirty_rcas
         if (!dirty_rcas.empty()) {
             changed = true;
@@ -2700,9 +2697,6 @@ void StratifiedScheduler::propagate_comb() {
                 dirty_rcas.clear();
             }
         }
-        auto t3 = std::chrono::high_resolution_clock::now();
-        t_rca_ms += std::chrono::duration<double, std::milli>(t3 - t2).count();
-
         // 4. Procedural Continuous Assignments
         if (!engine.procedural_assign_active_nets.empty()) {
             for (size_t net_idx : engine.procedural_assign_active_nets) {
@@ -2710,6 +2704,9 @@ void StratifiedScheduler::propagate_comb() {
                 if (net.has_procedural_assign && net.procedural_assign_rhs) {
                     LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
                     LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+                    if (net.is_2state || net.type_name == "bit" || net.type_name == "byte" || net.type_name == "shortint" || net.type_name == "int" || net.type_name == "longint") {
+                        casted.coerce_to_2state();
+                    }
                     if (net.value != casted) {
                         net.set(casted);
                         notify_net_changed(net_idx);
@@ -2720,7 +2717,6 @@ void StratifiedScheduler::propagate_comb() {
         }
 
         // 5. Drain and evaluate all dirty_comb_procs
-        auto t4 = std::chrono::high_resolution_clock::now();
         if (!dirty_comb_procs.empty()) {
             changed = true;
             std::vector<uint32_t> current_comb_batch;
@@ -2773,8 +2769,6 @@ void StratifiedScheduler::propagate_comb() {
                 current_running_comb_proc = UINT32_MAX;
             }
         }
-        auto t5 = std::chrono::high_resolution_clock::now();
-        t_proc_ms += std::chrono::duration<double, std::milli>(t5 - t4).count();
 
         if (!dirty_rcas.empty() || !dirty_comb_procs.empty() || !dirty_slice_bindings.empty() || !dirty_mcas.empty()) {
             changed = true;
@@ -5190,7 +5184,7 @@ void StratifiedScheduler::run_simulation() {
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
         sim_step_count++;
-        if (sim_step_count % 500 == 0) {
+        if (sim_step_count % 10000 == 0) {
             std::cout << "[CAS PROGRESS] Time: " << current_sim_time << " ns (" << sim_step_count << " steps)\n" << std::flush;
         }
 
