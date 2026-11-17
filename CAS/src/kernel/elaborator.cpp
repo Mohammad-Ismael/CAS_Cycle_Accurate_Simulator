@@ -1910,7 +1910,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         std::string memb = "";
         while (dot_pos != std::string::npos) {
             std::string base = iname.substr(0, dot_pos);
-            memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+            memb = iname.substr(dot_pos + 1);
             size_t bid = get_net_id(scope, base);
             if (bid != (size_t)-1) {
                 if (!memb.empty()) {
@@ -1942,7 +1942,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             std::string memb = "";
             while (dot_pos != std::string::npos) {
                 std::string base = iname.substr(0, dot_pos);
-                memb = iname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                memb = iname.substr(dot_pos + 1);
                 size_t bid = get_net_id(scope, base);
                 if (bid != (size_t)-1) {
                     id = bid;
@@ -1981,9 +1981,27 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
+        if (it_vdm == result.var_dimensions.end() && id != (size_t)-1 && !result.netlist[id].type_name.empty()) {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(result.netlist[id].type_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                VariableDimMetadata vdm = *tmeta;
+                vdm.name = full_name;
+                result.var_dimensions[full_name] = vdm;
+                it_vdm = result.var_dimensions.find(full_name);
+            }
+        }
+
         if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             size_t M = it_vdm->second.dimensions.size();
-            std::vector<uint32_t> strides(M, 1);
+            uint32_t total_dim_size = 1;
+            for (const auto& d : it_vdm->second.dimensions) {
+                total_dim_size *= (uint32_t)d.size();
+            }
+            uint32_t elem_w = 1;
+            if (total_dim_size > 0 && result.netlist[id].width > total_dim_size && (result.netlist[id].width % total_dim_size == 0)) {
+                elem_w = result.netlist[id].width / total_dim_size;
+            }
+            std::vector<uint32_t> strides(M, elem_w);
             for (int k = (int)M - 2; k >= 0; --k) {
                 strides[k] = strides[k + 1] * (uint32_t)it_vdm->second.dimensions[k + 1].size();
             }
@@ -2055,6 +2073,16 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
 
         uint32_t d1_width = 1;
         int64_t d1_low = 0;
+        if (it_vdm == result.var_dimensions.end() && id != (size_t)-1 && !result.netlist[id].type_name.empty()) {
+            const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(result.netlist[id].type_name);
+            if (tmeta && !tmeta->dimensions.empty()) {
+                VariableDimMetadata vdm = *tmeta;
+                vdm.name = full_name;
+                result.var_dimensions[full_name] = vdm;
+                it_vdm = result.var_dimensions.find(full_name);
+            }
+        }
+
         if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             if (base_low == 0) base_low = it_vdm->second.dimensions[0].low();
             if (it_vdm->second.dimensions.size() > 1) {
@@ -2649,10 +2677,25 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 std::string full_name = result.netlist[tid].name;
                 auto it_vdm = result.var_dimensions.find(full_name);
                 if (it_vdm == result.var_dimensions.end()) it_vdm = result.var_dimensions.find(ca_copy->target_name);
-                if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                if (it_vdm == result.var_dimensions.end() && tid != (size_t)-1 && !result.netlist[tid].type_name.empty()) {
+                    const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(result.netlist[tid].type_name);
+                    if (tmeta && !tmeta->dimensions.empty()) {
+                        VariableDimMetadata vdm = *tmeta;
+                        vdm.name = full_name;
+                        result.var_dimensions[full_name] = vdm;
+                        it_vdm = result.var_dimensions.find(full_name);
+                    }
+                }
+
+        if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
                     base_low = it_vdm->second.dimensions[0].low();
                     if (it_vdm->second.dimensions.size() > 1) {
-                        d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                        d1_width = 1;
+                        for (size_t k = 1; k < it_vdm->second.dimensions.size(); ++k) {
+                            d1_width *= (uint32_t)it_vdm->second.dimensions[k].size();
+                        }
+                    } else if (it_vdm->second.dimensions[0].size() > 0 && result.netlist[tid].width > (uint32_t)it_vdm->second.dimensions[0].size()) {
+                        d1_width = result.netlist[tid].width / (uint32_t)it_vdm->second.dimensions[0].size();
                     }
                 }
                 if (auto idx_node = dynamic_cast<IndexSelectNode*>(ca_copy->target_index_expr.get())) {
@@ -2722,7 +2765,7 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 std::string memb = "";
                 while (dot_pos != std::string::npos) {
                     std::string base = tname.substr(0, dot_pos);
-                    memb = tname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                    memb = tname.substr(dot_pos + 1);
                     size_t bid = get_net_id(current_scope, base);
                     if (bid != (size_t)-1) {
                         tid = bid;
@@ -3241,34 +3284,6 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
-    for (const auto& td : mod->typedefs) {
-        if (!td) continue;
-        if (!td->packed_dims.empty()) {
-            uint32_t pw = 1;
-            std::vector<ArrayDimInfo> sdims;
-            for (const auto& pdim : td->packed_dims) {
-                int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
-                int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
-                pw *= (uint32_t)(std::abs(b1 - b2) + 1);
-                sdims.push_back({b1, b2, false, false, false});
-            }
-            if (pw == 0) pw = 1;
-            SimpleTypeInfo sinfo;
-            sinfo.name = td->type_name;
-            sinfo.base_type = td->base_type;
-            sinfo.width = pw;
-            sinfo.is_signed = td->is_signed;
-            result.simple_types[scope + "." + td->type_name] = sinfo;
-
-            VariableDimMetadata svdm;
-            svdm.name = scope + "." + td->type_name;
-            svdm.dimensions = sdims;
-            svdm.unpacked_dims = 0;
-            svdm.is_vector_or_array = true;
-            result.var_dimensions[scope + "." + td->type_name] = svdm;
-        }
-    }
-
     auto get_type_width = [&](const std::string& tname, const std::string& sc) -> uint32_t {
         if (tname.empty()) return 1;
         if (const PackedStructType* st = find_struct_type(tname, sc)) {
@@ -3296,6 +3311,67 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         return resolve_type_width(tname);
     };
+
+    for (const auto& td : mod->typedefs) {
+        if (!td) continue;
+        if (!td->packed_dims.empty()) {
+            uint32_t pw = 1;
+            std::vector<ArrayDimInfo> sdims;
+            for (const auto& pdim : td->packed_dims) {
+                int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
+                int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
+                pw *= (uint32_t)(std::abs(b1 - b2) + 1);
+                sdims.push_back({b1, b2, false, false, false});
+            }
+            uint32_t bw = get_type_width(td->base_type, scope);
+            if (bw > 0) {
+                pw *= bw;
+            }
+            const VariableDimMetadata* base_vdm = Parser::find_type_dim_metadata(td->base_type);
+            if (!base_vdm) {
+                auto b_it = result.var_dimensions.find(scope + "." + td->base_type);
+                if (b_it != result.var_dimensions.end()) base_vdm = &b_it->second;
+                else {
+                    b_it = result.var_dimensions.find(td->base_type);
+                    if (b_it != result.var_dimensions.end()) base_vdm = &b_it->second;
+                }
+            }
+            if (base_vdm) {
+                for (const auto& d : base_vdm->dimensions) {
+                    if (!d.is_unpacked) sdims.push_back(d);
+                }
+            } else if (bw > 1) {
+                sdims.push_back(ArrayDimInfo{(int64_t)bw - 1, 0, false, false, false});
+            }
+            if (pw == 0) pw = 1;
+            SimpleTypeInfo sinfo;
+            sinfo.name = td->type_name;
+            sinfo.base_type = td->base_type;
+            sinfo.width = pw;
+            sinfo.is_signed = td->is_signed;
+            result.simple_types[scope + "." + td->type_name] = sinfo;
+            result.simple_types[td->type_name] = sinfo;
+
+            VariableDimMetadata svdm;
+            svdm.name = scope + "." + td->type_name;
+            svdm.dimensions = sdims;
+            svdm.unpacked_dims = 0;
+            svdm.is_vector_or_array = true;
+            result.var_dimensions[scope + "." + td->type_name] = svdm;
+            result.var_dimensions[td->type_name] = svdm;
+
+            std::string st_name = td->base_type;
+            if (result.var_to_struct_type.count(scope + "." + td->base_type)) {
+                st_name = result.var_to_struct_type.at(scope + "." + td->base_type);
+            } else if (result.var_to_struct_type.count(td->base_type)) {
+                st_name = result.var_to_struct_type.at(td->base_type);
+            }
+            if (find_struct_type(st_name, scope)) {
+                result.var_to_struct_type[scope + "." + td->type_name] = st_name;
+                result.var_to_struct_type[td->type_name] = st_name;
+            }
+        }
+    }
 
     for (auto& p : mod->ports) {
         uint32_t elem_w = 1;
@@ -3739,6 +3815,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             vdm.is_vector_or_array = true;
             result.var_dimensions[mem_scope] = vdm;
             result.var_dimensions[s.name] = vdm;
+
+            if (s.is_class_handle) {
+                result.class_handle_names.insert(mem_scope);
+                result.class_handle_names.insert(s.name);
+                result.var_to_class_type[mem_scope] = s.class_type_name;
+                result.var_to_class_type[s.name] = s.class_type_name;
+            }
 
             if (debug_out) {
                 *debug_out << "     * Memory allocated: " << mem_scope 
@@ -4415,10 +4498,25 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 std::string full_name = result.netlist[tid].name;
                 auto it_vdm = result.var_dimensions.find(full_name);
                 if (it_vdm == result.var_dimensions.end()) it_vdm = result.var_dimensions.find(ca->target_name);
-                if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                if (it_vdm == result.var_dimensions.end() && tid != (size_t)-1 && !result.netlist[tid].type_name.empty()) {
+                    const VariableDimMetadata* tmeta = Parser::find_type_dim_metadata(result.netlist[tid].type_name);
+                    if (tmeta && !tmeta->dimensions.empty()) {
+                        VariableDimMetadata vdm = *tmeta;
+                        vdm.name = full_name;
+                        result.var_dimensions[full_name] = vdm;
+                        it_vdm = result.var_dimensions.find(full_name);
+                    }
+                }
+
+        if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
                     base_low = it_vdm->second.dimensions[0].low();
                     if (it_vdm->second.dimensions.size() > 1) {
-                        d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                        d1_width = 1;
+                        for (size_t k = 1; k < it_vdm->second.dimensions.size(); ++k) {
+                            d1_width *= (uint32_t)it_vdm->second.dimensions[k].size();
+                        }
+                    } else if (it_vdm->second.dimensions[0].size() > 0 && result.netlist[tid].width > (uint32_t)it_vdm->second.dimensions[0].size()) {
+                        d1_width = result.netlist[tid].width / (uint32_t)it_vdm->second.dimensions[0].size();
                     }
                 }
                 if (auto idx_node = dynamic_cast<IndexSelectNode*>(ca->target_index_expr.get())) {
@@ -4496,7 +4594,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 std::string memb = "";
                 while (dot_pos != std::string::npos) {
                     std::string base = tname.substr(0, dot_pos);
-                    memb = tname.substr(dot_pos + 1) + (memb.empty() ? "" : ("." + memb));
+                    memb = tname.substr(dot_pos + 1);
                     size_t bid = get_net_id(scope, base);
                     if (bid != (size_t)-1) {
                         target_id = bid;

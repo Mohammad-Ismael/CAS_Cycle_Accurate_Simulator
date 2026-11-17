@@ -312,8 +312,12 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
             if (base_cls) {
                 FunctionNode* base_ctor = const_cast<ClassNode*>(base_cls)->get_constructor();
                 if (base_ctor) {
+                    std::vector<LogicVal> base_args;
+                    for (const auto& arg_expr : current_class_def->base_constructor_args) {
+                        base_args.push_back(eval(arg_expr.get(), ""));
+                    }
                     LogicVal dummy;
-                    eval_class_method(obj, base_ctor, {}, dummy);
+                    eval_class_method(obj, base_ctor, base_args, dummy);
                 }
             }
         }
@@ -1381,12 +1385,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (!cnew->class_type_name.empty()) {
             auto obj = engine.allocate_class_object(cnew->class_type_name);
-            FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
-            if (ctor) {
-                std::vector<LogicVal> arg_vals;
-                for (auto& a : cnew->args) arg_vals.push_back(eval(a.get(), scope));
-                LogicVal dummy;
-                eval_class_method(obj.get(), ctor, arg_vals, dummy);
+            bool is_shallow_copy = false;
+            if (cnew->is_shallow_copy && cnew->args.size() == 1 && cnew->arg_names.empty()) {
+                LogicVal arg_v = eval(cnew->args[0].get(), scope);
+                if (arg_v.aval != 0) {
+                    auto src_obj = engine.get_class_object(arg_v.aval);
+                    if (src_obj) {
+                        obj->properties = src_obj->properties;
+                        obj->dynamic_arrays = src_obj->dynamic_arrays;
+                        obj->virtual_interfaces = src_obj->virtual_interfaces;
+                        is_shallow_copy = true;
+                    }
+                }
+            }
+            if (!is_shallow_copy) {
+                FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
+                if (ctor) {
+                    std::vector<LogicVal> arg_vals;
+                    for (auto& a : cnew->args) arg_vals.push_back(eval(a.get(), scope));
+                    LogicVal dummy;
+                    eval_class_method(obj.get(), ctor, arg_vals, dummy);
+                }
             }
             return LogicVal(64, obj->handle_id, 0);
         }
@@ -1558,25 +1577,51 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
-        if (num->is_time_literal && num->time_fs > 0) {
+        if (num->is_time_literal && (num->time_fs_real > 0.0 || num->time_fs > 0)) {
+            double raw_fs = (num->time_fs_real > 0.0) ? num->time_fs_real : (double)num->time_fs;
             std::string eff_tu = "";
+            std::string eff_tp = "";
             if (current_class_def && !current_class_def->name.empty()) {
                 auto it = engine.timescale_map.find(current_class_def->name);
-                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+                if (it != engine.timescale_map.end()) {
+                    eff_tu = it->second.first;
+                    eff_tp = it->second.second;
+                }
             }
             if (eff_tu.empty() && !scope.empty()) {
-                auto it = engine.timescale_map.find(scope);
-                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+                std::string cur_s = scope;
+                while (!cur_s.empty()) {
+                    auto it = engine.timescale_map.find(cur_s);
+                    if (it != engine.timescale_map.end()) {
+                        eff_tu = it->second.first;
+                        eff_tp = it->second.second;
+                        break;
+                    }
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) break;
+                    cur_s = cur_s.substr(0, dot);
+                }
             }
             if (eff_tu.empty()) {
                 auto it = engine.timescale_map.find("$unit");
-                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+                if (it != engine.timescale_map.end()) {
+                    eff_tu = it->second.first;
+                    eff_tp = it->second.second;
+                }
             }
             if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
-            uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
-            if (unit_fs == 0) unit_fs = 1;
-            uint64_t scaled = num->time_fs / unit_fs;
-            return LogicVal::make_known(64, scaled);
+            if (eff_tp.empty()) eff_tp = Lexer::global_time_precision_str;
+            double unit_fs = Lexer::parse_time_fs_real(eff_tu);
+            if (unit_fs <= 0.0) unit_fs = 1.0;
+            double prec_fs = Lexer::parse_time_fs_real(eff_tp);
+            if (prec_fs <= 0.0) prec_fs = 1.0;
+
+            double scaled = raw_fs / unit_fs;
+            double prec_units = prec_fs / unit_fs;
+            if (prec_units > 0.0) {
+                scaled = std::round(scaled / prec_units) * prec_units;
+            }
+            return LogicVal::make_real(scaled);
         }
         if (num->is_real) {
             return LogicVal::make_real(num->real_val);
@@ -2892,6 +2937,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (mname == "name") {
             std::string name_str = et->get_name(cur_val);
             return LogicVal::make_string(name_str);
+        } else if (mname == "num") {
+            return LogicVal::make_known(32, (uint64_t)et->members.size());
         } else if (mname == "first") {
             return et->first();
         } else if (mname == "last") {
@@ -3013,12 +3060,22 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
                 size_t nid = engine.get_net_id(scope, member_node->var_name);
+                std::string mem_path = member_node->member_name;
+                std::string lookup_vname = member_node->var_name;
+                if (nid == (size_t)-1) {
+                    auto dpos = member_node->var_name.find('.');
+                    if (dpos != std::string::npos) {
+                        lookup_vname = member_node->var_name.substr(0, dpos);
+                        mem_path = member_node->var_name.substr(dpos + 1) + "." + mem_path;
+                        nid = engine.get_net_id(scope, lookup_vname);
+                    }
+                }
                 if (nid != (size_t)-1) {
                     LogicVal net_val = engine.netlist[nid].value;
                     std::string full_name = engine.netlist[nid].name;
                     auto it_vdm = engine.var_dimensions.find(full_name);
-                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(scope.empty() ? member_node->var_name : (scope + "." + member_node->var_name));
-                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(member_node->var_name);
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(scope.empty() ? lookup_vname : (scope + "." + lookup_vname));
+                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(lookup_vname);
 
                     int64_t base_low = 0;
                     uint32_t elem_w = 1;
@@ -3043,16 +3100,46 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         if (type_name.empty()) {
                             if (engine.var_to_struct_type.count(full_name)) {
                                 type_name = engine.var_to_struct_type.at(full_name);
-                            } else if (engine.var_to_struct_type.count(member_node->var_name)) {
-                                type_name = engine.var_to_struct_type.at(member_node->var_name);
+                            } else if (engine.var_to_struct_type.count(lookup_vname)) {
+                                type_name = engine.var_to_struct_type.at(lookup_vname);
                             }
                         }
-                        const PackedStructType* st = find_struct_type_by_member(type_name, member_node->member_name, cur_word.width, scope);
+                        const PackedStructType* st = find_struct_type_by_member(type_name, mem_path, cur_word.width, scope);
+                        if (!st && !type_name.empty()) {
+                            std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
+                            if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) st = &engine.struct_types.at(scoped_type);
+                            else if (engine.struct_types.find(type_name) != engine.struct_types.end()) st = &engine.struct_types.at(type_name);
+                        }
                         if (st) {
-                            const StructMember* sm = st->get_member(member_node->member_name);
-                            if (sm) {
-                                uint32_t m_offset = sm->offset;
-                                uint32_t m_width = sm->width;
+                            const PackedStructType* cur_st = st;
+                            std::string remaining = mem_path;
+                            uint32_t m_offset = 0;
+                            uint32_t m_width = cur_word.width;
+                            bool resolved = false;
+                            while (!remaining.empty() && cur_st) {
+                                std::string part = remaining;
+                                std::string next_part = "";
+                                auto d_pos = remaining.find('.');
+                                if (d_pos != std::string::npos) {
+                                    part = remaining.substr(0, d_pos);
+                                    next_part = remaining.substr(d_pos + 1);
+                                }
+                                const StructMember* sm = cur_st->get_member(part);
+                                if (!sm) break;
+                                m_offset += sm->offset;
+                                m_width = sm->width;
+                                if (next_part.empty()) {
+                                    resolved = true;
+                                    break;
+                                }
+                                cur_st = nullptr;
+                                std::string next_tn = sm->type_name;
+                                std::string scoped_ntn = scope.empty() ? next_tn : (scope + "." + next_tn);
+                                if (engine.struct_types.find(scoped_ntn) != engine.struct_types.end()) cur_st = &engine.struct_types.at(scoped_ntn);
+                                else if (engine.struct_types.find(next_tn) != engine.struct_types.end()) cur_st = &engine.struct_types.at(next_tn);
+                                remaining = next_part;
+                            }
+                            if (resolved) {
                                 if (member_node->has_member_select) {
                                     if (member_node->is_part_select) {
                                         uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
@@ -3076,6 +3163,48 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         std::string var_name = member_node->var_name;
         std::string member_name = member_node->member_name;
+
+        if (member_name == "first" || member_name == "last" || member_name == "next" ||
+            member_name == "prev" || member_name == "num" || member_name == "name") {
+            const EnumType* et = nullptr;
+            std::string type_name = "";
+            std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
+            if (engine.var_to_enum_type.find(scoped_var) != engine.var_to_enum_type.end()) {
+                type_name = engine.var_to_enum_type.at(scoped_var);
+            } else if (engine.var_to_enum_type.find(var_name) != engine.var_to_enum_type.end()) {
+                type_name = engine.var_to_enum_type.at(var_name);
+            }
+            if (!type_name.empty()) {
+                std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
+                if (engine.enum_types.find(scoped_type) != engine.enum_types.end()) {
+                    et = &engine.enum_types.at(scoped_type);
+                } else if (engine.enum_types.find(type_name) != engine.enum_types.end()) {
+                    et = &engine.enum_types.at(type_name);
+                }
+            }
+            if (!et) {
+                if (engine.enum_types.find(scoped_var) != engine.enum_types.end()) {
+                    et = &engine.enum_types.at(scoped_var);
+                } else if (engine.enum_types.find(var_name) != engine.enum_types.end()) {
+                    et = &engine.enum_types.at(var_name);
+                }
+            }
+            if (et) {
+                if (member_name == "num") {
+                    return LogicVal::make_known(32, (uint64_t)et->members.size());
+                } else if (member_name == "first") {
+                    return et->first();
+                } else if (member_name == "last") {
+                    return et->last();
+                } else {
+                    IdentifierNode id_expr(var_name);
+                    LogicVal cur_val = eval(&id_expr, scope);
+                    if (member_name == "next") return et->next(cur_val, 1);
+                    if (member_name == "prev") return et->prev(cur_val, 1);
+                    if (member_name == "name") return LogicVal::make_string(et->get_name(cur_val));
+                }
+            }
+        }
 
         if (member_name == "index") {
             if (context.has_active_frame()) {
@@ -3323,6 +3452,31 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             size_t cl_nid = engine.get_net_id(scope, var_name);
             if (cl_nid != (size_t)-1 && engine.netlist[cl_nid].is_class_handle && engine.netlist[cl_nid].value.aval != 0) {
                 cl_obj = engine.get_class_object(engine.netlist[cl_nid].value.aval).get();
+            }
+        }
+        if (!cl_obj) {
+            std::string ctype = "";
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && local->is_class_handle) ctype = local->class_type_name;
+            }
+            if (ctype.empty() && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && local->is_class_handle) { ctype = local->class_type_name; break; }
+                }
+            }
+            if (ctype.empty()) {
+                size_t cl_nid = engine.get_net_id(scope, var_name);
+                if (cl_nid != (size_t)-1 && engine.netlist[cl_nid].is_class_handle) {
+                    ctype = engine.get_class_type(var_name, scope);
+                }
+            }
+            if (!ctype.empty()) {
+                auto it_cls = engine.class_defs.find(ctype);
+                if (it_cls != engine.class_defs.end() && it_cls->second && it_cls->second->has_static_member(member_name)) {
+                    return engine.get_class_static_var(ctype, member_name);
+                }
             }
         }
         if (!cl_obj && var_name.find('[') != std::string::npos) {
@@ -3615,8 +3769,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                             char ch = static_cast<char>(val.aval & 0xFF);
                             ss << ch;
                         } else if (spec == 's') {
-                            if (val.is_string) ss << val.str_val;
-                            else ss << val.aval;
+                            ss << val.to_ascii_string();
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             ss << "x";
                         } else if (spec == 'd' || spec == 't') {

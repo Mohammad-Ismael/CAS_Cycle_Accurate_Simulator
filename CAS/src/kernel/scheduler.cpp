@@ -2389,7 +2389,18 @@ void StratifiedScheduler::propagate_comb() {
                     src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
                 }
                 LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
-                if (src_val != dst_val) {
+                LogicVal val_to_write = src_val;
+                if (!src_val.is_string && src_val.width <= 64 && dst_val.width <= 64 &&
+                    (engine.netlist[bind.dst.net_id].kind == NetKind::WIRE ||
+                     engine.netlist[bind.dst.net_id].kind == NetKind::TRI)) {
+                    uint64_t z_mask = (~src_val.aval) & src_val.bval;
+                    if (z_mask != 0) {
+                        uint64_t a = (src_val.aval & ~z_mask) | (dst_val.aval & z_mask);
+                        uint64_t b = (src_val.bval & ~z_mask) | (dst_val.bval & z_mask);
+                        val_to_write = LogicVal(src_val.width, a, b, src_val.is_signed);
+                    }
+                }
+                if (val_to_write != dst_val) {
                     if (iters == 50) {
                         std::cerr << "[OscillatingSlice] src=" << engine.netlist[bind.src.net_id].name
                                   << "[" << bind.src.offset << "+:" << bind.src.width << "]=0x" << std::hex << src_val.aval
@@ -2398,7 +2409,7 @@ void StratifiedScheduler::propagate_comb() {
                     }
                     size_t tid = (bind.dst.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[bind.dst.net_id] : bind.dst.net_id;
                     LogicVal old_target_v = engine.netlist[tid].value;
-                    engine.evaluator.write_slice(bind.dst, src_val);
+                    engine.evaluator.write_slice(bind.dst, val_to_write);
                     if (engine.netlist[tid].value != old_target_v) {
                         notify_net_changed(bind.dst.net_id);
                         changed = true;

@@ -681,6 +681,7 @@ struct ClassNode : public ASTNode {
     std::string name;
     std::string base_class_name;
     ClassNode* base_class = nullptr;
+    std::vector<std::unique_ptr<ExpressionNode>> base_constructor_args;
     bool is_interface_class = false;
     bool is_abstract = false;
     std::vector<std::string> implemented_interfaces;
@@ -841,6 +842,39 @@ inline LogicVal ClassObject::get_property(const std::string& name) const {
         }
     }
     return LogicVal::make_x(32);
+}
+
+inline void ClassObject::set_property(const std::string& name, const LogicVal& val) {
+    if (class_def) {
+        if (const auto* mv = class_def->find_member_var(name)) {
+            if (val.is_real || val.is_string) {
+                properties[name] = val;
+                return;
+            }
+            if (mv->width > 0 && mv->width <= 64 && val.width <= 64) {
+                uint64_t mask = (mv->width >= 64) ? ~0ULL : ((1ULL << mv->width) - 1);
+                uint64_t a = val.aval & mask;
+                uint64_t b = val.bval & mask;
+                if (mv->width > val.width && (val.is_signed || mv->is_signed)) {
+                    bool sign_bit = (val.aval >> (val.width - 1)) & 1;
+                    if (sign_bit) {
+                        uint64_t ext_mask = mask & ~((1ULL << val.width) - 1);
+                        a |= ext_mask;
+                    }
+                }
+                properties[name] = LogicVal(mv->width, a, b, mv->is_signed);
+                return;
+            } else if (mv->width > 0) {
+                LogicVal res = val;
+                res.width = mv->width;
+                res.is_signed = mv->is_signed;
+                res.mask();
+                properties[name] = res;
+                return;
+            }
+        }
+    }
+    properties[name] = val;
 }
 
 inline bool ClassObject::is_instance_of(const std::string& target_type) const {

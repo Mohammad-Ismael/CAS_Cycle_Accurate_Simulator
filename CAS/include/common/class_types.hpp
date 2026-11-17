@@ -33,9 +33,7 @@ struct ClassObject {
     bool has_property(const std::string& name) const;
     LogicVal get_property(const std::string& name) const;
 
-    void set_property(const std::string& name, const LogicVal& val) {
-        properties[name] = val;
-    }
+    void set_property(const std::string& name, const LogicVal& val);
 
     bool has_dynamic_array(const std::string& name) const {
         return dynamic_arrays.find(name) != dynamic_arrays.end();

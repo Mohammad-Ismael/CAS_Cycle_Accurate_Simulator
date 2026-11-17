@@ -310,6 +310,7 @@ struct Token {
     bool is_sized = false;
     bool is_time_literal = false;
     uint64_t time_fs = 0;
+    double time_fs_real = 0.0;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
 };
@@ -384,6 +385,7 @@ public:
         global_time_precision_str = "1ps";
         global_time_precision_unit = "ps";
     }
+    static double parse_time_fs_real(const std::string& s);
     static uint64_t parse_time_fs(const std::string& s);
 
     explicit Lexer(const std::string& filename, const std::string& source, 

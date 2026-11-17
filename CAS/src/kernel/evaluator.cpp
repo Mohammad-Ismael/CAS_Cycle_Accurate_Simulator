@@ -386,8 +386,7 @@ void Evaluator::check_monitor() {
                 if (arg_idx < current_values.size()) {
                     const auto& val = current_values[arg_idx++];
                     if (spec == 's') {
-                        if (val.is_string) std::cout << val.str_val;
-                        else std::cout << val.aval;
+                        std::cout << val.to_ascii_string();
                     } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                         std::cout << "x";
                     } else {
@@ -3737,8 +3736,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             char ch = static_cast<char>(val.aval & 0xFF);
                             std::cout << ch;
                         } else if (spec == 's') {
-                            if (val.is_string) std::cout << val.str_val;
-                            else std::cout << val.aval;
+                            std::cout << val.to_ascii_string();
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else if (spec == 'd' || spec == 't') {
@@ -3854,8 +3852,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (arg_idx < sev->arg_exprs.size()) {
                         LogicVal val = eval_expr(sev->arg_exprs[arg_idx++].get(), bp.scope);
                         if (spec == 's') {
-                            if (val.is_string) std::cout << val.str_val;
-                            else std::cout << val.aval;
+                            std::cout << val.to_ascii_string();
                         } else if (val.is_unknown() && (spec == 'd' || spec == 't')) {
                             std::cout << "x";
                         } else if (spec == 'd' || spec == 't') {
@@ -4861,10 +4858,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             std::string base_var = target_name;
             std::string member_name = "";
-            auto dot_pos = target_name.rfind('.');
+            auto dot_pos = target_name.find('.');
             if (dot_pos != std::string::npos) {
-                base_var = target_name.substr(0, dot_pos);
-                member_name = target_name.substr(dot_pos + 1);
+                size_t direct_nid = engine.get_net_id(bp.scope, target_name);
+                if (direct_nid == (size_t)-1) {
+                    base_var = target_name.substr(0, dot_pos);
+                    member_name = target_name.substr(dot_pos + 1);
+                }
             }
             if (!member_name.empty()) {
                 size_t cb_id = engine.get_clocking_block_id(base_var, bp.scope);
@@ -5005,10 +5005,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             std::string base_var = target_name;
             std::string member_name = "";
-            auto dot_pos = target_name.rfind('.');
+            auto dot_pos = target_name.find('.');
             if (dot_pos != std::string::npos) {
-                base_var = target_name.substr(0, dot_pos);
-                member_name = target_name.substr(dot_pos + 1);
+                size_t direct_nid = engine.get_net_id(bp.scope, target_name);
+                if (direct_nid == (size_t)-1) {
+                    base_var = target_name.substr(0, dot_pos);
+                    member_name = target_name.substr(dot_pos + 1);
+                }
             }
 
             LocalVar* local = nullptr;
@@ -5119,26 +5122,111 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 std::string class_type = "";
                 if (local && local->is_class_handle) {
                     class_type = local->class_type_name;
-                } else {
-                    size_t nid = engine.get_net_id(bp.scope, target_name);
-                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
-                        class_type = engine.get_class_type(target_name, bp.scope);
+                } else if (!member_name.empty()) {
+                    ClassObject* cl_parent = nullptr;
+                    if (local && local->is_class_handle) {
+                        cl_parent = engine.get_class_object(local->value.aval).get();
+                    } else if (expr_eval.get_current_this()) {
+                        cl_parent = expr_eval.get_current_this();
+                    } else {
+                        size_t nid = engine.get_net_id(bp.scope, base_var);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                            cl_parent = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
                     }
+                    if (cl_parent && cl_parent->class_def) {
+                        if (const auto* mv = cl_parent->class_def->find_member_var(member_name)) {
+                            if (mv->is_class_handle) {
+                                class_type = mv->class_type_name;
+                            }
+                        }
+                    }
+                } else {
+                    class_type = engine.get_class_type(target_name, bp.scope);
                 }
                 if (!class_type.empty()) {
                     auto obj = engine.allocate_class_object(class_type);
-                    FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
-                    if (ctor) {
-                        std::vector<LogicVal> arg_vals;
-                        for (auto& a : new_node->args) {
-                            arg_vals.push_back(eval_expr(a.get(), bp.scope));
+                    bool is_shallow_copy = false;
+                    if (new_node->is_shallow_copy && new_node->args.size() == 1 && new_node->arg_names.empty()) {
+                        LogicVal arg_v = eval_expr(new_node->args[0].get(), bp.scope);
+                        if (arg_v.aval != 0) {
+                            auto src_obj = engine.get_class_object(arg_v.aval);
+                            if (src_obj) {
+                                obj->properties = src_obj->properties;
+                                obj->dynamic_arrays = src_obj->dynamic_arrays;
+                                obj->virtual_interfaces = src_obj->virtual_interfaces;
+                                is_shallow_copy = true;
+                            }
                         }
-                        LogicVal dummy;
-                        expr_eval.eval_class_method(obj.get(), ctor, arg_vals, dummy);
+                    }
+                    if (!is_shallow_copy) {
+                        FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
+                        if (ctor) {
+                            std::vector<LogicVal> arg_vals;
+                            for (auto& a : new_node->args) {
+                                arg_vals.push_back(eval_expr(a.get(), bp.scope));
+                            }
+                            LogicVal dummy;
+                            expr_eval.eval_class_method(obj.get(), ctor, arg_vals, dummy);
+                        }
                     }
                     LogicVal handle_val(64, obj->handle_id, 0);
                     if (local) {
                         local->value = handle_val;
+                    } else if (!member_name.empty()) {
+                        ClassObject* cl_parent = nullptr;
+                        if (expr_eval.get_current_this()) cl_parent = expr_eval.get_current_this();
+                        else {
+                            size_t nid = engine.get_net_id(bp.scope, base_var);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                                cl_parent = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                        if (cl_parent) {
+                            cl_parent->set_property(member_name, handle_val);
+                        }
+                    } else if (assign->bit_idx) {
+                        std::string scoped_mem = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
+                        if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) scoped_mem = target_name;
+                        if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
+                            auto& mem = engine.memory_map.at(scoped_mem);
+                            std::vector<ExpressionNode*> mem_indices;
+                            if (assign->bit_idx) mem_indices.push_back(assign->bit_idx.get());
+                            if (assign->bit_idx2) mem_indices.push_back(assign->bit_idx2.get());
+                            for (const auto& ei : assign->extra_indices) if (ei) mem_indices.push_back(ei.get());
+
+                            size_t U = (mem.unpacked_dims_count > 0) ? mem.unpacked_dims_count : 1;
+                            size_t num_u = std::min(U, mem_indices.size());
+                            uint32_t linear_addr = 0;
+                            bool addr_unknown = false;
+                            std::vector<uint32_t> u_strides(U, 1);
+                            if (U <= 1) {
+                                if (!mem_indices.empty()) {
+                                    LogicVal iv = eval_expr(mem_indices[0], bp.scope);
+                                    if (iv.is_unknown()) addr_unknown = true;
+                                    else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
+                                }
+                            } else {
+                                for (int k = (int)U - 2; k >= 0; --k) {
+                                    u_strides[k] = u_strides[k + 1] * (uint32_t)mem.dimensions[k + 1].size();
+                                }
+                                for (size_t d = 0; d < num_u; ++d) {
+                                    LogicVal iv = eval_expr(mem_indices[d], bp.scope);
+                                    if (iv.is_unknown()) { addr_unknown = true; break; }
+                                    int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
+                                    int64_t rel_idx = 0;
+                                    if (d < mem.dimensions.size()) {
+                                        const auto& dim = mem.dimensions[d];
+                                        rel_idx = (dim.left <= dim.right) ? (val - dim.left) : (dim.left - val);
+                                    }
+                                    if (rel_idx < 0) rel_idx = 0;
+                                    linear_addr += (uint32_t)rel_idx * u_strides[d];
+                                }
+                            }
+                            if (!addr_unknown && linear_addr < mem.words.size()) {
+                                mem.words[linear_addr] = handle_val;
+                            }
+                        }
                     } else {
                         size_t nid = engine.get_net_id(bp.scope, target_name);
                         if (nid != (size_t)-1) {
@@ -5950,14 +6038,45 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 type_name = engine.var_to_struct_type.at(base_var);
                             }
                         }
-                        const PackedStructType* st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
-                        if (st) {
-                            const StructMember* sm = st->get_member(member_name);
-                            if (sm) {
+                        const PackedStructType* cur_st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
+                        if (!cur_st && !type_name.empty()) {
+                            std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
+                            if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) cur_st = &engine.struct_types.at(scoped_type);
+                            else if (engine.struct_types.find(type_name) != engine.struct_types.end()) cur_st = &engine.struct_types.at(type_name);
+                        }
+                        if (cur_st) {
+                            std::string remaining = member_name;
+                            uint32_t accum_off = 0;
+                            uint32_t cur_len = engine.netlist[net_id].width;
+                            bool resolved = false;
+                            while (!remaining.empty() && cur_st) {
+                                std::string part = remaining;
+                                std::string next_part = "";
+                                auto d_pos = remaining.find('.');
+                                if (d_pos != std::string::npos) {
+                                    part = remaining.substr(0, d_pos);
+                                    next_part = remaining.substr(d_pos + 1);
+                                }
+                                const StructMember* sm = cur_st->get_member(part);
+                                if (!sm) break;
+                                accum_off += sm->offset;
+                                cur_len = sm->width;
+                                if (next_part.empty()) {
+                                    resolved = true;
+                                    break;
+                                }
+                                cur_st = nullptr;
+                                std::string next_tn = sm->type_name;
+                                std::string scoped_ntn = bp.scope.empty() ? next_tn : (bp.scope + "." + next_tn);
+                                if (engine.struct_types.find(scoped_ntn) != engine.struct_types.end()) cur_st = &engine.struct_types.at(scoped_ntn);
+                                else if (engine.struct_types.find(next_tn) != engine.struct_types.end()) cur_st = &engine.struct_types.at(next_tn);
+                                remaining = next_part;
+                            }
+                            if (resolved) {
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto cur = old_v;
-                                cur.deposit_slice(sm->offset, sm->width, rhs_val);
+                                cur.deposit_slice(accum_off, cur_len, rhs_val);
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
                                     for (size_t other_id : engine.alias_members[target_id]) {

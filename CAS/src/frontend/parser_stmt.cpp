@@ -47,6 +47,35 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
     }
 
+    if (current.type == TokenType::TOKEN_IMPORT) {
+        if (peek_token().type == TokenType::TOKEN_STRING) {
+            auto dpi = parse_dpi_import();
+            if (dpi && current_parsing_module) {
+                std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                current_parsing_module->dpi_imports.push_back(sdpi);
+                current_parsing_module->dpi_import_map[sdpi->sv_name] = sdpi.get();
+            }
+        } else {
+            advance(); // consume 'import'
+            while (true) {
+                std::string pkg_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
+                expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
+                if (match(TokenType::TOKEN_STAR)) {
+                    if (current_parsing_module) current_parsing_module->wildcard_imports.push_back(pkg_name);
+                } else {
+                    std::string item_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
+                    if (current_parsing_module) current_parsing_module->explicit_imports[item_name] = {pkg_name, item_name};
+                }
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import declaration");
+        }
+        return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
+    }
+
     // Diagnostic [CAS-DTINPCIL]: gate or UDP primitive inside procedural scopes
     if (current.type == TokenType::TOKEN_GATE_AND || current.type == TokenType::TOKEN_GATE_OR ||
         current.type == TokenType::TOKEN_GATE_XOR || current.type == TokenType::TOKEN_GATE_NAND ||
@@ -130,6 +159,13 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after return");
         if (current_parsing_function && (current_parsing_function->return_type_name == "void" || current_parsing_function->return_width == 0) && ret_expr != nullptr) {
             throw std::runtime_error("Void function cannot return an expression per IEEE 1800-2023 13.4.1");
+        }
+        if (current_parsing_function && dynamic_cast<NullNode*>(ret_expr.get())) {
+            std::string rt = current_parsing_function->return_type_name;
+            bool ok = (!rt.empty() && (is_class(rt) || is_forward_class(rt) || is_interface_type(rt) || rt == "chandle" || rt == "event"));
+            if (!ok) {
+                throw std::runtime_error("A non-class function cannot return 'null' per IEEE 1800-2023 §8.4");
+            }
         }
         return std::make_unique<ReturnStatementNode>(std::move(ret_expr));
     }
@@ -492,7 +528,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     bool is_shortreal_var = (current.type == TokenType::TOKEN_SHORTREAL ||
                             (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal"));
-    bool is_real_var = (current.type == TokenType::TOKEN_REAL || is_shortreal_var);
+    bool is_real_var = (current.type == TokenType::TOKEN_REAL || is_shortreal_var ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "real" || current.text == "realtime")));
     bool is_ident_int_type = (current.type == TokenType::TOKEN_IDENTIFIER &&
                               (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "time"));
     bool is_ident_string_type = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string");
@@ -2007,21 +2044,83 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (match(TokenType::TOKEN_PLUS_PLUS)) {
         std::string target = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '++'");
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++<ident>'");
-        auto lhs_id = std::make_unique<IdentifierNode>(target);
-        auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-        auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
-        return std::make_unique<BlockingAssignNode>(target, std::move(add));
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto idx_expr = parse_expression();
+            std::unique_ptr<ExpressionNode> lsb_expr = nullptr;
+            bool is_plus_c = false, is_minus_c = false;
+            if (match(TokenType::TOKEN_COLON)) {
+                lsb_expr = parse_expression();
+            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                is_plus_c = true;
+                lsb_expr = parse_expression();
+            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                is_minus_c = true;
+                lsb_expr = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bit select");
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++<ident>[...]'");
+            auto lhs_idx = std::make_unique<IndexSelectNode>(target, idx_expr->clone());
+            if (lsb_expr) {
+                lhs_idx->lsb_expr = lsb_expr->clone();
+                lhs_idx->is_part_select = true;
+                lhs_idx->is_plus_colon = is_plus_c;
+                lhs_idx->is_minus_colon = is_minus_c;
+            }
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+            auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_idx), std::move(one));
+            auto node = std::make_unique<BlockingAssignNode>(target, std::move(add), std::move(idx_expr));
+            node->bit_lsb = std::move(lsb_expr);
+            node->is_plus_colon = is_plus_c;
+            node->is_minus_colon = is_minus_c;
+            return node;
+        } else {
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++<ident>'");
+            auto lhs_id = std::make_unique<IdentifierNode>(target);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+            auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
+            return std::make_unique<BlockingAssignNode>(target, std::move(add));
+        }
     }
 
     if (match(TokenType::TOKEN_MINUS_MINUS)) {
         std::string target = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '--'");
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--<ident>'");
-        auto lhs_id = std::make_unique<IdentifierNode>(target);
-        auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-        auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
-        return std::make_unique<BlockingAssignNode>(target, std::move(sub));
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto idx_expr = parse_expression();
+            std::unique_ptr<ExpressionNode> lsb_expr = nullptr;
+            bool is_plus_c = false, is_minus_c = false;
+            if (match(TokenType::TOKEN_COLON)) {
+                lsb_expr = parse_expression();
+            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                is_plus_c = true;
+                lsb_expr = parse_expression();
+            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                is_minus_c = true;
+                lsb_expr = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in bit select");
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--<ident>[...]'");
+            auto lhs_idx = std::make_unique<IndexSelectNode>(target, idx_expr->clone());
+            if (lsb_expr) {
+                lhs_idx->lsb_expr = lsb_expr->clone();
+                lhs_idx->is_part_select = true;
+                lhs_idx->is_plus_colon = is_plus_c;
+                lhs_idx->is_minus_colon = is_minus_c;
+            }
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+            auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_idx), std::move(one));
+            auto node = std::make_unique<BlockingAssignNode>(target, std::move(sub), std::move(idx_expr));
+            node->bit_lsb = std::move(lsb_expr);
+            node->is_plus_colon = is_plus_c;
+            node->is_minus_colon = is_minus_c;
+            return node;
+        } else {
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--<ident>'");
+            auto lhs_id = std::make_unique<IdentifierNode>(target);
+            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+            auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+            return std::make_unique<BlockingAssignNode>(target, std::move(sub));
+        }
     }
 
     // 15. Identifiers (Assignments, Bit-Selects, Memory Writes, Task Calls)
@@ -2192,6 +2291,40 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 node->is_minus_colon2 = is_minus_c2;
                 node->extra_indices = std::move(extra_indices);
                 if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+                return node;
+            }
+            if (match(TokenType::TOKEN_PLUS_PLUS)) {
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '++'");
+                auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
+                if (lsb_expr) {
+                    lhs_idx->lsb_expr = lsb_expr->clone();
+                    lhs_idx->is_part_select = true;
+                    lhs_idx->is_plus_colon = is_plus_c;
+                    lhs_idx->is_minus_colon = is_minus_c;
+                }
+                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_idx), std::move(one));
+                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(add), std::move(idx_expr));
+                node->bit_lsb = std::move(lsb_expr);
+                node->is_plus_colon = is_plus_c;
+                node->is_minus_colon = is_minus_c;
+                return node;
+            }
+            if (match(TokenType::TOKEN_MINUS_MINUS)) {
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after '--'");
+                auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
+                if (lsb_expr) {
+                    lhs_idx->lsb_expr = lsb_expr->clone();
+                    lhs_idx->is_part_select = true;
+                    lhs_idx->is_plus_colon = is_plus_c;
+                    lhs_idx->is_minus_colon = is_minus_c;
+                }
+                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_idx), std::move(one));
+                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(sub), std::move(idx_expr));
+                node->bit_lsb = std::move(lsb_expr);
+                node->is_plus_colon = is_plus_c;
+                node->is_minus_colon = is_minus_c;
                 return node;
             }
             std::string comp_op = "";

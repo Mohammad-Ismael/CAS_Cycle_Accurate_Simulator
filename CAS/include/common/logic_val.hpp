@@ -476,6 +476,25 @@ struct LogicVal {
         std::reverse(res.begin(), res.end());
         return res;
     }
+
+    std::string to_ascii_string() const {
+        if (is_string) return str_val;
+        std::string s_out;
+        uint32_t num_bytes = (width + 7) / 8;
+        bool leading = true;
+        for (int b = (int)num_bytes - 1; b >= 0; --b) {
+            uint8_t byte_val = 0;
+            if (width <= 64) {
+                byte_val = (uint8_t)((aval >> (b * 8)) & 0xFF);
+            } else {
+                byte_val = (uint8_t)extract_slice(b * 8 + 7, b * 8).aval;
+            }
+            if (leading && byte_val == 0) continue;
+            leading = false;
+            s_out.push_back((char)byte_val);
+        }
+        return s_out;
+    }
 };
 
 inline uint64_t compute_clog2(uint64_t val) {

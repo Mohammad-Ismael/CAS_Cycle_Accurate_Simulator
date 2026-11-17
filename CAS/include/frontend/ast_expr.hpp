@@ -16,6 +16,7 @@ struct NumberNode : public ExpressionNode {
     bool explicit_size = false;
     bool is_time_literal = false;
     uint64_t time_fs = 0;
+    double time_fs_real = 0.0;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
 
@@ -40,6 +41,7 @@ struct NumberNode : public ExpressionNode {
         node->explicit_size = explicit_size;
         node->is_time_literal = is_time_literal;
         node->time_fs = time_fs;
+        node->time_fs_real = time_fs_real;
         node->wide_aval = wide_aval;
         node->wide_bval = wide_bval;
         return node;
@@ -435,16 +437,17 @@ struct ClassNewNode : public ExpressionNode {
     std::string class_type_name;
     std::vector<std::unique_ptr<ExpressionNode>> args;
     std::vector<std::string> arg_names = {};
+    bool is_shallow_copy = false;
 
-    ClassNewNode(std::string type_name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {})
-        : class_type_name(std::move(type_name)), args(std::move(a)), arg_names(std::move(anames)) {}
+    ClassNewNode(std::string type_name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {}, bool shallow = false)
+        : class_type_name(std::move(type_name)), args(std::move(a)), arg_names(std::move(anames)), is_shallow_copy(shallow) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> cloned_args;
         for (const auto& arg : args) {
             cloned_args.push_back(arg ? arg->clone() : nullptr);
         }
-        return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args), arg_names);
+        return std::make_unique<ClassNewNode>(class_type_name, std::move(cloned_args), arg_names, is_shallow_copy);
     }
 };
 

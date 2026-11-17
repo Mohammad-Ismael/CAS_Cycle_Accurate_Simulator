@@ -131,7 +131,7 @@ void Lexer::handle_include() {
     file_stack.push_back({inc_path, content, 0, 1});
 }
 
-uint64_t Lexer::parse_time_fs(const std::string& s) {
+double Lexer::parse_time_fs_real(const std::string& s) {
     size_t i = 0;
     while (i < s.size() && (std::isdigit(s[i]) || s[i] == '.')) i++;
     double num = 1.0;
@@ -148,7 +148,11 @@ uint64_t Lexer::parse_time_fs(const std::string& s) {
     else if (unit == "ns") mult = 1e6;
     else if (unit == "ps") mult = 1e3;
     else if (unit == "fs") mult = 1.0;
-    return static_cast<uint64_t>(std::round(num * mult));
+    return num * mult;
+}
+
+uint64_t Lexer::parse_time_fs(const std::string& s) {
+    return static_cast<uint64_t>(std::round(parse_time_fs_real(s)));
 }
 
 void Lexer::handle_timescale() {
@@ -1146,13 +1150,23 @@ Token Lexer::next_token() {
                     if (p != '_') num_str += p;
                 }
             }
-            if (std::isalpha(peek())) {
-                std::string tunit = "";
-                while (std::isalpha(peek())) tunit += advance();
+            std::string tunit = "";
+            if (std::isalpha(peek()) || peek() == '_') {
+                while (std::isalpha(peek()) || peek() == '_') tunit += advance();
             }
             double dval = std::stod(num_str);
             uint64_t aval = static_cast<uint64_t>(dval);
-            Token tok{TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0, true, dval};
+            Token tok{TokenType::TOKEN_NUMBER, num_str + tunit, aval, 64, cur_file, cur_line, 0, true, dval};
+            if (!tunit.empty()) {
+                if (tunit == "fs" || tunit == "ps" || tunit == "ns" ||
+                    tunit == "us" || tunit == "ms" || tunit == "s") {
+                    tok.is_time_literal = true;
+                    tok.time_fs_real = parse_time_fs_real(num_str + tunit);
+                    tok.time_fs = static_cast<uint64_t>(std::round(tok.time_fs_real));
+                } else {
+                    throw std::runtime_error("Invalid numeric literal: '" + num_str + tunit + "' per IEEE 1800-2023 5.7.1");
+                }
+            }
             return tok;
         }
 
@@ -1163,9 +1177,23 @@ Token Lexer::next_token() {
                 char p = advance();
                 if (p != '_') num_str += p;
             }
+            std::string tunit = "";
+            if (std::isalpha(peek()) || peek() == '_') {
+                while (std::isalpha(peek()) || peek() == '_') tunit += advance();
+            }
             double dval = std::stod(num_str);
             uint64_t aval = static_cast<uint64_t>(dval);
-            Token tok{TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0, true, dval};
+            Token tok{TokenType::TOKEN_NUMBER, num_str + tunit, aval, 64, cur_file, cur_line, 0, true, dval};
+            if (!tunit.empty()) {
+                if (tunit == "fs" || tunit == "ps" || tunit == "ns" ||
+                    tunit == "us" || tunit == "ms" || tunit == "s") {
+                    tok.is_time_literal = true;
+                    tok.time_fs_real = parse_time_fs_real(num_str + tunit);
+                    tok.time_fs = static_cast<uint64_t>(std::round(tok.time_fs_real));
+                } else {
+                    throw std::runtime_error("Invalid numeric literal: '" + num_str + tunit + "' per IEEE 1800-2023 5.7.1");
+                }
+            }
             return tok;
         }
 
@@ -1178,10 +1206,11 @@ Token Lexer::next_token() {
             if (alnum_part == "fs" || alnum_part == "ps" || alnum_part == "ns" ||
                 alnum_part == "us" || alnum_part == "ms" || alnum_part == "s") {
                 uint64_t aval = num_str.empty() ? 0 : std::stoull(num_str);
-                uint64_t t_fs = parse_time_fs(num_str + alnum_part);
+                double t_fs_real = parse_time_fs_real(num_str + alnum_part);
                 Token tok = {TokenType::TOKEN_NUMBER, num_str + alnum_part, aval, 64, cur_file, cur_line, 0};
                 tok.is_time_literal = true;
-                tok.time_fs = t_fs;
+                tok.time_fs_real = t_fs_real;
+                tok.time_fs = static_cast<uint64_t>(std::round(t_fs_real));
                 return tok;
             }
             throw std::runtime_error("Invalid numeric literal: '" + num_str + alnum_part + "' per IEEE 1800-2023 5.7.1");

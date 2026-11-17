@@ -44,6 +44,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
         std::vector<std::unique_ptr<ExpressionNode>> args;
         std::vector<std::string> arg_names;
+        bool is_shallow = false;
         if (match(TokenType::TOKEN_LPAREN)) {
             auto parsed = parse_call_argument_list();
             args = std::move(parsed.args);
@@ -51,8 +52,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         } else if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_THIS) {
             auto src_expr = parse_primary();
             args.push_back(std::move(src_expr));
+            is_shallow = true;
         }
-        return std::make_unique<ClassNewNode>("", std::move(args), std::move(arg_names));
+        return std::make_unique<ClassNewNode>("", std::move(args), std::move(arg_names), is_shallow);
     }
 
     if (match(TokenType::TOKEN_NULL)) {
@@ -631,8 +633,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
     if (current.type == TokenType::TOKEN_NUMBER) {
         if (current.is_real) {
             double r = current.real_val;
+            bool is_time_lit = current.is_time_literal;
+            double t_fs_real = current.time_fs_real;
+            uint64_t t_fs = current.time_fs;
             advance();
-            return std::make_unique<NumberNode>(r);
+            auto rnode = std::make_unique<NumberNode>(r);
+            rnode->is_time_literal = is_time_lit;
+            rnode->time_fs_real = t_fs_real;
+            rnode->time_fs = t_fs;
+            return rnode;
         }
         uint64_t a = current.num_val;
         uint64_t b = current.bval;
@@ -640,6 +649,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         bool s = current.is_signed;
         bool is_sz = current.is_sized;
         bool is_time_lit = current.is_time_literal;
+        double t_fs_real = current.time_fs_real;
         uint64_t t_fs = current.time_fs;
         auto w_a = std::move(current.wide_aval);
         auto w_b = std::move(current.wide_bval);
@@ -656,6 +666,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         auto node = std::make_unique<NumberNode>(a, b, w, s);
         node->explicit_size = is_sz;
         node->is_time_literal = is_time_lit;
+        node->time_fs_real = t_fs_real;
         node->time_fs = t_fs;
         node->wide_aval = std::move(w_a);
         node->wide_bval = std::move(w_b);
