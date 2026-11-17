@@ -115,7 +115,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         match(TokenType::TOKEN_SEMICOLON);
         exit_scope();
-        return std::make_unique<BlockStatementNode>(std::move(stmts));
+        return std::make_unique<BlockStatementNode>(std::move(stmts), begin_name);
     }
 
     // Return Statement (§13.4.1)
@@ -2566,6 +2566,11 @@ std::vector<std::unique_ptr<StatementNode>> Parser::parse_statement_or_block() {
         }
         match(TokenType::TOKEN_SEMICOLON);
         exit_scope();
+        if (!begin_name.empty()) {
+            auto wrapped = std::make_unique<BlockStatementNode>(std::move(stmts), begin_name);
+            stmts.clear();
+            stmts.push_back(std::move(wrapped));
+        }
     } else {
         auto s = parse_statement();
         if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {

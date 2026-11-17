@@ -167,6 +167,8 @@ struct BoundProcess {
     bool fired_in_time_slot = false;
     bool loop_break = false;
     bool loop_continue = false;
+    std::string disabled_block;
+    std::vector<std::string> named_blocks;
     std::vector<TaskActivationFrame> call_stack;
 
     size_t parent_pid = (size_t)-1;

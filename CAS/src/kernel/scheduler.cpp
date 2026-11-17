@@ -4640,6 +4640,9 @@ void StratifiedScheduler::step_process(size_t pid) {
 
         // 0. Unwrap any embedded BlockStatementNode in place
         if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+            if (!blk->name.empty()) {
+                bp.named_blocks.push_back(blk->name);
+            }
             std::vector<std::unique_ptr<StatementNode>> new_body;
             for (size_t i = 0; i < bp.pc; ++i) {
                 new_body.push_back(std::move(bp.proc->body[i]));

@@ -2702,6 +2702,11 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
         bp.pid = result.processes.size();
         result.generated_processes.push_back(std::move(proc_copy));
         bp.proc = result.generated_processes.back().get();
+        for (const auto& s : bp.proc->body) {
+            if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                if (!blk->name.empty()) bp.named_blocks.push_back(blk->name);
+            }
+        }
         result.processes.push_back(std::move(bp));
     }
 
@@ -4730,6 +4735,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         result.generated_processes.push_back(std::move(proc_copy));
         bp.proc = result.generated_processes.back().get();
+        for (const auto& s : bp.proc->body) {
+            if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                if (!blk->name.empty()) bp.named_blocks.push_back(blk->name);
+            }
+        }
         result.processes.push_back(std::move(bp));
     }
 
@@ -6655,7 +6665,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             }
 
             if (bd.driven_by_strict_proc) {
-                if (bd.writing_procs.size() > 1 || bd.targeted_by_pca || bd.has_continuous_assign) {
+                if (bd.writing_procs.size() > 1 || bd.has_continuous_assign) {
                     std::string var_name = net.name;
                     auto dot_pos = var_name.rfind('.');
                     if (dot_pos != std::string::npos) var_name = var_name.substr(dot_pos + 1);

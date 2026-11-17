@@ -659,6 +659,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto ds = dynamic_cast<DisableStatementNode*>(stmt)) {
+        bp.disabled_block = ds->target;
         for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
             auto& proc = engine.processes[pid];
             if (proc.completed) continue;
@@ -683,7 +684,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
             }
-            if (match_task) {
+            if (!match_task) {
+                for (const auto& nb : proc.named_blocks) {
+                    if (nb == ds->target ||
+                        (nb.size() > ds->target.size() &&
+                         nb.substr(nb.size() - ds->target.size() - 1) == "." + ds->target)) {
+                        match_task = true;
+                        break;
+                    }
+                }
+            }
+            if (!match_task && proc.proc) {
+                for (auto& s : proc.proc->body) {
+                    if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                        if (blk->name == ds->target ||
+                            (blk->name.size() > ds->target.size() &&
+                             blk->name.substr(blk->name.size() - ds->target.size() - 1) == "." + ds->target)) {
+                            match_task = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match_task && pid != bp.pid) {
                 proc.completed = true;
                 proc.is_delayed = false;
                 proc.wait_target.active = false;
@@ -719,10 +742,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
         for (auto& s : blk->statements) {
-            if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
+            if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
             execute_statement(s.get(), bp);
+            if (!bp.disabled_block.empty()) {
+                if (bp.disabled_block == blk->name || 
+                    (!blk->name.empty() && blk->name.size() > bp.disabled_block.size() &&
+                     blk->name.substr(blk->name.size() - bp.disabled_block.size() - 1) == "." + bp.disabled_block)) {
+                    bp.disabled_block.clear();
+                    return;
+                }
+                return;
+            }
             if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
             if (!engine.scheduler.is_active()) return;
+        }
+        if (!bp.disabled_block.empty()) {
+            if (bp.disabled_block == blk->name || 
+                (!blk->name.empty() && blk->name.size() > bp.disabled_block.size() &&
+                 blk->name.substr(blk->name.size() - bp.disabled_block.size() - 1) == "." + bp.disabled_block)) {
+                bp.disabled_block.clear();
+            }
         }
         return;
     }
@@ -1296,12 +1335,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
         uint64_t for_iters = 0;
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp) || bp.loop_break) break;
+            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : for_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1310,6 +1349,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 bp.loop_continue = false;
             }
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
+            if (!bp.disabled_block.empty()) break;
             for_iters++;
             if (for_iters > 100000) {
                 std::cout << "[ERROR FOR LOOP] for loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -1463,12 +1503,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
         uint64_t while_iters = 0;
         while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp) || bp.loop_break) break;
+            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : while_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1476,6 +1516,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
+            if (!bp.disabled_block.empty()) break;
             while_iters++;
             if (while_iters > 100000) {
                 std::cout << "[ERROR WHILE LOOP] while loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -1488,12 +1529,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto do_while_stmt = dynamic_cast<DoWhileStatementNode*>(stmt)) {
         uint64_t iters = 0;
         do {
-            if (has_returned(bp) || bp.loop_break) break;
+            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : do_while_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1501,6 +1542,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
+            if (!bp.disabled_block.empty()) break;
             iters++;
             if (iters > 100000) break;
         } while (eval_expr(do_while_stmt->condition.get(), bp.scope).to_bool());
@@ -1511,12 +1553,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         LogicVal count_val = eval_expr(rep_stmt->count_expr.get(), bp.scope);
         uint64_t count = count_val.is_unknown() ? 0 : count_val.aval;
         for (uint64_t i = 0; i < count; ++i) {
-            if (has_returned(bp) || bp.loop_break) break;
+            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : rep_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp)) break;
+            if (has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1524,17 +1566,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
+            if (!bp.disabled_block.empty()) break;
         }
         return;
     }
 
     if (auto fv_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
         while (engine.scheduler.is_active() && !bp.completed && !bp.is_delayed && bp.waiting_event_id == (size_t)-1 && !bp.is_waiting_sync && !bp.is_waiting_cycle) {
-            if (has_returned(bp) || bp.loop_break) break;
+            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : fv_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue) break;
+                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
-                if (!engine.scheduler.is_active() || bp.completed || bp.is_delayed || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_sync || bp.is_waiting_cycle) break;
+                if (!engine.scheduler.is_active() || bp.completed || bp.is_delayed || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_sync || bp.is_waiting_cycle || !bp.disabled_block.empty()) break;
             }
             if (bp.loop_break) {
                 bp.loop_break = false;
@@ -1543,6 +1586,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
+            if (!bp.disabled_block.empty()) break;
         }
         return;
     }

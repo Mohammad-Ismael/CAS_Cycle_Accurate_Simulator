@@ -36,16 +36,17 @@ struct ForeverStatementNode : public StatementNode {
 };
 
 struct BlockStatementNode : public StatementNode {
+    std::string name;
     std::vector<std::unique_ptr<StatementNode>> statements;
 
     BlockStatementNode() = default;
-    explicit BlockStatementNode(std::vector<std::unique_ptr<StatementNode>> stmts)
-        : statements(std::move(stmts)) {}
+    explicit BlockStatementNode(std::vector<std::unique_ptr<StatementNode>> stmts, std::string n = "")
+        : name(std::move(n)), statements(std::move(stmts)) {}
 
     std::unique_ptr<StatementNode> clone() const override {
         std::vector<std::unique_ptr<StatementNode>> stmts;
         for (const auto& s : statements) stmts.push_back(s ? s->clone() : nullptr);
-        return std::make_unique<BlockStatementNode>(std::move(stmts));
+        return std::make_unique<BlockStatementNode>(std::move(stmts), name);
     }
 };
 
