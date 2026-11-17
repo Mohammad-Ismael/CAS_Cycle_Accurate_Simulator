@@ -3555,6 +3555,41 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.var_to_struct_type[p.name] = p.type_name;
         }
         if (p.default_value) {
+            std::function<void(ExpressionNode*)> validate_port_default = [&](ExpressionNode* e) {
+                if (!e) return;
+                if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                    std::string cur_scope = scope;
+                    bool is_const = false;
+                    while (!cur_scope.empty()) {
+                        if (result.param_map.count(cur_scope + "." + id->name) ||
+                            result.enum_constant_map.count(cur_scope + "." + id->name)) {
+                            is_const = true;
+                            break;
+                        }
+                        auto dot = cur_scope.rfind('.');
+                        if (dot == std::string::npos) cur_scope = "";
+                        else cur_scope = cur_scope.substr(0, dot);
+                    }
+                    if (!is_const && (result.param_map.count(id->name) || result.enum_constant_map.count(id->name))) {
+                        is_const = true;
+                    }
+                    if (!is_const) {
+                        throw std::runtime_error("A reference to a wire or reg ('" + id->name + "') is not allowed in a constant expression for port default value per IEEE 1800-2023 §23.2.2.4");
+                    }
+                } else if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
+                    validate_port_default(bin->lhs.get());
+                    validate_port_default(bin->rhs.get());
+                } else if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
+                    validate_port_default(un->operand.get());
+                } else if (auto tern = dynamic_cast<TernaryOpNode*>(e)) {
+                    validate_port_default(tern->condition.get());
+                    validate_port_default(tern->true_expr.get());
+                    validate_port_default(tern->false_expr.get());
+                } else if (auto concat = dynamic_cast<ConcatNode*>(e)) {
+                    for (auto& elem : concat->elements) validate_port_default(elem.get());
+                }
+            };
+            validate_port_default(p.default_value.get());
             uint64_t init_val = eval_const_expr(p.default_value.get(), scope);
             LogicVal iv = LogicVal(w, init_val, 0);
             result.netlist[pid].value = iv;

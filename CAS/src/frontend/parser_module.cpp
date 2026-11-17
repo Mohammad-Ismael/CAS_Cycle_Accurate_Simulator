@@ -653,8 +653,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                     val_expr = parse_expression();
                 }
-                ParameterDef pdef(vname, std::move(val_expr), false, cu_type);
-                global_parameters.push_back(std::move(pdef));
+                if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire") {
+                    ParameterDef pdef(vname, std::move(val_expr), false, cu_type);
+                    global_parameters.push_back(std::move(pdef));
+                }
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
