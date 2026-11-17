@@ -37,12 +37,12 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
         const auto& in_p = target_fn->inputs[i];
-        uint32_t w = 1;
+        uint32_t w = in_p.width > 0 ? in_p.width : 1;
         if (in_p.msb_expr && in_p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
             if (msb_n && lsb_n) {
-                w = (msb_n->aval >= lsb_n->aval) ? (msb_n->aval - lsb_n->aval + 1) : (lsb_n->aval - msb_n->aval + 1);
+                w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
             }
         }
         context.declare_local(in_p.name, w, in_p.is_signed, in_p.type_name);
@@ -242,7 +242,7 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
         const auto& in_p = fn->inputs[i];
-        uint32_t w = 1;
+        uint32_t w = in_p.width > 0 ? in_p.width : 1;
         if (in_p.msb_expr && in_p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
@@ -337,7 +337,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
         const auto& in_p = fn->inputs[i];
-        uint32_t w = 1;
+        uint32_t w = in_p.width > 0 ? in_p.width : 1;
         if (in_p.msb_expr && in_p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(in_p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(in_p.lsb_expr.get());
@@ -3387,6 +3387,46 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
+        if (fn_call->func_name == "$time") {
+            return LogicVal::make_known(64, engine.get_sim_time());
+        }
+        if (fn_call->func_name == "$stime") {
+            return LogicVal::make_known(32, (uint32_t)engine.get_sim_time());
+        }
+        if (fn_call->func_name == "$random") {
+            static uint32_t rng_state = 0x12345678;
+            if (!fn_call->args.empty()) {
+                LogicVal sval = eval(fn_call->args[0].get(), scope);
+                if (!sval.is_unknown()) rng_state = (uint32_t)sval.aval;
+            }
+            rng_state = rng_state * 1103515245 + 12345;
+            return LogicVal::make_known(32, (uint64_t)rng_state, true);
+        }
+        if (fn_call->func_name == "$urandom") {
+            static uint32_t rng_state = 0x87654321;
+            if (!fn_call->args.empty()) {
+                LogicVal sval = eval(fn_call->args[0].get(), scope);
+                if (!sval.is_unknown()) rng_state = (uint32_t)sval.aval;
+            }
+            rng_state = rng_state * 1103515245 + 12345;
+            return LogicVal::make_known(32, (uint64_t)rng_state, false);
+        }
+        if (fn_call->func_name == "$urandom_range") {
+            static uint32_t rng_state = 0xfeedbeef;
+            uint32_t max_val = 0;
+            uint32_t min_val = 0;
+            if (!fn_call->args.empty()) {
+                max_val = (uint32_t)eval(fn_call->args[0].get(), scope).aval;
+                if (fn_call->args.size() > 1) {
+                    min_val = (uint32_t)eval(fn_call->args[1].get(), scope).aval;
+                }
+            }
+            if (min_val > max_val) std::swap(min_val, max_val);
+            rng_state = rng_state * 1103515245 + 12345;
+            uint32_t range = (max_val - min_val + 1);
+            uint32_t res = range ? (min_val + (rng_state % range)) : min_val;
+            return LogicVal::make_known(32, (uint64_t)res, false);
+        }
         if (fn_call->func_name == "$unsigned") {
             if (fn_call->args.empty()) return LogicVal::make_x(32);
             LogicVal v = eval(fn_call->args[0].get(), scope);
@@ -4062,6 +4102,17 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
         if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
+        if (ident->name == "$stime") return LogicVal::make_known(32, (uint32_t)engine.get_sim_time());
+        if (ident->name == "$random") {
+            static uint32_t rng_state = 0x12345678;
+            rng_state = rng_state * 1103515245 + 12345;
+            return LogicVal::make_known(32, (uint64_t)rng_state, true);
+        }
+        if (ident->name == "$urandom") {
+            static uint32_t rng_state = 0x87654321;
+            rng_state = rng_state * 1103515245 + 12345;
+            return LogicVal::make_known(32, (uint64_t)rng_state, false);
+        }
         if (ident->name == "__CAS_QUEUE_DOLLAR__" || ident->name == "$") {
             if (!queue_dollar_stack.empty()) {
                 return LogicVal::make_known(32, (uint64_t)queue_dollar_stack.back(), true);

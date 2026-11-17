@@ -39,10 +39,15 @@ struct LocalVar {
     std::vector<LogicVal> unpacked_elements;
     bool is_static = false;
     std::string static_key = "";
+    bool is_2state = false;
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),
           value(LogicVal::make_x(w)), type_name(std::move(t)), is_queue(q), is_dynamic_array(dyn), is_associative_array(assoc) {
+        is_2state = (type_name == "bit" || type_name == "int" || type_name == "byte" || type_name == "shortint" || type_name == "longint");
+        if (is_2state) {
+            value = LogicVal(width, 0, 0, is_signed);
+        }
         if (is_queue) queue_data = QueueObject(name, width, is_signed);
         if (is_dynamic_array) dyn_array_data = DynamicArrayObject(name, width, is_signed);
         if (is_associative_array) {

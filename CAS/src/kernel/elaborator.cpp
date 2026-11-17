@@ -3270,6 +3270,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" ||
             p.type_name == "shortint" || p.type_name == "longint") {
             result.netlist[pid].type_name = p.type_name;
+            result.netlist[pid].is_2state = true;
             result.netlist[pid].value = LogicVal(w, 0, 0, p.is_signed);
             result.netlist[pid].prev_value = LogicVal(w, 0, 0, p.is_signed);
         }
@@ -3693,6 +3694,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" ||
                 s.type_name == "shortint" || s.type_name == "longint") {
                 result.netlist[sid].type_name = s.type_name;
+                result.netlist[sid].is_2state = true;
                 result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
                 result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
             }
@@ -3739,12 +3741,37 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     for (auto& t : mod->tasks) {
         t->scope = scope;
+        for (auto& p : t->ports) {
+            if (p.msb_expr && p.lsb_expr) {
+                try {
+                    uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
+                    uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
+                    p.width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                } catch (...) {}
+            }
+        }
         result.task_map[scope + "." + t->name] = t.get();
         result.task_map[t->name] = t.get();
     }
 
     for (auto& f : mod->functions) {
         f->scope = scope;
+        if (f->return_msb_expr && f->return_lsb_expr) {
+            try {
+                uint64_t msb = eval_const_expr(f->return_msb_expr.get(), scope);
+                uint64_t lsb = eval_const_expr(f->return_lsb_expr.get(), scope);
+                f->return_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            } catch (...) {}
+        }
+        for (auto& in_p : f->inputs) {
+            if (in_p.msb_expr && in_p.lsb_expr) {
+                try {
+                    uint64_t msb = eval_const_expr(in_p.msb_expr.get(), scope);
+                    uint64_t lsb = eval_const_expr(in_p.lsb_expr.get(), scope);
+                    in_p.width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                } catch (...) {}
+            }
+        }
         result.function_map[scope + "." + f->name] = f.get();
         result.function_map[f->name] = f.get();
     }

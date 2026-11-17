@@ -18,6 +18,7 @@ struct PortNode : public ASTNode {
     std::vector<AstDimension> packed_dimensions;
     std::vector<AstDimension> unpacked_dimensions;
     bool is_signed = false;
+    uint32_t width = 0;
     bool is_array = false;
     std::unique_ptr<ExpressionNode> bound1_expr;
     std::unique_ptr<ExpressionNode> bound2_expr;

@@ -3132,7 +3132,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             for (size_t i = 0; i < num_formals; ++i) {
                 const auto& p = target_task->ports[i];
-                uint32_t w = 32;
+                uint32_t w = p.width > 0 ? p.width : 32;
                 if (p.msb_expr && p.lsb_expr) {
                     auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
                     auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
@@ -4042,11 +4042,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 local->value = rhs_val;
             } else {
                 local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
-                    local->value.bval = 0;
-                    if (!local->value.wide_bval.empty()) {
-                        std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
-                    }
+                if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                    local->value.coerce_to_2state();
                 }
             }
             return;
@@ -5409,11 +5406,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         local->value = rhs_val;
                     } else {
                         local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                        if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
-                            local->value.bval = 0;
-                            if (!local->value.wide_bval.empty()) {
-                                std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
-                            }
+                        if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                            local->value.coerce_to_2state();
                         }
                     }
                     if (local->is_static && !local->static_key.empty()) {

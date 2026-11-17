@@ -33,6 +33,7 @@ struct Net {
     std::string modport_name = "";
     bool is_vectored = false;
     bool is_port = false;
+    bool is_2state = false;
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),
@@ -54,6 +55,9 @@ struct Net {
             clamped = val;
             clamped.width = width;
             clamped.mask();
+            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "int" || type_name == "longint") {
+                clamped.coerce_to_2state();
+            }
         }
         if (value != clamped) {
             prev_value = value;

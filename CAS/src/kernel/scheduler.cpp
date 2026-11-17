@@ -3970,23 +3970,32 @@ void StratifiedScheduler::notify_parent_child_completed(size_t child_pid) {
 
     // 1. Check fork barrier (fork ... join / join_any)
     if (parent.fork_barrier.active) {
-        parent.fork_barrier.completed_children++;
-
-        bool unblock = false;
-        if (parent.fork_barrier.join_type == JoinType::JOIN) {
-            if (parent.fork_barrier.completed_children >= parent.fork_barrier.total_children) {
-                unblock = true;
-            }
-        } else if (parent.fork_barrier.join_type == JoinType::JOIN_ANY) {
-            if (parent.fork_barrier.completed_children >= 1) {
-                unblock = true;
+        bool is_barrier_child = false;
+        for (size_t b_cpid : parent.fork_barrier.child_pids) {
+            if (b_cpid == child_pid) {
+                is_barrier_child = true;
+                break;
             }
         }
+        if (is_barrier_child) {
+            parent.fork_barrier.completed_children++;
 
-        if (unblock) {
-            parent.fork_barrier.active = false;
-            if (!parent.fork_barrier.in_fork_setup) {
-                step_process(ppid);
+            bool unblock = false;
+            if (parent.fork_barrier.join_type == JoinType::JOIN) {
+                if (parent.fork_barrier.completed_children >= parent.fork_barrier.total_children) {
+                    unblock = true;
+                }
+            } else if (parent.fork_barrier.join_type == JoinType::JOIN_ANY) {
+                if (parent.fork_barrier.completed_children >= 1) {
+                    unblock = true;
+                }
+            }
+
+            if (unblock) {
+                parent.fork_barrier.active = false;
+                if (!parent.fork_barrier.in_fork_setup) {
+                    step_process(ppid);
+                }
             }
         }
     }

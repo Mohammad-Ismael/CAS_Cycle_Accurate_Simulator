@@ -278,6 +278,18 @@ struct LogicVal {
         return true;
     }
 
+    inline void coerce_to_2state() {
+        if (width <= 64) {
+            aval &= ~bval;
+            bval = 0;
+        } else {
+            for (size_t i = 0; i < wide_aval.size() && i < wide_bval.size(); ++i) {
+                wide_aval[i] &= ~wide_bval[i];
+                wide_bval[i] = 0;
+            }
+        }
+    }
+
     inline bool is_clean_2state_64() const {
         return width <= 64 && !is_real && !is_string && !is_unpacked && (bval == 0);
     }

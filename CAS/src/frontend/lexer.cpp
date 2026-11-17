@@ -1037,7 +1037,7 @@ Token Lexer::next_token() {
             if (alnum_part == "fs" || alnum_part == "ps" || alnum_part == "ns" ||
                 alnum_part == "us" || alnum_part == "ms" || alnum_part == "s") {
                 uint64_t aval = num_str.empty() ? 0 : std::stoull(num_str);
-                return {TokenType::TOKEN_NUMBER, num_str, aval, 64, cur_file, cur_line, 0};
+                return {TokenType::TOKEN_NUMBER, num_str + alnum_part, aval, 64, cur_file, cur_line, 0};
             }
             throw std::runtime_error("Invalid numeric literal: '" + num_str + alnum_part + "' per IEEE 1800-2023 5.7.1");
         }

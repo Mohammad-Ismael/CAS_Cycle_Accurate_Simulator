@@ -331,10 +331,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_TIMEUNIT)) {
             std::string t_unit = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_unit += current.text;
+                advance();
+            }
             std::string t_prec = "";
             if (match(TokenType::TOKEN_SLASH)) {
                 t_prec = current.text;
                 advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    t_prec += current.text;
+                    advance();
+                }
             }
             if (!validate_time_literal_str(t_unit)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
@@ -359,6 +367,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_TIMEPRECISION)) {
             std::string t_prec = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_prec += current.text;
+                advance();
+            }
             if (!validate_time_literal_str(t_prec)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
             }
@@ -489,10 +501,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_TIMEUNIT)) {
             std::string t_unit = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_unit += current.text;
+                advance();
+            }
             std::string t_prec = "";
             if (match(TokenType::TOKEN_SLASH)) {
                 t_prec = current.text;
                 advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    t_prec += current.text;
+                    advance();
+                }
             }
             if (!validate_time_literal_str(t_unit)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
@@ -517,6 +537,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (match(TokenType::TOKEN_TIMEPRECISION)) {
             std::string t_prec = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_prec += current.text;
+                advance();
+            }
             if (!validate_time_literal_str(t_prec)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
             }
@@ -1092,11 +1116,55 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         TokenType end_token = is_iface ? TokenType::TOKEN_ENDINTERFACE : (is_prog ? TokenType::TOKEN_ENDPROGRAM : TokenType::TOKEN_ENDMODULE);
         while (current.type != end_token && current.type != TokenType::TOKEN_EOF) {
             if (match(TokenType::TOKEN_TIMEUNIT)) {
+                std::string t_unit = current.text;
+                advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    t_unit += current.text;
+                    advance();
+                }
+                std::string t_prec = "";
+                if (match(TokenType::TOKEN_SLASH)) {
+                    t_prec = current.text;
+                    advance();
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                        t_prec += current.text;
+                        advance();
+                    }
+                }
+                if (!validate_time_literal_str(t_unit)) {
+                    throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
+                }
+                if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
+                    throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
+                }
+                if (!mod->timeunit_val.empty() && mod->timeunit_val != t_unit) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + mod->timeunit_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                mod->timeunit_val = t_unit;
+                if (!t_prec.empty()) {
+                    if (!mod->timeprecision_val.empty() && mod->timeprecision_val != t_prec) {
+                        throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + mod->timeprecision_val + "' per IEEE 1800-2023 §3.14.2");
+                    }
+                    mod->timeprecision_val = t_prec;
+                }
                 while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
                 match(TokenType::TOKEN_SEMICOLON);
                 continue;
             }
             if (match(TokenType::TOKEN_TIMEPRECISION)) {
+                std::string t_prec = current.text;
+                advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    t_prec += current.text;
+                    advance();
+                }
+                if (!validate_time_literal_str(t_prec)) {
+                    throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
+                }
+                if (!mod->timeprecision_val.empty() && mod->timeprecision_val != t_prec) {
+                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + mod->timeprecision_val + "' per IEEE 1800-2023 §3.14.2");
+                }
+                mod->timeprecision_val = t_prec;
                 while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
                 match(TokenType::TOKEN_SEMICOLON);
                 continue;
@@ -1550,48 +1618,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (match(TokenType::TOKEN_TIMEUNIT)) {
-            std::string t_unit = current.text;
-            advance();
-            std::string t_prec = "";
-            if (match(TokenType::TOKEN_SLASH)) {
-                t_prec = current.text;
-                advance();
-            }
-            if (!validate_time_literal_str(t_unit)) {
-                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
-            }
-            if (!t_prec.empty() && !validate_time_literal_str(t_prec)) {
-                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeunit precision per IEEE 1800-2023 §3.14.2");
-            }
-            if (!global_timeunit_val.empty() && global_timeunit_val != t_unit) {
-                throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
-            }
-            global_timeunit_val = t_unit;
-            if (!t_prec.empty()) {
-                if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
-                    throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
-                }
-                global_timeprec_val = t_prec;
-            }
-            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
-            match(TokenType::TOKEN_SEMICOLON);
-            continue;
-        }
-        if (match(TokenType::TOKEN_TIMEPRECISION)) {
-            std::string t_prec = current.text;
-            advance();
-            if (!validate_time_literal_str(t_prec)) {
-                throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
-            }
-            if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
-                throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
-            }
-            global_timeprec_val = t_prec;
-            while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
-            match(TokenType::TOKEN_SEMICOLON);
-            continue;
-        }
 
         if (current.type == TokenType::TOKEN_COVERGROUP) {
                 auto cg = parse_covergroup();
@@ -7125,10 +7151,18 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
         if (match(TokenType::TOKEN_TIMEUNIT)) {
             std::string t_unit = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_unit += current.text;
+                advance();
+            }
             std::string t_prec = "";
             if (match(TokenType::TOKEN_SLASH)) {
                 t_prec = current.text;
                 advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                    t_prec += current.text;
+                    advance();
+                }
             }
             if (!validate_time_literal_str(t_unit)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_unit + "' in timeunit per IEEE 1800-2023 §3.14.2");
@@ -7153,6 +7187,10 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
         if (match(TokenType::TOKEN_TIMEPRECISION)) {
             std::string t_prec = current.text;
             advance();
+            if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                t_prec += current.text;
+                advance();
+            }
             if (!validate_time_literal_str(t_prec)) {
                 throw std::runtime_error("[CAS-TIME] Invalid time literal '" + t_prec + "' in timeprecision per IEEE 1800-2023 §3.14.2");
             }
