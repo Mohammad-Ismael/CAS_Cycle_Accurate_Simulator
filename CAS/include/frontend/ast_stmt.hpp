@@ -50,6 +50,18 @@ struct BlockStatementNode : public StatementNode {
     }
 };
 
+struct ImportStatementNode : public StatementNode {
+    std::vector<std::pair<std::string, std::string>> imports; // {pkg_name, item_name ("*" for wildcard)}
+
+    ImportStatementNode() = default;
+    explicit ImportStatementNode(std::vector<std::pair<std::string, std::string>> imps)
+        : imports(std::move(imps)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ImportStatementNode>(imports);
+    }
+};
+
 struct AstDimension {
     std::unique_ptr<ExpressionNode> left_expr;
     std::unique_ptr<ExpressionNode> right_expr;

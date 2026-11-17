@@ -2236,7 +2236,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (!mod_sig_type.empty()) {
-                std::string type_name = mod_sig_type;
+                std::string type_name = resolve_imported_type_name(mod_sig_type);
                 auto enum_info = get_enum_typedef(type_name);
                 auto struct_info = get_struct_typedef(type_name);
                 const UnpackedArrayTypedef* uarr_info = get_unpacked_array_typedef(type_name);
@@ -7256,6 +7256,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                     }
                     bind_out_of_body_function(std::move(fn));
                 } else {
+                    fn->scope = pkg->name;
                     pkg->function_map[fn->name] = fn.get();
                     pkg->functions.push_back(std::move(fn));
                 }
@@ -7272,6 +7273,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                     }
                     bind_out_of_body_task(std::move(t));
                 } else {
+                    t->scope = pkg->name;
                     pkg->task_map[t->name] = t.get();
                     pkg->tasks.push_back(std::move(t));
                 }
@@ -7526,14 +7528,109 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             }
             if (next.type == TokenType::TOKEN_IDENTIFIER) {
                 Token after_next = peek_token_n(2);
-                if (after_next.type == TokenType::TOKEN_LPAREN || after_next.type == TokenType::TOKEN_LBRACKET) {
+                if (after_next.type == TokenType::TOKEN_LPAREN) {
                     std::string loc = current.filename.empty() 
                         ? ("line " + std::to_string(current.line)) 
                         : (current.filename + ":" + std::to_string(current.line));
                     throw std::runtime_error(loc + ": error: [CAS-DTINPCIL] Module or interface declarations and instantiations are illegal in package scope");
                 }
             }
+        }
+
+        if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
+            current.type == TokenType::TOKEN_WAND  || current.type == TokenType::TOKEN_WOR  || 
+            current.type == TokenType::TOKEN_TRI   || current.type == TokenType::TOKEN_REG  || 
+            current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT ||
+            current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED ||
+            (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "real" || is_type_identifier(current.text)))) {
+            
+            NetKind pkind = NetKind::VAR;
+            if (current.type == TokenType::TOKEN_WIRE) pkind = NetKind::WIRE;
+            else if (current.type == TokenType::TOKEN_WAND) pkind = NetKind::WAND;
+            else if (current.type == TokenType::TOKEN_WOR) pkind = NetKind::WOR;
+            else if (current.type == TokenType::TOKEN_TRI) pkind = NetKind::TRI;
+            std::string tname = current.text;
+            bool is_signed_sig = (current.type == TokenType::TOKEN_SIGNED);
             advance();
+
+            if (match(TokenType::TOKEN_SIGNED)) {
+                is_signed_sig = true;
+            } else if (match(TokenType::TOKEN_UNSIGNED)) {
+                is_signed_sig = false;
+            }
+
+            std::vector<AstDimension> packed_dims;
+            std::unique_ptr<ExpressionNode> msb = nullptr;
+            std::unique_ptr<ExpressionNode> lsb = nullptr;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                auto l = parse_expression();
+                std::unique_ptr<ExpressionNode> r = nullptr;
+                if (match(TokenType::TOKEN_COLON)) {
+                    r = parse_expression();
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in signal range");
+                AstDimension ad;
+                ad.left_expr = l->clone();
+                ad.right_expr = r ? r->clone() : nullptr;
+                ad.is_single = (r == nullptr);
+                packed_dims.push_back(std::move(ad));
+                if (!msb) {
+                    msb = std::move(l);
+                    lsb = std::move(r);
+                }
+            }
+
+            while (true) {
+                std::string sname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in package");
+                PortNode pnode(sname, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, pkind);
+                pnode.type_name = tname;
+                pnode.packed_dimensions = packed_dims;
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        pnode.is_queue = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            pnode.queue_bound_expr = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        break;
+                    } else if (match(TokenType::TOKEN_RBRACKET)) {
+                        pnode.is_dynamic_array = true;
+                        break;
+                    } else if (is_assoc_key_token(current)) {
+                        pnode.is_associative_array = true;
+                        parse_assoc_key_type(pnode.assoc_key_type, pnode.assoc_key_width);
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                        break;
+                    } else {
+                        pnode.is_array = true;
+                        auto l = parse_expression();
+                        std::unique_ptr<ExpressionNode> r = nullptr;
+                        bool is_single = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            r = parse_expression();
+                            is_single = false;
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in array dimension");
+                        AstDimension ad;
+                        ad.left_expr = std::move(l);
+                        ad.right_expr = std::move(r);
+                        ad.is_single = is_single;
+                        pnode.unpacked_dimensions.push_back(std::move(ad));
+                    }
+                }
+
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    auto init_expr = parse_expression();
+                    pnode.default_value = init_expr->clone();
+                }
+
+                pkg->signal_map[sname] = pkg->signals.size();
+                pkg->signals.push_back(std::move(pnode));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after package signal declaration");
             continue;
         }
 

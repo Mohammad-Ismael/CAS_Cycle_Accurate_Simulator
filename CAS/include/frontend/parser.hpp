@@ -91,6 +91,7 @@ public:
         global_forward_classes.clear();
         global_forward_interface_classes.clear();
         resolved_typedefs.clear();
+        global_type_dimensions.clear();
     }
 
     bool is_package(const std::string& name) const {
@@ -172,6 +173,18 @@ public:
             }
         }
 
+        if (current_parsing_package) {
+            auto it = current_parsing_package->enum_typedefs.find(name);
+            if (it != current_parsing_package->enum_typedefs.end()) return it->second;
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->enum_typedefs.find(name);
+                    if (tit != pit->second->enum_typedefs.end()) return tit->second;
+                }
+            }
+        }
+
         if (current_parsing_module) {
             auto eit = current_parsing_module->explicit_imports.find(name);
             if (eit != current_parsing_module->explicit_imports.end()) {
@@ -202,8 +215,6 @@ public:
     std::shared_ptr<StructTypeNode> get_struct_typedef(const std::string& name) const {
         auto git = global_struct_typedefs.find(name);
         if (git != global_struct_typedefs.end()) return git->second;
-        auto it = struct_typedef_map.find(name);
-        if (it != struct_typedef_map.end()) return it->second;
 
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
@@ -213,6 +224,18 @@ public:
             if (pit != global_packages.end()) {
                 auto tit = pit->second->struct_typedefs.find(type);
                 if (tit != pit->second->struct_typedefs.end()) return tit->second;
+            }
+        }
+
+        if (current_parsing_package) {
+            auto it = current_parsing_package->struct_typedefs.find(name);
+            if (it != current_parsing_package->struct_typedefs.end()) return it->second;
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto tit = pit->second->struct_typedefs.find(name);
+                    if (tit != pit->second->struct_typedefs.end()) return tit->second;
+                }
             }
         }
 
@@ -233,6 +256,10 @@ public:
                 }
             }
         }
+
+        auto it = struct_typedef_map.find(name);
+        if (it != struct_typedef_map.end()) return it->second;
+
         for (const auto& pkg_name : global_wildcard_imports) {
             auto pit = global_packages.find(pkg_name);
             if (pit != global_packages.end()) {
@@ -247,7 +274,6 @@ public:
 
     bool is_simple_typedef(const std::string& name) const {
         if (current_parsing_class && current_parsing_class->simple_typedefs.find(name) != current_parsing_class->simple_typedefs.end()) return true;
-        if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
         if (current_parsing_module && current_parsing_module->simple_typedefs.find(name) != current_parsing_module->simple_typedefs.end()) return true;
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
@@ -258,7 +284,23 @@ public:
                 if (pit->second->simple_typedefs.find(type) != pit->second->simple_typedefs.end()) return true;
             }
         }
+        if (current_parsing_package) {
+            if (current_parsing_package->simple_typedefs.find(name) != current_parsing_package->simple_typedefs.end()) return true;
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end()) return true;
+                }
+            }
+        }
         if (current_parsing_module) {
+            auto eit = current_parsing_module->explicit_imports.find(name);
+            if (eit != current_parsing_module->explicit_imports.end()) {
+                auto pit = global_packages.find(eit->second.first);
+                if (pit != global_packages.end()) {
+                    if (pit->second->simple_typedefs.find(eit->second.second) != pit->second->simple_typedefs.end()) return true;
+                }
+            }
             int found_pkg_cnt = 0;
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
                 auto pit = global_packages.find(pkg_name);
@@ -279,6 +321,7 @@ public:
                 return true;
             }
         }
+        if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
         for (const auto& pkg_name : global_wildcard_imports) {
             auto pit = global_packages.find(pkg_name);
             if (pit != global_packages.end()) {
@@ -296,11 +339,6 @@ public:
                 return true;
             }
         }
-        auto it = simple_typedef_map.find(name);
-        if (it != simple_typedef_map.end()) {
-            out = it->second;
-            return true;
-        }
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
             std::string pkg = name.substr(0, colon_pos);
@@ -314,7 +352,35 @@ public:
                 }
             }
         }
+        if (current_parsing_package) {
+            auto it = current_parsing_package->simple_typedefs.find(name);
+            if (it != current_parsing_package->simple_typedefs.end()) {
+                out = it->second;
+                return true;
+            }
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto sit = pit->second->simple_typedefs.find(name);
+                    if (sit != pit->second->simple_typedefs.end()) {
+                        out = sit->second;
+                        return true;
+                    }
+                }
+            }
+        }
         if (current_parsing_module) {
+            auto eit = current_parsing_module->explicit_imports.find(name);
+            if (eit != current_parsing_module->explicit_imports.end()) {
+                auto pit = global_packages.find(eit->second.first);
+                if (pit != global_packages.end()) {
+                    auto sit = pit->second->simple_typedefs.find(eit->second.second);
+                    if (sit != pit->second->simple_typedefs.end()) {
+                        out = sit->second;
+                        return true;
+                    }
+                }
+            }
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
                 auto pit = global_packages.find(pkg_name);
                 if (pit != global_packages.end()) {
@@ -325,6 +391,16 @@ public:
                     }
                 }
             }
+            auto it = current_parsing_module->simple_typedefs.find(name);
+            if (it != current_parsing_module->simple_typedefs.end()) {
+                out = it->second;
+                return true;
+            }
+        }
+        auto it = simple_typedef_map.find(name);
+        if (it != simple_typedef_map.end()) {
+            out = it->second;
+            return true;
         }
         for (const auto& pkg_name : global_wildcard_imports) {
             auto pit = global_packages.find(pkg_name);
@@ -352,6 +428,15 @@ public:
             auto pit = global_packages.find(pkg);
             if (pit != global_packages.end()) {
                 if (pit->second->unpacked_array_typedefs.find(type) != pit->second->unpacked_array_typedefs.end()) return true;
+            }
+        }
+        if (current_parsing_package) {
+            if (current_parsing_package->unpacked_array_typedefs.find(name) != current_parsing_package->unpacked_array_typedefs.end()) return true;
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    if (pit->second->unpacked_array_typedefs.find(name) != pit->second->unpacked_array_typedefs.end()) return true;
+                }
             }
         }
         if (current_parsing_module) {
@@ -387,6 +472,17 @@ public:
                 if (uit != pit->second->unpacked_array_typedefs.end()) return &uit->second;
             }
         }
+        if (current_parsing_package) {
+            auto it = current_parsing_package->unpacked_array_typedefs.find(name);
+            if (it != current_parsing_package->unpacked_array_typedefs.end()) return &it->second;
+            for (const auto& pkg_name : current_parsing_package->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    auto uit = pit->second->unpacked_array_typedefs.find(name);
+                    if (uit != pit->second->unpacked_array_typedefs.end()) return &uit->second;
+                }
+            }
+        }
         if (current_parsing_module) {
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
                 auto pit = global_packages.find(pkg_name);
@@ -406,12 +502,45 @@ public:
         return nullptr;
     }
 
+    static inline const Parser* active_parser_instance = nullptr;
+
+    std::string resolve_imported_type_name(const std::string& name) const {
+        if (name.empty() || name.find("::") != std::string::npos) return name;
+        if (current_parsing_module) {
+            if (current_parsing_module->type_dimensions.count(name) ||
+                current_parsing_module->simple_typedefs.count(name) ||
+                current_parsing_module->struct_typedefs.count(name) ||
+                current_parsing_module->enum_typedefs.count(name) ||
+                current_parsing_module->unpacked_array_typedefs.count(name)) {
+                return name;
+            }
+            auto eit = current_parsing_module->explicit_imports.find(name);
+            if (eit != current_parsing_module->explicit_imports.end()) {
+                return eit->second.first + "::" + eit->second.second;
+            }
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    if (pit->second->type_dimensions.count(name) ||
+                        pit->second->simple_typedefs.count(name) ||
+                        pit->second->struct_typedefs.count(name) ||
+                        pit->second->enum_typedefs.count(name) ||
+                        pit->second->unpacked_array_typedefs.count(name)) {
+                        return pkg_name + "::" + name;
+                    }
+                }
+            }
+        }
+        return name;
+    }
+
     static inline std::unordered_map<std::string, VariableDimMetadata> global_type_dimensions;
 
     static const VariableDimMetadata* find_type_dim_metadata(const std::string& name) {
         if (name.empty()) return nullptr;
-        if (global_type_dimensions.find(name) != global_type_dimensions.end()) {
-            return &global_type_dimensions.at(name);
+        if (name.find("::") == std::string::npos && active_parser_instance) {
+            std::string resolved = active_parser_instance->resolve_imported_type_name(name);
+            if (resolved != name) return find_type_dim_metadata(resolved);
         }
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
@@ -423,6 +552,13 @@ public:
                     return &pit->second->type_dimensions.at(type);
                 }
             }
+            if (global_type_dimensions.find(name) != global_type_dimensions.end()) {
+                return &global_type_dimensions.at(name);
+            }
+            return nullptr;
+        }
+        if (global_type_dimensions.find(name) != global_type_dimensions.end()) {
+            return &global_type_dimensions.at(name);
         }
         for (const auto& kv : global_packages) {
             const auto& pkg = kv.second;
@@ -657,6 +793,7 @@ public:
     std::string resolve_type_from_type_op(const TypeOpNode* ton) const;
 
     explicit Parser(Lexer& lex);
+    ~Parser();
 
     std::vector<std::unique_ptr<ModuleNode>> parse_all();
     std::unique_ptr<FunctionNode> parse_function(bool is_pure = false, bool is_extern = false);

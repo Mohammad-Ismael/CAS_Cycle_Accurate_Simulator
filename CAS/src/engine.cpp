@@ -1529,6 +1529,12 @@ size_t Engine::get_net_id(const std::string& scope, const std::string& name) con
         auto it3 = net_map.find(scoped);
         if (it3 != net_map.end()) return it3->second;
 
+        if (!cur_scope.empty()) {
+            std::string colon_scoped = cur_scope + "::" + name;
+            auto itc = net_map.find(colon_scoped);
+            if (itc != net_map.end()) return itc->second;
+        }
+
         if (cur_scope.empty()) break;
         auto dot = cur_scope.rfind('.');
         if (dot == std::string::npos) cur_scope = "";

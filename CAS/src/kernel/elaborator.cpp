@@ -788,6 +788,21 @@ uint64_t Elaborator::eval_bits(ExpressionNode* expr, const std::string& scope) {
             for (const auto& d : tmeta->dimensions) total *= (uint64_t)d.size();
             if (total > 0) return total;
         }
+        if (result.net_map.count(qname)) {
+            return result.netlist[result.net_map.at(qname)].width;
+        }
+        if (result.struct_types.count(qname)) {
+            return result.struct_types.at(qname).total_width;
+        }
+        if (result.simple_types.count(qname)) {
+            return result.simple_types.at(qname).width;
+        }
+        if (result.enum_types.count(qname)) {
+            return result.enum_types.at(qname).width;
+        }
+        if (result.param_val_map.count(qname)) {
+            return result.param_val_map.at(qname).width;
+        }
         auto pit = Parser::global_packages.find(sma->class_type_name);
         if (pit != Parser::global_packages.end()) {
             auto sit = pit->second->struct_typedefs.find(sma->member_name);
@@ -1813,6 +1828,12 @@ size_t Elaborator::get_net_id(const std::string& scope, const std::string& name)
         std::string scoped = cur_scope.empty() ? name : (cur_scope + "." + name);
         auto it3 = result.net_map.find(scoped);
         if (it3 != result.net_map.end()) return it3->second;
+
+        if (!cur_scope.empty()) {
+            std::string colon_scoped = cur_scope + "::" + name;
+            auto itc = result.net_map.find(colon_scoped);
+            if (itc != result.net_map.end()) return itc->second;
+        }
 
         if (cur_scope.empty()) break;
         auto dot = cur_scope.rfind('.');
@@ -2852,6 +2873,10 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             }
         }
         BoundProcess bp(current_scope, proc_copy.get(), 0, false);
+        if (current_module) {
+            bp.active_wildcard_imports = current_module->wildcard_imports;
+            bp.active_explicit_imports = current_module->explicit_imports;
+        }
         bp.pid = result.processes.size();
         result.generated_processes.push_back(std::move(proc_copy));
         bp.proc = result.generated_processes.back().get();
@@ -2985,6 +3010,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                  const std::vector<ParamOverride>* overrides,
                                  const std::string& parent_scope,
                                  std::ostream* debug_out) {
+    ModuleNode* prev_module = current_module;
+    current_module = mod;
     if (debug_out) {
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
@@ -3030,6 +3057,17 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.task_map[scope + "." + t->name] = t.get();
                 if (parent_scope.empty()) result.task_map[t->name] = t.get();
             }
+            for (const auto& s : pkg->signals) {
+                auto nit = result.net_map.find(pkg_name + "::" + s.name);
+                if (nit != result.net_map.end()) {
+                    result.net_map[scope + "." + s.name] = nit->second;
+                    if (parent_scope.empty()) result.net_map[s.name] = nit->second;
+                }
+                if (!s.type_name.empty()) {
+                    result.var_to_struct_type[scope + "." + s.name] = s.type_name;
+                    if (parent_scope.empty()) result.var_to_struct_type[s.name] = s.type_name;
+                }
+            }
         }
     }
 
@@ -3040,6 +3078,28 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         auto it = Parser::global_packages.find(pkg_name);
         if (it != Parser::global_packages.end()) {
             const auto& pkg = it->second;
+            for (const auto& p : pkg->parameters) {
+                if (p.name == item_name) {
+                    LogicVal lval = eval_const_logic_val(p.default_expr.get(), scope);
+                    result.param_val_map[scope + "." + item_name] = lval;
+                    result.param_val_map[item_name] = lval;
+                    result.param_map[scope + "." + item_name] = lval.aval;
+                    if (parent_scope.empty()) result.param_map[item_name] = lval.aval;
+                    break;
+                }
+            }
+            if (pkg->signal_map.count(item_name)) {
+                auto nit = result.net_map.find(pkg_name + "::" + item_name);
+                if (nit != result.net_map.end()) {
+                    result.net_map[scope + "." + item_name] = nit->second;
+                    if (parent_scope.empty()) result.net_map[item_name] = nit->second;
+                }
+                const auto& s = pkg->signals[pkg->signal_map.at(item_name)];
+                if (!s.type_name.empty()) {
+                    result.var_to_struct_type[scope + "." + item_name] = s.type_name;
+                    if (parent_scope.empty()) result.var_to_struct_type[item_name] = s.type_name;
+                }
+            }
             if (pkg->param_constants.count(item_name)) {
                 result.param_map[scope + "." + item_name] = pkg->param_constants.at(item_name);
                 if (parent_scope.empty()) result.param_map[item_name] = pkg->param_constants.at(item_name);
@@ -5030,6 +5090,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         }
         BoundProcess bp(scope, proc_copy.get(), 0, false);
+        bp.active_wildcard_imports = mod->wildcard_imports;
+        bp.active_explicit_imports = mod->explicit_imports;
         bp.pid = result.processes.size();
         if (mod->is_program) {
             bp.is_reactive = true;
@@ -5192,6 +5254,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             elaborate_instantiation_node(inst.get(), scope, module_defs, debug_out);
         }
     }
+    current_module = prev_module;
 }
 
 void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std::string& scope,
@@ -5615,6 +5678,7 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
         for (const auto& td : pkg->type_dimensions) {
             result.var_dimensions[td.first] = td.second;
+            result.var_dimensions[pkg_name + "::" + td.first] = td.second;
         }
 
         for (const auto& et : pkg->enum_typedefs) {
@@ -5700,14 +5764,163 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
 
         for (const auto& fn : pkg->functions) {
+            if (fn->scope.empty()) fn->scope = pkg_name;
+            if (fn->return_msb_expr && fn->return_lsb_expr) {
+                try {
+                    uint64_t msb = eval_const_expr(fn->return_msb_expr.get(), pkg_name);
+                    uint64_t lsb = eval_const_expr(fn->return_lsb_expr.get(), pkg_name);
+                    fn->return_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                } catch (...) {}
+            } else if (!fn->return_type_name.empty()) {
+                const VariableDimMetadata* type_meta = nullptr;
+                auto scoped_td = result.var_dimensions.find(pkg_name + "::" + fn->return_type_name);
+                if (scoped_td != result.var_dimensions.end()) {
+                    type_meta = &scoped_td->second;
+                } else {
+                    auto td_it = result.var_dimensions.find(fn->return_type_name);
+                    if (td_it != result.var_dimensions.end()) {
+                        type_meta = &td_it->second;
+                    } else {
+                        type_meta = Parser::find_type_dim_metadata(pkg_name + "::" + fn->return_type_name);
+                        if (!type_meta) type_meta = Parser::find_type_dim_metadata(fn->return_type_name);
+                    }
+                }
+                if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                    uint32_t pw = 1;
+                    for (const auto& d : type_meta->dimensions) pw *= (uint32_t)d.size();
+                    if (pw > 0) fn->return_width = pw;
+                }
+            }
+            for (auto& in_p : fn->inputs) {
+                if (in_p.msb_expr && in_p.lsb_expr) {
+                    try {
+                        uint64_t msb = eval_const_expr(in_p.msb_expr.get(), pkg_name);
+                        uint64_t lsb = eval_const_expr(in_p.lsb_expr.get(), pkg_name);
+                        in_p.width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                    } catch (...) {}
+                } else if (!in_p.type_name.empty()) {
+                    const VariableDimMetadata* type_meta = nullptr;
+                    auto scoped_td = result.var_dimensions.find(pkg_name + "::" + in_p.type_name);
+                    if (scoped_td != result.var_dimensions.end()) {
+                        type_meta = &scoped_td->second;
+                    } else {
+                        auto td_it = result.var_dimensions.find(in_p.type_name);
+                        if (td_it != result.var_dimensions.end()) {
+                            type_meta = &td_it->second;
+                        } else {
+                            type_meta = Parser::find_type_dim_metadata(pkg_name + "::" + in_p.type_name);
+                            if (!type_meta) type_meta = Parser::find_type_dim_metadata(in_p.type_name);
+                        }
+                    }
+                    if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                        uint32_t pw = 1;
+                        for (const auto& d : type_meta->dimensions) pw *= (uint32_t)d.size();
+                        if (pw > 0) in_p.width = pw;
+                    }
+                }
+            }
             result.function_map[pkg_name + "::" + fn->name] = fn.get();
             result.function_map[fn->name] = fn.get();
         }
 
         for (const auto& t : pkg->tasks) {
             if (t->scope.empty()) t->scope = pkg_name;
+            for (auto& p : t->ports) {
+                if (p.msb_expr && p.lsb_expr) {
+                    try {
+                        uint64_t msb = eval_const_expr(p.msb_expr.get(), pkg_name);
+                        uint64_t lsb = eval_const_expr(p.lsb_expr.get(), pkg_name);
+                        p.width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                    } catch (...) {}
+                } else if (!p.type_name.empty()) {
+                    const VariableDimMetadata* type_meta = nullptr;
+                    auto scoped_td = result.var_dimensions.find(pkg_name + "::" + p.type_name);
+                    if (scoped_td != result.var_dimensions.end()) {
+                        type_meta = &scoped_td->second;
+                    } else {
+                        auto td_it = result.var_dimensions.find(p.type_name);
+                        if (td_it != result.var_dimensions.end()) {
+                            type_meta = &td_it->second;
+                        } else {
+                            type_meta = Parser::find_type_dim_metadata(pkg_name + "::" + p.type_name);
+                            if (!type_meta) type_meta = Parser::find_type_dim_metadata(p.type_name);
+                        }
+                    }
+                    if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                        uint32_t pw = 1;
+                        for (const auto& d : type_meta->dimensions) pw *= (uint32_t)d.size();
+                        if (pw > 0) p.width = pw;
+                    }
+                }
+            }
             result.task_map[pkg_name + "::" + t->name] = t.get();
             result.task_map[t->name] = t.get();
+        }
+
+        for (const auto& s : pkg->signals) {
+            uint32_t w = 1;
+            if (s.msb_expr && s.lsb_expr) {
+                try {
+                    uint64_t m = eval_const_expr(s.msb_expr.get(), pkg_name);
+                    uint64_t l = eval_const_expr(s.lsb_expr.get(), pkg_name);
+                    w = (m >= l) ? (m - l + 1) : (l - m + 1);
+                } catch (...) {
+                    w = 1;
+                }
+            } else if (!s.type_name.empty()) {
+                const PackedStructType* st = find_struct_type(s.type_name, pkg_name);
+                if (st) {
+                    w = st->total_width;
+                } else if (result.simple_types.count(pkg_name + "::" + s.type_name)) {
+                    w = result.simple_types[pkg_name + "::" + s.type_name].width;
+                } else if (result.simple_types.count(s.type_name)) {
+                    w = result.simple_types[s.type_name].width;
+                } else if (s.type_name == "int" || s.type_name == "integer") {
+                    w = 32;
+                } else if (s.type_name == "byte") {
+                    w = 8;
+                } else if (s.type_name == "shortint") {
+                    w = 16;
+                } else if (s.type_name == "longint") {
+                    w = 64;
+                } else {
+                    const VariableDimMetadata* type_meta = nullptr;
+                    auto scoped_td = result.var_dimensions.find(pkg_name + "::" + s.type_name);
+                    if (scoped_td != result.var_dimensions.end()) {
+                        type_meta = &scoped_td->second;
+                    } else {
+                        auto td_it = result.var_dimensions.find(s.type_name);
+                        if (td_it != result.var_dimensions.end()) {
+                            type_meta = &td_it->second;
+                        } else {
+                            type_meta = Parser::find_type_dim_metadata(pkg_name + "::" + s.type_name);
+                            if (!type_meta) type_meta = Parser::find_type_dim_metadata(s.type_name);
+                        }
+                    }
+                    if (type_meta && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+                        uint32_t pw = 1;
+                        for (const auto& d : type_meta->dimensions) pw *= (uint32_t)d.size();
+                        if (pw > 0) w = pw;
+                    }
+                }
+            }
+            size_t sid = get_or_create_net(pkg_name + "::" + s.name, w, s.is_signed, s.net_kind);
+            result.netlist[sid].type_name = s.type_name;
+            result.net_map[pkg_name + "." + s.name] = sid;
+
+            if (!s.type_name.empty()) {
+                result.var_to_struct_type[pkg_name + "::" + s.name] = s.type_name;
+                result.var_to_struct_type[pkg_name + "." + s.name] = s.type_name;
+            }
+
+            if (s.default_value) {
+                try {
+                    LogicVal iv = eval_const_logic_val(s.default_value.get(), pkg_name);
+                    if (iv.width != w) iv = LogicOps::cast_width(iv, w, s.is_signed);
+                    result.netlist[sid].value = iv;
+                    result.netlist[sid].prev_value = iv;
+                } catch (...) {}
+            }
         }
 
         std::string pkg_tu = !pkg->time_unit.empty() ? pkg->time_unit : (!Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str);

@@ -141,7 +141,28 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
         return;
     }
-    size_t nid = engine.get_net_id(bp.scope, var_name);
+    size_t nid = (size_t)-1;
+    for (const auto& pkg : bp.active_wildcard_imports) {
+        std::string qname = pkg + "::" + var_name;
+        if (engine.net_map.count(qname)) {
+            nid = engine.net_map.at(qname);
+            break;
+        }
+    }
+    if (nid == (size_t)-1) {
+        for (const auto& kv : bp.active_explicit_imports) {
+            if (kv.first == var_name) {
+                std::string qname = kv.second.first + "::" + kv.second.second;
+                if (engine.net_map.count(qname)) {
+                    nid = engine.net_map.at(qname);
+                    break;
+                }
+            }
+        }
+    }
+    if (nid == (size_t)-1) {
+        nid = engine.get_net_id(bp.scope, var_name);
+    }
     if (nid != (size_t)-1) {
         size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
         if (actual_val.is_tagged_union) {
@@ -739,7 +760,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         return;
     }
+    if (auto imp_stmt = dynamic_cast<ImportStatementNode*>(stmt)) {
+        for (const auto& imp : imp_stmt->imports) {
+            if (imp.second == "*") {
+                bp.active_wildcard_imports.push_back(imp.first);
+            } else {
+                bp.active_explicit_imports[imp.second] = imp;
+            }
+        }
+        return;
+    }
+
     if (auto blk = dynamic_cast<BlockStatementNode*>(stmt)) {
+        auto saved_wc = bp.active_wildcard_imports;
+        auto saved_exp = bp.active_explicit_imports;
         for (auto& s : blk->statements) {
             if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
             execute_statement(s.get(), bp);
@@ -748,13 +782,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     (!blk->name.empty() && blk->name.size() > bp.disabled_block.size() &&
                      blk->name.substr(blk->name.size() - bp.disabled_block.size() - 1) == "." + bp.disabled_block)) {
                     bp.disabled_block.clear();
+                    bp.active_wildcard_imports = std::move(saved_wc);
+                    bp.active_explicit_imports = std::move(saved_exp);
                     return;
                 }
+                bp.active_wildcard_imports = std::move(saved_wc);
+                bp.active_explicit_imports = std::move(saved_exp);
                 return;
             }
-            if (has_returned(bp) || bp.loop_break || bp.loop_continue) return;
-            if (!engine.scheduler.is_active()) return;
+            if (has_returned(bp) || bp.loop_break || bp.loop_continue) {
+                bp.active_wildcard_imports = std::move(saved_wc);
+                bp.active_explicit_imports = std::move(saved_exp);
+                return;
+            }
+            if (!engine.scheduler.is_active()) {
+                bp.active_wildcard_imports = std::move(saved_wc);
+                bp.active_explicit_imports = std::move(saved_exp);
+                return;
+            }
         }
+        bp.active_wildcard_imports = std::move(saved_wc);
+        bp.active_explicit_imports = std::move(saved_exp);
         if (!bp.disabled_block.empty()) {
             if (bp.disabled_block == blk->name || 
                 (!blk->name.empty() && blk->name.size() > bp.disabled_block.size() &&
@@ -3183,10 +3231,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         FunctionNode* standalone_fn = nullptr;
-        if (engine.function_map.find(scoped_tname) != engine.function_map.end()) {
-            standalone_fn = engine.function_map.at(scoped_tname);
-        } else if (engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
-            standalone_fn = engine.function_map.at(tcall->task_name);
+        for (const auto& pkg : bp.active_wildcard_imports) {
+            std::string qname = pkg + "::" + tcall->task_name;
+            if (engine.function_map.count(qname)) {
+                standalone_fn = engine.function_map.at(qname);
+                break;
+            }
+        }
+        if (!standalone_fn) {
+            for (const auto& kv : bp.active_explicit_imports) {
+                if (kv.first == tcall->task_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.function_map.count(qname)) {
+                        standalone_fn = engine.function_map.at(qname);
+                        break;
+                    }
+                }
+            }
+        }
+        if (!standalone_fn) {
+            if (engine.function_map.find(scoped_tname) != engine.function_map.end()) {
+                standalone_fn = engine.function_map.at(scoped_tname);
+            } else if (engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
+                standalone_fn = engine.function_map.at(tcall->task_name);
+            }
         }
         if (standalone_fn) {
             std::vector<LogicVal> arg_vals;
@@ -3199,10 +3267,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         TaskNode* target_task = nullptr;
-        if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
-            target_task = engine.task_map.at(scoped_tname);
-        } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
-            target_task = engine.task_map.at(tcall->task_name);
+        for (const auto& pkg : bp.active_wildcard_imports) {
+            std::string qname = pkg + "::" + tcall->task_name;
+            if (engine.task_map.count(qname)) {
+                target_task = engine.task_map.at(qname);
+                break;
+            }
+        }
+        if (!target_task) {
+            for (const auto& kv : bp.active_explicit_imports) {
+                if (kv.first == tcall->task_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.task_map.count(qname)) {
+                        target_task = engine.task_map.at(qname);
+                        break;
+                    }
+                }
+            }
+        }
+        if (!target_task) {
+            if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
+                target_task = engine.task_map.at(scoped_tname);
+            } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+                target_task = engine.task_map.at(tcall->task_name);
+            }
         }
         if (target_task) {
             const size_t num_formals = target_task->ports.size();
@@ -3973,7 +4061,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         // FAST PATH: bound non-blocking assignment without bit-select, intra-event, or delay
         if (nassign->is_bound && nassign->cached_net_id != UINT32_MAX && !nassign->bit_idx && !nassign->has_intra_event && nassign->intra_delay == 0) {
             bool is_shadowed = false;
-            if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(nassign->target)) {
+            if (!bp.active_wildcard_imports.empty() || !bp.active_explicit_imports.empty()) {
+                is_shadowed = true;
+            } else if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(nassign->target)) {
                 is_shadowed = true;
             } else if (!bp.call_stack.empty()) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
@@ -4357,7 +4447,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
-        size_t net_id = engine.get_net_id(bp.scope, target_name);
+        size_t net_id = (size_t)-1;
+        for (const auto& pkg : bp.active_wildcard_imports) {
+            std::string qname = pkg + "::" + target_name;
+            if (engine.net_map.count(qname)) {
+                net_id = engine.net_map.at(qname);
+                break;
+            }
+        }
+        if (net_id == (size_t)-1) {
+            for (const auto& kv : bp.active_explicit_imports) {
+                if (kv.first == target_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.net_map.count(qname)) {
+                        net_id = engine.net_map.at(qname);
+                        break;
+                    }
+                }
+            }
+        }
+        if (net_id == (size_t)-1) {
+            net_id = engine.get_net_id(bp.scope, target_name);
+        }
         bool is_member = false;
         if (net_id == (size_t)-1 && !member_name.empty()) {
             std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
@@ -4367,6 +4478,27 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
                 net_id = engine.net_map.at(base_var);
                 is_member = true;
+            } else {
+                for (const auto& pkg : bp.active_wildcard_imports) {
+                    std::string qname = pkg + "::" + base_var;
+                    if (engine.net_map.count(qname)) {
+                        net_id = engine.net_map.at(qname);
+                        is_member = true;
+                        break;
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    for (const auto& kv : bp.active_explicit_imports) {
+                        if (kv.first == base_var) {
+                            std::string qname = kv.second.first + "::" + kv.second.second;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                is_member = true;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -4786,7 +4918,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         // FAST PATH: bound blocking assignment without bit-select or multi-target
         if (assign->is_bound && assign->cached_net_id != UINT32_MAX && !assign->bit_idx && assign->lhs_targets.size() == 1) {
             bool is_shadowed = false;
-            if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(assign->lhs_targets[0])) {
+            if (!bp.active_wildcard_imports.empty() || !bp.active_explicit_imports.empty()) {
+                is_shadowed = true;
+            } else if (expr_eval.get_context().has_active_frame() && expr_eval.get_context().lookup_local(assign->lhs_targets[0])) {
                 is_shadowed = true;
             } else if (!bp.call_stack.empty()) {
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
@@ -4962,7 +5096,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     shift += width;
                 } else {
-                    size_t net_id = engine.get_net_id(bp.scope, target_name);
+                    size_t net_id = (size_t)-1;
+                    for (const auto& pkg : bp.active_wildcard_imports) {
+                        std::string qname = pkg + "::" + target_name;
+                        if (engine.net_map.count(qname)) {
+                            net_id = engine.net_map.at(qname);
+                            break;
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        for (const auto& kv : bp.active_explicit_imports) {
+                            if (kv.first == target_name) {
+                                std::string qname = kv.second.first + "::" + kv.second.second;
+                                if (engine.net_map.count(qname)) {
+                                    net_id = engine.net_map.at(qname);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        net_id = engine.get_net_id(bp.scope, target_name);
+                    }
                     if (net_id != (size_t)-1) {
                         size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                         uint32_t width = is_sliced ? slice_width : engine.netlist[target_id].width;
@@ -6013,7 +6168,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     engine.scheduler.notify_mem_changed();
                     return;
                 }
-                size_t net_id = engine.get_net_id(bp.scope, target_name);
+                size_t net_id = (size_t)-1;
+                for (const auto& pkg : bp.active_wildcard_imports) {
+                    std::string qname = pkg + "::" + target_name;
+                    if (engine.net_map.count(qname)) {
+                        net_id = engine.net_map.at(qname);
+                        break;
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    for (const auto& kv : bp.active_explicit_imports) {
+                        if (kv.first == target_name) {
+                            std::string qname = kv.second.first + "::" + kv.second.second;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    net_id = engine.get_net_id(bp.scope, target_name);
+                }
                 bool is_member = false;
                 if (net_id == (size_t)-1 && !member_name.empty()) {
                     std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
@@ -6023,6 +6199,35 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
                         net_id = engine.net_map.at(base_var);
                         is_member = true;
+                    } else if (!bp.scope.empty() && engine.net_map.find(bp.scope + "::" + base_var) != engine.net_map.end()) {
+                        net_id = engine.net_map.at(bp.scope + "::" + base_var);
+                        is_member = true;
+                    } else {
+                        for (const auto& pkg : bp.active_wildcard_imports) {
+                            std::string qname = pkg + "::" + base_var;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                is_member = true;
+                                break;
+                            }
+                        }
+                        if (net_id == (size_t)-1) {
+                            for (const auto& kv : bp.active_explicit_imports) {
+                                if (kv.first == base_var) {
+                                    std::string qname = kv.second.first + "::" + kv.second.second;
+                                    if (engine.net_map.count(qname)) {
+                                        net_id = engine.net_map.at(qname);
+                                        is_member = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    if (!bp.scope.empty() && engine.net_map.find(bp.scope + "::" + target_name) != engine.net_map.end()) {
+                        net_id = engine.net_map.at(bp.scope + "::" + target_name);
                     }
                 }
 
@@ -6036,6 +6241,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 type_name = engine.var_to_struct_type.at(scoped_base);
                             } else if (engine.var_to_struct_type.find(base_var) != engine.var_to_struct_type.end()) {
                                 type_name = engine.var_to_struct_type.at(base_var);
+                            } else if (!bp.scope.empty() && engine.var_to_struct_type.find(bp.scope + "::" + base_var) != engine.var_to_struct_type.end()) {
+                                type_name = engine.var_to_struct_type.at(bp.scope + "::" + base_var);
+                            } else {
+                                for (const auto& pkg : bp.active_wildcard_imports) {
+                                    std::string qname = pkg + "::" + base_var;
+                                    if (engine.var_to_struct_type.count(qname)) {
+                                        type_name = engine.var_to_struct_type.at(qname);
+                                        break;
+                                    }
+                                }
                             }
                         }
                         const PackedStructType* cur_st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
@@ -6043,6 +6258,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             std::string scoped_type = bp.scope.empty() ? type_name : (bp.scope + "." + type_name);
                             if (engine.struct_types.find(scoped_type) != engine.struct_types.end()) cur_st = &engine.struct_types.at(scoped_type);
                             else if (engine.struct_types.find(type_name) != engine.struct_types.end()) cur_st = &engine.struct_types.at(type_name);
+                            else if (!bp.scope.empty() && engine.struct_types.find(bp.scope + "::" + type_name) != engine.struct_types.end()) cur_st = &engine.struct_types.at(bp.scope + "::" + type_name);
+                            else {
+                                for (const auto& pkg : bp.active_wildcard_imports) {
+                                    if (engine.struct_types.count(pkg + "::" + type_name)) {
+                                        cur_st = &engine.struct_types.at(pkg + "::" + type_name);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         if (cur_st) {
                             std::string remaining = member_name;

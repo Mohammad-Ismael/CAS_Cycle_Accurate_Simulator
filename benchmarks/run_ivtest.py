@@ -304,6 +304,8 @@ def run_single_test(test_info):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=TIMEOUT_SEC,
             cwd=os.path.join(IVTEST_DIR, srcdir)
         )

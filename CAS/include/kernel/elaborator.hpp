@@ -134,6 +134,7 @@ struct TaskActivationFrame {
     bool returned = false;
     bool is_looping = false;
     size_t loop_start_pc = 0;
+    std::string caller_scope;
 
     TaskActivationFrame(std::string name, TaskNode* node, ClassObject* obj = nullptr)
         : task_name(std::move(name)), task_node(node), local_frame(task_name), this_obj(obj) {}
@@ -169,6 +170,8 @@ struct BoundProcess {
     bool loop_continue = false;
     std::string disabled_block;
     std::vector<std::string> named_blocks;
+    std::vector<std::string> active_wildcard_imports;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> active_explicit_imports;
     std::vector<TaskActivationFrame> call_stack;
 
     size_t parent_pid = (size_t)-1;
@@ -336,6 +339,7 @@ private:
                                std::ostream* debug_out);
 
     const std::unordered_map<std::string, ModuleNode*>* current_module_defs = nullptr;
+    ModuleNode* current_module = nullptr;
     ConfigNode* active_config = nullptr;
     std::vector<std::pair<std::string, int64_t>> active_genvars;
     std::unordered_map<std::string, int64_t> get_effective_genvars() const {

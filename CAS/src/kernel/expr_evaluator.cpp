@@ -24,7 +24,8 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 
     std::string frame_name = func_name + "__call";
     auto fn_dot = func_name.rfind('.');
-    std::string fn_scope = !target_fn->scope.empty() ? target_fn->scope : (fn_dot != std::string::npos ? func_name.substr(0, fn_dot) : "");
+    auto fn_colon = func_name.rfind("::");
+    std::string fn_scope = !target_fn->scope.empty() ? target_fn->scope : (fn_dot != std::string::npos ? func_name.substr(0, fn_dot) : (fn_colon != std::string::npos ? func_name.substr(0, fn_colon) : ""));
     context.push_frame(frame_name);
     if (context.depth() > 100) {
         result_out = LogicVal::make_x(target_fn->return_width);
@@ -178,7 +179,7 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
-    BoundProcess bp{target_fn->scope.empty() ? frame_name : target_fn->scope, nullptr, 0, false};
+    BoundProcess bp{target_fn->scope.empty() ? (fn_scope.empty() ? frame_name : fn_scope) : target_fn->scope, nullptr, 0, false};
     set_current_process(&bp);
     engine.evaluator.set_current_process(&bp);
     for (auto& s : target_fn->get_body()) {
@@ -1458,6 +1459,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
         std::string full_id = sma->class_type_name + "::" + sma->member_name;
+        if (engine.param_val_map.find(full_id) != engine.param_val_map.end()) {
+            return engine.param_val_map.at(full_id);
+        }
         if (engine.param_map.find(full_id) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(full_id));
         }
@@ -1469,6 +1473,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (engine.package_defs.find(sma->class_type_name) != engine.package_defs.end()) {
             const auto& pkg = engine.package_defs.at(sma->class_type_name);
+            for (const auto& p : pkg->parameters) {
+                if (p.name == sma->member_name) {
+                    return eval(p.default_expr.get(), sma->class_type_name);
+                }
+            }
             if (pkg->param_constants.count(sma->member_name)) {
                 return LogicVal::make_known(32, pkg->param_constants.at(sma->member_name));
             }
@@ -4063,6 +4072,21 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     for (const auto& d : tmeta->dimensions) total *= (uint64_t)d.size();
                     if (total > 0) return LogicVal::make_known(32, total);
                 }
+                if (engine.net_map.count(qname)) {
+                    return LogicVal::make_known(32, engine.netlist[engine.net_map.at(qname)].width);
+                }
+                if (engine.struct_types.count(qname)) {
+                    return LogicVal::make_known(32, engine.struct_types.at(qname).total_width);
+                }
+                if (engine.simple_types.count(qname)) {
+                    return LogicVal::make_known(32, engine.simple_types.at(qname).width);
+                }
+                if (engine.enum_types.count(qname)) {
+                    return LogicVal::make_known(32, engine.enum_types.at(qname).width);
+                }
+                if (engine.param_val_map.count(qname)) {
+                    return LogicVal::make_known(32, engine.param_val_map.at(qname).width);
+                }
                 auto pit = Parser::global_packages.find(sma->class_type_name);
                 if (pit != Parser::global_packages.end()) {
                     auto sit = pit->second->struct_typedefs.find(sma->member_name);
@@ -4274,10 +4298,37 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         FunctionNode* target_fn = nullptr;
-        if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
-            target_fn = engine.function_map.at(scoped_fn);
-        } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
-            target_fn = engine.function_map.at(fn_call->func_name);
+        std::string target_fn_name = "";
+        if (current_bp) {
+            for (const auto& pkg : current_bp->active_wildcard_imports) {
+                std::string qname = pkg + "::" + fn_call->func_name;
+                if (engine.function_map.count(qname)) {
+                    target_fn = engine.function_map.at(qname);
+                    target_fn_name = qname;
+                    break;
+                }
+            }
+            if (!target_fn) {
+                for (const auto& kv : current_bp->active_explicit_imports) {
+                    if (kv.first == fn_call->func_name) {
+                        std::string qname = kv.second.first + "::" + kv.second.second;
+                        if (engine.function_map.count(qname)) {
+                            target_fn = engine.function_map.at(qname);
+                            target_fn_name = qname;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!target_fn) {
+            if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
+                target_fn = engine.function_map.at(scoped_fn);
+                target_fn_name = scoped_fn;
+            } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
+                target_fn = engine.function_map.at(fn_call->func_name);
+                target_fn_name = fn_call->func_name;
+            }
         }
 
         if (!target_fn && current_this && current_this->class_def) {
@@ -4364,6 +4415,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
 
             LogicVal ret(32, 0, 0);
+            if (!target_fn_name.empty()) {
+                if (eval_function(target_fn_name, evaluated_args, ret, caller_nodes)) {
+                    return ret;
+                }
+            }
             if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
                 return ret;
             }
@@ -4382,6 +4438,20 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         LogicVal ret(32, 0, 0);
 
+        if (current_bp) {
+            for (const auto& pkg : current_bp->active_wildcard_imports) {
+                if (eval_function(pkg + "::" + fn_call->func_name, evaluated_args, ret, caller_nodes)) {
+                    return ret;
+                }
+            }
+            for (const auto& kv : current_bp->active_explicit_imports) {
+                if (kv.first == fn_call->func_name) {
+                    if (eval_function(kv.second.first + "::" + kv.second.second, evaluated_args, ret, caller_nodes)) {
+                        return ret;
+                    }
+                }
+            }
+        }
         if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
             return ret;
         }
@@ -4438,7 +4508,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         // FAST PATH: bound net identifier
         if (ident->is_bound && ident->cached_net_id != UINT32_MAX && ident->cached_net_id < engine.netlist.size()) {
             bool is_shadowed = false;
-            if (current_sva_local_vars && current_sva_local_vars->count(ident->name)) {
+            if (current_bp && (!current_bp->active_wildcard_imports.empty() || !current_bp->active_explicit_imports.empty())) {
+                is_shadowed = true;
+            } else if (current_sva_local_vars && current_sva_local_vars->count(ident->name)) {
                 is_shadowed = true;
             } else if (context.has_active_frame() && context.lookup_local(ident->name)) {
                 is_shadowed = true;
@@ -4537,6 +4609,46 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
+        if (current_bp) {
+            for (const auto& pkg : current_bp->active_wildcard_imports) {
+                std::string qname = pkg + "::" + ident->name;
+                if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
+                if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
+                if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
+                if (engine.net_map.count(qname)) {
+                    size_t pnid = engine.net_map.at(qname);
+                    LogicVal res = engine.netlist[pnid].value;
+                    res.is_signed = engine.netlist[pnid].is_signed;
+                    return res;
+                }
+            }
+            for (const auto& kv : current_bp->active_explicit_imports) {
+                if (kv.first == ident->name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
+                    if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
+                    if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
+                    if (engine.net_map.count(qname)) {
+                        size_t pnid = engine.net_map.at(qname);
+                        LogicVal res = engine.netlist[pnid].value;
+                        res.is_signed = engine.netlist[pnid].is_signed;
+                        return res;
+                    }
+                }
+            }
+        }
+        if (!scope.empty()) {
+            std::string colon_ident = scope + "::" + ident->name;
+            if (engine.param_val_map.count(colon_ident)) return engine.param_val_map.at(colon_ident);
+            if (engine.param_map.count(colon_ident)) return LogicVal::make_known(32, engine.param_map.at(colon_ident));
+            if (engine.enum_constant_map.count(colon_ident)) return engine.enum_constant_map.at(colon_ident);
+            if (engine.net_map.count(colon_ident)) {
+                size_t pnid = engine.net_map.at(colon_ident);
+                LogicVal res = engine.netlist[pnid].value;
+                res.is_signed = engine.netlist[pnid].is_signed;
+                return res;
+            }
+        }
         if (engine.enum_constant_map.find(scoped_ident) != engine.enum_constant_map.end()) {
             return engine.enum_constant_map.at(scoped_ident);
         }

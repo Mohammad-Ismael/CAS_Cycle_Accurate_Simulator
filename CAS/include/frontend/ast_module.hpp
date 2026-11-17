@@ -1066,6 +1066,8 @@ struct PackageNode : public ASTNode {
     std::unordered_set<std::string> specparam_names;
     std::unordered_set<std::string> vectored_signals;
     std::vector<std::string> events;
+    std::vector<PortNode> signals;
+    std::unordered_map<std::string, size_t> signal_map;
 
     PackageNode() = default;
 };

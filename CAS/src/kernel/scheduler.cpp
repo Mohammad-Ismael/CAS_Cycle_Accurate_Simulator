@@ -3518,37 +3518,68 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     }
 
     if (!target_task) {
-        if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
-            target_task = engine.task_map.at(scoped_tname);
-        } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
-            target_task = engine.task_map.at(tcall->task_name);
-        } else if (engine.function_map.find(scoped_tname) != engine.function_map.end() ||
-                   engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
-            engine.evaluator.execute_statement(tcall, bp);
-            if (!bp.call_stack.empty()) {
-                bp.call_stack.back().pc++;
+        for (const auto& pkg : bp.active_wildcard_imports) {
+            std::string qname = pkg + "::" + tcall->task_name;
+            if (engine.task_map.count(qname)) {
+                target_task = engine.task_map.at(qname);
+                break;
+            }
+        }
+        if (!target_task) {
+            for (const auto& kv : bp.active_explicit_imports) {
+                if (kv.first == tcall->task_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.task_map.count(qname)) {
+                        target_task = engine.task_map.at(qname);
+                        break;
+                    }
+                }
+            }
+        }
+        if (!target_task) {
+            if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
+                target_task = engine.task_map.at(scoped_tname);
+            } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+                target_task = engine.task_map.at(tcall->task_name);
             } else {
-                bp.pc++;
-            }
-            return;
-        } else {
-            if (!bp.call_stack.empty() && bp.call_stack.back().this_obj) {
-                cl_obj = bp.call_stack.back().this_obj;
-            } else if (engine.evaluator.get_expr_eval().get_current_this()) {
-                cl_obj = engine.evaluator.get_expr_eval().get_current_this();
-            }
-            if (cl_obj && cl_obj->class_def) {
-                target_task = cl_obj->class_def->dispatch_task(tcall->task_name);
-                if (!target_task) {
-                    FunctionNode* fn = cl_obj->class_def->dispatch_function(tcall->task_name);
-                    if (fn) {
+                for (const auto& pkg : bp.active_wildcard_imports) {
+                    std::string qname = pkg + "::" + tcall->task_name;
+                    if (engine.function_map.count(qname)) {
                         engine.evaluator.execute_statement(tcall, bp);
-                        if (!bp.call_stack.empty()) {
-                            bp.call_stack.back().pc++;
-                        } else {
-                            bp.pc++;
-                        }
+                        if (!bp.call_stack.empty()) bp.call_stack.back().pc++;
+                        else bp.pc++;
                         return;
+                    }
+                }
+                if (engine.function_map.find(scoped_tname) != engine.function_map.end() ||
+                    engine.function_map.find(tcall->task_name) != engine.function_map.end()) {
+                    engine.evaluator.execute_statement(tcall, bp);
+                    if (!bp.call_stack.empty()) {
+                        bp.call_stack.back().pc++;
+                    } else {
+                        bp.pc++;
+                    }
+                    return;
+                } else {
+                    if (!bp.call_stack.empty() && bp.call_stack.back().this_obj) {
+                        cl_obj = bp.call_stack.back().this_obj;
+                    } else if (engine.evaluator.get_expr_eval().get_current_this()) {
+                        cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+                    }
+                    if (cl_obj && cl_obj->class_def) {
+                        target_task = cl_obj->class_def->dispatch_task(tcall->task_name);
+                        if (!target_task) {
+                            FunctionNode* fn = cl_obj->class_def->dispatch_function(tcall->task_name);
+                            if (fn) {
+                                engine.evaluator.execute_statement(tcall, bp);
+                                if (!bp.call_stack.empty()) {
+                                    bp.call_stack.back().pc++;
+                                } else {
+                                    bp.pc++;
+                                }
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -3605,7 +3636,7 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     // 1. Formal port bindings & argument passing
     for (size_t i = 0; i < num_formals; ++i) {
         const auto& p = target_task->ports[i];
-        uint32_t w = 32;
+        uint32_t w = p.width > 0 ? p.width : 32;
         if (p.msb_expr && p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
@@ -4389,10 +4420,30 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
                 std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
                 size_t ev_id = (size_t)-1;
-                if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
-                    ev_id = engine.named_event_map.at(scoped_sig);
-                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
-                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                for (const auto& pkg : bp.active_wildcard_imports) {
+                    std::string qname = pkg + "::" + ev_stmt->signal_name;
+                    if (engine.named_event_map.count(qname)) {
+                        ev_id = engine.named_event_map.at(qname);
+                        break;
+                    }
+                }
+                if (ev_id == (size_t)-1) {
+                    for (const auto& kv : bp.active_explicit_imports) {
+                        if (kv.first == ev_stmt->signal_name) {
+                            std::string qname = kv.second.first + "::" + kv.second.second;
+                            if (engine.named_event_map.count(qname)) {
+                                ev_id = engine.named_event_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (ev_id == (size_t)-1) {
+                    if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
+                        ev_id = engine.named_event_map.at(scoped_sig);
+                    } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
+                        ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                    }
                 }
                 if (ev_id != (size_t)-1) {
                     bp.pc++;
@@ -4714,10 +4765,30 @@ void StratifiedScheduler::step_process(size_t pid) {
         if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
             std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
             size_t ev_id = (size_t)-1;
-            if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
-                ev_id = engine.named_event_map.at(scoped_sig);
-            } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
-                ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+            for (const auto& pkg : bp.active_wildcard_imports) {
+                std::string qname = pkg + "::" + ev_stmt->signal_name;
+                if (engine.named_event_map.count(qname)) {
+                    ev_id = engine.named_event_map.at(qname);
+                    break;
+                }
+            }
+            if (ev_id == (size_t)-1) {
+                for (const auto& kv : bp.active_explicit_imports) {
+                    if (kv.first == ev_stmt->signal_name) {
+                        std::string qname = kv.second.first + "::" + kv.second.second;
+                        if (engine.named_event_map.count(qname)) {
+                            ev_id = engine.named_event_map.at(qname);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (ev_id == (size_t)-1) {
+                if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(scoped_sig);
+                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                }
             }
             if (ev_id != (size_t)-1) {
                 bp.pc++;

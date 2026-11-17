@@ -17,7 +17,14 @@ std::unordered_set<std::string> Parser::global_forward_classes;
 std::unordered_set<std::string> Parser::global_forward_interface_classes;
 
 Parser::Parser(Lexer& lex) : lexer(lex) {
+    active_parser_instance = this;
     advance();
+}
+
+Parser::~Parser() {
+    if (active_parser_instance == this) {
+        active_parser_instance = nullptr;
+    }
 }
 
 void Parser::advance() {

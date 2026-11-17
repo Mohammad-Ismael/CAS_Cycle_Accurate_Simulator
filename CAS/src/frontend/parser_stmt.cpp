@@ -55,25 +55,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 current_parsing_module->dpi_imports.push_back(sdpi);
                 current_parsing_module->dpi_import_map[sdpi->sv_name] = sdpi.get();
             }
+            return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
         } else {
             advance(); // consume 'import'
+            std::vector<std::pair<std::string, std::string>> imps;
             while (true) {
                 std::string pkg_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
                 expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
                 if (match(TokenType::TOKEN_STAR)) {
+                    imps.push_back({pkg_name, "*"});
                     if (current_parsing_module) current_parsing_module->wildcard_imports.push_back(pkg_name);
                 } else {
                     std::string item_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
+                    imps.push_back({pkg_name, item_name});
                     if (current_parsing_module) current_parsing_module->explicit_imports[item_name] = {pkg_name, item_name};
                 }
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import declaration");
+            return std::make_unique<ImportStatementNode>(std::move(imps));
         }
-        return std::make_unique<BlockStatementNode>(std::vector<std::unique_ptr<StatementNode>>());
     }
 
     // Diagnostic [CAS-DTINPCIL]: gate or UDP primitive inside procedural scopes
@@ -359,7 +363,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     if (!proc_type_name.empty()) {
-        std::string type_name = proc_type_name;
+        std::string type_name = resolve_imported_type_name(proc_type_name);
         auto enum_info = get_enum_typedef(type_name);
         auto struct_info = get_struct_typedef(type_name);
         SimpleTypedef simple_info;
