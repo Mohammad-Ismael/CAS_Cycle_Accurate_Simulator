@@ -639,6 +639,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         uint32_t w = current.width;
         bool s = current.is_signed;
         bool is_sz = current.is_sized;
+        bool is_time_lit = current.is_time_literal;
+        uint64_t t_fs = current.time_fs;
         auto w_a = std::move(current.wide_aval);
         auto w_b = std::move(current.wide_bval);
         advance();
@@ -653,6 +655,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
         auto node = std::make_unique<NumberNode>(a, b, w, s);
         node->explicit_size = is_sz;
+        node->is_time_literal = is_time_lit;
+        node->time_fs = t_fs;
         node->wide_aval = std::move(w_a);
         node->wide_bval = std::move(w_b);
         return node;

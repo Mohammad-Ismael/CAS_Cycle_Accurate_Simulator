@@ -4345,7 +4345,14 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
 
             // Standard statement execution inside task
+            std::string saved_scope = bp.scope;
+            if (cur_frame.this_obj && cur_frame.this_obj->class_def) {
+                bp.scope = cur_frame.this_obj->class_def->name;
+            } else if (cur_frame.task_node && !cur_frame.task_node->scope.empty()) {
+                bp.scope = cur_frame.task_node->scope;
+            }
             engine.evaluator.execute_statement(stmt, bp);
+            bp.scope = saved_scope;
             if (bp.is_waiting_sync) break;
             if (cur_frame.returned) {
                 continue;

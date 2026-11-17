@@ -47,10 +47,18 @@ public:
     ExecutionContext& get_context() { return context; }
     const ExecutionContext& get_context() const { return context; }
 
-    void set_current_this(ClassObject* obj) { current_this = obj; }
+    void set_current_this(ClassObject* obj) {
+        current_this = obj;
+        if (obj && obj->class_def) current_class_def = obj->class_def;
+        else if (!obj) current_class_def = nullptr;
+    }
     ClassObject* get_current_this() const { return current_this; }
     void set_current_class_def(const ClassNode* cd) { current_class_def = cd; }
-    const ClassNode* get_current_class_def() const { return current_class_def; }
+    const ClassNode* get_current_class_def() const {
+        if (current_class_def) return current_class_def;
+        if (current_this && current_this->class_def) return current_this->class_def;
+        return nullptr;
+    }
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
     LogicVal writeback_lvalue(ExpressionNode* target, const LogicVal& val, const std::string& scope);

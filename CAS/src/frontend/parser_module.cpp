@@ -4530,6 +4530,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     auto cls = std::make_unique<ClassNode>(class_name);
     cls->is_interface_class = is_interface_class;
     cls->is_abstract = is_abstract;
+    cls->time_unit = !global_timeunit_val.empty() ? global_timeunit_val : Lexer::global_time_unit_str;
+    cls->time_precision = !global_timeprec_val.empty() ? global_timeprec_val : Lexer::global_time_precision_str;
     std::vector<std::string> local_class_typedef_names;
     ClassNode* prev_cls = current_parsing_class;
     current_parsing_class = cls.get();
@@ -6917,6 +6919,8 @@ std::unique_ptr<DpiExportNode> Parser::parse_dpi_export() {
 std::shared_ptr<PackageNode> Parser::parse_package() {
     expect(TokenType::TOKEN_PACKAGE, "Expected 'package'");
     auto pkg = std::make_shared<PackageNode>();
+    pkg->time_unit = !global_timeunit_val.empty() ? global_timeunit_val : Lexer::global_time_unit_str;
+    pkg->time_precision = !global_timeprec_val.empty() ? global_timeprec_val : Lexer::global_time_precision_str;
     pkg->defined_in_file = current.filename;
     pkg->defined_on_line = current.line;
     pkg->name = current.text;

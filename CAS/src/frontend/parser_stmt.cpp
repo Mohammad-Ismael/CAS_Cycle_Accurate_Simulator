@@ -757,7 +757,10 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::unique_ptr<ExpressionNode> delay_expr = nullptr;
         uint64_t d = 0;
         if (current.type == TokenType::TOKEN_NUMBER) {
-            if (current.is_real) {
+            if (current.is_time_literal && current.time_fs > 0) {
+                d = current.time_fs / 1000000ULL;
+                if (d == 0 && current.time_fs > 0) d = 1;
+            } else if (current.is_real) {
                 d = static_cast<uint64_t>(std::round(current.real_val * Lexer::get_timescale_ratio()));
             } else {
                 d = current.num_val * Lexer::get_timescale_ratio();

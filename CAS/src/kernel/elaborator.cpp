@@ -3241,6 +3241,34 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    for (const auto& td : mod->typedefs) {
+        if (!td) continue;
+        if (!td->packed_dims.empty()) {
+            uint32_t pw = 1;
+            std::vector<ArrayDimInfo> sdims;
+            for (const auto& pdim : td->packed_dims) {
+                int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
+                int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
+                pw *= (uint32_t)(std::abs(b1 - b2) + 1);
+                sdims.push_back({b1, b2, false, false, false});
+            }
+            if (pw == 0) pw = 1;
+            SimpleTypeInfo sinfo;
+            sinfo.name = td->type_name;
+            sinfo.base_type = td->base_type;
+            sinfo.width = pw;
+            sinfo.is_signed = td->is_signed;
+            result.simple_types[scope + "." + td->type_name] = sinfo;
+
+            VariableDimMetadata svdm;
+            svdm.name = scope + "." + td->type_name;
+            svdm.dimensions = sdims;
+            svdm.unpacked_dims = 0;
+            svdm.is_vector_or_array = true;
+            result.var_dimensions[scope + "." + td->type_name] = svdm;
+        }
+    }
+
     auto get_type_width = [&](const std::string& tname, const std::string& sc) -> uint32_t {
         if (tname.empty()) return 1;
         if (const PackedStructType* st = find_struct_type(tname, sc)) {
@@ -3250,6 +3278,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             std::string cur_s = sc;
             while (true) {
                 std::string scoped = cur_s.empty() ? tname : (cur_s + "." + tname);
+                auto it_sim = result.simple_types.find(scoped);
+                if (it_sim != result.simple_types.end()) return it_sim->second.width;
                 auto it = result.enum_types.find(scoped);
                 if (it != result.enum_types.end()) return it->second.width;
                 if (cur_s.empty()) break;
@@ -3258,6 +3288,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 else cur_s = cur_s.substr(0, dot);
             }
         }
+        auto it_sim = result.simple_types.find(tname);
+        if (it_sim != result.simple_types.end()) return it_sim->second.width;
         auto it_enum = result.enum_types.find(tname);
         if (it_enum != result.enum_types.end()) {
             return it_enum->second.width;
@@ -3537,14 +3569,22 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             w = elem_w * packed_mult;
         } else if (s.msb_expr && s.lsb_expr) {
-            has_explicit_packed = true;
-            int64_t msb = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
-            int64_t lsb = eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope));
-            w = (uint32_t)(std::abs(msb - lsb) + 1);
+            auto scoped_td_it = result.simple_types.find(scope + "." + s.type_name);
+            if (!s.type_name.empty() && scoped_td_it != result.simple_types.end()) {
+                w = scoped_td_it->second.width;
+            } else {
+                has_explicit_packed = true;
+                int64_t msb = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
+                int64_t lsb = eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope));
+                w = (uint32_t)(std::abs(msb - lsb) + 1);
+            }
         }
 
         const VariableDimMetadata* type_meta = nullptr;
-        if (!s.type_name.empty()) {
+        auto scoped_vdm_it = result.var_dimensions.find(scope + "." + s.type_name);
+        if (scoped_vdm_it != result.var_dimensions.end()) {
+            type_meta = &scoped_vdm_it->second;
+        } else if (!s.type_name.empty()) {
             type_meta = Parser::find_type_dim_metadata(s.type_name);
         }
         if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
@@ -5532,13 +5572,22 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
 
         for (const auto& t : pkg->tasks) {
+            if (t->scope.empty()) t->scope = pkg_name;
             result.task_map[pkg_name + "::" + t->name] = t.get();
             result.task_map[t->name] = t.get();
         }
 
+        std::string pkg_tu = !pkg->time_unit.empty() ? pkg->time_unit : (!Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str);
+        std::string pkg_tp = !pkg->time_precision.empty() ? pkg->time_precision : (!Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str);
+        result.timescale_map[pkg_name] = {pkg_tu, pkg_tp};
+
         for (const auto& cls : pkg->classes) {
             result.class_defs[pkg_name + "::" + cls->name] = cls.get();
             result.class_defs[cls->name] = cls.get();
+            std::string c_tu = !cls->time_unit.empty() ? cls->time_unit : pkg_tu;
+            std::string c_tp = !cls->time_precision.empty() ? cls->time_precision : pkg_tp;
+            result.timescale_map[pkg_name + "::" + cls->name] = {c_tu, c_tp};
+            result.timescale_map[cls->name] = {c_tu, c_tp};
         }
 
         for (const auto& dpi : pkg->dpi_imports) {
@@ -5574,9 +5623,18 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
+    std::string unit_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str;
+    std::string unit_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str;
+    result.timescale_map["$unit"] = {unit_tu, unit_tp};
+    result.timescale_map[""] = {unit_tu, unit_tp};
+
     for (auto& mod : modules) {
         for (auto& cls : mod->classes) {
             result.class_defs[cls->name] = cls.get();
+            std::string c_tu = !cls->time_unit.empty() ? cls->time_unit : (!mod->timeunit_val.empty() ? mod->timeunit_val : unit_tu);
+            std::string c_tp = !cls->time_precision.empty() ? cls->time_precision : unit_tp;
+            result.timescale_map[cls->name] = {c_tu, c_tp};
+            result.timescale_map[mod->name + "." + cls->name] = {c_tu, c_tp};
         }
         for (auto& cg : mod->covergroups) {
             result.covergroup_defs[cg->name] = cg.get();
@@ -5590,6 +5648,14 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         if (result.class_defs.find(gc->name) == result.class_defs.end()) {
             result.class_defs[gc->name] = gc.get();
         }
+        std::string c_tu = !gc->time_unit.empty() ? gc->time_unit : unit_tu;
+        std::string c_tp = !gc->time_precision.empty() ? gc->time_precision : unit_tp;
+        result.timescale_map[gc->name] = {c_tu, c_tp};
+    }
+
+    for (const auto& gt : Parser::global_tasks) {
+        if (gt->scope.empty()) gt->scope = "$unit";
+        result.timescale_map[gt->name] = {unit_tu, unit_tp};
     }
 
     for (const auto& fn : Parser::global_functions) {

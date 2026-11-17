@@ -704,6 +704,8 @@ struct ClassNode : public ASTNode {
     std::unordered_map<std::string, TaskNode*> vtable_tasks;
     std::unordered_set<std::string> virtual_method_names;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
+    std::string time_unit;
+    std::string time_precision;
 
     bool has_static_member(const std::string& mname) const {
         for (const auto& m : member_vars) {
@@ -1005,6 +1007,8 @@ struct PackageNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
+    std::string time_unit;
+    std::string time_precision;
     std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
     std::unordered_map<std::string, VariableDimMetadata> type_dimensions;
     std::unordered_map<std::string, LogicVal> enum_constant_map;
@@ -1118,6 +1122,8 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> enum_typedefs;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedefs;
     std::unordered_map<std::string, SimpleTypedef> simple_typedefs;
+    std::string time_unit;
+    std::string time_precision;
     std::unordered_map<std::string, UnpackedArrayTypedef> unpacked_array_typedefs;
     std::unordered_map<std::string, VariableDimMetadata> type_dimensions;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;

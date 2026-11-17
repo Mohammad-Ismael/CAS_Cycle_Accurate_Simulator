@@ -131,7 +131,7 @@ void Lexer::handle_include() {
     file_stack.push_back({inc_path, content, 0, 1});
 }
 
-static uint64_t parse_time_fs(const std::string& s) {
+uint64_t Lexer::parse_time_fs(const std::string& s) {
     size_t i = 0;
     while (i < s.size() && (std::isdigit(s[i]) || s[i] == '.')) i++;
     double num = 1.0;
@@ -212,6 +212,30 @@ void Lexer::handle_timescale() {
     }
 }
 
+std::string Lexer::parse_macro_ident() {
+    std::string s = "";
+    if (peek() == '\\') {
+        advance();
+        std::string raw = "";
+        while (peek() != '\0' && !std::isspace(static_cast<unsigned char>(peek()))) {
+            raw += advance();
+        }
+        if (peek() == ' ' || peek() == '\t') {
+            advance();
+        }
+        bool pure = !raw.empty();
+        for (char ch : raw) {
+            if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_') {
+                pure = false;
+                break;
+            }
+        }
+        return pure ? raw : ("\\" + raw);
+    }
+    while (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_') s += advance();
+    return s;
+}
+
 void Lexer::skip_inactive_block() {
     int depth = 0;
     while (!file_stack.empty()) {
@@ -256,8 +280,7 @@ void Lexer::skip_inactive_block() {
             } else if (dir == "elsif") {
                 if (depth == 0) {
                     while (std::isspace(peek()) && peek() != '\n') advance();
-                    std::string mname = "";
-                    while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                    std::string mname = parse_macro_ident();
                     bool parent_active = cond_stack.size() > 1 ? cond_stack[cond_stack.size() - 2].is_active : true;
                     bool cond = (global_defines.find(mname) != global_defines.end());
                     if (parent_active && !cond_stack.back().branch_taken && cond) {
@@ -325,8 +348,7 @@ void Lexer::skip_whitespace_and_comments() {
             if (peek() != '\0') { advance(); advance(); }
         } else if (c == '`') {
             advance();
-            std::string directive = "";
-            while (std::isalnum(peek()) || peek() == '_') directive += advance();
+            std::string directive = parse_macro_ident();
 
             bool is_active = cond_stack.empty() ? true : cond_stack.back().is_active;
 
@@ -339,8 +361,7 @@ void Lexer::skip_whitespace_and_comments() {
             } else if (directive == "define") {
                 if (is_active) {
                     while (std::isspace(peek()) && peek() != '\n') advance();
-                    std::string mname = "";
-                    while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                    std::string mname = parse_macro_ident();
                     if (mname == "define" || mname == "undef" || mname == "ifdef" || mname == "ifndef" ||
                         mname == "else" || mname == "elsif" || mname == "endif" || mname == "include" ||
                         mname == "timescale" || mname == "resetall" || mname == "line" || mname == "pragma") {
@@ -453,24 +474,21 @@ void Lexer::skip_whitespace_and_comments() {
             } else if (directive == "undef") {
                 if (is_active) {
                     while (std::isspace(peek()) && peek() != '\n') advance();
-                    std::string mname = "";
-                    while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                    std::string mname = parse_macro_ident();
                     global_defines.erase(mname);
                     global_macro_defs.erase(mname);
                 }
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "ifdef") {
                 while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = "";
-                while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                std::string mname = parse_macro_ident();
                 bool parent = is_active;
                 bool cond = parent && (global_defines.find(mname) != global_defines.end());
                 cond_stack.push_back({cond, cond});
                 if (!cond) skip_inactive_block();
             } else if (directive == "ifndef") {
                 while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = "";
-                while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                std::string mname = parse_macro_ident();
                 bool parent = is_active;
                 bool cond = parent && (global_defines.find(mname) == global_defines.end());
                 cond_stack.push_back({cond, cond});
@@ -485,8 +503,7 @@ void Lexer::skip_whitespace_and_comments() {
                 }
             } else if (directive == "elsif") {
                 while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = "";
-                while (std::isalnum(peek()) || peek() == '_') mname += advance();
+                std::string mname = parse_macro_ident();
                 if (!cond_stack.empty()) {
                     bool parent = cond_stack.size() > 1 ? cond_stack[cond_stack.size() - 2].is_active : true;
                     bool cond = parent && !cond_stack.back().branch_taken && (global_defines.find(mname) != global_defines.end());
@@ -557,6 +574,137 @@ void Lexer::skip_whitespace_and_comments() {
                     file_stack.push_back({"<__LINE__>", std::to_string(cur.line), 0, cur.line});
                 }
             } else {
+                auto process_macro_expansion = [&](std::string& exp) {
+                    size_t p = 0;
+                    while ((p = exp.find("`\\`\"", p)) != std::string::npos) {
+                        exp.replace(p, 4, "\\\"");
+                        p += 2;
+                    }
+                    p = 0;
+                    while ((p = exp.find("`\\`", p)) != std::string::npos) {
+                        exp.replace(p, 3, "`");
+                        p += 1;
+                    }
+                    if (exp.find("`\"") != std::string::npos) {
+                        int max_depth = 20;
+                        bool changed = true;
+                        while (changed && max_depth-- > 0) {
+                            changed = false;
+                            size_t mp = 0;
+                            while ((mp = exp.find('`', mp)) != std::string::npos) {
+                                if (mp + 1 < exp.length() && (exp[mp + 1] == '"' || exp[mp + 1] == '`' || exp[mp + 1] == '\\')) {
+                                    mp += 2;
+                                    continue;
+                                }
+                                size_t id_start = mp + 1;
+                                size_t id_end = id_start;
+                                std::string macro_id = "";
+                                if (id_start < exp.length() && exp[id_start] == '\\') {
+                                    id_end++;
+                                    while (id_end < exp.length() && !std::isspace(static_cast<unsigned char>(exp[id_end]))) id_end++;
+                                    std::string raw = exp.substr(id_start + 1, id_end - (id_start + 1));
+                                    bool pure = !raw.empty();
+                                    for (char ch : raw) {
+                                        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '_') { pure = false; break; }
+                                    }
+                                    macro_id = pure ? raw : ("\\" + raw);
+                                } else {
+                                    while (id_end < exp.length() && (std::isalnum(static_cast<unsigned char>(exp[id_end])) || exp[id_end] == '_')) id_end++;
+                                    macro_id = exp.substr(id_start, id_end - id_start);
+                                }
+                                if (macro_id.empty()) { mp++; continue; }
+
+                                auto mit = global_macro_defs.find(macro_id);
+                                if (mit != global_macro_defs.end()) {
+                                    const auto& mdef = mit->second;
+                                    if (!mdef.has_args) {
+                                        std::string repl = mdef.body;
+                                        exp.replace(mp, id_end - mp, repl);
+                                        changed = true;
+                                        break;
+                                    } else {
+                                        size_t arg_p = id_end;
+                                        while (arg_p < exp.length() && std::isspace(static_cast<unsigned char>(exp[arg_p]))) arg_p++;
+                                        if (arg_p < exp.length() && exp[arg_p] == '(') {
+                                            int pdepth = 1;
+                                            arg_p++;
+                                            std::vector<std::string> actuals;
+                                            std::string cur_arg = "";
+                                            while (arg_p < exp.length() && pdepth > 0) {
+                                                if (exp[arg_p] == '(') { pdepth++; cur_arg += exp[arg_p]; }
+                                                else if (exp[arg_p] == ')') {
+                                                    pdepth--;
+                                                    if (pdepth == 0) { actuals.push_back(cur_arg); break; }
+                                                    cur_arg += exp[arg_p];
+                                                } else if (exp[arg_p] == ',' && pdepth == 1) {
+                                                    actuals.push_back(cur_arg);
+                                                    cur_arg = "";
+                                                } else {
+                                                    cur_arg += exp[arg_p];
+                                                }
+                                                arg_p++;
+                                            }
+                                            if (pdepth == 0) {
+                                                for (auto& a : actuals) {
+                                                    while (!a.empty() && std::isspace(static_cast<unsigned char>(a.front()))) a.erase(a.begin());
+                                                    while (!a.empty() && std::isspace(static_cast<unsigned char>(a.back()))) a.pop_back();
+                                                }
+                                                std::string sub = mdef.body;
+                                                for (size_t i = 0; i < mdef.args.size(); ++i) {
+                                                    const std::string& formal = mdef.args[i];
+                                                    std::string act = (i < actuals.size()) ? actuals[i] : (i < mdef.defaults.size() ? mdef.defaults[i] : "");
+                                                    std::string p1 = "``" + formal;
+                                                    size_t q = 0;
+                                                    while ((q = sub.find(p1, q)) != std::string::npos) { sub.replace(q, p1.length(), act); q += act.length(); }
+                                                    std::string p2 = formal + "``";
+                                                    q = 0;
+                                                    while ((q = sub.find(p2, q)) != std::string::npos) {
+                                                        std::string repl = (!act.empty() && act[0] == '`') ? (act + "``") : act;
+                                                        sub.replace(q, p2.length(), repl);
+                                                        q += repl.length();
+                                                    }
+                                                    q = 0;
+                                                    while ((q = sub.find(formal, q)) != std::string::npos) {
+                                                        bool left_ok = (q == 0) || (!std::isalnum(static_cast<unsigned char>(sub[q-1])) && sub[q-1] != '_');
+                                                        bool right_ok = (q + formal.length() >= sub.length()) || (!std::isalnum(static_cast<unsigned char>(sub[q + formal.length()])) && sub[q + formal.length()] != '_');
+                                                        if (left_ok && right_ok) { sub.replace(q, formal.length(), act); q += act.length(); }
+                                                        else { q += formal.length(); }
+                                                    }
+                                                }
+                                                exp.replace(mp, (arg_p + 1) - mp, sub);
+                                                changed = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                mp = id_end;
+                            }
+                        }
+
+                        p = 0;
+                        while ((p = exp.find("``", p)) != std::string::npos) {
+                            exp.erase(p, 2);
+                        }
+
+                        bool in_normal_string = false;
+                        for (size_t i = 0; i < exp.length(); ) {
+                            if (!in_normal_string && exp[i] == '`' && i + 1 < exp.length() && exp[i + 1] == '"') {
+                                exp.replace(i, 2, "\"");
+                                i += 1;
+                                continue;
+                            }
+                            if (exp[i] == '\\' && i + 1 < exp.length()) {
+                                i += 2;
+                                continue;
+                            }
+                            if (exp[i] == '"') {
+                                in_normal_string = !in_normal_string;
+                            }
+                            i++;
+                        }
+                    }
+                };
                 if (is_active && global_defines.find(directive) != global_defines.end()) {
                     auto mit = global_macro_defs.find(directive);
                     std::string expanded = global_defines.at(directive);
@@ -635,8 +783,9 @@ void Lexer::skip_whitespace_and_comments() {
                                 std::string paste2 = formal + "``";
                                 p = 0;
                                 while ((p = expanded.find(paste2, p)) != std::string::npos) {
-                                    expanded.replace(p, paste2.length(), actual);
-                                    p += actual.length();
+                                    std::string repl = (!actual.empty() && actual[0] == '`') ? (actual + "``") : actual;
+                                    expanded.replace(p, paste2.length(), repl);
+                                    p += repl.length();
                                 }
                                 p = 0;
                                 while ((p = expanded.find(formal, p)) != std::string::npos) {
@@ -650,21 +799,9 @@ void Lexer::skip_whitespace_and_comments() {
                                     }
                                 }
                             }
-                            size_t p = 0;
-                            while ((p = expanded.find("``", p)) != std::string::npos) {
-                                expanded.erase(p, 2);
-                            }
-                            p = 0;
-                            while ((p = expanded.find("`\"", p)) != std::string::npos) {
-                                expanded.replace(p, 2, "\"");
-                                p += 1;
-                            }
+                            process_macro_expansion(expanded);
                     } else {
-                        size_t p = 0;
-                        while ((p = expanded.find("`\"", p)) != std::string::npos) {
-                            expanded.replace(p, 2, "\"");
-                            p += 1;
-                        }
+                        process_macro_expansion(expanded);
                     }
                     file_stack.push_back({"<macro " + directive + ">", expanded, 0, cur.line});
                 } else if (is_active) {
@@ -1041,7 +1178,11 @@ Token Lexer::next_token() {
             if (alnum_part == "fs" || alnum_part == "ps" || alnum_part == "ns" ||
                 alnum_part == "us" || alnum_part == "ms" || alnum_part == "s") {
                 uint64_t aval = num_str.empty() ? 0 : std::stoull(num_str);
-                return {TokenType::TOKEN_NUMBER, num_str + alnum_part, aval, 64, cur_file, cur_line, 0};
+                uint64_t t_fs = parse_time_fs(num_str + alnum_part);
+                Token tok = {TokenType::TOKEN_NUMBER, num_str + alnum_part, aval, 64, cur_file, cur_line, 0};
+                tok.is_time_literal = true;
+                tok.time_fs = t_fs;
+                return tok;
             }
             throw std::runtime_error("Invalid numeric literal: '" + num_str + alnum_part + "' per IEEE 1800-2023 5.7.1");
         }

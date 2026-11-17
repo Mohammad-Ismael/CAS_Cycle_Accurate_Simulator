@@ -61,8 +61,8 @@ public:
     std::unordered_map<std::string, std::shared_ptr<CovergroupNode>> covergroup_map;
     std::vector<std::shared_ptr<CovergroupNode>> global_covergroups;
     ModuleNode* current_parsing_module = nullptr;
-    std::string global_timeunit_val = "";
-    std::string global_timeprec_val = "";
+    static std::string global_timeunit_val;
+    static std::string global_timeprec_val;
 
     std::unordered_set<std::string> known_interfaces;
     static std::unordered_map<std::string, std::shared_ptr<PackageNode>> global_packages;

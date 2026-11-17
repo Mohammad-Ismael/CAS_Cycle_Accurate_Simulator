@@ -1948,6 +1948,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
+        if (tcall->task_name == "super.new") {
+            ClassObject* cur_obj = expr_eval.get_current_this();
+            const ClassNode* cur_cls = expr_eval.get_current_class_def();
+            if (cur_obj && cur_cls) {
+                const ClassNode* base_cls = cur_cls->base_class ? cur_cls->base_class : (!cur_cls->base_class_name.empty() ? engine.get_class_def(cur_cls->base_class_name) : nullptr);
+                if (base_cls) {
+                    FunctionNode* base_ctor = const_cast<ClassNode*>(base_cls)->get_constructor();
+                    if (base_ctor) {
+                        std::vector<LogicVal> arg_vals;
+                        for (auto& a : tcall->args) arg_vals.push_back(expr_eval.eval(a.get(), bp.scope));
+                        LogicVal dummy;
+                        expr_eval.eval_class_method(cur_obj, base_ctor, arg_vals, dummy);
+                    }
+                }
+            }
+            return;
+        }
+
         std::string tname = tcall->task_name;
         auto colons = tname.find("::");
         if (colons != std::string::npos && tcall->class_type_name.empty()) {
@@ -1991,11 +2009,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             expr_eval.get_context().set_local_value(p.name, def_v);
                         }
                     }
+                    std::string saved_scope = bp.scope;
+                    bp.scope = tcall->class_type_name;
+
                     for (auto& s : task_node->get_body()) {
                         if (has_returned(bp)) break;
                         execute_statement(s.get(), bp);
                         if (has_returned(bp)) break;
                     }
+
+                    bp.scope = saved_scope;
+                    expr_eval.set_current_class_def(prev_cd);
                     expr_eval.get_context().pop_frame();
                     expr_eval.set_current_class_def(prev_cd);
                     return;
@@ -2026,7 +2050,25 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     target_name = ma->var_name + "." + ma->member_name;
                 }
             }
-            if (target_name.empty()) target_name = bp.scope;
+            if (target_name.empty()) {
+                if (!bp.call_stack.empty()) {
+                    auto& cf = bp.call_stack.back();
+                    if (cf.this_obj && cf.this_obj->class_def) {
+                        target_name = cf.this_obj->class_def->name;
+                    } else if (cf.task_node && !cf.task_node->scope.empty()) {
+                        target_name = cf.task_node->scope;
+                    }
+                }
+                if (target_name.empty()) {
+                    if (expr_eval.get_current_class_def()) {
+                        target_name = expr_eval.get_current_class_def()->name;
+                    } else if (!bp.scope.empty()) {
+                        target_name = bp.scope;
+                    } else {
+                        target_name = "$unit";
+                    }
+                }
+            }
             auto it = engine.timescale_map.find(target_name);
             if (it == engine.timescale_map.end()) {
                 if (!bp.scope.empty()) it = engine.timescale_map.find(bp.scope + "." + target_name);
@@ -2778,11 +2820,19 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                     }
+                    const ClassNode* prev_cd_m = expr_eval.get_current_class_def();
+                    expr_eval.set_current_class_def(cl_obj->class_def);
+                    std::string saved_scope = bp.scope;
+                    bp.scope = cl_obj->class_type_name;
+
                     for (auto& s : task_node->get_body()) {
                         if (has_returned(bp)) break;
                         execute_statement(s.get(), bp);
                         if (has_returned(bp)) break;
                     }
+
+                    bp.scope = saved_scope;
+                    expr_eval.set_current_class_def(prev_cd_m);
                     std::vector<std::pair<std::string, LogicVal>> output_vals;
                     for (const auto& binding : output_bindings) {
                         LocalVar* lv = expr_eval.get_context().current_frame() ? expr_eval.get_context().current_frame()->get_var(binding.first) : nullptr;
@@ -3343,10 +3393,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
 
+            std::string saved_scope = bp.scope;
+            if (!target_task->scope.empty()) {
+                bp.scope = target_task->scope;
+            } else if (engine.task_map.count(tcall->task_name) && engine.timescale_map.count(tcall->task_name)) {
+                bp.scope = "$unit";
+            }
+
             for (auto& s : target_task->body) {
                 execute_statement(s.get(), bp);
                 if (!engine.scheduler.is_active()) break;
             }
+            bp.scope = saved_scope;
 
             // Save output values from task frame
             std::vector<std::pair<std::string, LogicVal>> output_vals;

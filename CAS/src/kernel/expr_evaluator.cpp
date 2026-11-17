@@ -297,9 +297,32 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
         }
     }
 
+    if (fn->name == "new" && current_class_def) {
+        bool has_explicit_super_new = false;
+        for (const auto& s : fn->get_body()) {
+            if (auto tc = dynamic_cast<TaskCallNode*>(s.get())) {
+                if (tc->task_name == "super.new") {
+                    has_explicit_super_new = true;
+                    break;
+                }
+            }
+        }
+        if (!has_explicit_super_new) {
+            const ClassNode* base_cls = current_class_def->base_class ? current_class_def->base_class : (!current_class_def->base_class_name.empty() ? engine.get_class_def(current_class_def->base_class_name) : nullptr);
+            if (base_cls) {
+                FunctionNode* base_ctor = const_cast<ClassNode*>(base_cls)->get_constructor();
+                if (base_ctor) {
+                    LogicVal dummy;
+                    eval_class_method(obj, base_ctor, {}, dummy);
+                }
+            }
+        }
+    }
+
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
     BoundProcess bp{frame_name, nullptr, 0, false};
+    bp.scope = current_class_def ? current_class_def->name : "";
     for (auto& s : fn->get_body()) {
         if (context.current_frame() && context.current_frame()->returned) break;
         engine.evaluator.execute_statement(s.get(), bp);
@@ -395,6 +418,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
     BoundProcess bp{frame_name, nullptr, 0, false};
+    bp.scope = current_class_def ? current_class_def->name : "";
     for (auto& s : fn->get_body()) {
         if (context.current_frame() && context.current_frame()->returned) break;
         engine.evaluator.execute_statement(s.get(), bp);
@@ -1534,6 +1558,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_time_literal && num->time_fs > 0) {
+            std::string eff_tu = "";
+            if (current_class_def && !current_class_def->name.empty()) {
+                auto it = engine.timescale_map.find(current_class_def->name);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty() && !scope.empty()) {
+                auto it = engine.timescale_map.find(scope);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) {
+                auto it = engine.timescale_map.find("$unit");
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
+            uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
+            if (unit_fs == 0) unit_fs = 1;
+            uint64_t scaled = num->time_fs / unit_fs;
+            return LogicVal::make_known(64, scaled);
+        }
         if (num->is_real) {
             return LogicVal::make_real(num->real_val);
         }
@@ -3464,7 +3508,25 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
         if (fn_call->func_name == "$time") {
-            return LogicVal::make_known(64, engine.get_sim_time());
+            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+            std::string eff_tu = "";
+            if (current_class_def && !current_class_def->name.empty()) {
+                auto it = engine.timescale_map.find(current_class_def->name);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty() && !scope.empty()) {
+                auto it = engine.timescale_map.find(scope);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) {
+                auto it = engine.timescale_map.find("$unit");
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
+            uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
+            if (unit_fs == 0) unit_fs = 1;
+            uint64_t scaled = sim_fs / unit_fs;
+            return LogicVal::make_known(64, scaled);
         }
         if (fn_call->func_name == "$stime") {
             return LogicVal::make_known(32, (uint32_t)engine.get_sim_time());
@@ -4177,7 +4239,27 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto ident = dynamic_cast<IdentifierNode*>(expr)) {
-        if (ident->name == "$time") return LogicVal::make_known(64, engine.get_sim_time());
+        if (ident->name == "$time") {
+            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+            std::string eff_tu = "";
+            if (current_class_def && !current_class_def->name.empty()) {
+                auto it = engine.timescale_map.find(current_class_def->name);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty() && !scope.empty()) {
+                auto it = engine.timescale_map.find(scope);
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) {
+                auto it = engine.timescale_map.find("$unit");
+                if (it != engine.timescale_map.end()) eff_tu = it->second.first;
+            }
+            if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
+            uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
+            if (unit_fs == 0) unit_fs = 1;
+            uint64_t scaled = sim_fs / unit_fs;
+            return LogicVal::make_known(64, scaled);
+        }
         if (ident->name == "$stime") return LogicVal::make_known(32, (uint32_t)engine.get_sim_time());
         if (ident->name == "$random") {
             static uint32_t rng_state = 0x12345678;

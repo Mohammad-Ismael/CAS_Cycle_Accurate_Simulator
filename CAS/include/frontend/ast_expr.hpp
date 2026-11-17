@@ -14,6 +14,8 @@ struct NumberNode : public ExpressionNode {
     double real_val = 0.0;
     bool is_signed = false;
     bool explicit_size = false;
+    bool is_time_literal = false;
+    uint64_t time_fs = 0;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
 
@@ -36,6 +38,8 @@ struct NumberNode : public ExpressionNode {
         node->is_real = is_real;
         node->real_val = real_val;
         node->explicit_size = explicit_size;
+        node->is_time_literal = is_time_literal;
+        node->time_fs = time_fs;
         node->wide_aval = wide_aval;
         node->wide_bval = wide_bval;
         return node;

@@ -4,6 +4,8 @@
 #include <sstream>
 
 std::unordered_map<std::string, std::shared_ptr<PackageNode>> Parser::global_packages;
+std::string Parser::global_timeunit_val = "";
+std::string Parser::global_timeprec_val = "";
 std::unordered_map<std::string, std::shared_ptr<ConfigNode>> Parser::global_configs;
 std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> Parser::global_udp_defs;
 std::vector<std::string> Parser::global_wildcard_imports;
