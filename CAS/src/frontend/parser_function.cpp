@@ -458,6 +458,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             }
 
             if (match(TokenType::TOKEN_EQUAL)) {
+                if (dir == "output") {
+                    throw std::runtime_error("Default values are only allowed for input, inout, or ref arguments, illegal on output port per IEEE 1800-2023 section 13.5.3");
+                }
                 pnode.default_value = parse_expression();
             }
             func->inputs.push_back(std::move(pnode));
@@ -551,7 +554,15 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after port declaration");
             continue;
         }
-        func->body.push_back(parse_statement());
+        auto stmt = parse_statement();
+        if (bare_name == "new") {
+            if (auto tc = dynamic_cast<TaskCallNode*>(stmt.get())) {
+                if (tc->task_name == "super.new" && !func->body.empty()) {
+                    throw std::runtime_error("super.new must be the first statement in a constructor per IEEE 1800-2023 8.17");
+                }
+            }
+        }
+        func->body.push_back(std::move(stmt));
     }
     expect(TokenType::TOKEN_ENDFUNCTION, "Expected 'endfunction'");
     if (match(TokenType::TOKEN_COLON)) {

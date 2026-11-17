@@ -928,7 +928,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in disable target");
         }
         match(TokenType::TOKEN_SEMICOLON);
-        return std::make_unique<BreakStatementNode>();
+        return std::make_unique<DisableStatementNode>(target);
     }
 
     // wait fork (IEEE 1800-2023 §9.6.3), wait (e.triggered) (IEEE 1800-2023 §15.5), or wait (expr) [stmt] (IEEE 1800-2023 §9.4.3)
@@ -1863,6 +1863,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             auto stream_node = std::make_unique<StreamingConcatNode>(dir, std::move(slice_sz), std::move(items));
 
             if (match(TokenType::TOKEN_LE)) {
+            if (in_final_procedure) {
+                throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+            }
+                if (in_final_procedure) {
+                    throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+                }
                 uint64_t intra_delay = 0;
                 bool has_intra_ev = false;
                 EdgeType intra_edge = EdgeType::LEVEL;
@@ -2124,6 +2130,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     return node;
                 }
                 if (match(TokenType::TOKEN_LE)) {
+            if (in_final_procedure) {
+                throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+            }
+                if (in_final_procedure) {
+                    throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+                }
                     uint64_t intra_delay = 0;
                     bool has_intra_ev = false;
                     EdgeType intra_edge = EdgeType::LEVEL;
@@ -2213,6 +2225,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 return node;
             }
             if (match(TokenType::TOKEN_LE)) {
+            if (in_final_procedure) {
+                throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+            }
+                if (in_final_procedure) {
+                    throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+                }
                 uint64_t intra_delay = 0;
                 bool has_intra_ev = false;
                 EdgeType intra_edge = EdgeType::LEVEL;
@@ -2331,6 +2349,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
 
         if (match(TokenType::TOKEN_LE)) {
+            if (in_final_procedure) {
+                throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+            }
             uint64_t intra_delay = 0;
             bool has_intra_ev = false;
             EdgeType intra_edge = EdgeType::LEVEL;

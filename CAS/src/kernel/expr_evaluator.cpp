@@ -5129,9 +5129,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 LogicVal iv = eval(all_indices[d], scope);
                 if (iv.is_unknown()) return LogicVal::make_x(1);
                 int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
-                int64_t low = vdm->dimensions[d].low();
-                if (val >= low) val -= low;
-                total_off += (uint32_t)val * strides[d];
+                const auto& dim = vdm->dimensions[d];
+                int64_t off_in_dim = (dim.left >= dim.right) ? (val - dim.right) : (dim.right - val);
+                if (off_in_dim < 0) off_in_dim = 0;
+                total_off += (uint32_t)off_in_dim * strides[d];
             }
             uint32_t out_w = part_w > 0 ? part_w : ((N <= M) ? (N == M ? 1 : strides[N - 1]) : 1);
             return target_val.extract_slice(total_off, out_w);
@@ -5144,7 +5145,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (idx_val.is_unknown()) return LogicVal::make_x(elem_w);
             int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
-            if (base_low > 0 && raw_idx >= base_low) raw_idx -= base_low;
+            if (base_low != 0 && raw_idx >= base_low) raw_idx -= base_low;
             if (raw_idx < 0 || (raw_idx * elem_w) >= target_val.width) return LogicVal::make_x(elem_w);
             uint32_t sh = (uint32_t)(raw_idx * elem_w);
             LogicVal elem = target_val.extract_slice(sh, elem_w);

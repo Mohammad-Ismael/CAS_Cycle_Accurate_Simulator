@@ -132,6 +132,8 @@ struct TaskActivationFrame {
     std::vector<std::pair<std::string, std::string>> output_bindings;
     ClassObject* this_obj = nullptr;
     bool returned = false;
+    bool is_looping = false;
+    size_t loop_start_pc = 0;
 
     TaskActivationFrame(std::string name, TaskNode* node, ClassObject* obj = nullptr)
         : task_name(std::move(name)), task_node(node), local_frame(task_name), this_obj(obj) {}

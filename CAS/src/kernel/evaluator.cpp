@@ -658,6 +658,44 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto ds = dynamic_cast<DisableStatementNode*>(stmt)) {
+        for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
+            auto& proc = engine.processes[pid];
+            if (proc.completed) continue;
+            bool match_task = false;
+            for (const auto& frame : proc.call_stack) {
+                if (frame.task_name == ds->target ||
+                    (frame.task_name.size() > ds->target.size() &&
+                     frame.task_name.substr(frame.task_name.size() - ds->target.size() - 1) == "." + ds->target)) {
+                    match_task = true;
+                    break;
+                }
+            }
+            if (!match_task) {
+                for (auto* s : proc.dynamic_statements) {
+                    if (auto tc = dynamic_cast<TaskCallNode*>(s)) {
+                        if (tc->task_name == ds->target ||
+                            (tc->task_name.size() > ds->target.size() &&
+                             tc->task_name.substr(tc->task_name.size() - ds->target.size() - 1) == "." + ds->target)) {
+                            match_task = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (match_task) {
+                proc.completed = true;
+                proc.is_delayed = false;
+                proc.wait_target.active = false;
+                proc.call_stack.clear();
+                proc.dynamic_statements.clear();
+                proc.is_looping = false;
+                engine.scheduler.notify_parent_child_completed(proc.pid);
+            }
+        }
+        return;
+    }
+
     if (auto ret_node = dynamic_cast<ReturnStatementNode*>(stmt)) {
         LogicVal ret_val;
         bool has_expr = (ret_node->expr != nullptr);
@@ -4292,8 +4330,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 LogicVal idx_v = eval_expr(nassign->bit_idx.get(), bp.scope);
                 if (!idx_v.is_unknown()) {
                     uint32_t msb = 0, lsb = 0, slice_w = 0;
-                    uint32_t elem_idx = idx_v.aval;
-                    if (base_low > 0 && elem_idx >= (uint32_t)base_low) elem_idx -= (uint32_t)base_low;
+                    int64_t signed_idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+                    if (base_low != 0 && signed_idx >= base_low) signed_idx -= base_low;
+                    uint32_t elem_idx = (uint32_t)signed_idx;
                     if (nassign->bit_idx2) {
                         LogicVal idx_v2 = eval_expr(nassign->bit_idx2.get(), bp.scope);
                         if (!idx_v2.is_unknown()) {
@@ -4533,7 +4572,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     int64_t elem_idx = addr;
-                    if (base_low > 0 && elem_idx >= base_low) elem_idx -= base_low;
+                    if (base_low != 0 && elem_idx >= base_low) elem_idx -= base_low;
                     uint32_t offset = (uint32_t)(elem_idx * d1_width);
                     uint32_t slice_w = d1_width;
 
@@ -5189,6 +5228,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                             if (src_da) {
                                 local->dyn_array_data.resize_and_copy((size_t)sz, *src_da);
+                            } else if (auto uc = dynamic_cast<UnpackedConcatNode*>(new_arr->copy_source_expr.get())) {
+                                local->dyn_array_data.allocate((size_t)sz);
+                                for (size_t i = 0; i < (size_t)sz && i < uc->elements.size(); ++i) {
+                                    local->dyn_array_data.set_elem(i, eval_expr(uc->elements[i].get(), bp.scope));
+                                }
+                            } else if (auto cat = dynamic_cast<ConcatNode*>(new_arr->copy_source_expr.get())) {
+                                local->dyn_array_data.allocate((size_t)sz);
+                                for (size_t i = 0; i < (size_t)sz && i < cat->elements.size(); ++i) {
+                                    local->dyn_array_data.set_elem(i, eval_expr(cat->elements[i].get(), bp.scope));
+                                }
                             } else {
                                 local->dyn_array_data.allocate((size_t)sz);
                             }
@@ -5468,6 +5517,16 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                             if (src_da) {
                                 da->resize_and_copy((size_t)sz, *src_da);
+                            } else if (auto uc = dynamic_cast<UnpackedConcatNode*>(new_arr->copy_source_expr.get())) {
+                                da->allocate((size_t)sz);
+                                for (size_t i = 0; i < (size_t)sz && i < uc->elements.size(); ++i) {
+                                    da->set_elem(i, eval_expr(uc->elements[i].get(), bp.scope));
+                                }
+                            } else if (auto cat = dynamic_cast<ConcatNode*>(new_arr->copy_source_expr.get())) {
+                                da->allocate((size_t)sz);
+                                for (size_t i = 0; i < (size_t)sz && i < cat->elements.size(); ++i) {
+                                    da->set_elem(i, eval_expr(cat->elements[i].get(), bp.scope));
+                                }
                             } else {
                                 da->allocate((size_t)sz);
                             }
@@ -5838,7 +5897,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             }
                         }
-                        if (!assign->extra_indices.empty() && it_vdm != engine.var_dimensions.end() && it_vdm->second.dimensions.size() > 1) {
+                        if (it_vdm != engine.var_dimensions.end() && it_vdm->second.dimensions.size() > 1 && (assign->bit_idx2 || !assign->extra_indices.empty())) {
                             std::vector<ExpressionNode*> all_indices;
                             if (assign->bit_idx) all_indices.push_back(assign->bit_idx.get());
                             if (assign->bit_idx2) all_indices.push_back(assign->bit_idx2.get());
@@ -5857,12 +5916,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 LogicVal iv = eval_expr(all_indices[d], bp.scope);
                                 if (iv.is_unknown()) { any_x = true; break; }
                                 int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
-                                int64_t low = it_vdm->second.dimensions[d].low();
-                                if (val >= low) val -= low;
-                                total_off += (uint32_t)val * strides[d];
+                                const auto& dim = it_vdm->second.dimensions[d];
+                                int64_t off_in_dim = (dim.left >= dim.right) ? (val - dim.right) : (dim.right - val);
+                                if (off_in_dim < 0) off_in_dim = 0;
+                                total_off += (uint32_t)off_in_dim * strides[d];
                             }
                             if (!any_x) {
-                                uint32_t slice_w = (N <= M) ? (N == M ? 1 : strides[N - 1]) : 1;
+                                uint32_t slice_w = (N < M) ? strides[N - 1] : 1;
+                                if (assign->bit_lsb2) {
+                                    LogicVal lsb_v2 = eval_expr(assign->bit_lsb2.get(), bp.scope);
+                                    if (!lsb_v2.is_unknown()) {
+                                        if (assign->is_plus_colon2 || assign->is_minus_colon2) slice_w = lsb_v2.aval;
+                                        else {
+                                            uint32_t b_msb = eval_expr(assign->bit_idx2.get(), bp.scope).aval;
+                                            uint32_t b_lsb = lsb_v2.aval;
+                                            slice_w = (b_msb >= b_lsb) ? (b_msb - b_lsb + 1) : (b_lsb - b_msb + 1);
+                                        }
+                                    }
+                                }
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto cur = old_v;
@@ -5985,8 +6056,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                             if (!idx_val.is_unknown()) {
-                                uint32_t elem_idx = idx_val.aval;
-                                if (base_low > 0 && elem_idx >= (uint32_t)base_low) elem_idx -= (uint32_t)base_low;
+                                int64_t signed_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
+                                if (base_low != 0 && signed_idx >= base_low) signed_idx -= base_low;
+                                uint32_t elem_idx = (uint32_t)signed_idx;
                                 uint32_t lsb = 0, slice_w = 1;
                                 if (d1_width > 1) {
                                     lsb = elem_idx * d1_width;

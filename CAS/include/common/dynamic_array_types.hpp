@@ -9,6 +9,7 @@ struct DynamicArrayObject {
     std::string name;
     uint32_t elem_width = 32;
     bool is_signed = false;
+    bool is_four_state = false;
     std::vector<LogicVal> elements;
 
     DynamicArrayObject() = default;
@@ -26,11 +27,13 @@ struct DynamicArrayObject {
     }
 
     void allocate(size_t sz) {
-        elements.assign(sz, LogicVal(elem_width, 0, 0));
+        LogicVal def_v = is_four_state ? LogicVal::make_x(elem_width) : LogicVal(elem_width, 0, 0);
+        elements.assign(sz, def_v);
     }
 
     void resize_and_copy(size_t new_sz, const DynamicArrayObject& src) {
-        std::vector<LogicVal> new_elems(new_sz, LogicVal(elem_width, 0, 0));
+        LogicVal def_v = is_four_state ? LogicVal::make_x(elem_width) : LogicVal(elem_width, 0, 0);
+        std::vector<LogicVal> new_elems(new_sz, def_v);
         size_t copy_count = std::min(new_sz, src.elements.size());
         for (size_t i = 0; i < copy_count; ++i) {
             new_elems[i] = src.elements[i];

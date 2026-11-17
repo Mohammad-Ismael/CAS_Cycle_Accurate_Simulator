@@ -1313,6 +1313,32 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return idx_node;
         }
 
+        if (current_parsing_module) {
+            int found_pkg_cnt = 0;
+            for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                auto pit = global_packages.find(pkg_name);
+                if (pit != global_packages.end()) {
+                    if (pit->second->param_constants.count(name) ||
+                        pit->second->enum_constant_map.count(name) ||
+                        pit->second->function_map.count(name) ||
+                        pit->second->task_map.count(name) ||
+                        pit->second->class_map.count(name) ||
+                        std::find(pit->second->events.begin(), pit->second->events.end(), name) != pit->second->events.end() ||
+                        pit->second->simple_typedefs.count(name) ||
+                        pit->second->enum_typedefs.count(name) ||
+                        pit->second->struct_typedefs.count(name)) {
+                        found_pkg_cnt++;
+                    }
+                }
+            }
+            if (found_pkg_cnt > 1) {
+                throw std::runtime_error("Ambiguous reference to '" + name + "' from multiple wildcard imports per IEEE 1800-2023 section 26.3");
+            }
+            if (found_pkg_cnt == 1) {
+                current_parsing_module->referenced_wildcard_symbols.insert(name);
+            }
+        }
+
         return std::make_unique<IdentifierNode>(name);
     }
 

@@ -9,6 +9,83 @@
 #include <functional>
 #include <cmath>
 
+static bool stmt_has_timing_control(const StatementNode* stmt) {
+    if (!stmt) return false;
+    if (dynamic_cast<const DelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const CycleDelayStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const EventControlStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitConditionStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitEventTriggeredStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const WaitForkStatementNode*>(stmt)) return true;
+    if (auto ba = dynamic_cast<const BlockingAssignNode*>(stmt)) {
+        if (ba->intra_delay > 0 || ba->has_intra_event) return true;
+    }
+    if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(stmt)) {
+        if (nba->intra_delay > 0 || nba->has_intra_event) return true;
+    }
+    if (auto ma = dynamic_cast<const MemAssignNode*>(stmt)) {
+        if (ma->intra_delay > 0 || ma->has_intra_event) return true;
+    }
+    if (auto blk = dynamic_cast<const BlockStatementNode*>(stmt)) {
+        for (const auto& s : blk->statements) {
+            if (stmt_has_timing_control(s.get())) return true;
+        }
+        return false;
+    }
+    if (auto fork_node = dynamic_cast<const ForkStatementNode*>(stmt)) {
+        if (fork_node->join_type == JoinType::JOIN_NONE) {
+            return false;
+        }
+        for (const auto& s : fork_node->branches) {
+            if (auto dly = dynamic_cast<const DelayStatementNode*>(s.get())) {
+                if (dly->delay == 0) {
+                    if (fork_node->join_type == JoinType::JOIN_ANY) {
+                        return false;
+                    }
+                } else {
+                    return true;
+                }
+            } else if (stmt_has_timing_control(s.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if (auto if_stmt = dynamic_cast<const IfStatementNode*>(stmt)) {
+        for (const auto& s : if_stmt->then_branch) if (stmt_has_timing_control(s.get())) return true;
+        for (const auto& s : if_stmt->else_branch) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    if (auto for_stmt = dynamic_cast<const ForStatementNode*>(stmt)) {
+        for (const auto& s : for_stmt->body) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    if (auto rep_stmt = dynamic_cast<const RepeatStatementNode*>(stmt)) {
+        for (const auto& s : rep_stmt->body) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    if (auto wh_stmt = dynamic_cast<const WhileStatementNode*>(stmt)) {
+        for (const auto& s : wh_stmt->body) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    if (auto do_stmt = dynamic_cast<const DoWhileStatementNode*>(stmt)) {
+        for (const auto& s : do_stmt->body) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    if (auto for_stmt = dynamic_cast<const ForeverStatementNode*>(stmt)) {
+        for (const auto& s : for_stmt->body) if (stmt_has_timing_control(s.get())) return true;
+        return false;
+    }
+    return false;
+}
+
+static int64_t eval_const_signed_val(uint64_t raw_val) {
+    if ((raw_val & 0xFFFFFFFF00000000ULL) == 0 && (raw_val & 0x80000000ULL)) {
+        return (int64_t)(int32_t)raw_val;
+    }
+    return (int64_t)raw_val;
+}
+
 size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t width, bool is_signed, NetKind kind) {
     if (result.net_map.find(scoped_name) != result.net_map.end()) {
         size_t existing_id = result.net_map[scoped_name];
@@ -765,6 +842,9 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (result.enum_constant_map.find(id->name) != result.enum_constant_map.end()) {
             return result.enum_constant_map.at(id->name).aval;
         }
+        if (local_env) {
+            throw std::runtime_error("Reference to non-constant variable '" + id->name + "' is illegal in a constant function per IEEE 1800-2023 section 13.4.3");
+        }
         return 0;
     }
     if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
@@ -848,10 +928,32 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         if (bin->op == "^") return l ^ r;
         if (bin->op == "/" && r != 0) return l / r;
         if (bin->op == "%" && r != 0) return l % r;
-        if (bin->op == "<") return (l < r) ? 1 : 0;
-        if (bin->op == ">") return (l > r) ? 1 : 0;
-        if (bin->op == "<=") return (l <= r) ? 1 : 0;
-        if (bin->op == ">=") return (l >= r) ? 1 : 0;
+        bool l_signed = false, r_signed = false;
+        if (auto num = dynamic_cast<NumberNode*>(bin->lhs.get())) l_signed = num->is_signed;
+        if (auto num = dynamic_cast<NumberNode*>(bin->rhs.get())) r_signed = num->is_signed;
+        auto to_signed_val = [](uint64_t v, ExpressionNode* node) -> int64_t {
+            if (auto num = dynamic_cast<NumberNode*>(node)) {
+                if (num->is_signed && num->width < 64) {
+                    if (v & (1ULL << (num->width - 1))) {
+                        return (int64_t)(v | (~0ULL << num->width));
+                    }
+                }
+            }
+            return (int64_t)v;
+        };
+        if (l_signed || r_signed) {
+            int64_t sl = to_signed_val(l, bin->lhs.get());
+            int64_t sr = to_signed_val(r, bin->rhs.get());
+            if (bin->op == "<") return (sl < sr) ? 1 : 0;
+            if (bin->op == ">") return (sl > sr) ? 1 : 0;
+            if (bin->op == "<=") return (sl <= sr) ? 1 : 0;
+            if (bin->op == ">=") return (sl >= sr) ? 1 : 0;
+        } else {
+            if (bin->op == "<") return (l < r) ? 1 : 0;
+            if (bin->op == ">") return (l > r) ? 1 : 0;
+            if (bin->op == "<=") return (l <= r) ? 1 : 0;
+            if (bin->op == ">=") return (l >= r) ? 1 : 0;
+        }
         if (bin->op == "==" || bin->op == "===") return (l == r) ? 1 : 0;
         if (bin->op == "!=" || bin->op == "!==") return (l != r) ? 1 : 0;
         if (bin->op == "==?") {
@@ -1136,7 +1238,7 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 if (i < fc->args.size() && fc->args[i]) {
                     arg_val = eval_const_expr(fc->args[i].get(), scope, local_env);
                 } else if (in_p.default_value) {
-                    arg_val = eval_const_expr(in_p.default_value.get(), scope, local_env);
+                    arg_val = eval_const_expr(in_p.default_value.get(), scope, &fn_env);
                 }
                 fn_env[in_p.name] = arg_val;
             }
@@ -1930,7 +2032,7 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     if (!expr) return nullptr;
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
         if (id->name == gname) {
-            return std::make_unique<NumberNode>((uint64_t)val, 32, false);
+            return std::make_unique<NumberNode>((uint64_t)val, 32, false, true);
         }
         return std::make_unique<IdentifierNode>(id->name);
     }
@@ -2180,9 +2282,9 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             w = elem_w * packed_mult;
         } else if (p.msb_expr && p.lsb_expr) {
             has_explicit_packed = true;
-            uint64_t msb = eval_const_expr(p.msb_expr.get(), current_scope);
-            uint64_t lsb = eval_const_expr(p.lsb_expr.get(), current_scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), current_scope);
+            int64_t lsb = (int64_t)eval_const_expr(p.lsb_expr.get(), current_scope);
+            w = (uint32_t)(std::abs(msb - lsb) + 1);
         }
 
         if (p.is_array) {
@@ -2587,6 +2689,15 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 proc_copy->sensitivity_list.clear();
             }
         }
+        if (proc_copy->type == ProcessType::ALWAYS && proc_copy->sensitivity_list.empty()) {
+            bool has_timing = false;
+            for (const auto& s : proc_copy->body) {
+                if (stmt_has_timing_control(s.get())) { has_timing = true; break; }
+            }
+            if (!has_timing) {
+                throw std::runtime_error("error: always process does not have any delay. A runtime infinite loop will occur. Elaboration failed");
+            }
+        }
         BoundProcess bp(current_scope, proc_copy.get(), 0, false);
         bp.pid = result.processes.size();
         result.generated_processes.push_back(std::move(proc_copy));
@@ -2937,9 +3048,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
         }
         if (p.has_range && p.msb_expr) {
-            uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
-            uint64_t lsb = p.lsb_expr ? eval_const_expr(p.lsb_expr.get(), scope) : 0;
-            uint32_t width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+            int64_t lsb = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
+            uint32_t width = (uint32_t)(std::abs(msb - lsb) + 1);
             lval = LogicOps::cast_width(lval, width, p.is_signed);
             val = lval.aval;
         }
@@ -3043,9 +3154,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             w = elem_w * packed_mult;
         } else if (p.msb_expr && p.lsb_expr) {
             has_explicit_packed = true;
-            uint64_t msb = eval_const_expr(p.msb_expr.get(), scope);
-            uint64_t lsb = eval_const_expr(p.lsb_expr.get(), scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+            int64_t lsb = (int64_t)eval_const_expr(p.lsb_expr.get(), scope);
+            w = (uint32_t)(std::abs(msb - lsb) + 1);
         }
 
         const VariableDimMetadata* type_meta = nullptr;
@@ -3289,16 +3400,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             has_explicit_packed = true;
             uint32_t packed_mult = 1;
             for (const auto& pdim : s.packed_dimensions) {
-                int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
-                int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
+                int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
                 packed_mult *= (uint32_t)(std::abs(b1 - b2) + 1);
             }
             w = elem_w * packed_mult;
         } else if (s.msb_expr && s.lsb_expr) {
             has_explicit_packed = true;
-            uint64_t msb = eval_const_expr(s.msb_expr.get(), scope);
-            uint64_t lsb = eval_const_expr(s.lsb_expr.get(), scope);
-            w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+            int64_t msb = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
+            int64_t lsb = eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope));
+            w = (uint32_t)(std::abs(msb - lsb) + 1);
         }
 
         const VariableDimMetadata* type_meta = nullptr;
@@ -3336,7 +3447,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         } else if (s.is_dynamic_array) {
             std::string da_scope = scope + "." + s.name;
-            result.dynamic_array_map[da_scope] = DynamicArrayObject(da_scope, w, s.is_signed);
+            bool is_4st = (s.type_name != "bit" && s.type_name != "byte" && s.type_name != "shortint" && s.type_name != "int" && s.type_name != "longint");
+            auto dao = DynamicArrayObject(da_scope, w, s.is_signed);
+            dao.is_four_state = is_4st;
+            result.dynamic_array_map[da_scope] = std::move(dao);
             if (debug_out) {
                 *debug_out << "     * Dynamic Array allocated: " << da_scope 
                            << " [" << w << "-bit]\n";
@@ -3473,8 +3587,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.unpacked_dims = 1;
             } else if (!s.packed_dimensions.empty()) {
                 for (const auto& pdim : s.packed_dimensions) {
-                    int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
-                    int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                    int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
+                    int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
                     svdm.dimensions.push_back({b1, b2, false, false, false});
                 }
                 if (elem_w > 1) {
@@ -3486,8 +3600,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.unpacked_dims = 0;
                 svdm.is_vector_or_array = true;
             } else if (s.msb_expr) {
-                int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
-                int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
+                int64_t b1 = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
+                int64_t b2 = s.lsb_expr ? eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope)) : 0;
                 svdm.dimensions.push_back({b1, b2, false, false, false});
                 if (elem_w > 1) {
                     svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
@@ -4489,8 +4603,49 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             for (auto& child : fork_s->branches) check_dcns(child.get());
         }
     };
+    std::unordered_map<std::string, bool> is_string_sig;
+    for (const auto& s : mod->signals) {
+        if (s.type_name == "string") {
+            is_string_sig[s.name] = true;
+        }
+    }
+    std::function<void(const StatementNode*)> check_string_assigns = [&](const StatementNode* s) {
+        if (!s) return;
+        if (auto ba = dynamic_cast<const BlockingAssignNode*>(s)) {
+            if (!ba->lhs_targets.empty()) {
+                const std::string& tgt = ba->lhs_targets[0];
+                if (!is_string_sig[tgt]) {
+                    if (auto id_rhs = dynamic_cast<const IdentifierNode*>(ba->rhs.get())) {
+                        if (is_string_sig[id_rhs->name]) {
+                            throw std::runtime_error("String variable '" + id_rhs->name + "' cannot be assigned to integral variable '" + tgt + "' per IEEE 1800-2023 section 6.16");
+                        }
+                    }
+                }
+            }
+        } else if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(s)) {
+            if (!is_string_sig[nba->target]) {
+                if (auto id_rhs = dynamic_cast<const IdentifierNode*>(nba->rhs.get())) {
+                    if (is_string_sig[id_rhs->name]) {
+                        throw std::runtime_error("String variable '" + id_rhs->name + "' cannot be assigned to integral variable '" + nba->target + "' per IEEE 1800-2023 section 6.16");
+                    }
+                }
+            }
+        } else if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {
+            for (const auto& sub : blk->statements) check_string_assigns(sub.get());
+        } else if (auto ifs = dynamic_cast<const IfStatementNode*>(s)) {
+            for (const auto& sub : ifs->then_branch) check_string_assigns(sub.get());
+            for (const auto& sub : ifs->else_branch) check_string_assigns(sub.get());
+        } else if (auto fors = dynamic_cast<const ForStatementNode*>(s)) {
+            for (const auto& sub : fors->body) check_string_assigns(sub.get());
+        } else if (auto whs = dynamic_cast<const WhileStatementNode*>(s)) {
+            for (const auto& sub : whs->body) check_string_assigns(sub.get());
+        } else if (auto frk = dynamic_cast<const ForkStatementNode*>(s)) {
+            for (const auto& sub : frk->branches) check_string_assigns(sub.get());
+        }
+    };
     for (auto& proc : mod->processes) {
         for (auto& s : proc->body) {
+            check_string_assigns(s.get());
             check_dcns(s.get());
         }
     }
@@ -4529,6 +4684,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
                 proc_copy->body = std::move(new_body);
                 proc_copy->sensitivity_list.clear();
+            }
+        }
+        if (proc_copy->type == ProcessType::ALWAYS && proc_copy->sensitivity_list.empty()) {
+            bool has_timing = false;
+            for (const auto& s : proc_copy->body) {
+                if (stmt_has_timing_control(s.get())) { has_timing = true; break; }
+            }
+            if (!has_timing) {
+                throw std::runtime_error("error: always process does not have any delay. A runtime infinite loop will occur. Elaboration failed");
             }
         }
         BoundProcess bp(scope, proc_copy.get(), 0, false);

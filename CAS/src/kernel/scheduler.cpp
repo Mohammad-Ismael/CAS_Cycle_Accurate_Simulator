@@ -4065,6 +4065,9 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (cur_frame.this_obj) {
                 engine.evaluator.set_current_this(cur_frame.this_obj);
             }
+            if (cur_frame.is_looping && !cur_frame.returned && cur_frame.pc >= cur_frame.flattened_body.size()) {
+                cur_frame.pc = cur_frame.loop_start_pc;
+            }
             if (cur_frame.pc >= cur_frame.flattened_body.size() || cur_frame.returned) {
                 // Task body finished: write back output bindings and pop frame
                 for (const auto& binding : cur_frame.output_bindings) {
@@ -4323,6 +4326,21 @@ void StratifiedScheduler::step_process(size_t pid) {
                 continue;
             }
 
+            // Forever Loop inside task: Inline body and set loop anchor
+            if (auto forever_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
+                std::vector<StatementNode*> new_body;
+                for (size_t i = 0; i < cur_frame.pc; ++i) {
+                    new_body.push_back(cur_frame.flattened_body[i]);
+                }
+                cur_frame.loop_start_pc = cur_frame.pc;
+                cur_frame.is_looping = true;
+                for (auto& s : forever_stmt->body) {
+                    flatten_task_statements(s.get(), new_body);
+                }
+                cur_frame.flattened_body = std::move(new_body);
+                continue;
+            }
+
             // Standard statement execution inside task
             engine.evaluator.execute_statement(stmt, bp);
             if (bp.is_waiting_sync) break;
@@ -4335,6 +4353,9 @@ void StratifiedScheduler::step_process(size_t pid) {
 
         // B. Dynamic Statements (Child Process from Fork)
         if (bp.parent_pid != (size_t)-1) {
+            if (bp.is_looping && bp.pc >= bp.dynamic_statements.size()) {
+                bp.pc = bp.loop_start_pc;
+            }
             if (bp.pc >= bp.dynamic_statements.size()) {
                 bp.completed = true;
                 notify_parent_child_completed(pid);
@@ -4561,6 +4582,21 @@ void StratifiedScheduler::step_process(size_t pid) {
                     queue_delayed_blocking(wake_time, pid, target_name, bp.scope, rhs_val);
                     break;
                 }
+            }
+
+            // Forever Loop in child process: Inline body and set loop anchor
+            if (auto forever_stmt = dynamic_cast<ForeverStatementNode*>(stmt)) {
+                std::vector<StatementNode*> new_dyn;
+                for (size_t i = 0; i < bp.pc; ++i) {
+                    new_dyn.push_back(bp.dynamic_statements[i]);
+                }
+                bp.loop_start_pc = bp.pc;
+                bp.is_looping = true;
+                for (auto& s : forever_stmt->body) {
+                    flatten_task_statements(s.get(), new_dyn);
+                }
+                bp.dynamic_statements = std::move(new_dyn);
+                continue;
             }
 
             // 6. Standard Statement Execution

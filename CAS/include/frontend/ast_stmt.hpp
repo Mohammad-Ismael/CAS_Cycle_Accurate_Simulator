@@ -631,6 +631,15 @@ struct DisableForkStatementNode : public StatementNode {
     }
 };
 
+struct DisableStatementNode : public StatementNode {
+    std::string target;
+    explicit DisableStatementNode(std::string t) : target(std::move(t)) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<DisableStatementNode>(target);
+    }
+};
+
 struct WaitForkStatementNode : public StatementNode {
     WaitForkStatementNode() = default;
 

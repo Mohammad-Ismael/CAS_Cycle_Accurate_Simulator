@@ -1018,6 +1018,7 @@ struct PackageNode : public ASTNode {
     std::vector<std::shared_ptr<DpiExportNode>> dpi_exports;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::vector<std::string> wildcard_imports;
+    std::unordered_set<std::string> referenced_wildcard_symbols;
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
     std::vector<std::shared_ptr<LetDeclNode>> let_decls;
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;
@@ -1145,6 +1146,7 @@ struct ModuleNode : public ASTNode {
     std::vector<std::shared_ptr<DpiExportNode>> dpi_exports;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
     std::vector<std::string> wildcard_imports;
+    std::unordered_set<std::string> referenced_wildcard_symbols;
     std::unordered_map<std::string, std::pair<std::string, std::string>> explicit_imports;
     std::vector<std::shared_ptr<LetDeclNode>> let_decls;
     std::unordered_map<std::string, std::shared_ptr<LetDeclNode>> let_decl_map;

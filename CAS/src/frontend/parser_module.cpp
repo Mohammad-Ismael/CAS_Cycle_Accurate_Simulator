@@ -1061,6 +1061,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     mod->ports.push_back(std::move(port));
 
                     if (match(TokenType::TOKEN_COMMA)) {
+                        if (current.type == TokenType::TOKEN_RPAREN) {
+                            break;
+                        }
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
                             current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                             current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
@@ -1348,6 +1351,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (p_lsb) pdef.lsb_expr = p_lsb->clone();
                     }
                     pdef.is_signed = is_signed;
+                    if (mod && mod->referenced_wildcard_symbols.count(pname)) {
+                        throw std::runtime_error("Declaration of '" + pname + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                    }
                     mod->parameters.push_back(std::move(pdef));
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -1531,7 +1537,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         ParameterDef pdef;
                         pdef.name = m.first;
                         pdef.default_expr = std::make_unique<NumberNode>(m.second.aval, m.second.bval, td->enum_type->base_width);
-                        mod->parameters.push_back(std::move(pdef));
+                        if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
+                            throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                        }
+                    mod->parameters.push_back(std::move(pdef));
                     }
                 }
                 if (td && !td->base_type.empty()) {
@@ -1816,6 +1825,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                         if (match(TokenType::TOKEN_EQUAL)) {
                             auto init_expr = parse_expression();
+                            if (dynamic_cast<NewArrayNode*>(init_expr.get()) && !sig.is_dynamic_array) {
+                                throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
+                            }
                             sig.default_value = init_expr->clone();
                             auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                             init_proc->is_decl_init = true;
@@ -1922,6 +1934,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 enum_node->base_type_name = e_base;
                 uint64_t current_val = 0;
                 bool prev_had_xz = false;
+                std::unordered_set<uint64_t> seen_enum_vals;
                 while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
                     std::string mname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
@@ -1932,15 +1945,25 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         auto l = parse_expression();
                         if (match(TokenType::TOKEN_COLON)) {
                             auto r = parse_expression();
+                            if (expr_has_xz(l.get()) || expr_has_xz(r.get())) {
+                                throw std::runtime_error("Undefined sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                            }
                             try {
                                 seq_start = eval_const_expr(l.get());
                                 seq_end = eval_const_expr(r.get());
                             } catch (...) {}
                         } else {
+                            if (expr_has_xz(l.get())) {
+                                throw std::runtime_error("Undefined sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                            }
+                            int64_t cnt = 0;
                             try {
-                                int64_t cnt = eval_const_expr(l.get());
-                                seq_start = 0; seq_end = (cnt > 0) ? (cnt - 1) : 0;
+                                cnt = eval_const_expr(l.get());
                             } catch (...) {}
+                            if (cnt <= 0) {
+                                throw std::runtime_error("A zero or negative sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                            }
+                            seq_start = 0; seq_end = cnt - 1;
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in enum sequence");
                     }
@@ -1953,6 +1976,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             current_val = num->aval;
                             if (num->explicit_size && num->width != e_width) {
                                 throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
+                            }
+                            if (!num->explicit_size && num->width > e_width && e_width < 64) {
+                                uint64_t msb_a = (num->aval >> (e_width - 1)) & 1ULL;
+                                uint64_t msb_b = (num->bval >> (e_width - 1)) & 1ULL;
+                                for (uint32_t b = e_width; b < num->width && b < 64; ++b) {
+                                    uint64_t cur_a = (num->aval >> b) & 1ULL;
+                                    uint64_t cur_b = (num->bval >> b) & 1ULL;
+                                    if (cur_a != msb_a || cur_b != msb_b) {
+                                        throw std::runtime_error("If integer value expression is an unsized literal constant, it shall be an error if trimmed bits do not match MSB per IEEE 1800-2023 6.19");
+                                    }
+                                }
                             }
                             if (num->bval != 0) {
                                 curr_had_xz = true;
@@ -1969,12 +2003,26 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             }
                             try {
                                 current_val = eval_const_expr(val_expr.get());
-                            } catch (...) {}
+                            } catch (...) {
+                                throw std::runtime_error("Enum value expression must be an elaboration-time constant expression per IEEE 1800-2023 section 6.19");
+                            }
                         }
                     } else {
                         if (prev_had_xz) {
                             throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
                         }
+                    }
+                    if (!e_signed && e_width < 64) {
+                        uint64_t max_val = (1ULL << e_width) - 1;
+                        if (current_val > max_val) {
+                            throw std::runtime_error("Enum value exceeds range of base type per IEEE 1800-2023 section 6.19");
+                        }
+                    }
+                    if (!curr_had_xz) {
+                        if (seen_enum_vals.count(current_val)) {
+                            throw std::runtime_error("Duplicate enum value in enum declaration per IEEE 1800-2023 section 6.19");
+                        }
+                        seen_enum_vals.insert(current_val);
                     }
                     prev_had_xz = curr_had_xz;
                     if (is_seq) {
@@ -1987,7 +2035,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             ParameterDef pdef;
                             pdef.name = s_name;
                             pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
-                            mod->parameters.push_back(std::move(pdef));
+                            if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
+                            throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                        }
+                    mod->parameters.push_back(std::move(pdef));
                             current_val++;
                         }
                     } else {
@@ -1996,7 +2047,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         ParameterDef pdef;
                         pdef.name = mname;
                         pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
-                        mod->parameters.push_back(std::move(pdef));
+                        if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
+                            throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                        }
+                    mod->parameters.push_back(std::move(pdef));
                         current_val++;
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2175,6 +2229,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                     if (match(TokenType::TOKEN_EQUAL)) {
                         auto init_expr = parse_expression();
+                        if (dynamic_cast<NewArrayNode*>(init_expr.get()) && !sig.is_dynamic_array) {
+                            throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
+                        }
                         sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                         init_proc->is_decl_init = true;
@@ -2487,6 +2544,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                     if (match(TokenType::TOKEN_EQUAL)) {
                         auto init_expr = parse_expression();
+                        if (dynamic_cast<NewArrayNode*>(init_expr.get()) && !sig.is_dynamic_array) {
+                            throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
+                        }
                         sig.default_value = init_expr->clone();
                         auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                         init_proc->is_decl_init = true;
@@ -3172,8 +3232,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_FINAL)) {
+                in_final_procedure = true;
                 auto proc = std::make_unique<ProcessNode>(ProcessType::FINAL);
                 proc->body = parse_statement_or_block();
+                in_final_procedure = false;
                 mod->processes.push_back(std::move(proc));
                 continue;
             }
@@ -7932,8 +7994,10 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         return;
     }
     if (match(TokenType::TOKEN_FINAL)) {
+        in_final_procedure = true;
         auto proc = std::make_unique<ProcessNode>(ProcessType::FINAL);
         proc->body = parse_statement_or_block();
+        in_final_procedure = false;
         if (blk) blk->processes.push_back(std::move(proc));
         else mod->processes.push_back(std::move(proc));
         return;

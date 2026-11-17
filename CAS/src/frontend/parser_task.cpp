@@ -280,6 +280,9 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
             }
 
             if (match(TokenType::TOKEN_EQUAL)) {
+                if (dir == "output") {
+                    throw std::runtime_error("Default values are only allowed for input, inout, or ref arguments, illegal on output port per IEEE 1800-2023 section 13.5.3");
+                }
                 pnode.default_value = parse_expression();
             }
             task_node->ports.push_back(std::move(pnode));

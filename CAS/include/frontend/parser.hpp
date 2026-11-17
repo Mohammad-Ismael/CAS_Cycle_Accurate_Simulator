@@ -112,6 +112,7 @@ public:
     inline static std::unordered_set<std::string> resolved_typedefs;
     std::unordered_map<std::string, std::string> current_scope_var_types;
     int in_randsequence_depth = 0;
+    bool in_final_procedure = false;
     bool is_forward_class(const std::string& name) const;
     bool is_forward_interface_class(const std::string& name) const;
 
@@ -258,11 +259,24 @@ public:
             }
         }
         if (current_parsing_module) {
+            int found_pkg_cnt = 0;
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
                 auto pit = global_packages.find(pkg_name);
                 if (pit != global_packages.end()) {
-                    if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end()) return true;
+                    if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end() ||
+                        pit->second->enum_typedefs.find(name) != pit->second->enum_typedefs.end() ||
+                        pit->second->struct_typedefs.find(name) != pit->second->struct_typedefs.end() ||
+                        pit->second->class_map.find(name) != pit->second->class_map.end()) {
+                        found_pkg_cnt++;
+                    }
                 }
+            }
+            if (found_pkg_cnt > 1) {
+                throw std::runtime_error("Ambiguous reference to '" + name + "' from multiple wildcard imports per IEEE 1800-2023 section 26.3");
+            }
+            if (found_pkg_cnt == 1) {
+                current_parsing_module->referenced_wildcard_symbols.insert(name);
+                return true;
             }
         }
         for (const auto& pkg_name : global_wildcard_imports) {
