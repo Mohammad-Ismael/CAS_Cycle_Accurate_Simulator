@@ -911,6 +911,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
 
                 bool is_signed_port = false;
+                bool is_int_port = false;
+                std::string int_port_type = "";
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     is_signed_port = true;
                     advance();
@@ -929,6 +931,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (current.text != "input" && current.text != "output" && current.text != "inout" &&
                             current.text != "int" && current.text != "byte" && current.text != "shortint" && current.text != "longint") {
                             port_user_type = current.text;
+                            auto enum_info = get_enum_typedef(current.text);
+                            if (enum_info && enum_info->is_signed) is_signed_port = true;
                             advance();
                         }
                     }
@@ -962,8 +966,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
                     }
                 }
-                bool is_int_port = false;
-                std::string int_port_type = "";
                 if (current.type == TokenType::TOKEN_IDENTIFIER &&
                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
                     is_int_port = true;
@@ -995,6 +997,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                          (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
                           current.text == "longint" || is_type_identifier(current.text)))) {
                         if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                            if (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
+                                is_int_port = true;
+                                int_port_type = current.text;
+                                is_signed_port = true;
+                            } else {
+                                port_user_type = current.text;
+                                auto enum_info = get_enum_typedef(current.text);
+                                if (enum_info && enum_info->is_signed) is_signed_port = true;
+                            }
+                        }
                         advance();
                     }
                 }
@@ -1524,6 +1537,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string dir = current.text;
                 advance();
                 bool is_signed_port = false;
+                bool is_int_port = false;
+                std::string int_port_type = "";
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     is_signed_port = true;
                     advance();
@@ -1542,6 +1557,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (current.text != "input" && current.text != "output" && current.text != "inout" &&
                             current.text != "int" && current.text != "byte" && current.text != "shortint" && current.text != "longint") {
                             port_user_type = current.text;
+                            auto enum_info = get_enum_typedef(current.text);
+                            if (enum_info && enum_info->is_signed) is_signed_port = true;
                             advance();
                         }
                     }
@@ -1598,6 +1615,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                          (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
                           current.text == "longint" || is_type_identifier(current.text)))) {
                         if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                            if (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
+                                is_int_port = true;
+                                int_port_type = current.text;
+                                is_signed_port = true;
+                            } else {
+                                port_user_type = current.text;
+                                auto enum_info = get_enum_typedef(current.text);
+                                if (enum_info && enum_info->is_signed) is_signed_port = true;
+                            }
+                        }
                         advance();
                     }
                 }
@@ -1618,6 +1646,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
                 } else if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
+                } else if (is_int_port) {
+                    uint32_t iw = 32;
+                    if (int_port_type == "byte") iw = 8;
+                    else if (int_port_type == "shortint") iw = 16;
+                    else if (int_port_type == "longint") iw = 64;
+                    msb = std::make_unique<NumberNode>(iw - 1, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
                 }
                 while (true) {
@@ -3640,17 +3675,38 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
                 std::string iname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
+                bool is_instance_array = false;
+                int64_t arr_msb = 0, arr_lsb = 0;
                 if (match(TokenType::TOKEN_LBRACKET)) {
-                    parse_expression();
+                    is_instance_array = true;
+                    auto r_msb = parse_expression();
+                    if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) arr_msb = num->aval;
                     if (match(TokenType::TOKEN_COLON)) {
-                        parse_expression();
+                        auto r_lsb = parse_expression();
+                        if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) arr_lsb = num->aval;
+                    } else {
+                        arr_lsb = 0;
+                        arr_msb = arr_msb > 0 ? (arr_msb - 1) : 0;
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
                 }
                 if (match(TokenType::TOKEN_SEMICOLON)) {
-                    auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
-                    inst->param_overrides = std::move(param_overrides);
-                    mod->instantiations.push_back(std::move(inst));
+                    if (is_instance_array) {
+                        int64_t low = std::min(arr_msb, arr_lsb);
+                        int64_t high = std::max(arr_msb, arr_lsb);
+                        for (int64_t idx = low; idx <= high; ++idx) {
+                            std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                            auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, false);
+                            for (const auto& po : param_overrides) {
+                                inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                            }
+                            mod->instantiations.push_back(std::move(inst));
+                        }
+                    } else {
+                        auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
+                        inst->param_overrides = std::move(param_overrides);
+                        mod->instantiations.push_back(std::move(inst));
+                    }
                     continue;
                 }
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
@@ -3706,10 +3762,26 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program instantiation '" + iname + "' is illegal in program scope per IEEE 1800-2023 section 24.3");
                 }
 
-                auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
-                inst->param_overrides = std::move(param_overrides);
-                inst->connections = std::move(conns);
-                mod->instantiations.push_back(std::move(inst));
+                if (is_instance_array) {
+                    int64_t low = std::min(arr_msb, arr_lsb);
+                    int64_t high = std::max(arr_msb, arr_lsb);
+                    for (int64_t idx = low; idx <= high; ++idx) {
+                        std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                        auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                        for (const auto& po : param_overrides) {
+                            inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                        }
+                        for (const auto& pc : conns) {
+                            inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
+                        }
+                        mod->instantiations.push_back(std::move(inst));
+                    }
+                } else {
+                    auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
+                    inst->param_overrides = std::move(param_overrides);
+                    inst->connections = std::move(conns);
+                    mod->instantiations.push_back(std::move(inst));
+                }
                 continue;
             }
 
@@ -8717,18 +8789,40 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
 
         std::string iname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
+        bool is_instance_array = false;
+        int64_t arr_msb = 0, arr_lsb = 0;
         if (match(TokenType::TOKEN_LBRACKET)) {
-            parse_expression();
+            is_instance_array = true;
+            auto r_msb = parse_expression();
+            if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) arr_msb = num->aval;
             if (match(TokenType::TOKEN_COLON)) {
-                parse_expression();
+                auto r_lsb = parse_expression();
+                if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) arr_lsb = num->aval;
+            } else {
+                arr_lsb = 0;
+                arr_msb = arr_msb > 0 ? (arr_msb - 1) : 0;
             }
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
         }
         if (match(TokenType::TOKEN_SEMICOLON)) {
-            auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
-            inst->param_overrides = std::move(param_overrides);
-            if (blk) blk->instantiations.push_back(std::move(inst));
-            else mod->instantiations.push_back(std::move(inst));
+            if (is_instance_array) {
+                int64_t low = std::min(arr_msb, arr_lsb);
+                int64_t high = std::max(arr_msb, arr_lsb);
+                for (int64_t idx = low; idx <= high; ++idx) {
+                    std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                    auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, false);
+                    for (const auto& po : param_overrides) {
+                        inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                    }
+                    if (blk) blk->instantiations.push_back(std::move(inst));
+                    else mod->instantiations.push_back(std::move(inst));
+                }
+            } else {
+                auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
+                inst->param_overrides = std::move(param_overrides);
+                if (blk) blk->instantiations.push_back(std::move(inst));
+                else mod->instantiations.push_back(std::move(inst));
+            }
             return;
         }
         expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
@@ -8780,11 +8874,28 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
 
-        auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
-        inst->param_overrides = std::move(param_overrides);
-        inst->connections = std::move(conns);
-        if (blk) blk->instantiations.push_back(std::move(inst));
-        else mod->instantiations.push_back(std::move(inst));
+        if (is_instance_array) {
+            int64_t low = std::min(arr_msb, arr_lsb);
+            int64_t high = std::max(arr_msb, arr_lsb);
+            for (int64_t idx = low; idx <= high; ++idx) {
+                std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                for (const auto& po : param_overrides) {
+                    inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                }
+                for (const auto& pc : conns) {
+                    inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
+                }
+                if (blk) blk->instantiations.push_back(std::move(inst));
+                else mod->instantiations.push_back(std::move(inst));
+            }
+        } else {
+            auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
+            inst->param_overrides = std::move(param_overrides);
+            inst->connections = std::move(conns);
+            if (blk) blk->instantiations.push_back(std::move(inst));
+            else mod->instantiations.push_back(std::move(inst));
+        }
         return;
     }
 

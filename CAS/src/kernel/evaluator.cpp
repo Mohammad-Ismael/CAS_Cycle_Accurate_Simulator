@@ -65,7 +65,7 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
     size_t target_id = (ref.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[ref.net_id] : ref.net_id;
     const auto& net = engine.netlist[target_id];
     const auto& net_val = net.value;
-    if (net_val.is_string || net.type_name == "string") {
+    if (net_val.is_string || net.type_name == "string" || net_val.is_real || net.type_name == "real" || net.type_name == "shortreal") {
         return net_val;
     }
     return net_val.extract_slice(ref.offset, ref.width);
@@ -80,6 +80,13 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
         if (val == old_v) return;
         target_net.set(val);
         engine.scheduler.notify_net_changed(target_id);
+        return;
+    }
+    if (target_net.type_name == "real" || target_net.type_name == "shortreal" || target_net.value.is_real) {
+        target_net.set(val);
+        if (target_net.value != old_v) {
+            engine.scheduler.notify_net_changed(target_id);
+        }
         return;
     }
     LogicVal casted = LogicOps::cast_width(val, ref.width, target_net.is_signed);
@@ -150,6 +157,17 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
         if (local->type_name == "string") {
             local->value = actual_val;
+            if (local->is_static && !local->static_key.empty()) {
+                engine.procedural_static_vars[local->static_key] = local->value;
+            }
+            return;
+        }
+        if (local->type_name == "real" || local->type_name == "shortreal") {
+            LogicVal rval;
+            rval.width = local->width ? local->width : 64;
+            rval.is_real = true;
+            rval.real_val = actual_val.to_real();
+            local->value = rval;
             if (local->is_static && !local->static_key.empty()) {
                 engine.procedural_static_vars[local->static_key] = local->value;
             }
@@ -440,8 +458,8 @@ void Evaluator::check_monitor() {
                                 if (val.width <= 64) std::cout << val.aval;
                                 else std::cout << val.to_dec_string();
                             }
-                        } else if (spec == 'f') {
-                            std::cout << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
+                            std::cout << val.to_real();
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
                         } else if (spec == 'o') {
@@ -999,6 +1017,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->value.is_string = true;
                     lv->value.str_val = "";
                 }
+                if (vdecl->type_name == "real" || vdecl->type_name == "shortreal") {
+                    lv->type_name = vdecl->type_name;
+                    lv->value = LogicVal::make_real(0.0);
+                }
                 if (vdecl->init_expr) {
                     if (vdecl->is_dynamic_array) {
                         auto elems = expr_eval.eval_array_expr(vdecl->init_expr.get(), bp.scope);
@@ -1051,6 +1073,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
+                        } else if (vdecl->type_name == "real" || vdecl->type_name == "shortreal") {
+                            lv->value = LogicVal::make_real(init_val.to_real());
                         } else {
                             lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed && init_val.is_signed);
                         }
@@ -1223,6 +1247,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         init_val = pack_tagged_union_if_needed(init_val, vdecl->type_name, vdecl->var_name, lv->width, bp.scope);
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
+                        } else if (vdecl->type_name == "real" || vdecl->type_name == "shortreal") {
+                            lv->value = LogicVal::make_real(init_val.to_real());
                         } else {
                             lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed && init_val.is_signed);
                         }
@@ -1403,6 +1429,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     if (vdecl->type_name == "string") {
                         lv->value = init_val;
+                    } else if (vdecl->type_name == "real" || vdecl->type_name == "shortreal") {
+                        lv->value = LogicVal::make_real(init_val.to_real());
                     } else {
                         lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
                     }
@@ -3943,8 +3971,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (val.width <= 64) std::cout << val.aval;
                                 else std::cout << val.to_dec_string();
                             }
-                        } else if (spec == 'f') {
-                            std::cout << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
+                            std::cout << val.to_real();
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
                         } else if (spec == 'o') {
@@ -4060,8 +4088,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (val.width <= 64) std::cout << val.aval;
                                 else std::cout << val.to_dec_string();
                             }
-                        } else if (spec == 'f') {
-                            std::cout << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
+                            std::cout << val.to_real();
                         } else if (spec == 'b') {
                             std::cout << val.to_bin_string();
                         } else if (spec == 'o') {
@@ -4184,7 +4212,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 uint32_t net_id = nassign->cached_net_id;
                 if (!engine.netlist[net_id].has_procedural_assign) {
                     LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
-                    LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string)
+                    LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string ||
+                                       engine.netlist[net_id].type_name == "real" || engine.netlist[net_id].type_name == "shortreal")
                         ? rhs_val
                         : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed && rhs_val.is_signed);
                     engine.scheduler.queue_nba(net_id, casted);
@@ -4359,6 +4388,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (local->type_name == "string" || rhs_val.is_string) {
                 local->value = rhs_val;
+            } else if (local->type_name == "real" || local->type_name == "shortreal") {
+                local->value = LogicVal::make_real(rhs_val.to_real());
             } else {
                 local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
                 if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
@@ -4789,7 +4820,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
 
-            LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string) ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+            LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string ||
+                               engine.netlist[net_id].type_name == "real" || engine.netlist[net_id].type_name == "shortreal")
+                ? rhs_val
+                : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed && rhs_val.is_signed);
             if (nassign->has_intra_event) {
                 size_t trig_net_id = engine.get_net_id(bp.scope, nassign->intra_signal);
 
@@ -4868,6 +4902,45 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         if (!addr_val.is_unknown()) {
             int64_t addr = (int64_t)addr_val.aval;
+            if (!mem_assign->member_name.empty()) {
+                std::string inst_net = mem_assign->mem_name + "[" + std::to_string(addr) + "]." + mem_assign->member_name;
+                size_t inst_nid = engine.get_net_id(bp.scope, inst_net);
+                if (inst_nid != (size_t)-1) {
+                    auto& target_net = engine.netlist[inst_nid];
+                    LogicVal casted = (target_net.type_name == "string" || rhs_val.is_string || target_net.type_name == "real" || target_net.type_name == "shortreal")
+                        ? rhs_val
+                        : LogicOps::cast_width(rhs_val, target_net.width, target_net.is_signed && rhs_val.is_signed);
+                    if (mem_assign->has_member_select) {
+                        uint32_t m_offset = 0;
+                        uint32_t m_width = 1;
+                        if (mem_assign->is_part_select) {
+                            uint64_t msb = eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                            uint64_t lsb = eval_expr(mem_assign->member_lsb_expr.get(), bp.scope).aval;
+                            m_offset = (uint32_t)std::min(msb, lsb);
+                            m_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                        } else {
+                            m_offset = (uint32_t)eval_expr(mem_assign->member_msb_expr.get(), bp.scope).aval;
+                            m_width = 1;
+                        }
+                        LogicVal casted_slice = LogicOps::cast_width(rhs_val, m_width, false);
+                        LogicVal cur_val = target_net.value;
+                        cur_val.deposit_slice(m_offset, m_width, casted_slice);
+                        casted = cur_val;
+                    }
+                    if (mem_assign->is_non_blocking) {
+                        if (mem_assign->intra_delay > 0) {
+                            uint64_t wake_time = engine.get_sim_time() + mem_assign->intra_delay;
+                            engine.scheduler.queue_delayed_nba(wake_time, inst_nid, casted);
+                        } else {
+                            engine.scheduler.queue_nba(inst_nid, casted);
+                        }
+                    } else {
+                        target_net.set(casted);
+                        engine.scheduler.notify_net_changed(inst_nid);
+                    }
+                    return;
+                }
+            }
             if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                 auto& mem = engine.memory_map.at(scoped_mem);
                 if (!mem_assign->member_name.empty()) {
@@ -5121,7 +5194,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
                     rhs_val = extend_unsized_literal_if_needed(assign->rhs.get(), rhs_val, engine.netlist[target_id].width);
                     LogicVal old_v = engine.netlist[target_id].value;
-                    LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string)
+                    LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string ||
+                                       engine.netlist[target_id].type_name == "real" || engine.netlist[target_id].type_name == "shortreal")
                         ? rhs_val
                         : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && rhs_val.is_signed);
                     engine.netlist[target_id].set(casted);
@@ -6042,6 +6116,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     if (local->type_name == "string") {
                         local->value = rhs_val;
+                    } else if (local->type_name == "real" || local->type_name == "shortreal") {
+                        local->value = LogicVal::make_real(rhs_val.to_real());
                     } else {
                         local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
                         if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
@@ -7009,7 +7085,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (!engine.netlist[target_id].has_procedural_assign) {
                             LogicVal old_v = engine.netlist[target_id].value;
                             LogicVal ext_rhs = extend_unsized_literal_if_needed(assign->rhs.get(), rhs_val, engine.netlist[target_id].width);
-                            LogicVal casted = (engine.netlist[target_id].type_name == "string") ? ext_rhs : LogicOps::cast_width(ext_rhs, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && ext_rhs.is_signed);
+                            LogicVal casted = (engine.netlist[target_id].type_name == "string" ||
+                                               engine.netlist[target_id].type_name == "real" ||
+                                               engine.netlist[target_id].type_name == "shortreal")
+                                ? ext_rhs
+                                : LogicOps::cast_width(ext_rhs, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && ext_rhs.is_signed);
                             engine.netlist[target_id].set(casted);
                             if (target_id < engine.alias_members.size()) {
                                 for (size_t other_id : engine.alias_members[target_id]) {
@@ -7058,7 +7138,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 net.has_procedural_assign = true;
                 net.procedural_assign_rhs = passign->rhs.get();
                 net.procedural_assign_scope = bp.scope;
-                LogicVal casted = LogicOps::cast_width(rhs_val, net.width, net.is_signed);
+                LogicVal casted = (net.type_name == "real" || net.type_name == "shortreal")
+                    ? rhs_val
+                    : LogicOps::cast_width(rhs_val, net.width, net.is_signed && rhs_val.is_signed);
                 net.set(casted);
             }
         }

@@ -107,6 +107,61 @@ size_t Elaborator::get_or_create_net(const std::string& scoped_name, uint32_t wi
 
 static uint32_t resolve_type_width(const std::string& type_name);
 
+static double eval_const_real_expr_helper(ExpressionNode* expr, const std::string& scope,
+                                         const std::unordered_map<std::string, double>& env,
+                                         const std::unordered_map<std::string, LogicVal>& param_val_map,
+                                         const std::unordered_map<std::string, uint64_t>& param_map) {
+    if (!expr) return 0.0;
+    if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_real) return num->real_val;
+        return num->is_signed ? static_cast<double>(static_cast<int64_t>(num->aval)) : static_cast<double>(num->aval);
+    }
+    if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
+        if (env.count(id->name)) return env.at(id->name);
+        std::string cur = scope;
+        while (!cur.empty()) {
+            std::string q = cur + "." + id->name;
+            if (param_val_map.count(q) && param_val_map.at(q).is_real) return param_val_map.at(q).real_val;
+            if (param_map.count(q)) return static_cast<double>(param_map.at(q));
+            auto dot = cur.rfind('.');
+            if (dot == std::string::npos) cur = "";
+            else cur = cur.substr(0, dot);
+        }
+        if (param_val_map.count(id->name) && param_val_map.at(id->name).is_real) return param_val_map.at(id->name).real_val;
+        if (param_map.count(id->name)) return static_cast<double>(param_map.at(id->name));
+        return 0.0;
+    }
+    if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
+        double v = eval_const_real_expr_helper(un->operand.get(), scope, env, param_val_map, param_map);
+        if (un->op == "-") return -v;
+        if (un->op == "+") return v;
+        if (un->op == "!") return (v == 0.0) ? 1.0 : 0.0;
+        return v;
+    }
+    if (auto bin = dynamic_cast<BinaryOpNode*>(expr)) {
+        double l = eval_const_real_expr_helper(bin->lhs.get(), scope, env, param_val_map, param_map);
+        double r = eval_const_real_expr_helper(bin->rhs.get(), scope, env, param_val_map, param_map);
+        if (bin->op == "+") return l + r;
+        if (bin->op == "-") return l - r;
+        if (bin->op == "*") return l * r;
+        if (bin->op == "/") return (r != 0.0) ? (l / r) : 0.0;
+        if (bin->op == "%") return (r != 0.0) ? std::fmod(l, r) : 0.0;
+        if (bin->op == "==") return (l == r) ? 1.0 : 0.0;
+        if (bin->op == "!=") return (l != r) ? 1.0 : 0.0;
+        if (bin->op == "<") return (l < r) ? 1.0 : 0.0;
+        if (bin->op == "<=") return (l <= r) ? 1.0 : 0.0;
+        if (bin->op == ">") return (l > r) ? 1.0 : 0.0;
+        if (bin->op == ">=") return (l >= r) ? 1.0 : 0.0;
+        return 0.0;
+    }
+    if (auto ter = dynamic_cast<TernaryOpNode*>(expr)) {
+        double c = eval_const_real_expr_helper(ter->condition.get(), scope, env, param_val_map, param_map);
+        return (c != 0.0) ? eval_const_real_expr_helper(ter->true_expr.get(), scope, env, param_val_map, param_map)
+                          : eval_const_real_expr_helper(ter->false_expr.get(), scope, env, param_val_map, param_map);
+    }
+    return 0.0;
+}
+
 LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return LogicVal(0, 0, 0);
     if (auto str = dynamic_cast<StringNode*>(expr)) {
@@ -586,6 +641,79 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         } else if (result.function_map.count(fc->func_name)) {
             target_fn = result.function_map.at(fc->func_name);
         }
+        if (target_fn && (target_fn->return_type_name == "real" || target_fn->return_type_name == "shortreal")) {
+            std::unordered_map<std::string, double> fn_real_env;
+            for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
+                const auto& in_p = target_fn->inputs[i];
+                double arg_val = 0.0;
+                if (i < fc->args.size() && fc->args[i]) {
+                    LogicVal lv = eval_const_logic_val(fc->args[i].get(), scope);
+                    arg_val = lv.to_real();
+                } else if (in_p.default_value) {
+                    arg_val = eval_const_real_expr_helper(in_p.default_value.get(), scope, fn_real_env, result.param_val_map, result.param_map);
+                }
+                fn_real_env[in_p.name] = arg_val;
+            }
+            fn_real_env[target_fn->name] = 0.0;
+            bool returned = false;
+            double ret_val = 0.0;
+            std::function<void(StatementNode*)> eval_real_stmt = [&](StatementNode* s) {
+                if (!s || returned) return;
+                if (auto ret = dynamic_cast<ReturnStatementNode*>(s)) {
+                    if (ret->expr) {
+                        ret_val = eval_const_real_expr_helper(ret->expr.get(), scope, fn_real_env, result.param_val_map, result.param_map);
+                        fn_real_env[target_fn->name] = ret_val;
+                    } else {
+                        ret_val = fn_real_env[target_fn->name];
+                    }
+                    returned = true;
+                    return;
+                }
+                if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
+                    double rhs_val = eval_const_real_expr_helper(ba->rhs.get(), scope, fn_real_env, result.param_val_map, result.param_map);
+                    if (!ba->lhs_targets.empty()) {
+                        fn_real_env[ba->lhs_targets[0]] = rhs_val;
+                    }
+                    return;
+                }
+                if (auto vd = dynamic_cast<VarDeclStatementNode*>(s)) {
+                    double init_val = 0.0;
+                    if (vd->init_expr) {
+                        init_val = eval_const_real_expr_helper(vd->init_expr.get(), scope, fn_real_env, result.param_val_map, result.param_map);
+                    }
+                    fn_real_env[vd->var_name] = init_val;
+                    return;
+                }
+                if (auto if_s = dynamic_cast<IfStatementNode*>(s)) {
+                    double cond = eval_const_real_expr_helper(if_s->condition.get(), scope, fn_real_env, result.param_val_map, result.param_map);
+                    if (cond != 0.0) {
+                        for (auto& st : if_s->then_branch) {
+                            eval_real_stmt(st.get());
+                            if (returned) break;
+                        }
+                    } else {
+                        for (auto& st : if_s->else_branch) {
+                            eval_real_stmt(st.get());
+                            if (returned) break;
+                        }
+                    }
+                    return;
+                }
+                if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
+                    for (auto& child : blk->statements) {
+                        eval_real_stmt(child.get());
+                        if (returned) break;
+                    }
+                    return;
+                }
+            };
+            for (auto& st : target_fn->get_body()) {
+                eval_real_stmt(st.get());
+                if (returned) break;
+            }
+            if (!returned) ret_val = fn_real_env[target_fn->name];
+            return LogicVal::make_real(ret_val);
+        }
         uint64_t cval = eval_const_expr(fc, scope);
         uint32_t rw = (target_fn && target_fn->return_width > 0) ? target_fn->return_width : 32;
         bool rs = target_fn ? target_fn->return_signed : false;
@@ -651,6 +779,16 @@ static uint32_t resolve_type_width(const std::string& type_name) {
     if (colon != std::string::npos) {
         pkg_prefix = type_name.substr(0, colon);
         bare = type_name.substr(colon + 2);
+    }
+
+    if (Parser::global_enum_typedefs.count(bare)) {
+        return Parser::global_enum_typedefs.at(bare)->base_width;
+    }
+    if (Parser::global_struct_typedefs.count(bare)) {
+        return Parser::global_struct_typedefs.at(bare)->total_width;
+    }
+    if (Parser::global_simple_typedefs.count(bare)) {
+        return Parser::global_simple_typedefs.at(bare);
     }
 
     if (!pkg_prefix.empty()) {
@@ -885,6 +1023,35 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         return eval_const_logic_val(ma, scope).aval;
     }
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        if (local_env && local_env->count(idx->name)) {
+            uint64_t base_val = local_env->at(idx->name);
+            if (idx->is_part_select && idx->msb_expr && idx->lsb_expr) {
+                uint64_t msb = eval_const_expr(idx->msb_expr.get(), scope, local_env, local_signed, local_width);
+                uint64_t lsb = eval_const_expr(idx->lsb_expr.get(), scope, local_env, local_signed, local_width);
+                if (idx->is_plus_colon) {
+                    uint64_t start = msb;
+                    uint64_t width = lsb;
+                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                    return (base_val >> start) & mask;
+                } else if (idx->is_minus_colon) {
+                    uint64_t start = msb;
+                    uint64_t width = lsb;
+                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                    uint64_t shift = (start >= width - 1) ? (start - width + 1) : 0;
+                    return (base_val >> shift) & mask;
+                } else {
+                    uint64_t hi = std::max(msb, lsb);
+                    uint64_t lo = std::min(msb, lsb);
+                    uint64_t width = hi - lo + 1;
+                    uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                    return (base_val >> lo) & mask;
+                }
+            } else if (idx->msb_expr) {
+                uint64_t b = eval_const_expr(idx->msb_expr.get(), scope, local_env, local_signed, local_width);
+                return (base_val >> b) & 1ULL;
+            }
+            return base_val;
+        }
         return eval_const_logic_val(idx, scope).aval;
     }
     if (auto scst = dynamic_cast<StaticCastExprNode*>(expr)) {
@@ -1028,8 +1195,24 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             }
             return res;
         }
-        if (bin->op == "<<") return l << r;
-        if (bin->op == ">>" || bin->op == ">>>") return l >> r;
+        if (bin->op == "<<" || bin->op == "<<<") return l << r;
+        if (bin->op == ">>>") {
+            bool is_s = false;
+            uint32_t w = 32;
+            if (auto num = dynamic_cast<NumberNode*>(bin->lhs.get())) {
+                is_s = num->is_signed;
+                w = num->width;
+            } else if (auto id = dynamic_cast<IdentifierNode*>(bin->lhs.get())) {
+                if (local_signed && local_signed->count(id->name)) is_s = local_signed->at(id->name);
+                if (local_width && local_width->count(id->name)) w = local_width->at(id->name);
+            }
+            if (is_s) {
+                int64_t sl = (w < 64 && (l & (1ULL << (w - 1)))) ? (int64_t)(l | (~0ULL << w)) : (int64_t)l;
+                return (uint64_t)(sl >> r);
+            }
+            return l >> r;
+        }
+        if (bin->op == ">>") return l >> r;
         if (bin->op == "|") return l | r;
         if (bin->op == "&") return l & r;
         if (bin->op == "^") return l ^ r;
@@ -1338,6 +1521,10 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         }
 
         if (target_fn) {
+            if (target_fn->return_type_name == "real" || target_fn->return_type_name == "shortreal") {
+                LogicVal rlv = eval_const_logic_val(fc, scope);
+                return static_cast<uint64_t>(std::llround(rlv.real_val));
+            }
             std::unordered_map<std::string, uint64_t> fn_env;
             std::unordered_map<std::string, bool> fn_signed;
             std::unordered_map<std::string, uint32_t> fn_width;
@@ -1384,7 +1571,37 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
                     uint64_t rhs_val = eval_const_expr(ba->rhs.get(), scope, &fn_env, &fn_signed, &fn_width);
                     if (!ba->lhs_targets.empty()) {
-                        fn_env[ba->lhs_targets[0]] = rhs_val;
+                        std::string target_name = ba->lhs_targets[0];
+                        if (ba->bit_idx) {
+                            uint64_t cur_val = fn_env[target_name];
+                            if (ba->bit_lsb) {
+                                uint64_t msb = eval_const_expr(ba->bit_idx.get(), scope, &fn_env, &fn_signed, &fn_width);
+                                uint64_t lsb = eval_const_expr(ba->bit_lsb.get(), scope, &fn_env, &fn_signed, &fn_width);
+                                uint64_t lo = 0, width = 0;
+                                if (ba->is_plus_colon) {
+                                    lo = msb;
+                                    width = lsb;
+                                } else if (ba->is_minus_colon) {
+                                    width = lsb;
+                                    lo = (msb >= width - 1) ? (msb - width + 1) : 0;
+                                } else {
+                                    uint64_t hi = std::max(msb, lsb);
+                                    lo = std::min(msb, lsb);
+                                    width = hi - lo + 1;
+                                }
+                                uint64_t mask = (width >= 64) ? ~0ULL : ((1ULL << width) - 1);
+                                uint64_t field_val = (rhs_val & mask) << lo;
+                                uint64_t clear_mask = ~(mask << lo);
+                                fn_env[target_name] = (cur_val & clear_mask) | field_val;
+                            } else {
+                                uint64_t bit = eval_const_expr(ba->bit_idx.get(), scope, &fn_env, &fn_signed, &fn_width);
+                                uint64_t bit_val = (rhs_val & 1ULL) << bit;
+                                uint64_t clear_mask = ~(1ULL << bit);
+                                fn_env[target_name] = (cur_val & clear_mask) | bit_val;
+                            }
+                        } else {
+                            fn_env[target_name] = rhs_val;
+                        }
                     }
                     return;
                 }
@@ -3602,6 +3819,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (!p.type_name.empty()) {
             uint32_t tw = get_type_width(p.type_name, scope);
             if (tw > 0) elem_w = tw;
+            if (!p.is_signed) {
+                std::string bare = p.type_name;
+                auto colon = p.type_name.find("::");
+                if (colon != std::string::npos) bare = p.type_name.substr(colon + 2);
+                if (Parser::global_enum_typedefs.count(bare) && Parser::global_enum_typedefs.at(bare)->is_signed) {
+                    p.is_signed = true;
+                }
+            }
         }
         uint32_t w = elem_w;
         bool has_explicit_packed = false;
@@ -3733,6 +3958,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
         size_t pid = get_or_create_net(scope + "." + p.name, w, p.is_signed, p.net_kind);
         result.netlist[pid].is_port = true;
+        if (!p.type_name.empty() && result.netlist[pid].type_name.empty()) {
+            result.netlist[pid].type_name = p.type_name;
+        }
         if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" ||
             p.type_name == "shortint" || p.type_name == "longint") {
             result.netlist[pid].type_name = p.type_name;

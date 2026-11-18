@@ -92,7 +92,9 @@ bool StratifiedScheduler::trigger_intra_event_blocking() {
             if (net_id != (size_t)-1) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
                     LogicVal old_v = engine.netlist[net_id].value;
-                    LogicVal casted = LogicOps::cast_width(item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    LogicVal casted = (engine.netlist[net_id].type_name == "real" || engine.netlist[net_id].type_name == "shortreal")
+                        ? item.val
+                        : LogicOps::cast_width(item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
                     if (engine.netlist[net_id].value != old_v) {
                         notify_net_changed(net_id);
@@ -432,7 +434,9 @@ void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
             if (net_id != (size_t)-1) {
                 if (!engine.netlist[net_id].has_procedural_assign) {
                     LogicVal old_v = engine.netlist[net_id].value;
-                    LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                    LogicVal casted = (engine.netlist[net_id].type_name == "real" || engine.netlist[net_id].type_name == "shortreal")
+                        ? b_item.val
+                        : LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                     engine.netlist[net_id].set(casted);
                     if (net_id < native_nets_u64.size()) {
                         native_nets_u64[net_id] = casted.aval;
@@ -2271,11 +2275,12 @@ void StratifiedScheduler::execute_process_bytecode_logicval(BoundProcess& bp) {
                     auto& target_net = engine.netlist[target_id];
                     if (!target_net.has_procedural_assign) {
                         LogicVal old_v = target_net.value;
-                        LogicVal casted = (target_net.type_name == "string" || rhs_val.is_string)
+                        LogicVal casted = (target_net.type_name == "string" || rhs_val.is_string ||
+                                           target_net.type_name == "real" || target_net.type_name == "shortreal")
                             ? rhs_val
                             : (target_net.width == rhs_val.width && target_net.is_signed == rhs_val.is_signed)
                                 ? rhs_val
-                                : LogicOps::cast_width(rhs_val, target_net.width, target_net.is_signed);
+                                : LogicOps::cast_width(rhs_val, target_net.width, target_net.is_signed && rhs_val.is_signed);
                         target_net.set(casted);
                         if (target_id < engine.alias_members.size()) {
                             for (size_t other_id : engine.alias_members[target_id]) {
@@ -2620,7 +2625,7 @@ void StratifiedScheduler::propagate_comb() {
                         if (!computed) {
                             resolved = execute_bytecode_logicval(rca.compiled_expr);
                             if (resolved.width != rca.target.width || resolved.is_signed != engine.netlist[rca.target.net_id].is_signed) {
-                                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
                             }
                             computed = true;
                         }
@@ -2631,14 +2636,20 @@ void StratifiedScheduler::propagate_comb() {
                             resolved = LogicVal::make_z(rca.target.width);
                         } else if (rca.drivers.size() == 1) {
                             resolved = eval_driver(rca.drivers[0]);
-                            resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                            resolved = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
+                                ? resolved
+                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
                         } else {
                             resolved = eval_driver(rca.drivers[0]);
-                            resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                            resolved = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
+                                ? resolved
+                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
                             NetKind kind = engine.netlist[rca.target.net_id].kind;
                             for (size_t i = 1; i < rca.drivers.size(); ++i) {
                                 LogicVal d_val = eval_driver(rca.drivers[i]);
-                                d_val = LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
+                                d_val = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
+                                    ? d_val
+                                    : LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed && d_val.is_signed);
                                 resolved = LogicOps::resolve_net(kind, resolved, d_val);
                             }
                         }
@@ -2704,7 +2715,9 @@ void StratifiedScheduler::propagate_comb() {
                 auto& net = engine.netlist[net_idx];
                 if (net.has_procedural_assign && net.procedural_assign_rhs) {
                     LogicVal val = engine.evaluator.eval_expr(net.procedural_assign_rhs, net.procedural_assign_scope);
-                    LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+                    LogicVal casted = (net.type_name == "real" || net.type_name == "shortreal")
+                        ? val
+                        : LogicOps::cast_width(val, net.width, net.is_signed && val.is_signed);
                     if (net.is_2state || net.type_name == "bit" || net.type_name == "byte" || net.type_name == "shortint" || net.type_name == "int" || net.type_name == "longint") {
                         casted.coerce_to_2state();
                     }
@@ -2954,7 +2967,8 @@ bool StratifiedScheduler::evaluate_timing_checks() {
     return activity;
 }
 
-void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, EdgeType edge) {
+bool StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, EdgeType edge) {
+    bool any_triggered = false;
     auto seq_fn = (llvm_dispatch.is_active && llvm_dispatch.seq_clock_fn != nullptr)
                   ? llvm_dispatch.seq_clock_fn
                   : (native_dispatch.is_active ? native_dispatch.seq_clock_fn : nullptr);
@@ -2987,6 +3001,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
         }
 
         if (clock_triggered) {
+            any_triggered = true;
             native_seq_fired_in_time_slot = true;
             if (native_nets_next.size() < native_nets_u64.size()) {
                 native_nets_next.resize(native_nets_u64.size(), 0);
@@ -3113,6 +3128,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
         }
 
         if (triggered) {
+            any_triggered = true;
             comb_dirty = true;
             bp.fired_in_time_slot = true;
             bool has_delay = false;
@@ -3135,6 +3151,7 @@ void StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
             }
         }
     }
+    return any_triggered;
 }
 
 void StratifiedScheduler::evaluate_clocking_blocks() {
@@ -3843,7 +3860,7 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                     }
                 } else if (lv) {
                     LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
-                    lv->value = (p.type_name == "string" || arg_val.is_string) ? arg_val : LogicOps::cast_width(arg_val, w, p.is_signed);
+                    lv->value = (p.type_name == "string" || arg_val.is_string || p.type_name == "real" || p.type_name == "shortreal") ? arg_val : LogicOps::cast_width(arg_val, w, p.is_signed);
                     if (p.is_virtual_interface) {
                         lv->vif_handle = arg_val.aval;
                     }
@@ -3898,7 +3915,7 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
         auto& caller_frame = bp.call_stack[bp.call_stack.size() - 2];
         LocalVar* lv = caller_frame.local_frame.get_var(actual_name);
         if (lv) {
-            lv->value = LogicOps::cast_width(val, lv->width, lv->is_signed);
+            lv->value = (lv->type_name == "real" || lv->type_name == "shortreal") ? val : LogicOps::cast_width(val, lv->width, lv->is_signed);
             return;
         }
         if (caller_frame.this_obj && caller_frame.this_obj->has_property(actual_name)) {
@@ -3915,7 +3932,7 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
     if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
         LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(actual_name);
         if (local) {
-            local->value = LogicOps::cast_width(val, local->width, local->is_signed);
+            local->value = (local->type_name == "real" || local->type_name == "shortreal") ? val : LogicOps::cast_width(val, local->width, local->is_signed);
             return;
         }
     }
@@ -3930,7 +3947,7 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
 
     if (net_id != (size_t)-1) {
         auto& net = engine.netlist[net_id];
-        LogicVal casted = LogicOps::cast_width(val, net.width, net.is_signed);
+        LogicVal casted = (net.type_name == "real" || net.type_name == "shortreal") ? val : LogicOps::cast_width(val, net.width, net.is_signed);
         if (net.value != casted) {
             net.set(casted);
             notify_net_changed(net_id);
@@ -5268,7 +5285,10 @@ void StratifiedScheduler::execute_time_slot_delta_loop() {
             if (evaluate_timing_checks()) {
                 active_activity = true;
             }
-            evaluate_sequential_blocks();
+            if (evaluate_sequential_blocks()) {
+                active_activity = true;
+                propagate_comb();
+            }
             evaluate_clocking_blocks();
             evaluate_covergroup_events();
 
@@ -5546,7 +5566,9 @@ void StratifiedScheduler::run_simulation() {
                     size_t net_id = engine.get_net_id(b_item.scope, b_item.target_name);
                     if (net_id != (size_t)-1) {
                         LogicVal old_v = engine.netlist[net_id].value;
-                        LogicVal casted = LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                        LogicVal casted = (engine.netlist[net_id].type_name == "real" || engine.netlist[net_id].type_name == "shortreal")
+                            ? b_item.val
+                            : LogicOps::cast_width(b_item.val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
                         engine.netlist[net_id].set(casted);
                         if (net_id < native_nets_u64.size()) {
                             native_nets_u64[net_id] = casted.aval;

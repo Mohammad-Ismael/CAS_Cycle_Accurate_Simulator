@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <cmath>
 
 struct ExpressionNode;
 
@@ -46,11 +47,32 @@ struct Net {
         if (val.is_string || type_name == "string") {
             clamped = val;
             clamped.is_string = true;
-        } else if (val.is_real) {
-            clamped = val;
-            clamped.width = width;
+        } else if (type_name == "real" || type_name == "shortreal") {
+            clamped.width = width ? width : 64;
             clamped.is_real = true;
-            clamped.real_val = val.real_val;
+            clamped.real_val = val.to_real();
+        } else if (val.is_real) {
+            clamped.is_real = false;
+            clamped.is_signed = is_signed;
+            clamped.width = width;
+            int64_t ival = 0;
+            if (!std::isnan(val.real_val) && !std::isinf(val.real_val)) {
+                ival = std::llround(val.real_val);
+            }
+            if (width <= 64) {
+                clamped.aval = static_cast<uint64_t>(ival);
+                clamped.bval = 0;
+            } else {
+                clamped.wide_aval.assign((width + 63) / 64, 0);
+                clamped.wide_bval.assign((width + 63) / 64, 0);
+                clamped.wide_aval[0] = static_cast<uint64_t>(ival);
+                if (ival < 0 && is_signed) {
+                    for (size_t wi = 1; wi < clamped.wide_aval.size(); ++wi) {
+                        clamped.wide_aval[wi] = ~0ULL;
+                    }
+                }
+            }
+            clamped.mask();
         } else {
             clamped = val;
             clamped.width = width;

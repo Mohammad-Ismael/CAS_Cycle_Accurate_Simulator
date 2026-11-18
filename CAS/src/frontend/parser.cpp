@@ -630,6 +630,9 @@ void Parser::parse_packages_only() {
                 if (td->enum_type) {
                     global_enum_typedefs[td->type_name] = td->enum_type;
                 }
+                if (td->width > 0) {
+                    global_simple_typedefs[td->type_name] = td->width;
+                }
                 global_typedefs.push_back(std::move(td));
             }
         } else if (current.type == TokenType::TOKEN_MODULE) {

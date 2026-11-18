@@ -73,6 +73,7 @@ public:
     static std::unordered_map<std::string, std::shared_ptr<UdpDefinitionNode>> global_udp_defs;
     static inline std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> global_struct_typedefs;
     static inline std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> global_enum_typedefs;
+    static inline std::unordered_map<std::string, uint32_t> global_simple_typedefs;
     static inline std::vector<std::shared_ptr<FunctionNode>> global_functions;
     static inline std::vector<std::shared_ptr<TaskNode>> global_tasks;
     static std::vector<std::string> global_wildcard_imports;
@@ -88,6 +89,7 @@ public:
         global_let_decls.clear();
         global_struct_typedefs.clear();
         global_enum_typedefs.clear();
+        global_simple_typedefs.clear();
         class_map.clear();
         global_classes.clear();
         global_forward_classes.clear();

@@ -1,6 +1,7 @@
 #pragma once
 #include "../common/logic_val.hpp"
 #include <algorithm>
+#include <cmath>
 
 class LogicOps {
 public:
@@ -83,7 +84,21 @@ public:
     }
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
-        if (v.is_real) return v;
+        if (v.is_real) {
+            int64_t ival = (std::isnan(v.real_val) || std::isinf(v.real_val)) ? 0 : std::llround(v.real_val);
+            LogicVal res;
+            if (target_width <= 64) {
+                res = LogicVal::make_known(target_width, static_cast<uint64_t>(ival), is_signed);
+            } else {
+                res = LogicVal(target_width, 0, 0, is_signed);
+                res.wide_aval[0] = static_cast<uint64_t>(ival);
+                if (ival < 0 && is_signed) {
+                    for (size_t wi = 1; wi < res.wide_aval.size(); ++wi) res.wide_aval[wi] = ~0ULL;
+                }
+                res.mask();
+            }
+            return res;
+        }
         if (v.is_unpacked) {
             LogicVal res(target_width, 0, 0, is_signed);
             uint32_t elem_w = v.width > 0 ? v.width : 8;

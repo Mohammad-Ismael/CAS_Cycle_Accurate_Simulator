@@ -2276,6 +2276,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 std::string idx_str = "0";
                 if (auto num = dynamic_cast<NumberNode*>(idx_expr.get())) idx_str = std::to_string(num->aval);
                 ident += "[" + idx_str + "]." + post_member_name;
+                idx_expr = nullptr;
             } else if (match(TokenType::TOKEN_EQUAL)) {
                 uint64_t intra_delay = 0;
                 bool has_intra_ev = false;

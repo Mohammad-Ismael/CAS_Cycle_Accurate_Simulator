@@ -55,6 +55,10 @@ bool ExecutionContext::set_local_value(const std::string& name, const LogicVal& 
         var->value = val;
         return true;
     }
+    if (var->type_name == "real" || var->type_name == "shortreal") {
+        var->value = LogicVal::make_real(val.to_real());
+        return true;
+    }
     var->value = LogicOps::cast_width(val, var->width, var->is_signed);
     if (var->type_name == "bit" || var->type_name == "int" || var->type_name == "byte" || var->type_name == "shortint" || var->type_name == "longint") {
         var->value.bval = 0;

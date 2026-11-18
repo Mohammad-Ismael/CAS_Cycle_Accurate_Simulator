@@ -20,6 +20,9 @@ bool BytecodeCompiler::compile_node(ExpressionNode* node, CompileContext& ctx, u
             return false;
         }
         const auto& net = ctx.engine.netlist[id->cached_net_id];
+        if (net.type_name == "real" || net.type_name == "shortreal") {
+            return false;
+        }
         out_width = net.width;
         out_signed = net.is_signed;
         if (out_width > 64) {

@@ -1131,9 +1131,14 @@ void Engine::bind_all_ast_nodes() {
             }
         }
         if (rca.drivers.size() == 1 && !rca.drivers[0].is_gate && rca.drivers[0].rhs) {
-            uint32_t target_w = rca.target.width;
-            bool target_s = (rca.target.net_id < netlist.size()) ? netlist[rca.target.net_id].is_signed : false;
-            rca.compiled_expr = BytecodeCompiler::compile(rca.drivers[0].rhs, rca.drivers[0].scope, *this, target_w, target_s);
+            if (rca.target.net_id < netlist.size() &&
+                (netlist[rca.target.net_id].type_name == "real" || netlist[rca.target.net_id].type_name == "shortreal")) {
+                // Real targets should be evaluated via evaluator
+            } else {
+                uint32_t target_w = rca.target.width;
+                bool target_s = (rca.target.net_id < netlist.size()) ? netlist[rca.target.net_id].is_signed : false;
+                rca.compiled_expr = BytecodeCompiler::compile(rca.drivers[0].rhs, rca.drivers[0].scope, *this, target_w, target_s);
+            }
         }
     }
 

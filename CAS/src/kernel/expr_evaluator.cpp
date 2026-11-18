@@ -1700,7 +1700,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (cast_node->target_type == "int" || cast_node->target_type == "integer") {
             if (val.is_real) {
-                return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
+                int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                return LogicVal::make_known(32, static_cast<uint64_t>(r), true);
             }
             LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
             res.is_signed = true;
@@ -1708,7 +1709,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (cast_node->target_type == "shortint") {
             if (val.is_real) {
-                return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
+                int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                return LogicVal::make_known(16, static_cast<uint64_t>(r), true);
             }
             LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
             res.is_signed = true;
@@ -1716,7 +1718,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (cast_node->target_type == "byte") {
             if (val.is_real) {
-                return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
+                int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                return LogicVal::make_known(8, static_cast<uint64_t>(r), true);
             }
             LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
             res.is_signed = true;
@@ -1724,15 +1727,15 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (cast_node->target_type == "longint") {
             if (val.is_real) {
-                return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
+                int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                return LogicVal::make_known(64, static_cast<uint64_t>(r), true);
             }
             LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
             res.is_signed = true;
             return res;
         }
         if (cast_node->target_type == "real" || cast_node->target_type == "shortreal") {
-            if (val.is_real) return val;
-            return LogicVal::make_real(static_cast<double>(val.aval));
+            return LogicVal::make_real(val.to_real());
         }
         std::string scoped_type = scope.empty() ? cast_node->target_type : (scope + "." + cast_node->target_type);
         const EnumType* et = nullptr;
@@ -1857,7 +1860,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (target_type == "int" || target_type == "integer") {
                 if (val.is_real) {
-                    return LogicVal::make_known(32, static_cast<uint64_t>(std::round(val.real_val)), true);
+                    int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                    return LogicVal::make_known(32, static_cast<uint64_t>(r), true);
                 }
                 LogicVal res = LogicOps::cast_width(val, 32, val.is_signed);
                 res.is_signed = true;
@@ -1865,7 +1869,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (target_type == "shortint") {
                 if (val.is_real) {
-                    return LogicVal::make_known(16, static_cast<uint64_t>(std::round(val.real_val)), true);
+                    int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                    return LogicVal::make_known(16, static_cast<uint64_t>(r), true);
                 }
                 LogicVal res = LogicOps::cast_width(val, 16, val.is_signed);
                 res.is_signed = true;
@@ -1873,7 +1878,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (target_type == "byte") {
                 if (val.is_real) {
-                    return LogicVal::make_known(8, static_cast<uint64_t>(std::round(val.real_val)), true);
+                    int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                    return LogicVal::make_known(8, static_cast<uint64_t>(r), true);
                 }
                 LogicVal res = LogicOps::cast_width(val, 8, val.is_signed);
                 res.is_signed = true;
@@ -1881,15 +1887,15 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (target_type == "longint") {
                 if (val.is_real) {
-                    return LogicVal::make_known(64, static_cast<uint64_t>(std::round(val.real_val)), true);
+                    int64_t r = (std::isnan(val.real_val) || std::isinf(val.real_val)) ? 0 : std::llround(val.real_val);
+                    return LogicVal::make_known(64, static_cast<uint64_t>(r), true);
                 }
                 LogicVal res = LogicOps::cast_width(val, 64, val.is_signed);
                 res.is_signed = true;
                 return res;
             }
             if (target_type == "real" || target_type == "shortreal") {
-                if (val.is_real) return val;
-                return LogicVal::make_real(static_cast<double>(val.aval));
+                return LogicVal::make_real(val.to_real());
             }
             if (target_type == "signed") {
                 val.is_signed = true;
@@ -3146,6 +3152,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         }
                     }
                 }
+                std::string inst_net = member_node->var_name + "[" + std::to_string(addr) + "]." + member_node->member_name;
+                size_t inst_nid = engine.get_net_id(scope, inst_net);
+                if (inst_nid != (size_t)-1) {
+                    return engine.netlist[inst_nid].value;
+                }
                 size_t nid = engine.get_net_id(scope, member_node->var_name);
                 std::string mem_path = member_node->member_name;
                 std::string lookup_vname = member_node->var_name;
@@ -4039,8 +4050,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                                 if (val.width <= 64) ss << val.aval;
                                 else ss << val.to_dec_string();
                             }
-                        } else if (spec == 'f') {
-                            ss << (val.is_real ? val.real_val : (double)val.aval);
+                        } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
+                            ss << val.to_real();
                         } else if (spec == 'b') {
                             ss << val.to_bin_string();
                         } else if (spec == 'h' || spec == 'x') {
@@ -6013,6 +6024,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto un = dynamic_cast<UnaryOpNode*>(expr)) {
         LogicVal val = eval(un->operand.get(), scope);
 
+        if (val.is_real) {
+            if (un->op == "+") return val;
+            if (un->op == "-") return LogicVal::make_real(-val.real_val);
+            if (un->op == "!") return LogicVal::make_known(1, (val.real_val == 0.0) ? 1 : 0);
+        }
+
         // 2-State fast path (<= 64-bit, known)
         if (val.is_clean_2state_64()) {
             uint64_t a = val.get_raw_u64();
@@ -6232,6 +6249,29 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
 
         bool expr_signed = l_signed && r_signed;
+
+        if (l.is_real || r.is_real) {
+            double dl = l.to_real();
+            double dr = r.to_real();
+            if (bin->op == "+") return LogicVal::make_real(dl + dr);
+            if (bin->op == "-") return LogicVal::make_real(dl - dr);
+            if (bin->op == "*") return LogicVal::make_real(dl * dr);
+            if (bin->op == "/") {
+                if (dr == 0.0) return LogicVal::make_x(64);
+                return LogicVal::make_real(dl / dr);
+            }
+            if (bin->op == "%") {
+                if (dr == 0.0) return LogicVal::make_x(64);
+                return LogicVal::make_real(std::fmod(dl, dr));
+            }
+            if (bin->op == "**") return LogicVal::make_real(std::pow(dl, dr));
+            if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (dl == dr) ? 1 : 0);
+            if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (dl != dr) ? 1 : 0);
+            if (bin->op == "<") return LogicVal::make_known(1, (dl < dr) ? 1 : 0);
+            if (bin->op == "<=") return LogicVal::make_known(1, (dl <= dr) ? 1 : 0);
+            if (bin->op == ">") return LogicVal::make_known(1, (dl > dr) ? 1 : 0);
+            if (bin->op == ">=") return LogicVal::make_known(1, (dl >= dr) ? 1 : 0);
+        }
 
         // 2-State fast path (<= 64-bit, known)
         if (l.is_clean_2state_64() && r.is_clean_2state_64()) {
@@ -6463,13 +6503,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (bin->op == ">")  return LogicVal::make_known(1, (lv > rv) ? 1 : 0);
             if (bin->op == ">=") return LogicVal::make_known(1, (lv >= rv) ? 1 : 0);
         }
-        if (l.is_string || r.is_string) {
+        if (l.is_string && r.is_string) {
             if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, (l.str_val == r.str_val) ? 1 : 0);
             if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, (l.str_val != r.str_val) ? 1 : 0);
             if (bin->op == "<")  return LogicVal::make_known(1, (l.str_val < r.str_val) ? 1 : 0);
             if (bin->op == "<=") return LogicVal::make_known(1, (l.str_val <= r.str_val) ? 1 : 0);
             if (bin->op == ">")  return LogicVal::make_known(1, (l.str_val > r.str_val) ? 1 : 0);
             if (bin->op == ">=") return LogicVal::make_known(1, (l.str_val >= r.str_val) ? 1 : 0);
+        } else if (l.is_string || r.is_string) {
+            l.is_string = false;
+            r.is_string = false;
         }
         if (bin->op == "==" || bin->op == "!=") {
             uint32_t w = std::max(l.width, r.width);
@@ -8916,8 +8959,8 @@ std::string ExprEvaluator::format_systemverilog_string(
                     while (s.size() < (size_t)width) s = " " + s;
                 }
                 result += s;
-            } else if (spec == 'f') {
-                double d = val.is_real ? val.real_val : (double)val.aval;
+            } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
+                double d = val.to_real();
                 std::stringstream ss;
                 ss << d;
                 result += ss.str();

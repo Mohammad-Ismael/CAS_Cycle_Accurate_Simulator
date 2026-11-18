@@ -106,7 +106,7 @@ struct LogicVal {
     }
 
     static LogicVal make_real(double val) {
-        LogicVal v(64, static_cast<uint64_t>(val), 0);
+        LogicVal v(64, 0, 0);
         v.is_real = true;
         v.real_val = val;
         return v;
@@ -260,6 +260,26 @@ struct LogicVal {
         return static_cast<int64_t>(aval);
     }
 
+    double to_real() const {
+        if (is_real) return real_val;
+        if (width <= 64) {
+            uint64_t clean_aval = aval & ~bval;
+            if (is_signed && width > 0) {
+                if (width >= 64) return static_cast<double>(static_cast<int64_t>(clean_aval));
+                uint64_t sign_bit = 1ULL << (width - 1);
+                if (clean_aval & sign_bit) {
+                    return static_cast<double>(static_cast<int64_t>(clean_aval | (~0ULL << width)));
+                }
+                return static_cast<double>(clean_aval);
+            }
+            return static_cast<double>(clean_aval);
+        } else {
+            bool neg = is_signed && width > 0 && ((wide_aval.back() & ~wide_bval.back()) & (1ULL << ((width - 1) % 64)));
+            if (neg) return static_cast<double>(to_signed());
+            return static_cast<double>(wide_aval.empty() ? 0 : (wide_aval[0] & ~wide_bval[0]));
+        }
+    }
+
     bool is_unknown() const {
         if (is_real) return false;
         if (width <= 64) return bval != 0;
@@ -320,9 +340,7 @@ struct LogicVal {
 
     bool operator==(const LogicVal& o) const {
         if (is_real || o.is_real) {
-            double r1 = is_real ? real_val : static_cast<double>(aval);
-            double r2 = o.is_real ? o.real_val : static_cast<double>(o.aval);
-            return r1 == r2;
+            return to_real() == o.to_real();
         }
         if (is_string || o.is_string) {
             return str_val == o.str_val;

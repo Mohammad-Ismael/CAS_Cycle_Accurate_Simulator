@@ -116,7 +116,7 @@ private:
     void execute_process_bytecode_logicval(BoundProcess& bp);
     void execute_comb_proc_bytecode(BoundProcess& bp);
     bool evaluate_timing_checks();
-    void evaluate_sequential_blocks(uint32_t triggered_net_id = UINT32_MAX, EdgeType edge = EdgeType::LEVEL);
+    bool evaluate_sequential_blocks(uint32_t triggered_net_id = UINT32_MAX, EdgeType edge = EdgeType::LEVEL);
     bool commit_nba_updates();
     void execute_time_slot_delta_loop();
     bool resume_waiting_processes(bool for_reactive = false);
