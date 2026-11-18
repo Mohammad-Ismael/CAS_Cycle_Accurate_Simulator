@@ -178,6 +178,8 @@ struct BoundProcess {
     std::vector<std::string> named_blocks;
     std::vector<std::string> active_wildcard_imports;
     std::unordered_map<std::string, std::pair<std::string, std::string>> active_explicit_imports;
+    std::vector<std::string> module_wildcard_imports;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> module_explicit_imports;
     std::vector<TaskActivationFrame> call_stack;
 
     size_t parent_pid = (size_t)-1;
@@ -264,6 +266,7 @@ struct ElaborationResult {
     std::unordered_map<std::string, const ClassNode*> class_defs;
     std::unordered_set<std::string> class_handle_names;
     std::unordered_map<std::string, std::string> var_to_class_type;
+    std::vector<std::pair<size_t, std::string>> initial_class_handles;
     std::unordered_map<std::string, const CovergroupNode*> covergroup_defs;
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;

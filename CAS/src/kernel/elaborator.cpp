@@ -2902,8 +2902,8 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
         }
         BoundProcess bp(current_scope, proc_copy.get(), 0, false);
         if (current_module) {
-            bp.active_wildcard_imports = current_module->wildcard_imports;
-            bp.active_explicit_imports = current_module->explicit_imports;
+            bp.module_wildcard_imports = current_module->wildcard_imports;
+            bp.module_explicit_imports = current_module->explicit_imports;
         }
         bp.pid = result.processes.size();
         result.generated_processes.push_back(std::move(proc_copy));
@@ -3061,6 +3061,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (it != Parser::global_packages.end()) {
             const auto& pkg = it->second;
             for (const auto& p : pkg->parameters) {
+                bool local_decl = false;
+                for (const auto& lp : mod->parameters) { if (lp.name == p.name) { local_decl = true; break; } }
+                if (local_decl) continue;
                 LogicVal lval = eval_const_logic_val(p.default_expr.get(), scope);
                 result.param_val_map[scope + "." + p.name] = lval;
                 result.param_val_map[p.name] = lval;
@@ -3068,6 +3071,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (parent_scope.empty()) result.param_map[p.name] = lval.aval;
             }
             for (const auto& p : pkg->param_constants) {
+                bool local_decl = false;
+                for (const auto& lp : mod->parameters) { if (lp.name == p.first) { local_decl = true; break; } }
+                if (local_decl) continue;
                 if (result.param_map.find(scope + "." + p.first) == result.param_map.end()) {
                     result.param_map[scope + "." + p.first] = p.second;
                     if (parent_scope.empty()) result.param_map[p.first] = p.second;
@@ -3078,14 +3084,26 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (parent_scope.empty()) result.enum_constant_map[m.first] = m.second;
             }
             for (const auto& fn : pkg->functions) {
+                bool local_decl = false;
+                for (const auto& lfn : mod->functions) { if (lfn->name == fn->name) { local_decl = true; break; } }
+                if (local_decl) continue;
                 result.function_map[scope + "." + fn->name] = fn.get();
                 if (parent_scope.empty()) result.function_map[fn->name] = fn.get();
             }
             for (const auto& t : pkg->tasks) {
+                bool local_decl = false;
+                for (const auto& lt : mod->tasks) { if (lt->name == t->name) { local_decl = true; break; } }
+                if (local_decl) continue;
                 result.task_map[scope + "." + t->name] = t.get();
                 if (parent_scope.empty()) result.task_map[t->name] = t.get();
             }
             for (const auto& s : pkg->signals) {
+                bool local_decl = false;
+                for (const auto& lsig : mod->signals) { if (lsig.name == s.name) { local_decl = true; break; } }
+                if (!local_decl) {
+                    for (const auto& lp : mod->ports) { if (lp.name == s.name) { local_decl = true; break; } }
+                }
+                if (local_decl) continue;
                 auto nit = result.net_map.find(pkg_name + "::" + s.name);
                 if (nit != result.net_map.end()) {
                     result.net_map[scope + "." + s.name] = nit->second;
@@ -3094,6 +3112,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (!s.type_name.empty()) {
                     result.var_to_struct_type[scope + "." + s.name] = s.type_name;
                     if (parent_scope.empty()) result.var_to_struct_type[s.name] = s.type_name;
+                }
+                if (s.is_class_handle) {
+                    result.class_handle_names.insert(scope + "." + s.name);
+                    if (parent_scope.empty()) result.class_handle_names.insert(s.name);
+                    result.var_to_class_type[scope + "." + s.name] = s.class_type_name;
+                    if (parent_scope.empty()) result.var_to_class_type[s.name] = s.class_type_name;
                 }
             }
         }
@@ -4074,6 +4098,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.class_handle_names.insert(s.name);
                 result.var_to_class_type[scope + "." + s.name] = s.class_type_name;
                 result.var_to_class_type[s.name] = s.class_type_name;
+                if (s.default_value && dynamic_cast<ClassNewNode*>(s.default_value.get())) {
+                    result.initial_class_handles.push_back({sid, s.class_type_name});
+                }
             }
             if (s.is_covergroup_handle) {
                 result.netlist[sid].is_covergroup_handle = true;
@@ -5165,8 +5192,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         }
         BoundProcess bp(scope, proc_copy.get(), 0, false);
-        bp.active_wildcard_imports = mod->wildcard_imports;
-        bp.active_explicit_imports = mod->explicit_imports;
+        bp.module_wildcard_imports = mod->wildcard_imports;
+        bp.module_explicit_imports = mod->explicit_imports;
         bp.pid = result.processes.size();
         if (mod->is_program) {
             bp.is_reactive = true;
@@ -5982,6 +6009,18 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             size_t sid = get_or_create_net(pkg_name + "::" + s.name, w, s.is_signed, s.net_kind);
             result.netlist[sid].type_name = s.type_name;
             result.net_map[pkg_name + "." + s.name] = sid;
+
+            if (s.is_class_handle) {
+                result.class_handle_names.insert(pkg_name + "::" + s.name);
+                result.class_handle_names.insert(pkg_name + "." + s.name);
+                result.var_to_class_type[pkg_name + "::" + s.name] = s.class_type_name;
+                result.var_to_class_type[pkg_name + "." + s.name] = s.class_type_name;
+                result.netlist[sid].is_class_handle = true;
+                result.netlist[sid].type_name = s.class_type_name;
+                if (s.default_value && dynamic_cast<ClassNewNode*>(s.default_value.get())) {
+                    result.initial_class_handles.push_back({sid, s.class_type_name});
+                }
+            }
 
             if (!s.type_name.empty()) {
                 result.var_to_struct_type[pkg_name + "::" + s.name] = s.type_name;

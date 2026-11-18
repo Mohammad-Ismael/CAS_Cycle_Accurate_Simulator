@@ -161,14 +161,7 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
         return;
     }
-    size_t nid = (size_t)-1;
-    for (const auto& pkg : bp.active_wildcard_imports) {
-        std::string qname = pkg + "::" + var_name;
-        if (engine.net_map.count(qname)) {
-            nid = engine.net_map.at(qname);
-            break;
-        }
-    }
+    size_t nid = engine.get_net_id(bp.scope, var_name);
     if (nid == (size_t)-1) {
         for (const auto& kv : bp.active_explicit_imports) {
             if (kv.first == var_name) {
@@ -181,7 +174,13 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         }
     }
     if (nid == (size_t)-1) {
-        nid = engine.get_net_id(bp.scope, var_name);
+        for (const auto& pkg : bp.active_wildcard_imports) {
+            std::string qname = pkg + "::" + var_name;
+            if (engine.net_map.count(qname)) {
+                nid = engine.net_map.at(qname);
+                break;
+            }
+        }
     }
     if (nid != (size_t)-1) {
         size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
@@ -383,7 +382,8 @@ void Evaluator::check_monitor() {
                     if (engine.monitor_session.default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
                     else std::cout << val.real_val;
                 } else if (val.is_unknown() && engine.monitor_session.default_radix == 'd') {
-                    std::cout << "x";
+                    if (val.width <= 64 && val.aval == 0 && val.bval != 0) std::cout << "z";
+                    else std::cout << "x";
                 } else if (engine.monitor_session.default_radix == 'b') {
                     std::cout << val.to_bin_string();
                 } else if (engine.monitor_session.default_radix == 'o') {
@@ -3016,6 +3016,42 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (!q) {
                 q = engine.get_queue(var_name, bp.scope);
             }
+            if (!q && var_name.find('.') != std::string::npos) {
+                size_t sdot = var_name.rfind('.');
+                std::string obj_n = var_name.substr(0, sdot);
+                std::string prop_n = var_name.substr(sdot + 1);
+                ClassObject* cl_obj = nullptr;
+                if (obj_n == "this" || obj_n == "super") {
+                    cl_obj = expr_eval.get_current_this();
+                } else {
+                    if (expr_eval.get_context().has_active_frame()) {
+                        LocalVar* local = expr_eval.get_context().lookup_local(obj_n);
+                        if (local && local->is_class_handle && local->value.aval != 0) cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                    if (!cl_obj && !bp.call_stack.empty()) {
+                        for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(obj_n);
+                            if (local && local->is_class_handle && local->value.aval != 0) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                        }
+                    }
+                    if (!cl_obj) {
+                        size_t nid = engine.get_net_id(bp.scope, obj_n);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                            cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (cl_obj) {
+                    if (!cl_obj->has_queue(prop_n) && cl_obj->class_def) {
+                        if (const auto* mv = cl_obj->class_def->find_member_var(prop_n)) {
+                            if (mv->is_queue) {
+                                cl_obj->queues[prop_n] = QueueObject(prop_n, mv->width, mv->is_signed);
+                            }
+                        }
+                    }
+                    q = cl_obj->get_queue(prop_n);
+                }
+            }
             if (q) {
                 if (method == "push_back") {
                     if (!tcall->args.empty()) {
@@ -3801,7 +3837,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (disp->default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
                         else std::cout << val.real_val;
                     } else if (val.is_unknown() && disp->default_radix == 'd') {
-                        std::cout << "x";
+                        if (val.width <= 64 && val.aval == 0 && val.bval != 0) std::cout << "z";
+                        else std::cout << "x";
                     } else if (disp->default_radix == 'b') {
                         std::cout << val.to_bin_string();
                     } else if (disp->default_radix == 'o') {
@@ -3910,7 +3947,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (disp->default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
                     else std::cout << val.real_val;
                 } else if (val.is_unknown() && disp->default_radix == 'd') {
-                    std::cout << "x";
+                    if (val.width <= 64 && val.aval == 0 && val.bval != 0) std::cout << "z";
+                    else std::cout << "x";
                 } else if (disp->default_radix == 'b') {
                     std::cout << val.to_bin_string();
                 } else if (disp->default_radix == 'o') {
@@ -4485,15 +4523,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
         std::string scoped_full = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
         size_t net_id = (size_t)-1;
-        for (const auto& pkg : bp.active_wildcard_imports) {
-            std::string qname = pkg + "::" + target_name;
-            if (engine.net_map.count(qname)) {
-                net_id = engine.net_map.at(qname);
-                break;
+        for (const auto& kv : bp.active_explicit_imports) {
+            if (kv.first == target_name) {
+                std::string qname = kv.second.first + "::" + kv.second.second;
+                if (engine.net_map.count(qname)) {
+                    net_id = engine.net_map.at(qname);
+                    break;
+                }
             }
         }
         if (net_id == (size_t)-1) {
-            for (const auto& kv : bp.active_explicit_imports) {
+            for (const auto& pkg : bp.active_wildcard_imports) {
+                std::string qname = pkg + "::" + target_name;
+                if (engine.net_map.count(qname)) {
+                    net_id = engine.net_map.at(qname);
+                    break;
+                }
+            }
+        }
+        if (net_id == (size_t)-1) {
+            net_id = engine.get_net_id(bp.scope, target_name);
+        }
+        if (net_id == (size_t)-1) {
+            for (const auto& kv : bp.module_explicit_imports) {
                 if (kv.first == target_name) {
                     std::string qname = kv.second.first + "::" + kv.second.second;
                     if (engine.net_map.count(qname)) {
@@ -4504,7 +4556,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
         }
         if (net_id == (size_t)-1) {
-            net_id = engine.get_net_id(bp.scope, target_name);
+            for (const auto& pkg : bp.module_wildcard_imports) {
+                std::string qname = pkg + "::" + target_name;
+                if (engine.net_map.count(qname)) {
+                    net_id = engine.net_map.at(qname);
+                    break;
+                }
+            }
         }
         bool is_member = false;
         if (net_id == (size_t)-1 && !member_name.empty()) {
@@ -5191,15 +5249,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     shift += width;
                 } else {
                     size_t net_id = (size_t)-1;
-                    for (const auto& pkg : bp.active_wildcard_imports) {
-                        std::string qname = pkg + "::" + target_name;
-                        if (engine.net_map.count(qname)) {
-                            net_id = engine.net_map.at(qname);
-                            break;
+                    for (const auto& kv : bp.active_explicit_imports) {
+                        if (kv.first == target_name) {
+                            std::string qname = kv.second.first + "::" + kv.second.second;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
                         }
                     }
                     if (net_id == (size_t)-1) {
-                        for (const auto& kv : bp.active_explicit_imports) {
+                        for (const auto& pkg : bp.active_wildcard_imports) {
+                            std::string qname = pkg + "::" + target_name;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        net_id = engine.get_net_id(bp.scope, target_name);
+                    }
+                    if (net_id == (size_t)-1) {
+                        for (const auto& kv : bp.module_explicit_imports) {
                             if (kv.first == target_name) {
                                 std::string qname = kv.second.first + "::" + kv.second.second;
                                 if (engine.net_map.count(qname)) {
@@ -5210,7 +5282,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     if (net_id == (size_t)-1) {
-                        net_id = engine.get_net_id(bp.scope, target_name);
+                        for (const auto& pkg : bp.module_wildcard_imports) {
+                            std::string qname = pkg + "::" + target_name;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
                     }
                     if (net_id != (size_t)-1) {
                         size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
@@ -6406,15 +6484,29 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
                 size_t net_id = (size_t)-1;
-                for (const auto& pkg : bp.active_wildcard_imports) {
-                    std::string qname = pkg + "::" + target_name;
-                    if (engine.net_map.count(qname)) {
-                        net_id = engine.net_map.at(qname);
-                        break;
+                for (const auto& kv : bp.active_explicit_imports) {
+                    if (kv.first == target_name) {
+                        std::string qname = kv.second.first + "::" + kv.second.second;
+                        if (engine.net_map.count(qname)) {
+                            net_id = engine.net_map.at(qname);
+                            break;
+                        }
                     }
                 }
                 if (net_id == (size_t)-1) {
-                    for (const auto& kv : bp.active_explicit_imports) {
+                    for (const auto& pkg : bp.active_wildcard_imports) {
+                        std::string qname = pkg + "::" + target_name;
+                        if (engine.net_map.count(qname)) {
+                            net_id = engine.net_map.at(qname);
+                            break;
+                        }
+                    }
+                }
+                if (net_id == (size_t)-1) {
+                    net_id = engine.get_net_id(bp.scope, target_name);
+                }
+                if (net_id == (size_t)-1) {
+                    for (const auto& kv : bp.module_explicit_imports) {
                         if (kv.first == target_name) {
                             std::string qname = kv.second.first + "::" + kv.second.second;
                             if (engine.net_map.count(qname)) {
@@ -6425,7 +6517,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 if (net_id == (size_t)-1) {
-                    net_id = engine.get_net_id(bp.scope, target_name);
+                    for (const auto& pkg : bp.module_wildcard_imports) {
+                        std::string qname = pkg + "::" + target_name;
+                        if (engine.net_map.count(qname)) {
+                            net_id = engine.net_map.at(qname);
+                            break;
+                        }
+                    }
                 }
                 bool is_member = false;
                 if (net_id == (size_t)-1 && !member_name.empty()) {

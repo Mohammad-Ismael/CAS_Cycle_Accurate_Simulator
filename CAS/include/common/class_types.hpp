@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "logic_val.hpp"
 #include "dynamic_array_types.hpp"
+#include "queue_types.hpp"
 
 struct ClassNode;
 
@@ -23,6 +24,7 @@ struct ClassObject {
     const ClassNode* class_def = nullptr;
     std::unordered_map<std::string, LogicVal> properties;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_arrays;
+    std::unordered_map<std::string, QueueObject> queues;
     std::unordered_map<std::string, VirtualInterfaceHandle> virtual_interfaces;
     uint32_t prng_state = 0x12345678;
 
@@ -42,6 +44,16 @@ struct ClassObject {
     DynamicArrayObject* get_dynamic_array(const std::string& name) {
         auto it = dynamic_arrays.find(name);
         if (it != dynamic_arrays.end()) return &it->second;
+        return nullptr;
+    }
+
+    bool has_queue(const std::string& name) const {
+        return queues.find(name) != queues.end();
+    }
+
+    QueueObject* get_queue(const std::string& name) {
+        auto it = queues.find(name);
+        if (it != queues.end()) return &it->second;
         return nullptr;
     }
 

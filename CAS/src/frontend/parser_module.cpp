@@ -946,11 +946,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                       port_user_type == "string";
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (!port_user_type.empty()) {
-                    if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
-                        port_kind = NetKind::VAR;
-                    } else {
-                        port_kind = NetKind::WIRE;
-                    }
+                    port_kind = NetKind::VAR;
                 }
                 if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
@@ -1563,11 +1559,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                       port_user_type == "string";
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (!port_user_type.empty()) {
-                    if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
-                        port_kind = NetKind::VAR;
-                    } else {
-                        port_kind = NetKind::WIRE;
-                    }
+                    port_kind = NetKind::VAR;
                 }
                 if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
@@ -1654,6 +1646,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             if (is_string_port) {
                                 p.type_name = "string";
                             }
+                            if (!port_user_type.empty()) {
+                                p.type_name = port_user_type;
+                            }
                             found = true;
                             break;
                         }
@@ -1674,6 +1669,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                         if (is_string_port) {
                             port_decl.type_name = "string";
+                        }
+                        if (!port_user_type.empty()) {
+                            port_decl.type_name = port_user_type;
                         }
                         mod->ports.push_back(std::move(port_decl));
                     }
@@ -2307,8 +2305,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    bool is_var_kind = (uarr_info && uarr_info->is_dynamic_array) || (dim_meta && dim_meta->unpacked_dims > 0);
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, is_var_kind ? NetKind::VAR : NetKind::WIRE);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
                     sig.type_name = type_name;
                     sig.packed_dimensions = packed_dims;
                     if (uarr_info) {
@@ -2491,6 +2488,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
 
                 bool is_bit_type = (current.type == TokenType::TOKEN_BIT);
+                bool is_explicit_net = (current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_WAND ||
+                                        current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI || is_extra_net);
                 NetKind sig_kind = NetKind::WIRE;
                 if (is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
                     sig_kind = NetKind::VAR;
@@ -2679,6 +2678,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         advance();
                     } else {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+                    }
+                    if (!is_explicit_net && !udt_type_name.empty()) {
+                        sig_kind = NetKind::VAR;
                     }
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     sig.packed_dimensions = packed_dims;
@@ -5479,6 +5481,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     std::string var_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
                     bool is_dyn = false;
+                    bool is_queue = false;
+                    std::unique_ptr<ExpressionNode> q_bound = nullptr;
                     bool is_assoc = false;
                     std::string assoc_key_type = "";
                     std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> mvar_unpacked;
@@ -5488,7 +5492,13 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                             assoc_key_type = "*";
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         } else if (match(TokenType::TOKEN_LBRACKET)) {
-                            if (match(TokenType::TOKEN_RBRACKET)) {
+                            if (match(TokenType::TOKEN_DOLLAR)) {
+                                is_queue = true;
+                                if (match(TokenType::TOKEN_COLON)) {
+                                    q_bound = parse_expression();
+                                }
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            } else if (match(TokenType::TOKEN_RBRACKET)) {
                                 is_dyn = true;
                             } else if (match(TokenType::TOKEN_STAR)) {
                                 is_assoc = true;
@@ -5519,6 +5529,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     mvar.width = width;
                     mvar.is_signed = is_s;
                     mvar.is_dynamic_array = is_dyn;
+                    mvar.is_queue = is_queue;
+                    mvar.queue_bound_expr = std::move(q_bound);
                     mvar.is_associative_array = is_assoc;
                     mvar.assoc_key_type = assoc_key_type;
                     mvar.type_name = member_type_name;
@@ -5551,6 +5563,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
                     std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> mvar_unpacked;
                     bool is_dyn = false;
+                    bool is_queue = false;
+                    std::unique_ptr<ExpressionNode> q_bound = nullptr;
                     bool is_assoc = false;
                     std::string assoc_key_type = "";
                     while (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_REP_CONSEC) {
@@ -5559,7 +5573,13 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                             assoc_key_type = "*";
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
                         } else if (match(TokenType::TOKEN_LBRACKET)) {
-                            if (match(TokenType::TOKEN_RBRACKET)) {
+                            if (match(TokenType::TOKEN_DOLLAR)) {
+                                is_queue = true;
+                                if (match(TokenType::TOKEN_COLON)) {
+                                    q_bound = parse_expression();
+                                }
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                            } else if (match(TokenType::TOKEN_RBRACKET)) {
                                 is_dyn = true;
                             } else if (match(TokenType::TOKEN_STAR)) {
                                 is_assoc = true;
@@ -5594,6 +5614,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     mvar.is_static = is_stat;
                     mvar.is_class_handle = true;
                     mvar.is_dynamic_array = is_dyn;
+                    mvar.is_queue = is_queue;
+                    mvar.queue_bound_expr = std::move(q_bound);
                     mvar.is_associative_array = is_assoc;
                     mvar.assoc_key_type = assoc_key_type;
                     mvar.class_type_name = class_type;
@@ -7673,7 +7695,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             current.type == TokenType::TOKEN_TRI   || current.type == TokenType::TOKEN_REG  || 
             current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT ||
             current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED ||
-            (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "real" || is_type_identifier(current.text)))) {
+            (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "real" || is_type_identifier(current.text) || is_class(current.text)))) {
             
             NetKind pkind = NetKind::VAR;
             if (current.type == TokenType::TOKEN_WIRE) pkind = NetKind::WIRE;
@@ -7681,6 +7703,8 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             else if (current.type == TokenType::TOKEN_WOR) pkind = NetKind::WOR;
             else if (current.type == TokenType::TOKEN_TRI) pkind = NetKind::TRI;
             std::string tname = current.text;
+            bool is_class_sig = is_class(tname);
+            if (is_class_sig) pkind = NetKind::VAR;
             bool is_signed_sig = (current.type == TokenType::TOKEN_SIGNED);
             advance();
 
@@ -7716,6 +7740,10 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier in package");
                 PortNode pnode(sname, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, pkind);
                 pnode.type_name = tname;
+                if (is_class_sig) {
+                    pnode.is_class_handle = true;
+                    pnode.class_type_name = tname;
+                }
                 pnode.packed_dimensions = packed_dims;
                 while (match(TokenType::TOKEN_LBRACKET)) {
                     if (match(TokenType::TOKEN_DOLLAR)) {

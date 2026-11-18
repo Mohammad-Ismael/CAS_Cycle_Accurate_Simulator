@@ -589,6 +589,8 @@ struct ClassMemberVar {
     uint32_t width = 32;
     bool is_signed = false;
     bool is_dynamic_array = false;
+    bool is_queue = false;
+    std::unique_ptr<ExpressionNode> queue_bound_expr;
     bool is_associative_array = false;
     std::string assoc_key_type = "";
     std::string type_name = "";
@@ -613,6 +615,8 @@ struct ClassMemberVar {
         width = other.width;
         is_signed = other.is_signed;
         is_dynamic_array = other.is_dynamic_array;
+        is_queue = other.is_queue;
+        if (other.queue_bound_expr) queue_bound_expr = other.queue_bound_expr->clone();
         is_associative_array = other.is_associative_array;
         assoc_key_type = other.assoc_key_type;
         type_name = other.type_name;
@@ -638,6 +642,8 @@ struct ClassMemberVar {
             width = other.width;
             is_signed = other.is_signed;
             is_dynamic_array = other.is_dynamic_array;
+            is_queue = other.is_queue;
+            queue_bound_expr = other.queue_bound_expr ? other.queue_bound_expr->clone() : nullptr;
             is_associative_array = other.is_associative_array;
             assoc_key_type = other.assoc_key_type;
             type_name = other.type_name;

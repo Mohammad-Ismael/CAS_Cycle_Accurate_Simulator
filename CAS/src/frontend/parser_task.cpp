@@ -128,10 +128,17 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
                 is_int = true;
                 def_w = 32;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
                 has_explicit_type = true;
+                arg_type_name = current.text;
+                SimpleTypedef smp;
+                if (get_simple_typedef(current.text, smp)) {
+                    def_w = smp.width;
+                    is_s = smp.is_signed;
+                } else {
+                    def_w = 32;
+                }
                 is_int = true;
-                def_w = 32;
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
                 has_explicit_type = true;

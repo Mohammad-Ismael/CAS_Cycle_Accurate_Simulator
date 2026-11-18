@@ -117,7 +117,7 @@ void AsyncTraceBuffer::worker_loop() {
         size_t head = write_head_.load(std::memory_order_acquire);
 
         if (tail == head) {
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 

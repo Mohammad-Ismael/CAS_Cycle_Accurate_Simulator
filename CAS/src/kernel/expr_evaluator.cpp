@@ -151,6 +151,10 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) lv->value = LogicVal::make_string("");
         }
+        if (callee_lv && (in_p.is_class_handle || engine.is_class(in_p.type_name))) {
+            callee_lv->is_class_handle = true;
+            callee_lv->class_type_name = in_p.type_name;
+        }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -293,6 +297,10 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
             callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
             callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
         }
+        if (callee_lv && (in_p.is_class_handle || engine.is_class(in_p.type_name))) {
+            callee_lv->is_class_handle = true;
+            callee_lv->class_type_name = in_p.type_name;
+        }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
             if (lv) {
@@ -414,6 +422,10 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
             callee_lv->arr_start_idx = callee_lv->dimensions.empty() ? 0 : std::min(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
             callee_lv->arr_end_idx = callee_lv->dimensions.empty() ? 0 : std::max(callee_lv->dimensions[0].left, callee_lv->dimensions[0].right);
             callee_lv->unpacked_elements.assign(tot, LogicVal::make_x(callee_lv->elem_width));
+        }
+        if (callee_lv && (in_p.is_class_handle || engine.is_class(in_p.type_name))) {
+            callee_lv->is_class_handle = true;
+            callee_lv->class_type_name = in_p.type_name;
         }
         if (in_p.is_virtual_interface) {
             LocalVar* lv = context.lookup_local(in_p.name);
@@ -2408,6 +2420,42 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (!q) {
             q = engine.get_queue(var_name, scope);
         }
+        if (!q && var_name.find('.') != std::string::npos) {
+            size_t sdot = var_name.rfind('.');
+            std::string obj_n = var_name.substr(0, sdot);
+            std::string prop_n = var_name.substr(sdot + 1);
+            ClassObject* cl_obj = nullptr;
+            if (obj_n == "this" || obj_n == "super") {
+                cl_obj = current_this;
+            } else {
+                if (context.has_active_frame()) {
+                    LocalVar* local = context.lookup_local(obj_n);
+                    if (local && local->is_class_handle && local->value.aval != 0) cl_obj = engine.get_class_object(local->value.aval).get();
+                }
+                if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(obj_n);
+                        if (local && local->is_class_handle && local->value.aval != 0) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                    }
+                }
+                if (!cl_obj) {
+                    size_t nid = engine.get_net_id(scope, obj_n);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                        cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                    }
+                }
+            }
+            if (cl_obj) {
+                if (!cl_obj->has_queue(prop_n) && cl_obj->class_def) {
+                    if (const auto* mv = cl_obj->class_def->find_member_var(prop_n)) {
+                        if (mv->is_queue) {
+                            cl_obj->queues[prop_n] = QueueObject(prop_n, mv->width, mv->is_signed);
+                        }
+                    }
+                }
+                q = cl_obj->get_queue(prop_n);
+            }
+        }
 
         if (q) {
             std::string method = method_node->method_name;
@@ -3284,6 +3332,42 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     if (local && local->is_queue) { q = &local->queue_data; break; }
                 }
             }
+            if (!q && var_name.find('.') != std::string::npos) {
+                size_t sdot = var_name.rfind('.');
+                std::string obj_n = var_name.substr(0, sdot);
+                std::string prop_n = var_name.substr(sdot + 1);
+                ClassObject* cl_obj = nullptr;
+                if (obj_n == "this" || obj_n == "super") {
+                    cl_obj = current_this;
+                } else {
+                    if (context.has_active_frame()) {
+                        LocalVar* local = context.lookup_local(obj_n);
+                        if (local && local->is_class_handle && local->value.aval != 0) cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                    if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(obj_n);
+                            if (local && local->is_class_handle && local->value.aval != 0) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                        }
+                    }
+                    if (!cl_obj) {
+                        size_t nid = engine.get_net_id(scope, obj_n);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                            cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (cl_obj) {
+                    if (!cl_obj->has_queue(prop_n) && cl_obj->class_def) {
+                        if (const auto* mv = cl_obj->class_def->find_member_var(prop_n)) {
+                            if (mv->is_queue) {
+                                cl_obj->queues[prop_n] = QueueObject(prop_n, mv->width, mv->is_signed);
+                            }
+                        }
+                    }
+                    q = cl_obj->get_queue(prop_n);
+                }
+            }
             if (!q) q = engine.get_queue(var_name, scope);
             if (q) {
                 if (member_name == "pop_front") return q->pop_front();
@@ -3318,6 +3402,42 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                     LocalVar* local = it->local_frame.get_var(var_name);
                     if (local && local->is_queue) { q = &local->queue_data; break; }
+                }
+            }
+            if (!q && var_name.find('.') != std::string::npos) {
+                size_t sdot = var_name.rfind('.');
+                std::string obj_n = var_name.substr(0, sdot);
+                std::string prop_n = var_name.substr(sdot + 1);
+                ClassObject* cl_obj = nullptr;
+                if (obj_n == "this" || obj_n == "super") {
+                    cl_obj = current_this;
+                } else {
+                    if (context.has_active_frame()) {
+                        LocalVar* local = context.lookup_local(obj_n);
+                        if (local && local->is_class_handle && local->value.aval != 0) cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                    if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(obj_n);
+                            if (local && local->is_class_handle && local->value.aval != 0) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                        }
+                    }
+                    if (!cl_obj) {
+                        size_t nid = engine.get_net_id(scope, obj_n);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                            cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (cl_obj) {
+                    if (!cl_obj->has_queue(prop_n) && cl_obj->class_def) {
+                        if (const auto* mv = cl_obj->class_def->find_member_var(prop_n)) {
+                            if (mv->is_queue) {
+                                cl_obj->queues[prop_n] = QueueObject(prop_n, mv->width, mv->is_signed);
+                            }
+                        }
+                    }
+                    q = cl_obj->get_queue(prop_n);
                 }
             }
             if (!q) q = engine.get_queue(var_name, scope);
@@ -3379,6 +3499,42 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                     LocalVar* local = it->local_frame.get_var(var_name);
                     if (local && local->is_queue) { q = &local->queue_data; break; }
+                }
+            }
+            if (!q && var_name.find('.') != std::string::npos) {
+                size_t sdot = var_name.rfind('.');
+                std::string obj_n = var_name.substr(0, sdot);
+                std::string prop_n = var_name.substr(sdot + 1);
+                ClassObject* cl_obj = nullptr;
+                if (obj_n == "this" || obj_n == "super") {
+                    cl_obj = current_this;
+                } else {
+                    if (context.has_active_frame()) {
+                        LocalVar* local = context.lookup_local(obj_n);
+                        if (local && local->is_class_handle && local->value.aval != 0) cl_obj = engine.get_class_object(local->value.aval).get();
+                    }
+                    if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
+                        for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                            LocalVar* local = it->local_frame.get_var(obj_n);
+                            if (local && local->is_class_handle && local->value.aval != 0) { cl_obj = engine.get_class_object(local->value.aval).get(); break; }
+                        }
+                    }
+                    if (!cl_obj) {
+                        size_t nid = engine.get_net_id(scope, obj_n);
+                        if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                            cl_obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                        }
+                    }
+                }
+                if (cl_obj) {
+                    if (!cl_obj->has_queue(prop_n) && cl_obj->class_def) {
+                        if (const auto* mv = cl_obj->class_def->find_member_var(prop_n)) {
+                            if (mv->is_queue) {
+                                cl_obj->queues[prop_n] = QueueObject(prop_n, mv->width, mv->is_signed);
+                            }
+                        }
+                    }
+                    q = cl_obj->get_queue(prop_n);
                 }
             }
             if (!q) q = engine.get_queue(var_name, scope);
@@ -4392,23 +4548,23 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         FunctionNode* target_fn = nullptr;
         std::string target_fn_name = "";
         if (current_bp) {
-            for (const auto& pkg : current_bp->active_wildcard_imports) {
-                std::string qname = pkg + "::" + fn_call->func_name;
-                if (engine.function_map.count(qname)) {
-                    target_fn = engine.function_map.at(qname);
-                    target_fn_name = qname;
-                    break;
+            for (const auto& kv : current_bp->active_explicit_imports) {
+                if (kv.first == fn_call->func_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.function_map.count(qname)) {
+                        target_fn = engine.function_map.at(qname);
+                        target_fn_name = qname;
+                        break;
+                    }
                 }
             }
             if (!target_fn) {
-                for (const auto& kv : current_bp->active_explicit_imports) {
-                    if (kv.first == fn_call->func_name) {
-                        std::string qname = kv.second.first + "::" + kv.second.second;
-                        if (engine.function_map.count(qname)) {
-                            target_fn = engine.function_map.at(qname);
-                            target_fn_name = qname;
-                            break;
-                        }
+                for (const auto& pkg : current_bp->active_wildcard_imports) {
+                    std::string qname = pkg + "::" + fn_call->func_name;
+                    if (engine.function_map.count(qname)) {
+                        target_fn = engine.function_map.at(qname);
+                        target_fn_name = qname;
+                        break;
                     }
                 }
             }
@@ -4420,6 +4576,28 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
                 target_fn = engine.function_map.at(fn_call->func_name);
                 target_fn_name = fn_call->func_name;
+            }
+        }
+        if (!target_fn && current_bp) {
+            for (const auto& kv : current_bp->module_explicit_imports) {
+                if (kv.first == fn_call->func_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.function_map.count(qname)) {
+                        target_fn = engine.function_map.at(qname);
+                        target_fn_name = qname;
+                        break;
+                    }
+                }
+            }
+            if (!target_fn) {
+                for (const auto& pkg : current_bp->module_wildcard_imports) {
+                    std::string qname = pkg + "::" + fn_call->func_name;
+                    if (engine.function_map.count(qname)) {
+                        target_fn = engine.function_map.at(qname);
+                        target_fn_name = qname;
+                        break;
+                    }
+                }
             }
         }
 
@@ -4530,12 +4708,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
         LogicVal ret(32, 0, 0);
 
+        if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
+            return ret;
+        }
+        if (eval_function(fn_call->func_name, evaluated_args, ret, caller_nodes)) {
+            return ret;
+        }
         if (current_bp) {
-            for (const auto& pkg : current_bp->active_wildcard_imports) {
-                if (eval_function(pkg + "::" + fn_call->func_name, evaluated_args, ret, caller_nodes)) {
-                    return ret;
-                }
-            }
             for (const auto& kv : current_bp->active_explicit_imports) {
                 if (kv.first == fn_call->func_name) {
                     if (eval_function(kv.second.first + "::" + kv.second.second, evaluated_args, ret, caller_nodes)) {
@@ -4543,12 +4722,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
             }
-        }
-        if (eval_function(scoped_fn, evaluated_args, ret, caller_nodes)) {
-            return ret;
-        }
-        if (eval_function(fn_call->func_name, evaluated_args, ret, caller_nodes)) {
-            return ret;
+            for (const auto& pkg : current_bp->active_wildcard_imports) {
+                if (eval_function(pkg + "::" + fn_call->func_name, evaluated_args, ret, caller_nodes)) {
+                    return ret;
+                }
+            }
         }
         return LogicVal::make_x(32);
     }
@@ -4700,20 +4878,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
 
-        std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         if (current_bp) {
-            for (const auto& pkg : current_bp->active_wildcard_imports) {
-                std::string qname = pkg + "::" + ident->name;
-                if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
-                if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
-                if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
-                if (engine.net_map.count(qname)) {
-                    size_t pnid = engine.net_map.at(qname);
-                    LogicVal res = engine.netlist[pnid].value;
-                    res.is_signed = engine.netlist[pnid].is_signed;
-                    return res;
-                }
-            }
             for (const auto& kv : current_bp->active_explicit_imports) {
                 if (kv.first == ident->name) {
                     std::string qname = kv.second.first + "::" + kv.second.second;
@@ -4728,7 +4893,21 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
             }
+            for (const auto& pkg : current_bp->active_wildcard_imports) {
+                std::string qname = pkg + "::" + ident->name;
+                if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
+                if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
+                if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
+                if (engine.net_map.count(qname)) {
+                    size_t pnid = engine.net_map.at(qname);
+                    LogicVal res = engine.netlist[pnid].value;
+                    res.is_signed = engine.netlist[pnid].is_signed;
+                    return res;
+                }
+            }
         }
+
+        std::string scoped_ident = scope.empty() ? ident->name : (scope + "." + ident->name);
         if (!scope.empty()) {
             std::string colon_ident = scope + "::" + ident->name;
             if (engine.param_val_map.count(colon_ident)) return engine.param_val_map.at(colon_ident);
@@ -4769,6 +4948,35 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             LogicVal res = engine.netlist[nid].value;
             res.is_signed = engine.netlist[nid].is_signed;
             return res;
+        }
+
+        if (current_bp) {
+            for (const auto& kv : current_bp->module_explicit_imports) {
+                if (kv.first == ident->name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
+                    if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
+                    if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
+                    if (engine.net_map.count(qname)) {
+                        size_t pnid = engine.net_map.at(qname);
+                        LogicVal res = engine.netlist[pnid].value;
+                        res.is_signed = engine.netlist[pnid].is_signed;
+                        return res;
+                    }
+                }
+            }
+            for (const auto& pkg : current_bp->module_wildcard_imports) {
+                std::string qname = pkg + "::" + ident->name;
+                if (engine.param_val_map.count(qname)) return engine.param_val_map.at(qname);
+                if (engine.param_map.count(qname)) return LogicVal::make_known(32, engine.param_map.at(qname));
+                if (engine.enum_constant_map.count(qname)) return engine.enum_constant_map.at(qname);
+                if (engine.net_map.count(qname)) {
+                    size_t pnid = engine.net_map.at(qname);
+                    LogicVal res = engine.netlist[pnid].value;
+                    res.is_signed = engine.netlist[pnid].is_signed;
+                    return res;
+                }
+            }
         }
         if (engine.param_val_map.find(ident->name) != engine.param_val_map.end()) {
             return engine.param_val_map.at(ident->name);

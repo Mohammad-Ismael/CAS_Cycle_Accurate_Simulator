@@ -99,14 +99,18 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
             func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
             advance();
-        } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
             func->return_type_name = current.text;
             auto einfo = get_enum_typedef(current.text);
             auto sinfo = get_struct_typedef(current.text);
             const UnpackedArrayTypedef* uarr = get_unpacked_array_typedef(current.text);
+            SimpleTypedef smp;
             if (uarr) {
                 func->return_width = uarr->elem_width;
                 func->return_signed = uarr->elem_signed;
+            } else if (get_simple_typedef(current.text, smp)) {
+                func->return_width = smp.width;
+                func->return_signed = smp.is_signed;
             } else {
                 func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
                 func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
@@ -300,15 +304,20 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
                 is_int = true;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
                 has_explicit_type = true;
                 arg_type_name = current.text;
                 auto einfo = get_enum_typedef(current.text);
                 auto sinfo = get_struct_typedef(current.text);
                 const UnpackedArrayTypedef* uarr = get_unpacked_array_typedef(current.text);
+                SimpleTypedef smp;
                 if (uarr) {
                     def_w = uarr->elem_width;
                     is_s = uarr->elem_signed;
+                    is_int = false;
+                } else if (get_simple_typedef(current.text, smp)) {
+                    def_w = smp.width;
+                    is_s = smp.is_signed;
                     is_int = false;
                 } else {
                     def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);

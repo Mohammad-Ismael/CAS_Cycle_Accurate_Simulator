@@ -188,6 +188,11 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strncmp(argv[i], "+firmware=", 10) == 0) {
             top_param_overrides["SRAMInitFile"] = LogicVal::make_string(argv[i] + 10);
+        } else if (std::strncmp(argv[i], "-g", 2) == 0) {
+            // Icarus Verilog generation flag (-g2005, -g2005-sv, -g2009, -g2012), ignore
+            continue;
+        } else if (std::strncmp(argv[i], "-P", 2) == 0) {
+            parse_param_arg(argv[i] + 2);
         } else if (std::strcmp(argv[i], "-G") == 0 && i + 1 < argc) {
             parse_param_arg(argv[++i]);
         } else if (std::strncmp(argv[i], "-G", 2) == 0) {

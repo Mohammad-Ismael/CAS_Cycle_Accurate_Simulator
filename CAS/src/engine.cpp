@@ -93,6 +93,13 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     class_defs = std::move(elab_res.class_defs);
     class_handle_names = std::move(elab_res.class_handle_names);
     var_to_class_type = std::move(elab_res.var_to_class_type);
+    for (const auto& ich : elab_res.initial_class_handles) {
+        auto obj = allocate_class_object(ich.second);
+        if (ich.first < netlist.size()) {
+            netlist[ich.first].value = LogicVal(64, obj->handle_id, 0);
+            netlist[ich.first].prev_value = LogicVal(64, obj->handle_id, 0);
+        }
+    }
     covergroup_defs = std::move(elab_res.covergroup_defs);
     covergroup_handle_names = std::move(elab_res.covergroup_handle_names);
     var_to_covergroup_type = std::move(elab_res.var_to_covergroup_type);
