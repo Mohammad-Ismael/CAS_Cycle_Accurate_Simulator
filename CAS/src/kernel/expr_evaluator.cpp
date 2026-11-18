@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 
 ExprEvaluator::ExprEvaluator(Engine& eng) : engine(eng) {}
 
@@ -500,7 +501,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
         if (local) {
             LogicVal casted = (local->type_name == "string")
                               ? val
-                              : LogicOps::cast_width(val, local->width, local->is_signed);
+                              : LogicOps::cast_width(val, local->width, local->is_signed && val.is_signed);
             if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
                 local->type_name == "shortint" || local->type_name == "longint") {
                 casted.bval = 0;
@@ -537,7 +538,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
             LogicVal casted = (engine.netlist[target_id].type_name == "string")
                               ? val
-                              : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                              : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && val.is_signed);
             if (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
                 engine.netlist[target_id].type_name == "byte" || engine.netlist[target_id].type_name == "shortint" ||
                 engine.netlist[target_id].type_name == "longint") {
@@ -4362,6 +4363,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 LogicVal m_val = eval(fn_call->args[1].get(), scope);
                 if (m_val.is_string) mode = m_val.str_val;
             }
+            if (mode.find('w') != std::string::npos || mode.find('a') != std::string::npos) {
+                std::filesystem::path p(filename);
+                if (p.has_parent_path()) {
+                    std::error_code ec;
+                    std::filesystem::create_directories(p.parent_path(), ec);
+                }
+            }
             int fd = const_cast<Engine&>(engine).next_file_descriptor++;
             FILE* fp = std::fopen(filename.c_str(), mode.c_str());
             auto strm = std::make_shared<std::ofstream>();
@@ -4506,6 +4514,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         }
         if (fn_call->func_name == "$sscanf") {
             int matched = eval_sscanf(fn_call->args, scope);
+            return LogicVal::make_known(32, (uint64_t)matched, true);
+        }
+        if (fn_call->func_name == "$fscanf") {
+            int matched = eval_fscanf(fn_call->args, scope);
             return LogicVal::make_known(32, (uint64_t)matched, true);
         }
         if (fn_call->func_name == "$value$plusargs") {
@@ -4920,17 +4932,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return res;
             }
         }
-        if (engine.enum_constant_map.find(scoped_ident) != engine.enum_constant_map.end()) {
-            return engine.enum_constant_map.at(scoped_ident);
-        }
-        if (engine.enum_constant_map.find(ident->name) != engine.enum_constant_map.end()) {
-            return engine.enum_constant_map.at(ident->name);
-        }
         if (engine.param_val_map.find(scoped_ident) != engine.param_val_map.end()) {
             return engine.param_val_map.at(scoped_ident);
         }
         if (engine.param_map.find(scoped_ident) != engine.param_map.end()) {
             return LogicVal::make_known(32, engine.param_map.at(scoped_ident));
+        }
+        if (engine.enum_constant_map.find(scoped_ident) != engine.enum_constant_map.end()) {
+            return engine.enum_constant_map.at(scoped_ident);
         }
         if (engine.interface_instances.find(scoped_ident) != engine.interface_instances.end() ||
             engine.interface_instances.find(ident->name) != engine.interface_instances.end()) {
@@ -4948,6 +4957,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             LogicVal res = engine.netlist[nid].value;
             res.is_signed = engine.netlist[nid].is_signed;
             return res;
+        }
+        if (engine.enum_constant_map.find(ident->name) != engine.enum_constant_map.end()) {
+            return engine.enum_constant_map.at(ident->name);
         }
 
         if (current_bp) {
@@ -5982,10 +5994,19 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 msb = base_v.aval;
                 lsb = w_v.aval;
                 if (msb < lsb) std::swap(msb, lsb);
-                slice_w = msb - lsb + 1;
-                if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
+                if (elem_w > 1 && vdm && !vdm->dimensions.empty()) {
+                    const auto& dim0 = vdm->dimensions[0];
+                    int64_t off_l = (dim0.left >= dim0.right) ? ((int64_t)lsb - dim0.right) : (dim0.right - (int64_t)lsb);
+                    int64_t off_m = (dim0.left >= dim0.right) ? ((int64_t)msb - dim0.right) : (dim0.right - (int64_t)msb);
+                    if (off_l > off_m) std::swap(off_l, off_m);
+                    lsb = (uint32_t)off_l * elem_w;
+                    slice_w = (uint32_t)(off_m - off_l + 1) * elem_w;
+                } else {
+                    slice_w = msb - lsb + 1;
+                    if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
+                }
+                return target_val.extract_slice(lsb, slice_w);
             }
-            return target_val.extract_slice(lsb, slice_w);
         }
     }
 
@@ -9001,32 +9022,28 @@ LogicVal ExprEvaluator::eval_sformatf(SFormatfNode* node, const std::string& sco
     return LogicVal::make_string(formatted);
 }
 
-int ExprEvaluator::eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
-    if (args.size() < 2) return 0;
-    LogicVal str_val = eval(args[0].get(), scope);
-    std::string input = str_val.is_string ? str_val.str_val : "";
-    LogicVal fmt_val = eval(args[1].get(), scope);
-    std::string fmt = fmt_val.is_string ? fmt_val.str_val : "";
-
+int ExprEvaluator::scan_core(const std::string& input, const std::string& fmt,
+                             const std::vector<std::unique_ptr<ExpressionNode>>& args,
+                             size_t arg_start, const std::string& scope, size_t& consumed_in) {
     size_t in_pos = 0;
     size_t fmt_pos = 0;
-    size_t arg_idx = 2;
+    size_t arg_idx = arg_start;
     int matched = 0;
 
     auto assign_target = [&](ExpressionNode* expr, const LogicVal& val) {
-        if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
-            std::string name = id->name;
-            if (context.has_active_frame()) {
-                if (LocalVar* lv = context.lookup_local(name)) {
-                    lv->value = val;
-                    return;
-                }
-            }
-            size_t nid = engine.get_net_id(scope, name);
-            if (nid != (size_t)-1) {
-                const_cast<Engine&>(engine).netlist[nid].set(val);
+        if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+            std::string mem_name = idx->name;
+            LogicVal idx_v = eval(idx->msb_expr.get(), scope);
+            int64_t i_val = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+            std::string scoped_mem = scope.empty() ? mem_name : (scope + "." + mem_name);
+            auto it_mem = engine.memory_map.find(scoped_mem);
+            if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(mem_name);
+            if (it_mem != engine.memory_map.end()) {
+                it_mem->second.set_word(i_val, val);
+                return;
             }
         }
+        writeback_lvalue(expr, val, scope);
     };
 
     auto get_target_width = [&](ExpressionNode* expr) -> size_t {
@@ -9040,6 +9057,14 @@ int ExprEvaluator::eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>
             size_t nid = engine.get_net_id(scope, name);
             if (nid != (size_t)-1) {
                 return engine.netlist[nid].width > 0 ? engine.netlist[nid].width : 32;
+            }
+        } else if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+            std::string mem_name = idx->name;
+            std::string scoped_mem = scope.empty() ? mem_name : (scope + "." + mem_name);
+            auto it_mem = engine.memory_map.find(scoped_mem);
+            if (it_mem == engine.memory_map.end()) it_mem = engine.memory_map.find(mem_name);
+            if (it_mem != engine.memory_map.end()) {
+                return it_mem->second.word_width > 0 ? it_mem->second.word_width : 32;
             }
         }
         return 32;
@@ -9143,6 +9168,41 @@ int ExprEvaluator::eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>
                 break;
             }
         }
+    }
+    consumed_in = in_pos;
+    return matched;
+}
+
+int ExprEvaluator::eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
+    if (args.size() < 2) return 0;
+    LogicVal str_val = eval(args[0].get(), scope);
+    std::string input = str_val.is_string ? str_val.str_val : "";
+    LogicVal fmt_val = eval(args[1].get(), scope);
+    std::string fmt = fmt_val.is_string ? fmt_val.str_val : "";
+    size_t consumed = 0;
+    return scan_core(input, fmt, args, 2, scope, consumed);
+}
+
+int ExprEvaluator::eval_fscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope) {
+    if (args.size() < 2) return -1;
+    LogicVal fd_val = eval(args[0].get(), scope);
+    int fd = (int)fd_val.aval;
+    auto it = engine.open_files.find(fd);
+    if (it == engine.open_files.end() || !it->second.fp) return -1;
+    FILE* fp = it->second.fp;
+    LogicVal fmt_val = eval(args[1].get(), scope);
+    std::string fmt = fmt_val.is_string ? fmt_val.str_val : "";
+
+    long orig_pos = std::ftell(fp);
+    char buf[4096];
+    size_t nread = std::fread(buf, 1, sizeof(buf), fp);
+    if (nread == 0) return -1; // EOF
+
+    std::string input(buf, nread);
+    size_t consumed = 0;
+    int matched = scan_core(input, fmt, args, 2, scope, consumed);
+    if (orig_pos >= 0) {
+        std::fseek(fp, orig_pos + (long)consumed, SEEK_SET);
     }
     return matched;
 }

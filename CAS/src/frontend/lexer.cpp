@@ -686,11 +686,6 @@ void Lexer::skip_whitespace_and_comments() {
                             }
                         }
 
-                        p = 0;
-                        while ((p = exp.find("``", p)) != std::string::npos) {
-                            exp.erase(p, 2);
-                        }
-
                         bool in_normal_string = false;
                         for (size_t i = 0; i < exp.length(); ) {
                             if (!in_normal_string && exp[i] == '`' && i + 1 < exp.length() && exp[i + 1] == '"') {
@@ -707,6 +702,11 @@ void Lexer::skip_whitespace_and_comments() {
                             }
                             i++;
                         }
+                    }
+
+                    p = 0;
+                    while ((p = exp.find("``", p)) != std::string::npos) {
+                        exp.erase(p, 2);
                     }
                 };
                 if (is_active && global_defines.find(directive) != global_defines.end()) {

@@ -2787,7 +2787,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     bool is_port = false;
                     for (auto& p : mod->ports) {
                         if (p.name == signame) {
-                            p.is_signed = is_signed_sig;
+                            if (explicit_signed) p.is_signed = true;
+                            else if (explicit_unsigned && !p.is_signed) p.is_signed = false;
+                            else if (is_int) p.is_signed = true;
                             p.net_kind = sig_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
@@ -3826,6 +3828,8 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             std::string anon_st_name = "__anon_nested_struct_" + std::to_string(anon_struct_counter++);
             struct_typedef_map[anon_st_name] = nested_st;
             if (current_parsing_module) current_parsing_module->struct_typedefs[anon_st_name] = nested_st;
+            else if (current_parsing_package) current_parsing_package->struct_typedefs[anon_st_name] = nested_st;
+            else global_struct_typedefs[anon_st_name] = nested_st;
             mem_type = anon_st_name;
             field_width = nested_st->total_width;
             mem_signed = nested_st->is_signed;

@@ -77,6 +77,7 @@ struct PendingSpecifyNetEvent {
 };
 
 class StratifiedScheduler {
+    friend class Evaluator;
 private:
     Engine& engine;
     TimeWheel time_wheel;

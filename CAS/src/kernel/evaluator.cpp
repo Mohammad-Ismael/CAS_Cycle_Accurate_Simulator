@@ -155,7 +155,7 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
             }
             return;
         }
-        local->value = LogicOps::cast_width(actual_val, local->width, local->is_signed);
+        local->value = LogicOps::cast_width(actual_val, local->width, local->is_signed && actual_val.is_signed);
         if (local->is_static && !local->static_key.empty()) {
             engine.procedural_static_vars[local->static_key] = local->value;
         }
@@ -844,7 +844,22 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     already_init = true;
                 }
             }
-            expr_eval.get_context().declare_local(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name);
+            uint32_t eff_w = vdecl->width;
+            if (!vdecl->packed_dimensions.empty()) {
+                uint32_t tot_w = 0;
+                for (const auto& pd : vdecl->packed_dimensions) {
+                    if (pd.left_expr && pd.right_expr) {
+                        LogicVal msb_v = eval_expr(pd.left_expr.get(), bp.scope);
+                        LogicVal lsb_v = eval_expr(pd.right_expr.get(), bp.scope);
+                        int64_t m = msb_v.is_unknown() ? 0 : (int64_t)msb_v.aval;
+                        int64_t l = lsb_v.is_unknown() ? 0 : (int64_t)lsb_v.aval;
+                        uint32_t dim_w = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                        tot_w = (tot_w == 0) ? dim_w : (tot_w * dim_w);
+                    }
+                }
+                if (tot_w > 0) eff_w = tot_w;
+            }
+            expr_eval.get_context().declare_local(vdecl->var_name, eff_w, vdecl->is_signed, vdecl->type_name);
             LocalVar* lv = expr_eval.get_context().lookup_local(vdecl->var_name);
             if (lv) {
                 if (vdecl->is_static) {
@@ -1037,7 +1052,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
                         } else {
-                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed && init_val.is_signed);
                         }
                     }
                 }
@@ -1209,7 +1224,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (vdecl->type_name == "string") {
                             lv->value = init_val;
                         } else {
-                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed);
+                            lv->value = LogicOps::cast_width(init_val, lv->width, lv->is_signed && init_val.is_signed);
                         }
                     }
                 }
@@ -2014,6 +2029,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         return;
     }
 
+    if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
+        engine.scheduler.trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
+        return;
+    }
+
     if (auto tcall = dynamic_cast<TaskCallNode*>(stmt)) {
         if (tcall->task_name == "super.new") {
             ClassObject* cur_obj = expr_eval.get_current_this();
@@ -2407,6 +2427,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        if (tcall->task_name == "$fscanf") {
+            expr_eval.eval_fscanf(tcall->args, bp.scope);
+            return;
+        }
+
         auto dot = tname.rfind('.');
         if (dot != std::string::npos) {
             std::string var_name = tname.substr(0, dot);
@@ -2772,6 +2797,31 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     return;
                 }
             }
+            std::string static_type = "";
+            if (cl_obj && var_name == "this") static_type = cl_obj->class_type_name;
+            else {
+                if (expr_eval.get_context().has_active_frame()) {
+                    LocalVar* local = expr_eval.get_context().lookup_local(var_name);
+                    if (local && local->is_class_handle) static_type = !local->class_type_name.empty() ? local->class_type_name : local->type_name;
+                }
+                if (static_type.empty() && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        LocalVar* local = it->local_frame.get_var(var_name);
+                        if (local && local->is_class_handle) { static_type = !local->class_type_name.empty() ? local->class_type_name : local->type_name; break; }
+                    }
+                }
+                if (static_type.empty()) {
+                    size_t nid = engine.get_net_id(bp.scope, var_name);
+                    if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                        static_type = engine.get_class_type(var_name, bp.scope);
+                    }
+                }
+                if (static_type.empty()) {
+                    static_type = engine.get_class_type(var_name, bp.scope);
+                }
+            }
+            const ClassNode* static_def = !static_type.empty() ? engine.get_class_def(static_type) : (cl_obj ? cl_obj->class_def : nullptr);
+
             if (cl_obj) {
                 if (method == "srandom") {
                     uint32_t seed = 0;
@@ -2803,49 +2853,30 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 }
+            }
 
+            if (cl_obj || static_def) {
                 TaskNode* task_node = nullptr;
                 FunctionNode* func_node = nullptr;
                 if (var_name == "super") {
                     const ClassNode* cur_class = expr_eval.get_current_class_def();
-                    if (!cur_class) cur_class = cl_obj->class_def;
+                    if (!cur_class && cl_obj) cur_class = cl_obj->class_def;
                     if (cur_class && cur_class->base_class) {
                         task_node = cur_class->base_class->find_task(method);
                         if (!task_node) func_node = cur_class->base_class->find_function(method);
                     }
                 } else {
-                    std::string static_type = "";
-                    if (var_name == "this") static_type = cl_obj->class_type_name;
-                    else {
-                        if (expr_eval.get_context().has_active_frame()) {
-                            LocalVar* local = expr_eval.get_context().lookup_local(var_name);
-                            if (local && local->is_class_handle) static_type = local->class_type_name;
-                        }
-                        if (static_type.empty() && !bp.call_stack.empty()) {
-                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
-                                LocalVar* local = it->local_frame.get_var(var_name);
-                                if (local && local->is_class_handle) { static_type = local->class_type_name; break; }
-                            }
-                        }
-                        if (static_type.empty()) {
-                            size_t nid = engine.get_net_id(bp.scope, var_name);
-                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
-                                static_type = engine.get_class_type(var_name, bp.scope);
-                            }
-                        }
-                    }
-                    const ClassNode* static_def = !static_type.empty() ? engine.get_class_def(static_type) : cl_obj->class_def;
                     bool is_virt = false;
                     if (static_def) is_virt = static_def->is_method_virtual(method);
-                    else if (cl_obj->class_def) is_virt = cl_obj->class_def->is_method_virtual(method);
+                    else if (cl_obj && cl_obj->class_def) is_virt = cl_obj->class_def->is_method_virtual(method);
 
-                    if (is_virt && cl_obj->class_def) {
+                    if (is_virt && cl_obj && cl_obj->class_def) {
                         task_node = cl_obj->class_def->dispatch_task(method);
                         if (!task_node) func_node = cl_obj->class_def->dispatch_function(method);
                     } else if (static_def) {
                         task_node = static_def->find_task(method);
                         if (!task_node) func_node = static_def->find_function(method);
-                    } else if (cl_obj->class_def) {
+                    } else if (cl_obj && cl_obj->class_def) {
                         task_node = cl_obj->class_def->find_task(method);
                         if (!task_node) func_node = cl_obj->class_def->find_function(method);
                     }
@@ -2866,7 +2897,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             evaluated_args.push_back(LogicVal::make_x(i < n_ports && task_node->ports[i].width > 0 ? task_node->ports[i].width : 32));
                         }
                     }
-                    std::string frame_name = cl_obj->class_type_name + "::" + task_node->name + "__call";
+                    std::string class_type = cl_obj ? cl_obj->class_type_name : static_type;
+                    std::string frame_name = class_type + "::" + task_node->name + "__call";
                     expr_eval.get_context().push_frame(frame_name);
                     std::vector<std::pair<std::string, std::string>> output_bindings;
                     for (size_t i = 0; i < task_node->ports.size(); ++i) {
@@ -2896,9 +2928,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     const ClassNode* prev_cd_m = expr_eval.get_current_class_def();
-                    expr_eval.set_current_class_def(cl_obj->class_def);
+                    expr_eval.set_current_class_def(cl_obj ? cl_obj->class_def : static_def);
                     std::string saved_scope = bp.scope;
-                    bp.scope = cl_obj->class_type_name;
+                    bp.scope = class_type;
 
                     for (auto& s : task_node->get_body()) {
                         if (has_returned(bp)) break;
@@ -2937,7 +2969,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             evaluated_args.push_back(LogicVal::make_x(i < n_inputs && func_node->inputs[i].width > 0 ? func_node->inputs[i].width : 32));
                         }
                     }
-                    std::string frame_name = cl_obj->class_type_name + "::" + func_node->name + "__call";
+                    std::string class_type = cl_obj ? cl_obj->class_type_name : static_type;
+                    std::string frame_name = class_type + "::" + func_node->name + "__call";
                     expr_eval.get_context().push_frame(frame_name);
                     if (expr_eval.get_context().current_frame()) {
                         expr_eval.get_context().current_frame()->func_return_name = func_node->name;
@@ -2974,7 +3007,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     BoundProcess* prev_bp = expr_eval.get_current_process();
                     BoundProcess call_bp{frame_name, nullptr, 0, false};
-                    call_bp.scope = cl_obj->class_type_name;
+                    call_bp.scope = class_type;
                     expr_eval.set_current_process(&call_bp);
                     for (auto& s : func_node->get_body()) {
                         if (has_returned(call_bp)) break;
@@ -4153,7 +4186,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
                     LogicVal casted = (engine.netlist[net_id].type_name == "string" || rhs_val.is_string)
                         ? rhs_val
-                        : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed);
+                        : LogicOps::cast_width(rhs_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed && rhs_val.is_signed);
                     engine.scheduler.queue_nba(net_id, casted);
                 }
                 return;
@@ -5090,7 +5123,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     LogicVal old_v = engine.netlist[target_id].value;
                     LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string)
                         ? rhs_val
-                        : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                        : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && rhs_val.is_signed);
                     engine.netlist[target_id].set(casted);
                     if (target_id < engine.alias_members.size()) {
                         for (size_t other_id : engine.alias_members[target_id]) {
@@ -6639,10 +6672,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 remaining = next_part;
                             }
                             if (resolved) {
+                                uint32_t final_off = accum_off;
+                                uint32_t final_w = cur_len;
+                                if (assign->bit_idx) {
+                                    uint32_t m = eval_expr(assign->bit_idx.get(), bp.scope).aval;
+                                    if (assign->bit_lsb) {
+                                        uint32_t l = eval_expr(assign->bit_lsb.get(), bp.scope).aval;
+                                        if (m < l) std::swap(m, l);
+                                        final_off += l;
+                                        final_w = m - l + 1;
+                                    } else {
+                                        final_off += m;
+                                        final_w = 1;
+                                    }
+                                }
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto cur = old_v;
-                                cur.deposit_slice(accum_off, cur_len, rhs_val);
+                                cur.deposit_slice(final_off, final_w, rhs_val);
                                 engine.netlist[target_id].set(cur);
                                 if (target_id < engine.alias_members.size()) {
                                     for (size_t other_id : engine.alias_members[target_id]) {
@@ -6720,7 +6767,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (iv.is_unknown()) { any_x = true; break; }
                                 int64_t val = iv.is_signed ? iv.to_signed() : (int64_t)iv.aval;
                                 const auto& dim = it_vdm->second.dimensions[d];
-                                int64_t off_in_dim = (dim.left >= dim.right) ? (val - dim.right) : (dim.right - val);
+                                int64_t off_in_dim = 0;
+                                if (d == 1 && assign->bit_lsb2) {
+                                    LogicVal lsb_v2 = eval_expr(assign->bit_lsb2.get(), bp.scope);
+                                    if (!lsb_v2.is_unknown()) {
+                                        if (assign->is_plus_colon2) {
+                                            off_in_dim = (dim.left >= dim.right) ? (val - dim.right) : (dim.right - val);
+                                        } else if (assign->is_minus_colon2) {
+                                            uint32_t w = lsb_v2.aval;
+                                            int64_t b_lsb = (val >= (int64_t)w - 1) ? (val - ((int64_t)w - 1)) : 0;
+                                            off_in_dim = (dim.left >= dim.right) ? (b_lsb - dim.right) : (dim.right - val);
+                                        } else {
+                                            int64_t lsb_val = lsb_v2.is_signed ? lsb_v2.to_signed() : (int64_t)lsb_v2.aval;
+                                            if (dim.left >= dim.right) {
+                                                off_in_dim = std::min(val, lsb_val) - dim.right;
+                                            } else {
+                                                off_in_dim = dim.right - std::max(val, lsb_val);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    off_in_dim = (dim.left >= dim.right) ? (val - dim.right) : (dim.right - val);
+                                }
                                 if (off_in_dim < 0) off_in_dim = 0;
                                 total_off += (uint32_t)off_in_dim * strides[d];
                             }
@@ -6828,9 +6896,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     msb = msb_val.aval;
                                     lsb = lsb_val.aval;
                                     if (msb < lsb) std::swap(msb, lsb);
-                                    slice_w = msb - lsb + 1;
+                                    if (d1_width > 1 && it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                                        const auto& dim0 = it_vdm->second.dimensions[0];
+                                        int64_t off_l = (dim0.left >= dim0.right) ? ((int64_t)lsb - dim0.right) : (dim0.right - (int64_t)lsb);
+                                        int64_t off_m = (dim0.left >= dim0.right) ? ((int64_t)msb - dim0.right) : (dim0.right - (int64_t)msb);
+                                        if (off_l > off_m) std::swap(off_l, off_m);
+                                        lsb = (uint32_t)off_l * d1_width;
+                                        slice_w = (uint32_t)(off_m - off_l + 1) * d1_width;
+                                    } else {
+                                        slice_w = msb - lsb + 1;
+                                        if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
+                                    }
                                 }
-                                if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto old_slice = old_v.extract_slice(lsb, slice_w);
@@ -6883,7 +6960,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 uint32_t elem_idx = (uint32_t)signed_idx;
                                 uint32_t lsb = 0, slice_w = 1;
                                 if (d1_width > 1) {
-                                    lsb = elem_idx * d1_width;
+                                    if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                                        const auto& dim0 = it_vdm->second.dimensions[0];
+                                        int64_t off = (dim0.left >= dim0.right) ? (signed_idx - dim0.right) : (dim0.right - signed_idx);
+                                        if (off < 0) off = 0;
+                                        lsb = (uint32_t)off * d1_width;
+                                    } else {
+                                        lsb = elem_idx * d1_width;
+                                    }
                                     slice_w = d1_width;
                                 } else {
                                     lsb = elem_idx;
@@ -6925,7 +7009,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (!engine.netlist[target_id].has_procedural_assign) {
                             LogicVal old_v = engine.netlist[target_id].value;
                             LogicVal ext_rhs = extend_unsized_literal_if_needed(assign->rhs.get(), rhs_val, engine.netlist[target_id].width);
-                            LogicVal casted = (engine.netlist[target_id].type_name == "string") ? ext_rhs : LogicOps::cast_width(ext_rhs, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                            LogicVal casted = (engine.netlist[target_id].type_name == "string") ? ext_rhs : LogicOps::cast_width(ext_rhs, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && ext_rhs.is_signed);
                             engine.netlist[target_id].set(casted);
                             if (target_id < engine.alias_members.size()) {
                                 for (size_t other_id : engine.alias_members[target_id]) {

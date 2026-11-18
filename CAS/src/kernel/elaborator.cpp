@@ -3080,6 +3080,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
             }
             for (const auto& m : pkg->enum_constant_map) {
+                bool local_decl = false;
+                for (const auto& lp : mod->parameters) { if (lp.name == m.first) { local_decl = true; break; } }
+                for (const auto& sig : mod->signals) { if (sig.name == m.first) { local_decl = true; break; } }
+                if (local_decl) continue;
                 result.enum_constant_map[scope + "." + m.first] = m.second;
                 if (parent_scope.empty()) result.enum_constant_map[m.first] = m.second;
             }
@@ -3269,6 +3273,95 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.simple_types[scope + "." + td->type_name] = sinfo;
             }
         }
+    }
+
+    for (const auto& pair : mod->struct_typedefs) {
+        const std::string& st_name = pair.first;
+        const auto& st_node = pair.second;
+        if (!st_node) continue;
+        if (result.struct_types.find(st_name) != result.struct_types.end()) continue;
+
+        PackedStructType st;
+        st.name = st_name;
+        st.is_signed = st_node->is_signed;
+        st.total_width = st_node->total_width;
+        st.is_union = st_node->is_union;
+        st.is_tagged = st_node->is_tagged;
+        st.tag_bits = st_node->tag_bits;
+        st.payload_width = st_node->payload_width;
+
+        size_t n = st_node->members.size();
+        std::vector<uint32_t> offsets(n, 0);
+        uint32_t running_offset = 0;
+        if (st.is_union) {
+            for (size_t i = 0; i < n; ++i) offsets[i] = 0;
+        } else {
+            for (int i = (int)n - 1; i >= 0; --i) {
+                offsets[i] = running_offset;
+                running_offset += st_node->members[i].width;
+            }
+            if (st.total_width == 0) st.total_width = running_offset;
+        }
+
+        for (size_t i = 0; i < n; ++i) {
+            const auto& mn = st_node->members[i];
+            StructMember sm;
+            sm.name = mn.name;
+            sm.width = mn.width;
+            sm.offset = offsets[i];
+            sm.is_signed = mn.is_signed;
+            sm.type_name = mn.type_name;
+            sm.msb = mn.msb;
+            sm.lsb = mn.lsb;
+            sm.default_expr = mn.default_value;
+            st.members.push_back(sm);
+        }
+        result.struct_types[st_name] = st;
+        result.struct_types[scope + "." + st_name] = st;
+    }
+
+    for (const auto& pair : Parser::global_struct_typedefs) {
+        const std::string& st_name = pair.first;
+        const auto& st_node = pair.second;
+        if (!st_node) continue;
+        if (result.struct_types.find(st_name) != result.struct_types.end()) continue;
+
+        PackedStructType st;
+        st.name = st_name;
+        st.is_signed = st_node->is_signed;
+        st.total_width = st_node->total_width;
+        st.is_union = st_node->is_union;
+        st.is_tagged = st_node->is_tagged;
+        st.tag_bits = st_node->tag_bits;
+        st.payload_width = st_node->payload_width;
+
+        size_t n = st_node->members.size();
+        std::vector<uint32_t> offsets(n, 0);
+        uint32_t running_offset = 0;
+        if (st.is_union) {
+            for (size_t i = 0; i < n; ++i) offsets[i] = 0;
+        } else {
+            for (int i = (int)n - 1; i >= 0; --i) {
+                offsets[i] = running_offset;
+                running_offset += st_node->members[i].width;
+            }
+            if (st.total_width == 0) st.total_width = running_offset;
+        }
+
+        for (size_t i = 0; i < n; ++i) {
+            const auto& mn = st_node->members[i];
+            StructMember sm;
+            sm.name = mn.name;
+            sm.width = mn.width;
+            sm.offset = offsets[i];
+            sm.is_signed = mn.is_signed;
+            sm.type_name = mn.type_name;
+            sm.msb = mn.msb;
+            sm.lsb = mn.lsb;
+            sm.default_expr = mn.default_value;
+            st.members.push_back(sm);
+        }
+        result.struct_types[st_name] = st;
     }
 
     for (auto& f : mod->functions) {
@@ -3864,9 +3957,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
         } else if (s.is_dynamic_array) {
             std::string da_scope = scope + "." + s.name;
-            bool is_4st = (s.type_name != "bit" && s.type_name != "byte" && s.type_name != "shortint" && s.type_name != "int" && s.type_name != "longint");
+            bool is_real = (s.type_name == "real" || s.type_name == "shortreal");
+            bool is_4st = (!is_real && s.type_name != "bit" && s.type_name != "byte" && s.type_name != "shortint" && s.type_name != "int" && s.type_name != "longint");
             auto dao = DynamicArrayObject(da_scope, w, s.is_signed);
             dao.is_four_state = is_4st;
+            dao.is_real = is_real;
             result.dynamic_array_map[da_scope] = std::move(dao);
             if (debug_out) {
                 *debug_out << "     * Dynamic Array allocated: " << da_scope 
@@ -4092,6 +4187,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             if (s.is_class_handle) {
                 result.netlist[sid].is_class_handle = true;
+                result.netlist[sid].type_name = s.class_type_name;
                 result.netlist[sid].value = LogicVal(64, 0, 0);
                 result.netlist[sid].prev_value = LogicVal(64, 0, 0);
                 result.class_handle_names.insert(scope + "." + s.name);

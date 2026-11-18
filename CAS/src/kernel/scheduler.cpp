@@ -3507,6 +3507,36 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                     return;
                 }
             }
+        } else {
+            std::string cls_name = "";
+            if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                if (local && local->is_class_handle) cls_name = !local->class_type_name.empty() ? local->class_type_name : local->type_name;
+            }
+            if (cls_name.empty()) {
+                size_t nid = engine.get_net_id(bp.scope, var_name);
+                if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
+                    cls_name = engine.netlist[nid].type_name;
+                }
+            }
+            if (cls_name.empty()) {
+                cls_name = engine.get_class_type(var_name, bp.scope);
+            }
+            if (!cls_name.empty()) {
+                const ClassNode* cls = engine.get_class_def(cls_name);
+                if (cls) {
+                    target_task = cls->dispatch_task(method_name);
+                    if (!target_task) {
+                        FunctionNode* fn = cls->dispatch_function(method_name);
+                        if (fn) {
+                            engine.evaluator.execute_statement(tcall, bp);
+                            if (!bp.call_stack.empty()) bp.call_stack.back().pc++;
+                            else bp.pc++;
+                            return;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -3839,7 +3869,22 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     for (auto* s : frame.flattened_body) {
         if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(s)) {
             if (!frame.local_frame.has_var(vdecl->var_name)) {
-                frame.local_frame.declare_var(vdecl->var_name, vdecl->width, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                uint32_t eff_w = vdecl->width;
+                if (!vdecl->packed_dimensions.empty()) {
+                    uint32_t tot_w = 0;
+                    for (const auto& pd : vdecl->packed_dimensions) {
+                        if (pd.left_expr && pd.right_expr) {
+                            LogicVal msb_v = engine.evaluator.eval_expr(pd.left_expr.get(), bp.scope);
+                            LogicVal lsb_v = engine.evaluator.eval_expr(pd.right_expr.get(), bp.scope);
+                            int64_t m = msb_v.is_unknown() ? 0 : (int64_t)msb_v.aval;
+                            int64_t l = lsb_v.is_unknown() ? 0 : (int64_t)lsb_v.aval;
+                            uint32_t dim_w = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                            tot_w = (tot_w == 0) ? dim_w : (tot_w * dim_w);
+                        }
+                    }
+                    if (tot_w > 0) eff_w = tot_w;
+                }
+                frame.local_frame.declare_var(vdecl->var_name, eff_w, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
             }
         }
     }
@@ -3919,6 +3964,7 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         child_bp.scope = engine.processes[pid].scope;
         child_bp.proc = engine.processes[pid].proc;
         child_bp.call_stack = engine.processes[pid].call_stack;
+        child_bp.base_call_stack_depth = child_bp.call_stack.size();
         child_bp.parent_pid = pid;
         child_bp.pc = 0;
         child_bp.completed = false;
@@ -4153,7 +4199,7 @@ void StratifiedScheduler::step_process(size_t pid) {
         engine.evaluator.set_current_process(&bp);
 
         // A. Execution within an active task activation frame
-        if (!bp.call_stack.empty()) {
+        if (!bp.call_stack.empty() && (bp.parent_pid == (size_t)-1 || bp.dynamic_statements.empty() || bp.call_stack.size() > bp.base_call_stack_depth)) {
             auto& cur_frame = bp.call_stack.back();
             if (cur_frame.this_obj) {
                 engine.evaluator.set_current_this(cur_frame.this_obj);
@@ -4360,7 +4406,22 @@ void StratifiedScheduler::step_process(size_t pid) {
                             }
                         }
                     }
-                    if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                    bool has_sub_task = (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name));
+                    if (!has_sub_task && !cl_obj) {
+                        std::string cls_name = "";
+                        if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                            LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                            if (local && local->is_class_handle) cls_name = !local->class_type_name.empty() ? local->class_type_name : local->type_name;
+                        }
+                        if (cls_name.empty()) {
+                            cls_name = engine.get_class_type(var_name, bp.scope);
+                        }
+                        if (!cls_name.empty()) {
+                            const ClassNode* cls = engine.get_class_def(cls_name);
+                            if (cls && cls->find_task(method_name)) has_sub_task = true;
+                        }
+                    }
+                    if (has_sub_task) {
                         invoke_task(bp, sub_tcall);
                         continue;
                     }
@@ -4653,7 +4714,22 @@ void StratifiedScheduler::step_process(size_t pid) {
                             }
                         }
                     }
-                    if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                    bool has_task = (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name));
+                    if (!has_task && !cl_obj) {
+                        std::string cls_name = "";
+                        if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                            LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                            if (local && local->is_class_handle) cls_name = !local->class_type_name.empty() ? local->class_type_name : local->type_name;
+                        }
+                        if (cls_name.empty()) {
+                            cls_name = engine.get_class_type(var_name, bp.scope);
+                        }
+                        if (!cls_name.empty()) {
+                            const ClassNode* cls = engine.get_class_def(cls_name);
+                            if (cls && cls->find_task(method_name)) has_task = true;
+                        }
+                    }
+                    if (has_task) {
                         invoke_task(bp, tcall);
                         continue;
                     }
@@ -5038,7 +5114,22 @@ void StratifiedScheduler::step_process(size_t pid) {
                         }
                     }
                 }
-                if (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name)) {
+                bool has_task = (cl_obj && cl_obj->class_def && cl_obj->class_def->find_task(method_name));
+                if (!has_task && !cl_obj) {
+                    std::string cls_name = "";
+                    if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
+                        LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(var_name);
+                        if (local && local->is_class_handle) cls_name = !local->class_type_name.empty() ? local->class_type_name : local->type_name;
+                    }
+                    if (cls_name.empty()) {
+                        cls_name = engine.get_class_type(var_name, bp.scope);
+                    }
+                    if (!cls_name.empty()) {
+                        const ClassNode* cls = engine.get_class_def(cls_name);
+                        if (cls && cls->find_task(method_name)) has_task = true;
+                    }
+                }
+                if (has_task) {
                     invoke_task(bp, tcall);
                     continue;
                 }
@@ -5320,6 +5411,17 @@ void StratifiedScheduler::run_simulation() {
     }
 
     size_t num_root_processes = engine.processes.size();
+    for (size_t i = 0; i < num_root_processes; ++i) {
+        if (engine.processes[i].parent_pid != (size_t)-1) continue;
+        if (engine.processes[i].is_reactive) continue;
+        if (engine.processes[i].proc && engine.processes[i].proc->type == ProcessType::ALWAYS) {
+            if (!engine.processes[i].proc->body.empty() && 
+                dynamic_cast<EventControlStatementNode*>(engine.processes[i].proc->body[0].get())) {
+                step_process(i);
+            }
+        }
+    }
+
     for (size_t i = 0; i < num_root_processes; ++i) {
         if (engine.processes[i].parent_pid != (size_t)-1) continue;
         if (engine.processes[i].is_reactive) continue;

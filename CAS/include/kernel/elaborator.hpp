@@ -181,6 +181,7 @@ struct BoundProcess {
     std::vector<std::string> module_wildcard_imports;
     std::unordered_map<std::string, std::pair<std::string, std::string>> module_explicit_imports;
     std::vector<TaskActivationFrame> call_stack;
+    size_t base_call_stack_depth = 0;
 
     size_t parent_pid = (size_t)-1;
     ForkBarrier fork_barrier;

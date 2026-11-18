@@ -81,7 +81,11 @@ public:
     LogicVal eval_array_bound_query(ArrayBoundQueryNode* node, const std::string& scope);
     LogicVal eval_sformatf(SFormatfNode* node, const std::string& scope);
     static std::string format_systemverilog_string(const std::string& fmt, const std::vector<LogicVal>& args, uint64_t sim_time);
+    int scan_core(const std::string& input, const std::string& fmt,
+                  const std::vector<std::unique_ptr<ExpressionNode>>& args,
+                  size_t arg_start, const std::string& scope, size_t& consumed_in);
     int eval_sscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope);
+    int eval_fscanf(const std::vector<std::unique_ptr<ExpressionNode>>& args, const std::string& scope);
     bool get_stream_bits(ExpressionNode* expr, const std::string& scope, std::vector<std::pair<bool, bool>>& out_bits);
 
     const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
