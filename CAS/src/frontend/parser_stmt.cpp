@@ -842,11 +842,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         if (match(TokenType::TOKEN_LPAREN)) {
             while (true) {
                 EdgeType edge = EdgeType::LEVEL;
+                bool is_edge_kw = false;
                 if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
                 else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
                 else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "edge") {
                     advance();
-                    edge = EdgeType::LEVEL;
+                    is_edge_kw = true;
                 }
 
                 std::string sig = current.text;
@@ -868,7 +869,12 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     advance();
                     parse_expression();
                 }
-                events.push_back({edge, sig});
+                if (is_edge_kw) {
+                    events.push_back({EdgeType::POSEDGE, sig});
+                    events.push_back({EdgeType::NEGEDGE, sig});
+                } else {
+                    events.push_back({edge, sig});
+                }
                 if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
                 break;
             }
@@ -956,7 +962,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         match(TokenType::TOKEN_SEMICOLON);
 
-        return std::make_unique<ForkStatementNode>(jt, std::move(branches));
+        return std::make_unique<ForkStatementNode>(jt, std::move(branches), fork_label);
     }
 
     // disable statement (IEEE 1800-2023 §9.6.2)

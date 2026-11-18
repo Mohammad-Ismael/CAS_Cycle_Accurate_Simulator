@@ -287,6 +287,8 @@ def run_single_test(test_info):
             cmd.append(f"+incdir+{idir}")
         elif a.startswith("-D"):
             cmd.append(f"+define+{a[2:]}")
+        elif a.startswith("-P") or a.startswith("-p"):
+            cmd.append(a)
         elif a.endswith(".v") or a.endswith(".sv"):
             ef = a
             if not os.path.isabs(ef):

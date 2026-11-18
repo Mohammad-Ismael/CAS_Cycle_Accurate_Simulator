@@ -44,7 +44,7 @@ struct EnumType {
             }
         }
         if (cur_idx == (size_t)-1) {
-            return members.front().val;
+            return current_val;
         }
         int64_t count = (int64_t)members.size();
         int64_t target_idx = ((int64_t)cur_idx + n) % count;
@@ -62,7 +62,7 @@ struct EnumType {
             }
         }
         if (cur_idx == (size_t)-1) {
-            return members.back().val;
+            return current_val;
         }
         int64_t count = (int64_t)members.size();
         int64_t target_idx = ((int64_t)cur_idx - n) % count;

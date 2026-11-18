@@ -128,7 +128,7 @@ void Lexer::handle_include() {
                    << ", " << content.size() << " bytes)\n";
     }
 
-    file_stack.push_back({inc_path, content, 0, 1});
+    file_stack.push_back({full_path, content, 0, 1});
 }
 
 double Lexer::parse_time_fs_real(const std::string& s) {
@@ -537,7 +537,7 @@ void Lexer::skip_whitespace_and_comments() {
                 if (num_str.empty() || std::stoi(num_str) <= 0 || !has_quotes || fname.empty() || level_str.empty() || (level_str != "0" && level_str != "1" && level_str != "2")) {
                     throw std::runtime_error("Invalid `line directive per IEEE 1800-2023 22.12");
                 }
-                cur.line = std::stoi(num_str);
+                cur.line = std::stoi(num_str) - 1;
                 cur.filename = fname;
             } else if (directive == "pragma") {
                 while (std::isspace(peek()) && peek() != '\n') advance();
@@ -571,11 +571,25 @@ void Lexer::skip_whitespace_and_comments() {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
                 if (is_active) {
-                    file_stack.push_back({"<__FILE__>", "\"" + cur.filename + "\"", 0, cur.line});
+                    std::string f = cur.filename;
+                    for (auto it = file_stack.rbegin(); it != file_stack.rend(); ++it) {
+                        if (!it->filename.empty() && it->filename.front() != '<') {
+                            f = it->filename;
+                            break;
+                        }
+                    }
+                    file_stack.push_back({"<__FILE__>", "\"" + f + "\"", 0, cur.line});
                 }
             } else if (directive == "__LINE__") {
                 if (is_active) {
-                    file_stack.push_back({"<__LINE__>", std::to_string(cur.line), 0, cur.line});
+                    size_t l = cur.line;
+                    for (auto it = file_stack.rbegin(); it != file_stack.rend(); ++it) {
+                        if (!it->filename.empty() && it->filename.front() != '<') {
+                            l = it->line;
+                            break;
+                        }
+                    }
+                    file_stack.push_back({"<__LINE__>", std::to_string(l), 0, cur.line});
                 }
             } else {
                 auto process_macro_expansion = [&](std::string& exp) {
@@ -593,6 +607,10 @@ void Lexer::skip_whitespace_and_comments() {
                         int max_depth = 20;
                         bool changed = true;
                         while (changed && max_depth-- > 0) {
+                            size_t p_del = 0;
+                            while ((p_del = exp.find("``", p_del)) != std::string::npos) {
+                                exp.erase(p_del, 2);
+                            }
                             changed = false;
                             size_t mp = 0;
                             while ((mp = exp.find('`', mp)) != std::string::npos) {
@@ -663,7 +681,7 @@ void Lexer::skip_whitespace_and_comments() {
                                                     std::string p2 = formal + "``";
                                                     q = 0;
                                                     while ((q = sub.find(p2, q)) != std::string::npos) {
-                                                        std::string repl = (!act.empty() && act[0] == '`') ? (act + "``") : act;
+                                                        std::string repl = act;
                                                         sub.replace(q, p2.length(), repl);
                                                         q += repl.length();
                                                     }
@@ -787,7 +805,7 @@ void Lexer::skip_whitespace_and_comments() {
                                 std::string paste2 = formal + "``";
                                 p = 0;
                                 while ((p = expanded.find(paste2, p)) != std::string::npos) {
-                                    std::string repl = (!actual.empty() && actual[0] == '`') ? (actual + "``") : actual;
+                                    std::string repl = actual;
                                     expanded.replace(p, paste2.length(), repl);
                                     p += repl.length();
                                 }

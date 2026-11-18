@@ -2234,14 +2234,18 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         } else {
             if (context.has_active_frame()) {
                 LocalVar* local = context.lookup_local(var_name);
-                if (local && local->is_class_handle) {
+                if (local && (local->is_class_handle || (!local->type_name.empty() && engine.get_class_def(local->type_name)))) {
+                    local->is_class_handle = true;
+                    local->class_type_name = local->type_name;
                     cl_obj = engine.get_class_object(local->value.aval).get();
                 }
             }
             if (!cl_obj && current_bp && !current_bp->call_stack.empty()) {
                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                     LocalVar* local = it->local_frame.get_var(var_name);
-                    if (local && local->is_class_handle) {
+                    if (local && (local->is_class_handle || (!local->type_name.empty() && engine.get_class_def(local->type_name)))) {
+                        local->is_class_handle = true;
+                        local->class_type_name = local->type_name;
                         cl_obj = engine.get_class_object(local->value.aval).get();
                         break;
                     }
@@ -2261,6 +2265,28 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 LogicVal handle_val = eval(&sub_man, scope);
                 if (!handle_val.is_unknown() && handle_val.aval != 0) {
                     cl_obj = engine.get_class_object(handle_val.aval).get();
+                }
+            }
+        }
+        if (!cl_obj) {
+            std::string hier_fn = var_name + "." + method_node->method_name;
+            FunctionNode* target_fn = nullptr;
+            if (engine.function_map.count(hier_fn)) {
+                target_fn = engine.function_map.at(hier_fn);
+            } else if (!scope.empty() && engine.function_map.count(scope + "." + hier_fn)) {
+                target_fn = engine.function_map.at(scope + "." + hier_fn);
+            }
+            if (target_fn) {
+                std::vector<LogicVal> evaluated_args;
+                std::vector<ExpressionNode*> raw_args;
+                for (auto& a : method_node->args) {
+                    evaluated_args.push_back(eval(a.get(), scope));
+                    raw_args.push_back(a.get());
+                }
+                LogicVal res;
+                std::string fn_key = engine.function_map.count(hier_fn) ? hier_fn : (scope + "." + hier_fn);
+                if (eval_function(fn_key, evaluated_args, res, raw_args)) {
+                    return res;
                 }
             }
         }
@@ -5349,6 +5375,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             int64_t idx = (int64_t)addr_val.aval;
             LogicVal elem = da->get_elem(idx);
+            elem.is_signed = da->is_signed;
             if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
                 uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
                 uint64_t b_lsb = 0;

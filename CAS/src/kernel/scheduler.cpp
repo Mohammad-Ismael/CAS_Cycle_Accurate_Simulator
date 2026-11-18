@@ -3975,6 +3975,10 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         engine.processes[pid].fork_barrier.active = true;
     }
 
+    if (!fork_stmt->block_name.empty()) {
+        engine.processes[pid].named_blocks.push_back(fork_stmt->block_name);
+    }
+
     // Spawn child processes
     for (auto& branch : fork_stmt->branches) {
         BoundProcess child_bp;
@@ -3982,6 +3986,7 @@ void StratifiedScheduler::invoke_fork(size_t pid, ForkStatementNode* fork_stmt) 
         child_bp.proc = engine.processes[pid].proc;
         child_bp.call_stack = engine.processes[pid].call_stack;
         child_bp.base_call_stack_depth = child_bp.call_stack.size();
+        child_bp.named_blocks = engine.processes[pid].named_blocks;
         child_bp.parent_pid = pid;
         child_bp.pc = 0;
         child_bp.completed = false;

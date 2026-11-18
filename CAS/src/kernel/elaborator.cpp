@@ -3261,8 +3261,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
 
-    std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : Lexer::global_time_unit_str;
-    std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : Lexer::global_time_precision_str;
+    std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : (!Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str);
+    std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : (!Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str);
     result.timescale_map[mod->name] = {eff_tu, eff_tp};
     result.timescale_map[scope] = {eff_tu, eff_tp};
     for (const auto& kv : mod->nested_timescales) {
@@ -3596,6 +3596,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         // 0. Top-level parameter overrides (if this is top module)
         if (parent_scope.empty()) {
             auto top_it = top_param_overrides.find(p.name);
+            if (top_it == top_param_overrides.end()) {
+                top_it = top_param_overrides.find(mod->name + "." + p.name);
+            }
+            if (top_it == top_param_overrides.end() && !scope.empty()) {
+                top_it = top_param_overrides.find(scope + "." + p.name);
+            }
             if (top_it != top_param_overrides.end()) {
                 lval = top_it->second;
                 val = lval.aval;
@@ -4445,7 +4451,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.virtual_interface_names.insert(scope + "." + s.name);
                 result.virtual_interface_names.insert(s.name);
             }
-            if (s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" ||
+            if (s.is_2state || s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" ||
                 s.type_name == "shortint" || s.type_name == "longint") {
                 result.netlist[sid].type_name = s.type_name;
                 result.netlist[sid].is_2state = true;

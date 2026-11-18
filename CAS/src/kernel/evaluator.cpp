@@ -746,7 +746,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 for (const auto& nb : proc.named_blocks) {
                     if (nb == ds->target ||
                         (nb.size() > ds->target.size() &&
-                         nb.substr(nb.size() - ds->target.size() - 1) == "." + ds->target)) {
+                         nb.substr(nb.size() - ds->target.size() - 1) == "." + ds->target) ||
+                        (ds->target.size() > nb.size() &&
+                         ds->target.substr(ds->target.size() - nb.size() - 1) == "." + nb)) {
                         match_task = true;
                         break;
                     }
@@ -757,7 +759,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
                         if (blk->name == ds->target ||
                             (blk->name.size() > ds->target.size() &&
-                             blk->name.substr(blk->name.size() - ds->target.size() - 1) == "." + ds->target)) {
+                             blk->name.substr(blk->name.size() - ds->target.size() - 1) == "." + ds->target) ||
+                            (ds->target.size() > blk->name.size() &&
+                             ds->target.substr(ds->target.size() - blk->name.size() - 1) == "." + blk->name)) {
                             match_task = true;
                             break;
                         }
@@ -2382,6 +2386,32 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        if (tcall->task_name == "$swrite" || tcall->task_name == "$swriteb" ||
+            tcall->task_name == "$swriteo" || tcall->task_name == "$swriteh") {
+            if (tcall->args.empty() || !tcall->args[0]) return;
+            std::string fmt = "";
+            size_t arg_start = 1;
+            if (tcall->args.size() > 1 && tcall->args[1]) {
+                LogicVal fmt_val = eval_expr(tcall->args[1].get(), bp.scope);
+                if (fmt_val.is_string) {
+                    fmt = fmt_val.str_val;
+                    arg_start = 2;
+                }
+            }
+
+            std::vector<LogicVal> arg_vals;
+            for (size_t i = arg_start; i < tcall->args.size(); ++i) {
+                if (tcall->args[i]) {
+                    arg_vals.push_back(eval_expr(tcall->args[i].get(), bp.scope));
+                }
+            }
+
+            std::string out_str = expr_eval.format_systemverilog_string(fmt, arg_vals, engine.get_sim_time());
+            LogicVal res = LogicVal::make_string(out_str);
+            expr_eval.writeback_lvalue(tcall->args[0].get(), res, bp.scope);
+            return;
+        }
+
         if (tcall->task_name == "$fflush") {
             if (AsyncTraceBuffer::instance().is_running()) {
                 AsyncTraceBuffer::instance().flush();
@@ -2759,14 +2789,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 if (expr_eval.get_context().has_active_frame()) {
                     LocalVar* local = expr_eval.get_context().lookup_local(var_name);
-                    if (local && local->is_class_handle) {
+                    if (local && (local->is_class_handle || (!local->type_name.empty() && engine.get_class_def(local->type_name)))) {
+                        local->is_class_handle = true;
+                        local->class_type_name = local->type_name;
                         cl_obj = engine.get_class_object(local->value.aval).get();
                     }
                 }
                 if (!cl_obj && !bp.call_stack.empty()) {
                     for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                         LocalVar* local = it->local_frame.get_var(var_name);
-                        if (local && local->is_class_handle) {
+                        if (local && (local->is_class_handle || (!local->type_name.empty() && engine.get_class_def(local->type_name)))) {
+                            local->is_class_handle = true;
+                            local->class_type_name = local->type_name;
                             cl_obj = engine.get_class_object(local->value.aval).get();
                             break;
                         }
@@ -3709,6 +3743,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 write_variable(ma->var_name + "." + ma->member_name, res, bp);
             }
+        } else {
+            expr_eval.writeback_lvalue(sfmt->target_expr.get(), res, bp.scope);
         }
         return;
     }

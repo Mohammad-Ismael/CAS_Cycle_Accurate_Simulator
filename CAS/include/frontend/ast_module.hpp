@@ -43,6 +43,7 @@ struct PortNode : public ASTNode {
     bool is_semaphore = false;
     bool is_mailbox = false;
     bool is_virtual_interface = false;
+    bool is_2state = false;
     std::string interface_name = "";
     std::unique_ptr<ExpressionNode> default_value = nullptr;
 

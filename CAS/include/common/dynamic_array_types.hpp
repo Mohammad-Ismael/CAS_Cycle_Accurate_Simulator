@@ -54,16 +54,22 @@ struct DynamicArrayObject {
     }
 
     LogicVal get_elem(int64_t idx) const {
+        LogicVal ret;
         if (storage && storage->size() == elements.size()) {
             if (idx < 0 || (size_t)idx >= storage->size()) {
                 return is_real ? LogicVal::make_real(0.0) : LogicVal::make_x(elem_width);
             }
-            return (*storage)[(size_t)idx];
+            ret = (*storage)[(size_t)idx];
+        } else {
+            if (idx < 0 || (size_t)idx >= elements.size()) {
+                return is_real ? LogicVal::make_real(0.0) : LogicVal::make_x(elem_width);
+            }
+            ret = elements[(size_t)idx];
         }
-        if (idx < 0 || (size_t)idx >= elements.size()) {
-            return is_real ? LogicVal::make_real(0.0) : LogicVal::make_x(elem_width);
+        if (!is_real && !ret.is_string) {
+            ret.is_signed = is_signed;
         }
-        return elements[(size_t)idx];
+        return ret;
     }
 
     void set_elem(int64_t idx, const LogicVal& val) {
@@ -85,10 +91,12 @@ struct DynamicArrayObject {
     }
 
     void share_from(DynamicArrayObject& src) {
-        if (!src.storage || src.storage->size() != src.elements.size()) {
-            src.storage = std::make_shared<std::vector<LogicVal>>(src.elements);
-        }
-        storage = src.storage;
-        elements = *storage;
+        elem_width = src.elem_width;
+        is_signed = src.is_signed;
+        is_four_state = src.is_four_state;
+        is_real = src.is_real;
+        storage = nullptr;
+        const std::vector<LogicVal>& src_v = (src.storage && src.storage->size() == src.elements.size()) ? *src.storage : src.elements;
+        elements = src_v;
     }
 };

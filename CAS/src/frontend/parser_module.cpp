@@ -2217,7 +2217,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             enum_node->members.push_back({s_name, mval});
                             ParameterDef pdef;
                             pdef.name = s_name;
-                            pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
+                            pdef.is_signed = e_signed;
+                            pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width, e_signed);
                             if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
                             throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
                         }
@@ -2230,7 +2231,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         enum_node->members.push_back({mname, mval});
                         ParameterDef pdef;
                         pdef.name = mname;
-                        pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
+                        pdef.is_signed = e_signed;
+                        pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width, e_signed);
                         if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
                             throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
                         }
@@ -2255,6 +2257,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     auto lsb = std::make_unique<NumberNode>(0, 32);
                     PortNode sig(signame, "internal", std::move(msb), std::move(lsb), e_signed, NetKind::VAR);
                     sig.type_name = anon_enum_name;
+                    sig.is_2state = (e_base == "bit" || e_base == "int" || e_base == "byte" || e_base == "shortint" || e_base == "longint");
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
@@ -3564,11 +3567,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         auto proc = std::make_unique<ProcessNode>(ProcessType::SEQUENTIAL);
                         while (true) {
                             EdgeType edge = EdgeType::LEVEL;
+                            bool is_edge_kw = false;
                             if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
                             else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
                             else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "edge") {
                                 advance();
-                                edge = EdgeType::LEVEL;
+                                is_edge_kw = true;
                             }
 
                             if (current.type == TokenType::TOKEN_NOT || current.type == TokenType::TOKEN_TILDE ||
@@ -3592,7 +3596,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 advance();
                                 parse_expression();
                             }
-                            proc->sensitivity_list.push_back({edge, sig});
+                            if (is_edge_kw) {
+                                proc->sensitivity_list.push_back({EdgeType::POSEDGE, sig});
+                                proc->sensitivity_list.push_back({EdgeType::NEGEDGE, sig});
+                            } else {
+                                proc->sensitivity_list.push_back({edge, sig});
+                            }
 
                             if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;
                             break;

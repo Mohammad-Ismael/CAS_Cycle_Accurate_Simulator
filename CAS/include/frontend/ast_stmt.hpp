@@ -625,14 +625,15 @@ enum class JoinType {
 struct ForkStatementNode : public StatementNode {
     JoinType join_type = JoinType::JOIN;
     std::vector<std::unique_ptr<StatementNode>> branches;
+    std::string block_name;
 
-    explicit ForkStatementNode(JoinType jt, std::vector<std::unique_ptr<StatementNode>> b)
-        : join_type(jt), branches(std::move(b)) {}
+    explicit ForkStatementNode(JoinType jt, std::vector<std::unique_ptr<StatementNode>> b, std::string name = "")
+        : join_type(jt), branches(std::move(b)), block_name(std::move(name)) {}
 
     std::unique_ptr<StatementNode> clone() const override {
         std::vector<std::unique_ptr<StatementNode>> br;
         for (const auto& s : branches) br.push_back(s ? s->clone() : nullptr);
-        return std::make_unique<ForkStatementNode>(join_type, std::move(br));
+        return std::make_unique<ForkStatementNode>(join_type, std::move(br), block_name);
     }
 };
 
