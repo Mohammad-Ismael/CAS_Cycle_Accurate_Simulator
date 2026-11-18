@@ -456,6 +456,13 @@ public:
         return false;
     }
 
+    static const UnpackedArrayTypedef* find_unpacked_array_typedef(const std::string& name) {
+        if (active_parser_instance) return active_parser_instance->get_unpacked_array_typedef(name);
+        auto git = global_unpacked_array_typedefs.find(name);
+        if (git != global_unpacked_array_typedefs.end()) return &git->second;
+        return nullptr;
+    }
+
     const UnpackedArrayTypedef* get_unpacked_array_typedef(const std::string& name) const {
         auto it = unpacked_array_typedef_map.find(name);
         if (it != unpacked_array_typedef_map.end()) return &it->second;

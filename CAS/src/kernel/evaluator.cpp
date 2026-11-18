@@ -5604,6 +5604,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             } else {
                                 local->dyn_array_data.allocate((size_t)sz);
+                                LogicVal init_val = eval_expr(new_arr->copy_source_expr.get(), bp.scope);
+                                for (size_t i = 0; i < (size_t)sz; ++i) {
+                                    local->dyn_array_data.set_elem(i, init_val);
+                                }
                             }
                         } else {
                             local->dyn_array_data.allocate((size_t)sz);
@@ -5638,7 +5642,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                         }
-                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<FunctionCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
                             uint32_t ew = local->dyn_array_data.elem_width;
                             bool is_s = local->dyn_array_data.is_signed;
                             for (auto& el : elems) {
@@ -5756,7 +5760,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     } else {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
-                            local->value.deposit_slice(idx_val.aval, 1, rhs_val);
+                            if (local->value.is_string || local->type_name == "string") {
+                                int64_t s_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
+                                if (s_idx >= 0 && (size_t)s_idx < local->value.str_val.size()) {
+                                    local->value.str_val[s_idx] = (char)(rhs_val.aval & 0xFF);
+                                }
+                            } else {
+                                local->value.deposit_slice(idx_val.aval, 1, rhs_val);
+                            }
                         }
                     }
                     if (local->is_static && !local->static_key.empty()) {
@@ -5890,6 +5901,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             } else {
                                 da->allocate((size_t)sz);
+                                LogicVal init_val = eval_expr(new_arr->copy_source_expr.get(), bp.scope);
+                                for (size_t i = 0; i < (size_t)sz; ++i) {
+                                    da->set_elem(i, init_val);
+                                }
                             }
                         } else {
                             da->allocate((size_t)sz);
@@ -5924,7 +5939,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                         }
-                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
+                        if (!elems.empty() || dynamic_cast<MethodCallNode*>(assign->rhs.get()) || dynamic_cast<FunctionCallNode*>(assign->rhs.get()) || dynamic_cast<IndexSelectNode*>(assign->rhs.get()) || dynamic_cast<IdentifierNode*>(assign->rhs.get()) || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
                             uint32_t ew = da->elem_width;
                             bool is_s = da->is_signed;
                             for (auto& el : elems) {
@@ -6517,6 +6532,25 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                             if (!idx_val.is_unknown()) {
+                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                                auto old_v = engine.netlist[target_id].value;
+                                if (old_v.is_string || engine.netlist[target_id].type_name == "string") {
+                                    int64_t s_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
+                                    if (s_idx >= 0 && (size_t)s_idx < old_v.str_val.size()) {
+                                        auto cur = old_v;
+                                        cur.str_val[s_idx] = (char)(rhs_val.aval & 0xFF);
+                                        engine.netlist[target_id].set(cur);
+                                        if (target_id < engine.alias_members.size()) {
+                                            for (size_t other_id : engine.alias_members[target_id]) {
+                                                if (other_id != target_id && other_id < engine.netlist.size()) {
+                                                    engine.netlist[other_id].set(cur);
+                                                }
+                                            }
+                                        }
+                                        engine.scheduler.notify_net_changed(target_id);
+                                    }
+                                    return;
+                                }
                                 int64_t signed_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
                                 if (base_low != 0 && signed_idx >= base_low) signed_idx -= base_low;
                                 uint32_t elem_idx = (uint32_t)signed_idx;
@@ -6528,8 +6562,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     lsb = elem_idx;
                                     slice_w = 1;
                                 }
-                                size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
-                                auto old_v = engine.netlist[target_id].value;
                                 auto old_slice = old_v.extract_slice(lsb, slice_w);
                                 LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
                                 if (old_slice == casted_slice) {

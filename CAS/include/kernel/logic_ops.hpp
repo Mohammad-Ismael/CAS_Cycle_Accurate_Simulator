@@ -84,6 +84,19 @@ public:
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
         if (v.is_real) return v;
+        if (v.is_unpacked) {
+            LogicVal res(target_width, 0, 0, is_signed);
+            uint32_t elem_w = v.width > 0 ? v.width : 8;
+            size_t n = v.unpacked_elements.size();
+            for (size_t i = 0; i < n; ++i) {
+                int64_t bit_pos = (int64_t)target_width - (int64_t)(i + 1) * elem_w;
+                if (bit_pos >= 0) {
+                    res.deposit_slice((uint32_t)bit_pos, elem_w, v.unpacked_elements[i]);
+                }
+            }
+            res.mask();
+            return res;
+        }
         if (v.is_string) {
             LogicVal num_val(v.width, v.aval, v.bval, is_signed);
             num_val.wide_aval = v.wide_aval;

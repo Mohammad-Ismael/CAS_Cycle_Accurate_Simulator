@@ -43,6 +43,14 @@ LocalVar* ExecutionContext::lookup_local(const std::string& name) {
 bool ExecutionContext::set_local_value(const std::string& name, const LogicVal& val) {
     LocalVar* var = lookup_local(name);
     if (!var) return false;
+    if (var->is_dynamic_array && val.is_unpacked) {
+        var->dyn_array_data.elements = val.unpacked_elements;
+        return true;
+    }
+    if (var->is_unpacked_array && val.is_unpacked) {
+        var->unpacked_elements = val.unpacked_elements;
+        return true;
+    }
     if (var->type_name == "string" || val.is_string) {
         var->value = val;
         return true;

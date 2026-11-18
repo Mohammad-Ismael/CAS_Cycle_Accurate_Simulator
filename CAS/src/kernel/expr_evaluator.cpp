@@ -36,6 +36,14 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     // 1. Declare and initialize function return variable
     context.declare_local(target_fn->name, target_fn->return_width, target_fn->return_signed, target_fn->return_type_name);
     context.current_frame()->func_return_name = target_fn->name;
+    LocalVar* fn_ret_lv = context.lookup_local(target_fn->name);
+    if (fn_ret_lv && !target_fn->return_type_name.empty()) {
+        const UnpackedArrayTypedef* uarr = Parser::find_unpacked_array_typedef(target_fn->return_type_name);
+        if (uarr && uarr->is_dynamic_array) {
+            fn_ret_lv->is_dynamic_array = true;
+            fn_ret_lv->dyn_array_data = DynamicArrayObject(target_fn->name, uarr->elem_width, uarr->elem_signed);
+        }
+    }
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
@@ -194,7 +202,13 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     // 4. Retrieve return variable
     LocalVar* ret_var = context.current_frame() ? context.current_frame()->get_var(target_fn->name) : nullptr;
     if (ret_var) {
-        result_out = ret_var->value;
+        if (ret_var->is_dynamic_array) {
+            result_out = LogicVal(ret_var->dyn_array_data.elem_width, 0, 0);
+            result_out.is_unpacked = true;
+            result_out.unpacked_elements = ret_var->dyn_array_data.elements;
+        } else {
+            result_out = ret_var->value;
+        }
     } else {
         result_out = LogicVal::make_x(target_fn->return_width);
     }
@@ -840,6 +854,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     meta.unpacked_dims = loc->unpacked_dims;
                     meta.is_vector_or_array = true;
                     found = true;
+                } else if (loc->value.is_string || loc->type_name == "string") {
+                    meta.is_vector_or_array = true;
+                    meta.unpacked_dims = 0;
+                    int64_t n = (int64_t)loc->value.str_val.size();
+                    int64_t r = (n > 0) ? (n - 1) : 0;
+                    meta.dimensions.push_back({0, r, false, false, false});
+                    found = true;
                 } else if (loc->width > 1) {
                     meta.dimensions.push_back({(int64_t)loc->width - 1, 0, false, false, false});
                     meta.unpacked_dims = 0;
@@ -882,6 +903,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         meta.dimensions = loc->dimensions;
                         meta.unpacked_dims = loc->unpacked_dims;
                         meta.is_vector_or_array = true;
+                        found = true;
+                        break;
+                    } else if (loc->value.is_string || loc->type_name == "string") {
+                        meta.is_vector_or_array = true;
+                        meta.unpacked_dims = 0;
+                        int64_t n = (int64_t)loc->value.str_val.size();
+                        int64_t r = (n > 0) ? (n - 1) : 0;
+                        meta.dimensions.push_back({0, r, false, false, false});
                         found = true;
                         break;
                     } else if (loc->width > 1) {
@@ -3177,11 +3206,30 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             member_name == "prev" || member_name == "num" || member_name == "name") {
             const EnumType* et = nullptr;
             std::string type_name = "";
+            if (current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(var_name);
+                    if (local && !local->type_name.empty()) {
+                        type_name = local->type_name;
+                        break;
+                    }
+                }
+            }
+            if (type_name.empty() && context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(var_name);
+                if (local && !local->type_name.empty()) type_name = local->type_name;
+            }
             std::string scoped_var = scope.empty() ? var_name : (scope + "." + var_name);
-            if (engine.var_to_enum_type.find(scoped_var) != engine.var_to_enum_type.end()) {
-                type_name = engine.var_to_enum_type.at(scoped_var);
-            } else if (engine.var_to_enum_type.find(var_name) != engine.var_to_enum_type.end()) {
-                type_name = engine.var_to_enum_type.at(var_name);
+            if (type_name.empty()) {
+                if (engine.var_to_enum_type.find(scoped_var) != engine.var_to_enum_type.end()) {
+                    type_name = engine.var_to_enum_type.at(scoped_var);
+                } else if (engine.var_to_enum_type.find(var_name) != engine.var_to_enum_type.end()) {
+                    type_name = engine.var_to_enum_type.at(var_name);
+                } else if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
+                } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+                }
             }
             if (!type_name.empty()) {
                 std::string scoped_type = scope.empty() ? type_name : (scope + "." + type_name);
@@ -5619,6 +5667,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             if (idx_val.is_unknown()) return LogicVal::make_x(elem_w);
             int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
+            if (target_val.is_string) {
+                if (raw_idx < 0 || (size_t)raw_idx >= target_val.str_val.size()) {
+                    return LogicVal::make_known(8, 0, false);
+                }
+                return LogicVal::make_known(8, (uint8_t)target_val.str_val[raw_idx], false);
+            }
             if (base_low != 0 && raw_idx >= base_low) raw_idx -= base_low;
             if (raw_idx < 0 || (raw_idx * elem_w) >= target_val.width) return LogicVal::make_x(elem_w);
             uint32_t sh = (uint32_t)(raw_idx * elem_w);
@@ -6967,11 +7021,15 @@ const PackedStructType* ExprEvaluator::find_struct_type(const std::string& type_
 
     // 3. Suffix match (e.g. "top.dut...ds_rsp_t" matches "ds_rsp_t")
     for (const auto& pair : engine.struct_types) {
-        if (pair.first.length() > type_name.length()) {
-            if (pair.first.rfind("." + type_name) == pair.first.length() - (type_name.length() + 1) ||
-                pair.first.rfind("::" + type_name) == pair.first.length() - (type_name.length() + 2)) {
-                return &pair.second;
-            }
+        std::string dot_name = "." + type_name;
+        if (pair.first.length() >= dot_name.length() &&
+            pair.first.compare(pair.first.length() - dot_name.length(), dot_name.length(), dot_name) == 0) {
+            return &pair.second;
+        }
+        std::string col_name = "::" + type_name;
+        if (pair.first.length() >= col_name.length() &&
+            pair.first.compare(pair.first.length() - col_name.length(), col_name.length(), col_name) == 0) {
+            return &pair.second;
         }
     }
 
@@ -8073,6 +8131,14 @@ LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node
                 meta.is_vector_or_array = true;
                 found = true;
                 break;
+            } else if (loc && (loc->value.is_string || loc->type_name == "string")) {
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 0;
+                int64_t n = (int64_t)loc->value.str_val.size();
+                int64_t r = (n > 0) ? (n - 1) : 0;
+                meta.dimensions.push_back({0, r, false, false, false});
+                found = true;
+                break;
             }
         }
     }
@@ -8140,7 +8206,14 @@ LogicVal ExprEvaluator::eval_array_dimension_query(ArrayDimensionQueryNode* node
         else if (engine.net_map.find(var_name) != engine.net_map.end()) nid = engine.net_map.at(var_name);
         if (nid != (size_t)-1) {
             const auto& net = engine.netlist[nid];
-            if (net.width > 1) {
+            if (net.value.is_string || net.type_name == "string") {
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 0;
+                int64_t n = (int64_t)net.value.str_val.size();
+                int64_t r = (n > 0) ? (n - 1) : 0;
+                meta.dimensions.push_back({0, r, false, false, false});
+                found = true;
+            } else if (net.width > 1) {
                 meta.dimensions.push_back({(int64_t)net.width - 1, 0, false, false, false});
                 meta.unpacked_dims = 0;
                 meta.is_vector_or_array = true;
@@ -8267,6 +8340,13 @@ LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const 
                 meta.unpacked_dims = loc->unpacked_dims;
                 meta.is_vector_or_array = true;
                 found = true;
+            } else if (loc->value.is_string || loc->type_name == "string") {
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 0;
+                int64_t n = (int64_t)loc->value.str_val.size();
+                int64_t r = (n > 0) ? (n - 1) : 0;
+                meta.dimensions.push_back({0, r, false, false, false});
+                found = true;
             } else if (loc->width > 1) {
                 meta.dimensions.push_back({(int64_t)loc->width - 1, 0, false, false, false});
                 meta.unpacked_dims = 0;
@@ -8284,6 +8364,14 @@ LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const 
                 meta.dimensions = loc->dimensions;
                 meta.unpacked_dims = loc->unpacked_dims;
                 meta.is_vector_or_array = true;
+                found = true;
+                break;
+            } else if (loc && (loc->value.is_string || loc->type_name == "string")) {
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 0;
+                int64_t n = (int64_t)loc->value.str_val.size();
+                int64_t r = (n > 0) ? (n - 1) : 0;
+                meta.dimensions.push_back({0, r, false, false, false});
                 found = true;
                 break;
             }
@@ -8353,7 +8441,14 @@ LogicVal ExprEvaluator::eval_array_bound_query(ArrayBoundQueryNode* node, const 
         else if (engine.net_map.find(var_name) != engine.net_map.end()) nid = engine.net_map.at(var_name);
         if (nid != (size_t)-1) {
             const auto& net = engine.netlist[nid];
-            if (net.width > 1) {
+            if (net.value.is_string || net.type_name == "string") {
+                meta.is_vector_or_array = true;
+                meta.unpacked_dims = 0;
+                int64_t n = (int64_t)net.value.str_val.size();
+                int64_t r = (n > 0) ? (n - 1) : 0;
+                meta.dimensions.push_back({0, r, false, false, false});
+                found = true;
+            } else if (net.width > 1) {
                 meta.dimensions.push_back({(int64_t)net.width - 1, 0, false, false, false});
                 meta.unpacked_dims = 0;
                 meta.is_vector_or_array = true;

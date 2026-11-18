@@ -100,10 +100,17 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
             advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
+            func->return_type_name = current.text;
             auto einfo = get_enum_typedef(current.text);
             auto sinfo = get_struct_typedef(current.text);
-            func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
-            func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+            const UnpackedArrayTypedef* uarr = get_unpacked_array_typedef(current.text);
+            if (uarr) {
+                func->return_width = uarr->elem_width;
+                func->return_signed = uarr->elem_signed;
+            } else {
+                func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+                func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+            }
             advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
             func->return_width = 64;
@@ -295,11 +302,19 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_typedef(current.text)) {
                 has_explicit_type = true;
+                arg_type_name = current.text;
                 auto einfo = get_enum_typedef(current.text);
                 auto sinfo = get_struct_typedef(current.text);
-                def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
-                is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
-                is_int = true;
+                const UnpackedArrayTypedef* uarr = get_unpacked_array_typedef(current.text);
+                if (uarr) {
+                    def_w = uarr->elem_width;
+                    is_s = uarr->elem_signed;
+                    is_int = false;
+                } else {
+                    def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
+                    is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
+                    is_int = true;
+                }
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
                 has_explicit_type = true;
@@ -405,6 +420,12 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             pnode.is_virtual_interface = is_vif;
             pnode.interface_name = vif_iface;
             pnode.modport_name = vif_mp;
+            const UnpackedArrayTypedef* uarr_arg = !arg_type_name.empty() ? get_unpacked_array_typedef(arg_type_name) : nullptr;
+            if (uarr_arg) {
+                pnode.is_dynamic_array = uarr_arg->is_dynamic_array;
+                pnode.width = uarr_arg->elem_width;
+                pnode.is_signed = uarr_arg->elem_signed;
+            }
 
             while (match(TokenType::TOKEN_LBRACKET)) {
                 if (match(TokenType::TOKEN_DOLLAR)) {

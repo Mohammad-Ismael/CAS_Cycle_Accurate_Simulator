@@ -2101,11 +2101,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     bool has_eq = false;
                     bool curr_had_xz = false;
+                    uint64_t current_bval = 0;
                     if (match(TokenType::TOKEN_EQUAL)) {
                         has_eq = true;
                         auto val_expr = parse_expression();
                         if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
                             current_val = num->aval;
+                            current_bval = num->bval;
                             if (num->explicit_size && num->width != e_width) {
                                 throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
                             }
@@ -2135,11 +2137,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             }
                             try {
                                 current_val = eval_const_expr(val_expr.get());
+                                current_bval = 0;
                             } catch (...) {
                                 throw std::runtime_error("Enum value expression must be an elaboration-time constant expression per IEEE 1800-2023 section 6.19");
                             }
                         }
                     } else {
+                        current_bval = 0;
                         if (prev_had_xz) {
                             throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
                         }
@@ -2162,7 +2166,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         int64_t hi = std::max(seq_start, seq_end);
                         for (int64_t idx = lo; idx <= hi; ++idx) {
                             std::string s_name = mname + std::to_string(idx);
-                            LogicVal mval(e_width, current_val, 0);
+                            LogicVal mval(e_width, current_val, current_bval);
                             enum_node->members.push_back({s_name, mval});
                             ParameterDef pdef;
                             pdef.name = s_name;
@@ -2172,9 +2176,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     mod->parameters.push_back(std::move(pdef));
                             current_val++;
+                            current_bval = 0;
                         }
                     } else {
-                        LogicVal mval(e_width, current_val, 0);
+                        LogicVal mval(e_width, current_val, current_bval);
                         enum_node->members.push_back({mname, mval});
                         ParameterDef pdef;
                         pdef.name = mname;
@@ -2184,6 +2189,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                     mod->parameters.push_back(std::move(pdef));
                         current_val++;
+                        current_bval = 0;
                     }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -2193,6 +2199,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string anon_enum_name = "__anon_enum_" + std::to_string(anon_struct_counter++);
                 typedef_map[anon_enum_name] = enum_node;
                 mod->enum_typedefs[anon_enum_name] = enum_node;
+                mod->typedefs.push_back(std::make_unique<TypedefNode>(anon_enum_name, enum_node));
 
                 while (true) {
                     std::string signame = current.text;
@@ -3810,7 +3817,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 current.type == TokenType::TOKEN_BIT   ||
                 (current.type == TokenType::TOKEN_IDENTIFIER &&
                  (current.text == "int" || current.text == "byte" || current.text == "bit" ||
-                  current.text == "shortint" || current.text == "longint"))) {
+                  current.text == "shortint" || current.text == "longint" || current.text == "time"))) {
                 mem_type = current.text;
                 if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" ||
                     current.text == "byte" || current.text == "shortint" || current.text == "longint") {
@@ -3833,10 +3840,10 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             if (mem_type == "int" || mem_type == "integer") field_width = 32;
             else if (mem_type == "byte") field_width = 8;
             else if (mem_type == "shortint") field_width = 16;
-            else if (mem_type == "longint") field_width = 64;
+            else if (mem_type == "longint" || mem_type == "time") field_width = 64;
+            else if (get_simple_typedef(mem_type, smp_t)) { field_width = smp_t.width; mem_signed = smp_t.is_signed; }
             else if (en_def) { field_width = en_def->base_width; mem_signed = en_def->is_signed; }
             else if (st_def) { field_width = st_def->total_width; mem_signed = st_def->is_signed; }
-            else if (get_simple_typedef(mem_type, smp_t)) { field_width = smp_t.width; mem_signed = smp_t.is_signed; }
 
             uint32_t total_member_width = (field_width > 0) ? field_width : 1;
             bool has_dim = false;
@@ -4394,15 +4401,17 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                     } else if (current_parsing_module) {
                         current_parsing_module->simple_typedefs[tname] = {tname, base_t, width, is_sgn};
                     }
-                    if (struct_def) {
-                        struct_typedef_map[tname] = struct_def;
-                        if (current_parsing_package) current_parsing_package->struct_typedefs[tname] = struct_def;
-                        else if (current_parsing_module) current_parsing_module->struct_typedefs[tname] = struct_def;
-                    }
-                    if (enum_def) {
-                        typedef_map[tname] = enum_def;
-                        if (current_parsing_package) current_parsing_package->enum_typedefs[tname] = enum_def;
-                        else if (current_parsing_module) current_parsing_module->enum_typedefs[tname] = enum_def;
+                    if (packed_dims.empty()) {
+                        if (struct_def) {
+                            struct_typedef_map[tname] = struct_def;
+                            if (current_parsing_package) current_parsing_package->struct_typedefs[tname] = struct_def;
+                            else if (current_parsing_module) current_parsing_module->struct_typedefs[tname] = struct_def;
+                        }
+                        if (enum_def) {
+                            typedef_map[tname] = enum_def;
+                            if (current_parsing_package) current_parsing_package->enum_typedefs[tname] = enum_def;
+                            else if (current_parsing_module) current_parsing_module->enum_typedefs[tname] = enum_def;
+                        }
                     }
                     resolved_typedefs.insert(tname);
                 }
@@ -4559,6 +4568,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     enum_node->base_type_name = base_type_name;
 
     uint64_t current_val = 0;
+    uint64_t current_bval = 0;
     bool prev_had_xz = false;
     while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
         std::string mname = current.text;
@@ -4569,6 +4579,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             auto val_expr = parse_expression();
             if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
                 current_val = num->aval;
+                current_bval = num->bval;
                 if (num->explicit_size && num->width != width) {
                     throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
                 }
@@ -4587,18 +4598,21 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                 }
                 try {
                     current_val = eval_const_expr(val_expr.get());
+                    current_bval = 0;
                 } catch (...) {}
             }
         } else {
+            current_bval = 0;
             if (prev_had_xz) {
                 throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
             }
         }
         prev_had_xz = curr_had_xz;
 
-        LogicVal mval(width, current_val, 0);
+        LogicVal mval(width, current_val, current_bval);
         enum_node->members.push_back({mname, mval});
         current_val++;
+        current_bval = 0;
 
         if (match(TokenType::TOKEN_COMMA)) continue;
         break;

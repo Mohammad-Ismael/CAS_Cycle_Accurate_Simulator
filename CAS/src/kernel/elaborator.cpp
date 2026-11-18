@@ -1718,11 +1718,15 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
     }
 
     for (const auto& pair : result.struct_types) {
-        if (pair.first.length() > type_name.length()) {
-            if (pair.first.rfind("." + type_name) == pair.first.length() - (type_name.length() + 1) ||
-                pair.first.rfind("::" + type_name) == pair.first.length() - (type_name.length() + 2)) {
-                return &pair.second;
-            }
+        std::string dot_name = "." + type_name;
+        if (pair.first.length() >= dot_name.length() &&
+            pair.first.compare(pair.first.length() - dot_name.length(), dot_name.length(), dot_name) == 0) {
+            return &pair.second;
+        }
+        std::string col_name = "::" + type_name;
+        if (pair.first.length() >= col_name.length() &&
+            pair.first.compare(pair.first.length() - col_name.length(), col_name.length(), col_name) == 0) {
+            return &pair.second;
         }
     }
     return nullptr;
@@ -3133,6 +3137,25 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.enum_types[td->type_name] = et;
             result.enum_types[scope + "." + td->type_name] = et;
         }
+    }
+
+    for (const auto& kv : mod->enum_typedefs) {
+        if (kv.second && result.enum_types.find(kv.first) == result.enum_types.end()) {
+            EnumType et;
+            et.name = kv.first;
+            et.width = kv.second->base_width;
+            et.is_signed = kv.second->is_signed;
+            for (const auto& m : kv.second->members) {
+                et.members.push_back({m.first, m.second});
+                result.enum_constant_map[m.first] = m.second;
+                result.enum_constant_map[scope + "." + m.first] = m.second;
+            }
+            result.enum_types[kv.first] = et;
+            result.enum_types[scope + "." + kv.first] = et;
+        }
+    }
+
+    for (const auto& td : mod->typedefs) {
         if (td && td->struct_type) {
             PackedStructType st;
             st.name = td->type_name;
