@@ -629,7 +629,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
             current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
             current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REAL ||
-            current.type == TokenType::TOKEN_SHORTREAL ||
+            current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_EVENT ||
             (current.type == TokenType::TOKEN_IDENTIFIER &&
              (current.text == "string" || current.text == "int" || current.text == "byte" ||
               current.text == "shortint" || current.text == "longint" || is_type_identifier(current.text)))) {
@@ -653,9 +653,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                     val_expr = parse_expression();
                 }
-                if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire") {
+                if (cu_type == "event") {
+                    global_events.push_back(vname);
+                } else if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire") {
                     ParameterDef pdef(vname, std::move(val_expr), false, cu_type);
                     global_parameters.push_back(std::move(pdef));
+                } else {
+                    PortNode sig(vname, "internal", nullptr, nullptr, false, NetKind::VAR);
+                    sig.type_name = cu_type;
+                    global_signals.push_back(std::move(sig));
                 }
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
@@ -713,7 +719,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
                 expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
                 if (match(TokenType::TOKEN_STAR)) {
-                    mod->wildcard_imports.push_back(pkg_name);
+                    if (std::find(mod->wildcard_imports.begin(), mod->wildcard_imports.end(), pkg_name) == mod->wildcard_imports.end()) {
+                        mod->wildcard_imports.push_back(pkg_name);
+                    }
                 } else {
                     std::string item_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
@@ -727,6 +735,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         for (const auto& gp : global_parameters) {
             mod->parameters.push_back(gp);
+        }
+        for (const auto& gs : global_signals) {
+            mod->signals.push_back(gs.clone());
+        }
+        for (const auto& ge : global_events) {
+            mod->events.push_back(ge);
         }
 
         for (const auto& gt : global_typedefs) {
@@ -2293,7 +2307,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
+                    bool is_var_kind = (uarr_info && uarr_info->is_dynamic_array) || (dim_meta && dim_meta->unpacked_dims > 0);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, is_var_kind ? NetKind::VAR : NetKind::WIRE);
                     sig.type_name = type_name;
                     sig.packed_dimensions = packed_dims;
                     if (uarr_info) {
@@ -2538,10 +2553,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (is_followed_by_name &&
                     (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
                      current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER ||
+                     current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_SHORTREAL ||
                      (current.type == TokenType::TOKEN_IDENTIFIER &&
                       (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" ||
                        is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) ||
                        find_type_dim_metadata(current.text) != nullptr || is_type_identifier(current.text))))) {
+                    if (current.type == TokenType::TOKEN_REAL) is_real_sig = true;
+                    if (current.type == TokenType::TOKEN_SHORTREAL) is_shortreal_sig = true;
                     if (current.type == TokenType::TOKEN_BIT) is_bit_type = true;
                     if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
                         is_int = true;
@@ -3407,7 +3425,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
                         expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
                         if (match(TokenType::TOKEN_STAR)) {
-                            mod->wildcard_imports.push_back(pkg_name);
+                            if (std::find(mod->wildcard_imports.begin(), mod->wildcard_imports.end(), pkg_name) == mod->wildcard_imports.end()) {
+                                mod->wildcard_imports.push_back(pkg_name);
+                            }
                         } else {
                             std::string item_name = current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected item name or '*' in import");
@@ -5283,6 +5303,101 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             }
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after virtual interface declaration");
             continue;
+        } else if (current.type == TokenType::TOKEN_ENUM) {
+            advance(); // consume 'enum'
+            uint32_t e_width = 32;
+            bool e_signed = true;
+            std::string e_base = "int";
+            if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                e_signed = true; advance();
+            } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                e_signed = false; advance();
+            }
+
+            if (current.type == TokenType::TOKEN_INTEGER) {
+                e_width = 32; e_base = "integer"; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
+                e_width = 32; e_base = "int"; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+                e_width = 8; e_base = "byte"; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+                e_width = 16; e_base = "shortint"; advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+                e_width = 64; e_base = "longint"; advance();
+            } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG) {
+                e_base = current.text; e_width = 1; e_signed = false; advance();
+            }
+
+            if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+                e_signed = true; advance();
+            } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+                e_signed = false; advance();
+            }
+
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                auto msb_e = parse_expression();
+                expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+                auto lsb_e = parse_expression();
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+                try {
+                    uint64_t m = eval_const_expr(msb_e.get());
+                    uint64_t l = eval_const_expr(lsb_e.get());
+                    e_width = (m >= l) ? (m - l + 1) : (l - m + 1);
+                } catch (...) {}
+            }
+
+            expect(TokenType::TOKEN_LBRACE, "Expected '{' in enum declaration");
+            auto enum_node = std::make_shared<EnumTypeNode>();
+            enum_node->base_width = e_width;
+            enum_node->is_signed = e_signed;
+            enum_node->base_type_name = e_base;
+            uint64_t current_val = 0;
+            uint64_t current_bval = 0;
+
+            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                std::string member_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member name");
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    auto val_e = parse_expression();
+                    current_val = eval_const_expr(val_e.get());
+                    current_bval = 0;
+                }
+                LogicVal mval(e_width, current_val, current_bval);
+                enum_node->members.push_back({member_name, mval});
+                ParameterDef pdef;
+                pdef.name = member_name;
+                pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width);
+                cls->parameters.push_back(std::move(pdef));
+                cls->param_values[member_name] = current_val;
+                current_val++;
+                current_bval = 0;
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing enum member list");
+
+            std::string anon_name = "__anon_enum_" + std::to_string(anon_struct_counter++);
+            typedef_map[anon_name] = enum_node;
+
+            while (true) {
+                std::string var_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected member variable name");
+                std::unique_ptr<ExpressionNode> def_val = nullptr;
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    def_val = parse_expression();
+                }
+                ClassMemberVar mvar;
+                mvar.name = var_name;
+                mvar.width = e_width;
+                mvar.is_signed = e_signed;
+                mvar.type_name = anon_name;
+                mvar.default_expr = std::move(def_val);
+                cls->add_member_var(std::move(mvar));
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
+            continue;
         } else {
             bool is_rand = false;
             bool is_randc = false;
@@ -5339,10 +5454,12 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     is_s = false;
                     advance();
                 }
-                uint32_t width = is_s ? 32 : 1;
-                if (member_type_name == "byte") width = 8;
+                uint32_t width = 1;
+                if (member_type_name == "int" || member_type_name == "integer") width = 32;
+                else if (member_type_name == "byte") width = 8;
                 else if (member_type_name == "shortint") width = 16;
                 else if (member_type_name == "longint" || member_type_name == "real" || member_type_name == "shortreal") width = 64;
+                else if (is_s) width = 32;
                 std::unique_ptr<ExpressionNode> mvar_msb = nullptr;
                 std::unique_ptr<ExpressionNode> mvar_lsb = nullptr;
                 if (match(TokenType::TOKEN_LBRACKET)) {

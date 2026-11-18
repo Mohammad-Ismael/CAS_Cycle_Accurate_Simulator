@@ -2521,6 +2521,10 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             int64_t b1_first = all_dims.empty() ? 0 : all_dims[0].left;
             int64_t b2_first = all_dims.empty() ? 0 : all_dims[0].right;
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
+            if (p.type_name == "real" || p.type_name == "shortreal") {
+                marr.is_real = true;
+                for (auto& wrd : marr.words) wrd = LogicVal(0.0);
+            }
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
             for (const auto& d : all_dims) {
@@ -2824,11 +2828,31 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 if (!mem_target.empty()) {
                     auto& mem = result.memory_map.at(mem_target);
                     uint32_t depth = mem.depth;
+                    if (auto ucn = dynamic_cast<UnpackedConcatNode*>(ca_copy->rhs.get())) {
+                        if (ucn->is_pattern && !ucn->elements.empty()) {
+                            bool all_pos = true;
+                            for (const auto& elem : ucn->elements) {
+                                if (dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                    all_pos = false;
+                                    break;
+                                }
+                            }
+                            if (all_pos && ucn->elements.size() != depth) {
+                                throw std::runtime_error("Number of elements in array assignment pattern does not match array size for '" + ca_copy->target_name + "' per IEEE 1800-2023 10.9");
+                            }
+                        }
+                    }
                     for (uint32_t k = 0; k < depth; ++k) {
                         auto idx_node = std::make_unique<NumberNode>(k, 32);
                         std::unique_ptr<ExpressionNode> rhs_elem = nullptr;
                         if (auto id_rhs = dynamic_cast<IdentifierNode*>(ca_copy->rhs.get())) {
                             rhs_elem = std::make_unique<IndexSelectNode>(id_rhs->name, std::make_unique<NumberNode>(k, 32));
+                        } else if (auto ucn = dynamic_cast<UnpackedConcatNode*>(ca_copy->rhs.get())) {
+                            if (k < ucn->elements.size()) {
+                                rhs_elem = ucn->elements[k]->clone();
+                            } else {
+                                rhs_elem = ca_copy->rhs->clone();
+                            }
                         } else {
                             rhs_elem = ca_copy->rhs->clone();
                         }
@@ -3562,6 +3586,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             int64_t b1_first = all_dims.empty() ? 0 : all_dims[0].left;
             int64_t b2_first = all_dims.empty() ? 0 : all_dims[0].right;
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
+            if (p.type_name == "real" || p.type_name == "shortreal") {
+                marr.is_real = true;
+                for (auto& wrd : marr.words) wrd = LogicVal(0.0);
+            }
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
             for (const auto& d : all_dims) {
@@ -3916,6 +3944,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             int64_t b1_first = all_dims.empty() ? 0 : all_dims[0].left;
             int64_t b2_first = all_dims.empty() ? 0 : all_dims[0].right;
             MemoryArray marr(mem_scope, w, total_depth, b1_first, b2_first);
+            if (s.type_name == "real" || s.type_name == "shortreal") {
+                marr.is_real = true;
+                for (auto& wrd : marr.words) wrd = LogicVal(0.0);
+            }
             marr.dimensions = all_dims;
             marr.unpacked_dims_count = unpacked_cnt;
             for (const auto& d : all_dims) {
@@ -4748,11 +4780,31 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (mem_it == result.memory_map.end()) mem_it = result.memory_map.find(ca->target_name);
             if (mem_it != result.memory_map.end()) {
                 uint32_t depth = mem_it->second.depth;
+                if (auto ucn = dynamic_cast<UnpackedConcatNode*>(ca->rhs.get())) {
+                    if (ucn->is_pattern && !ucn->elements.empty()) {
+                        bool all_pos = true;
+                        for (const auto& elem : ucn->elements) {
+                            if (dynamic_cast<PatternMemberNode*>(elem.get())) {
+                                all_pos = false;
+                                break;
+                            }
+                        }
+                        if (all_pos && ucn->elements.size() != depth) {
+                            throw std::runtime_error("Number of elements in array assignment pattern does not match array size for '" + ca->target_name + "' per IEEE 1800-2023 10.9");
+                        }
+                    }
+                }
                 for (uint32_t k = 0; k < depth; ++k) {
                     auto idx_node = std::make_unique<NumberNode>(k, 32);
                     std::unique_ptr<ExpressionNode> rhs_elem = nullptr;
                     if (auto id_rhs = dynamic_cast<IdentifierNode*>(ca->rhs.get())) {
                         rhs_elem = std::make_unique<IndexSelectNode>(id_rhs->name, std::make_unique<NumberNode>(k, 32));
+                    } else if (auto ucn = dynamic_cast<UnpackedConcatNode*>(ca->rhs.get())) {
+                        if (k < ucn->elements.size()) {
+                            rhs_elem = ucn->elements[k]->clone();
+                        } else {
+                            rhs_elem = ca->rhs->clone();
+                        }
                     } else {
                         rhs_elem = ca->rhs->clone();
                     }
@@ -7244,7 +7296,11 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             const auto& bd = net_bit_drivers[nid][b];
             // Check procedural write to net (wire)
             if (net.kind == NetKind::WIRE && !bd.writing_procs.empty()) {
-                throw std::runtime_error("Procedural assignment to net '" + net.name + "' is illegal per IEEE 1800-2023 10.3");
+                if (!net.type_name.empty()) {
+                    const_cast<Net&>(net).kind = NetKind::VAR;
+                } else {
+                    throw std::runtime_error("Procedural assignment to net '" + net.name + "' is illegal per IEEE 1800-2023 10.3");
+                }
             }
 
             // Check variable driven by both continuous assign and procedural block

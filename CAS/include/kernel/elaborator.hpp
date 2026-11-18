@@ -48,6 +48,7 @@ struct MemoryArray {
     int64_t start_idx = 0;
     int64_t end_idx = 0;
     bool is_descending = false;
+    bool is_real = false;
     std::vector<LogicVal> words;
     std::vector<ArrayDimInfo> dimensions;
     uint32_t unpacked_dims_count = 0;
@@ -55,7 +56,7 @@ struct MemoryArray {
     int64_t orig_right = 0;
     int64_t packed_lsb = 0;
 
-    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), orig_left(0), orig_right(0), packed_lsb(0) {}
+    MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), is_real(false), orig_left(0), orig_right(0), packed_lsb(0) {}
     MemoryArray(std::string n, uint32_t w, uint32_t d, int64_t b1 = 0, int64_t b2 = 0)
         : name(std::move(n)), word_width(w), depth(d), orig_left(b1), orig_right(b2), packed_lsb(0) {
         if (b1 <= b2) {
@@ -89,9 +90,13 @@ struct MemoryArray {
     }
 
     LogicVal get_word(int64_t idx) const {
-        if (!is_valid_index(idx)) return LogicVal::make_x(word_width);
+        if (!is_valid_index(idx)) {
+            if (is_real) return LogicVal(0.0);
+            return LogicVal::make_x(word_width);
+        }
         size_t off = to_word_offset(idx);
         if (off < words.size()) return words[off];
+        if (is_real) return LogicVal(0.0);
         return LogicVal::make_x(word_width);
     }
 
@@ -105,6 +110,7 @@ struct MemoryArray {
 
     LogicVal get_raw_word(size_t off) const {
         if (off < words.size()) return words[off];
+        if (is_real) return LogicVal(0.0);
         return LogicVal::make_x(word_width);
     }
 

@@ -1331,8 +1331,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
 
         if (current_parsing_module) {
+            std::unordered_set<std::string> checked_pkgs;
             int found_pkg_cnt = 0;
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                if (!checked_pkgs.insert(pkg_name).second) continue;
                 auto pit = global_packages.find(pkg_name);
                 if (pit != global_packages.end()) {
                     if (pit->second->param_constants.count(name) ||

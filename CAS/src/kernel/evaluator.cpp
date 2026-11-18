@@ -9,6 +9,26 @@
 #include <functional>
 #include <queue>
 
+static LogicVal extend_unsized_literal_if_needed(const ExpressionNode* expr, LogicVal val, uint32_t target_width) {
+    if (target_width <= val.width) return val;
+    if (auto num = dynamic_cast<const NumberNode*>(expr)) {
+        if (!num->explicit_size && num->width > 0) {
+            bool msb_b = (num->bval >> (num->width - 1)) & 1;
+            if (msb_b) {
+                bool msb_a = (num->aval >> (num->width - 1)) & 1;
+                LogicVal res(target_width, 0, 0, val.is_signed);
+                res.deposit_slice(0, val.width, val);
+                for (uint32_t i = val.width; i < target_width; ++i) {
+                    res.set_bit(i, msb_a, msb_b);
+                }
+                res.mask();
+                return res;
+            }
+        }
+    }
+    return val;
+}
+
 Evaluator::Evaluator(Engine& eng) 
     : engine(eng), expr_eval(eng), current_bp(nullptr) {}
 
@@ -2834,6 +2854,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (task_node) {
                     ClassObject* prev_this = expr_eval.get_current_this();
                     expr_eval.set_current_this(cl_obj);
+                    std::vector<LogicVal> evaluated_args;
+                    size_t n_ports = task_node->ports.size();
+                    size_t max_args = std::max(n_ports, tcall->args.size());
+                    for (size_t i = 0; i < max_args; ++i) {
+                        if (i < tcall->args.size() && tcall->args[i]) {
+                            evaluated_args.push_back(eval_expr(tcall->args[i].get(), bp.scope));
+                        } else if (i < n_ports && task_node->ports[i].default_value) {
+                            evaluated_args.push_back(eval_expr(task_node->ports[i].default_value.get(), bp.scope));
+                        } else {
+                            evaluated_args.push_back(LogicVal::make_x(i < n_ports && task_node->ports[i].width > 0 ? task_node->ports[i].width : 32));
+                        }
+                    }
                     std::string frame_name = cl_obj->class_type_name + "::" + task_node->name + "__call";
                     expr_eval.get_context().push_frame(frame_name);
                     std::vector<std::pair<std::string, std::string>> output_bindings;
@@ -2852,12 +2884,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             LocalVar* lv = expr_eval.get_context().lookup_local(p.name);
                             if (lv) lv->value = LogicVal::make_string("");
                         }
-                        if (i < tcall->args.size()) {
-                            LogicVal arg_v = eval_expr(tcall->args[i].get(), bp.scope);
-                            expr_eval.get_context().set_local_value(p.name, arg_v);
-                        } else if (p.default_value) {
-                            LogicVal def_v = eval_expr(p.default_value.get(), bp.scope);
-                            expr_eval.get_context().set_local_value(p.name, def_v);
+                        if (i < evaluated_args.size()) {
+                            expr_eval.get_context().set_local_value(p.name, evaluated_args[i]);
                         }
                         if (p.direction == "output" || p.direction == "inout") {
                             if (i < tcall->args.size() && tcall->args[i]) {
@@ -2897,6 +2925,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 if (func_node) {
                     ClassObject* prev_this = expr_eval.get_current_this();
                     expr_eval.set_current_this(cl_obj);
+                    std::vector<LogicVal> evaluated_args;
+                    size_t n_inputs = func_node->inputs.size();
+                    size_t max_args = std::max(n_inputs, tcall->args.size());
+                    for (size_t i = 0; i < max_args; ++i) {
+                        if (i < tcall->args.size() && tcall->args[i]) {
+                            evaluated_args.push_back(eval_expr(tcall->args[i].get(), bp.scope));
+                        } else if (i < n_inputs && func_node->inputs[i].default_value) {
+                            evaluated_args.push_back(eval_expr(func_node->inputs[i].default_value.get(), bp.scope));
+                        } else {
+                            evaluated_args.push_back(LogicVal::make_x(i < n_inputs && func_node->inputs[i].width > 0 ? func_node->inputs[i].width : 32));
+                        }
+                    }
                     std::string frame_name = cl_obj->class_type_name + "::" + func_node->name + "__call";
                     expr_eval.get_context().push_frame(frame_name);
                     if (expr_eval.get_context().current_frame()) {
@@ -2920,12 +2960,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             LocalVar* lv = expr_eval.get_context().lookup_local(in_p.name);
                             if (lv) lv->value = LogicVal::make_string("");
                         }
-                        if (i < tcall->args.size()) {
-                            LogicVal arg_v = eval_expr(tcall->args[i].get(), bp.scope);
-                            expr_eval.get_context().set_local_value(in_p.name, arg_v);
-                        } else if (in_p.default_value) {
-                            LogicVal def_v = eval_expr(in_p.default_value.get(), bp.scope);
-                            expr_eval.get_context().set_local_value(in_p.name, def_v);
+                        if (i < evaluated_args.size()) {
+                            expr_eval.get_context().set_local_value(in_p.name, evaluated_args[i]);
                         }
                         if (in_p.direction == "output" || in_p.direction == "inout") {
                             if (i < tcall->args.size() && tcall->args[i]) {
@@ -2938,6 +2974,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     BoundProcess* prev_bp = expr_eval.get_current_process();
                     BoundProcess call_bp{frame_name, nullptr, 0, false};
+                    call_bp.scope = cl_obj->class_type_name;
                     expr_eval.set_current_process(&call_bp);
                     for (auto& s : func_node->get_body()) {
                         if (has_returned(call_bp)) break;
@@ -4471,30 +4508,35 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
         bool is_member = false;
         if (net_id == (size_t)-1 && !member_name.empty()) {
-            std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
-            if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
-                net_id = engine.net_map.at(scoped_base);
-                is_member = true;
-            } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
-                net_id = engine.net_map.at(base_var);
+            net_id = engine.get_net_id(bp.scope, base_var);
+            if (net_id != (size_t)-1) {
                 is_member = true;
             } else {
-                for (const auto& pkg : bp.active_wildcard_imports) {
-                    std::string qname = pkg + "::" + base_var;
-                    if (engine.net_map.count(qname)) {
-                        net_id = engine.net_map.at(qname);
-                        is_member = true;
-                        break;
+                std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+                if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(scoped_base);
+                    is_member = true;
+                } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
+                    net_id = engine.net_map.at(base_var);
+                    is_member = true;
+                } else {
+                    for (const auto& pkg : bp.active_wildcard_imports) {
+                        std::string qname = pkg + "::" + base_var;
+                        if (engine.net_map.count(qname)) {
+                            net_id = engine.net_map.at(qname);
+                            is_member = true;
+                            break;
+                        }
                     }
-                }
-                if (net_id == (size_t)-1) {
-                    for (const auto& kv : bp.active_explicit_imports) {
-                        if (kv.first == base_var) {
-                            std::string qname = kv.second.first + "::" + kv.second.second;
-                            if (engine.net_map.count(qname)) {
-                                net_id = engine.net_map.at(qname);
-                                is_member = true;
-                                break;
+                    if (net_id == (size_t)-1) {
+                        for (const auto& kv : bp.active_explicit_imports) {
+                            if (kv.first == base_var) {
+                                std::string qname = kv.second.first + "::" + kv.second.second;
+                                if (engine.net_map.count(qname)) {
+                                    net_id = engine.net_map.at(qname);
+                                    is_member = true;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -4517,6 +4559,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         type_name = engine.var_to_struct_type.at(scoped_base);
                     } else if (engine.var_to_struct_type.find(base_var) != engine.var_to_struct_type.end()) {
                         type_name = engine.var_to_struct_type.at(base_var);
+                    } else if (engine.var_to_struct_type.find(engine.netlist[net_id].name) != engine.var_to_struct_type.end()) {
+                        type_name = engine.var_to_struct_type.at(engine.netlist[net_id].name);
                     }
                 }
                 const PackedStructType* st = expr_eval.find_struct_type_by_member(type_name, member_name, engine.netlist[net_id].width, bp.scope);
@@ -4806,29 +4850,78 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             } else {
                 size_t net_id = engine.get_net_id(bp.scope, mem_assign->mem_name);
+                uint32_t prefix_mem_offset = 0;
+                uint32_t prefix_mem_elem_w = 0;
+                std::string member_struct_type = "";
+                if (net_id == (size_t)-1 && mem_assign->mem_name.find('.') != std::string::npos) {
+                    size_t dpos = mem_assign->mem_name.find('.');
+                    std::string base_net = mem_assign->mem_name.substr(0, dpos);
+                    std::string prefix_mem = mem_assign->mem_name.substr(dpos + 1);
+                    net_id = engine.get_net_id(bp.scope, base_net);
+                    if (net_id != (size_t)-1) {
+                        std::string tname = engine.netlist[net_id].type_name;
+                        std::string fn = engine.netlist[net_id].name;
+                        if (tname.empty()) {
+                            if (engine.var_to_struct_type.count(fn)) tname = engine.var_to_struct_type.at(fn);
+                            else if (engine.var_to_struct_type.count(base_net)) tname = engine.var_to_struct_type.at(base_net);
+                        }
+                        const PackedStructType* st = nullptr;
+                        std::string scoped_t = bp.scope.empty() ? tname : (bp.scope + "." + tname);
+                        if (engine.struct_types.count(scoped_t)) st = &engine.struct_types.at(scoped_t);
+                        else if (engine.struct_types.count(tname)) st = &engine.struct_types.at(tname);
+                        if (!st) {
+                            for (const auto& pair : engine.struct_types) {
+                                if (pair.second.get_member(prefix_mem)) {
+                                    st = &pair.second;
+                                    break;
+                                }
+                            }
+                        }
+                        if (st) {
+                            const StructMember* sm = st->get_member(prefix_mem);
+                            if (sm) {
+                                prefix_mem_offset = sm->offset;
+                                member_struct_type = sm->type_name;
+                                prefix_mem_elem_w = sm->width;
+                                if (!sm->type_name.empty()) {
+                                    const PackedStructType* ist = nullptr;
+                                    if (engine.struct_types.count(sm->type_name)) ist = &engine.struct_types.at(sm->type_name);
+                                    else if (engine.struct_types.count(bp.scope + "." + sm->type_name)) ist = &engine.struct_types.at(bp.scope + "." + sm->type_name);
+                                    if (ist && ist->total_width > 0) {
+                                        prefix_mem_elem_w = ist->total_width;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 if (net_id != (size_t)-1) {
-                    uint32_t d1_width = 1;
                     std::string full_target_name = engine.netlist[net_id].name;
-                    auto it_vdm = engine.var_dimensions.find(full_target_name);
-                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name));
-                    if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(mem_assign->mem_name);
+                    uint32_t d1_width = 1;
                     int64_t base_low = 0;
-                    if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
-                        base_low = it_vdm->second.dimensions[0].low();
-                        if (it_vdm->second.dimensions.size() > 1) {
-                            d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
-                        } else if (it_vdm->second.dimensions[0].size() > 0) {
-                            d1_width = (uint32_t)(engine.netlist[net_id].width / it_vdm->second.dimensions[0].size());
+                    if (prefix_mem_elem_w > 0) {
+                        d1_width = prefix_mem_elem_w;
+                    } else {
+                        auto it_vdm = engine.var_dimensions.find(full_target_name);
+                        if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name));
+                        if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(mem_assign->mem_name);
+                        if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+                            base_low = it_vdm->second.dimensions[0].low();
+                            if (it_vdm->second.dimensions.size() > 1) {
+                                d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                            } else if (it_vdm->second.dimensions[0].size() > 0) {
+                                d1_width = (uint32_t)(engine.netlist[net_id].width / it_vdm->second.dimensions[0].size());
+                            }
                         }
                     }
                     int64_t elem_idx = addr;
                     if (base_low != 0 && elem_idx >= base_low) elem_idx -= base_low;
-                    uint32_t offset = (uint32_t)(elem_idx * d1_width);
+                    uint32_t offset = prefix_mem_offset + (uint32_t)(elem_idx * d1_width);
                     uint32_t slice_w = d1_width;
 
                     if (!mem_assign->member_name.empty()) {
                         const PackedStructType* st = nullptr;
-                        std::string tname = engine.netlist[net_id].type_name;
+                        std::string tname = !member_struct_type.empty() ? member_struct_type : engine.netlist[net_id].type_name;
                         if (tname.empty()) {
                             if (engine.var_to_struct_type.count(full_target_name)) {
                                 tname = engine.var_to_struct_type.at(full_target_name);
@@ -4935,6 +5028,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 uint32_t target_id = assign->cached_net_id;
                 if (!engine.netlist[target_id].has_procedural_assign) {
                     LogicVal rhs_val = eval_expr(assign->rhs.get(), bp.scope);
+                    rhs_val = extend_unsized_literal_if_needed(assign->rhs.get(), rhs_val, engine.netlist[target_id].width);
                     LogicVal old_v = engine.netlist[target_id].value;
                     LogicVal casted = (engine.netlist[target_id].type_name == "string" || rhs_val.is_string)
                         ? rhs_val
@@ -5317,9 +5411,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (!is_shallow_copy) {
                         FunctionNode* ctor = obj->class_def ? obj->class_def->get_constructor() : nullptr;
                         if (ctor) {
+                            size_t n_inputs = ctor->inputs.size();
+                            size_t max_args = std::max(n_inputs, new_node->args.size());
                             std::vector<LogicVal> arg_vals;
-                            for (auto& a : new_node->args) {
-                                arg_vals.push_back(eval_expr(a.get(), bp.scope));
+                            for (size_t i = 0; i < max_args; ++i) {
+                                if (i < new_node->args.size() && new_node->args[i]) {
+                                    arg_vals.push_back(eval_expr(new_node->args[i].get(), bp.scope));
+                                } else if (i < n_inputs && ctor->inputs[i].default_value) {
+                                    arg_vals.push_back(eval_expr(ctor->inputs[i].default_value.get(), bp.scope));
+                                } else {
+                                    arg_vals.push_back(LogicVal::make_x(i < n_inputs && ctor->inputs[i].width > 0 ? ctor->inputs[i].width : 32));
+                                }
                             }
                             LogicVal dummy;
                             expr_eval.eval_class_method(obj.get(), ctor, arg_vals, dummy);
@@ -5432,8 +5534,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (engine.is_virtual_interface_handle(rhs_val.aval)) {
                         obj->set_virtual_interface(member_name, engine.get_vif_handle(rhs_val.aval));
                     }
-                    obj->set_property(member_name, rhs_val);
-                    return;
+                    bool is_da = obj->has_dynamic_array(member_name);
+                    if (!is_da && obj->class_def) {
+                        if (const auto* mv = obj->class_def->find_member_var(member_name)) {
+                            if (mv->is_dynamic_array) is_da = true;
+                        }
+                    }
+                    if (!is_da && dynamic_cast<NewArrayNode*>(assign->rhs.get())) {
+                        is_da = true;
+                    }
+                    if (is_da) {
+                        // Fall through to dynamic array handling below
+                    } else {
+                        obj->set_property(member_name, rhs_val);
+                        return;
+                    }
                 }
             }
 
@@ -5632,7 +5747,41 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             src_da = engine.get_dynamic_array(src_id->name, bp.scope);
                         }
                         if (src_da) {
-                            local->dyn_array_data.elements = src_da->elements;
+                            local->dyn_array_data.share_from(*src_da);
+                            return;
+                        }
+                    } else if (auto src_ma = dynamic_cast<MemberAccessNode*>(assign->rhs.get())) {
+                        DynamicArrayObject* src_da = nullptr;
+                        ClassObject* src_cl = nullptr;
+                        if (src_ma->var_name == "this" && expr_eval.get_current_this()) {
+                            src_cl = expr_eval.get_current_this();
+                        }
+                        if (!src_cl && expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_ma->var_name);
+                            if (loc && loc->is_class_handle && loc->value.aval != 0) {
+                                src_cl = engine.get_class_object(loc->value.aval).get();
+                            }
+                        }
+                        if (!src_cl && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_ma->var_name);
+                                if (loc && loc->is_class_handle && loc->value.aval != 0) {
+                                    src_cl = engine.get_class_object(loc->value.aval).get();
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_cl) {
+                            size_t nid = engine.get_net_id(bp.scope, src_ma->var_name);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                                src_cl = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                        if (src_cl && src_cl->has_dynamic_array(src_ma->member_name)) {
+                            src_da = src_cl->get_dynamic_array(src_ma->member_name);
+                        }
+                        if (src_da) {
+                            local->dyn_array_data.share_from(*src_da);
                             return;
                         }
                     } else {
@@ -5849,8 +5998,49 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                 }
+                std::string base_var = target_name;
+                std::string member_name = "";
+                auto dot_pos = target_name.find('.');
+                if (dot_pos != std::string::npos) {
+                    base_var = target_name.substr(0, dot_pos);
+                    member_name = target_name.substr(dot_pos + 1);
+                }
                 if (!da && expr_eval.get_current_this() && expr_eval.get_current_this()->has_dynamic_array(target_name)) {
                     da = expr_eval.get_current_this()->get_dynamic_array(target_name);
+                }
+                if (!da && !member_name.empty()) {
+                    ClassObject* cl_p = nullptr;
+                    if (base_var == "this" && expr_eval.get_current_this()) {
+                        cl_p = expr_eval.get_current_this();
+                    } else {
+                        LocalVar* local = nullptr;
+                        if (expr_eval.get_context().has_active_frame()) {
+                            local = expr_eval.get_context().lookup_local(base_var);
+                        }
+                        if (!local && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                local = it->local_frame.get_var(base_var);
+                                if (local) break;
+                            }
+                        }
+                        if (local && local->value.aval != 0) cl_p = engine.get_class_object(local->value.aval).get();
+                        if (!cl_p) {
+                            size_t nid = engine.get_net_id(bp.scope, base_var);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                                cl_p = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                    }
+                    if (cl_p) {
+                        if (!cl_p->has_dynamic_array(member_name) && cl_p->class_def) {
+                            if (const auto* mv = cl_p->class_def->find_member_var(member_name)) {
+                                if (mv->is_dynamic_array) {
+                                    cl_p->dynamic_arrays[member_name] = DynamicArrayObject(member_name, mv->width, mv->is_signed);
+                                }
+                            }
+                        }
+                        da = cl_p->get_dynamic_array(member_name);
+                    }
                 }
                 if (!da) {
                     da = engine.get_dynamic_array(target_name, bp.scope);
@@ -5929,7 +6119,39 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             src_da = engine.get_dynamic_array(src_id->name, bp.scope);
                         }
                         if (src_da) {
-                            da->elements = src_da->elements;
+                            da->share_from(*src_da);
+                            return;
+                        }
+                    } else if (auto src_ma = dynamic_cast<MemberAccessNode*>(assign->rhs.get())) {
+                        DynamicArrayObject* src_da = nullptr;
+                        ClassObject* src_cl = nullptr;
+                        if (src_ma->var_name == "this" && expr_eval.get_current_this()) {
+                            src_cl = expr_eval.get_current_this();
+                        }
+                        if (!src_cl && expr_eval.get_context().has_active_frame()) {
+                            LocalVar* loc = expr_eval.get_context().lookup_local(src_ma->var_name);
+                            if (loc && loc->is_class_handle && loc->value.aval != 0) src_cl = engine.get_class_object(loc->value.aval).get();
+                        }
+                        if (!src_cl && !bp.call_stack.empty()) {
+                            for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                                LocalVar* loc = it->local_frame.get_var(src_ma->var_name);
+                                if (loc && loc->is_class_handle && loc->value.aval != 0) {
+                                    src_cl = engine.get_class_object(loc->value.aval).get();
+                                    break;
+                                }
+                            }
+                        }
+                        if (!src_cl) {
+                            size_t nid = engine.get_net_id(bp.scope, src_ma->var_name);
+                            if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle && engine.netlist[nid].value.aval != 0) {
+                                src_cl = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            }
+                        }
+                        if (src_cl && src_cl->has_dynamic_array(src_ma->member_name)) {
+                            src_da = src_cl->get_dynamic_array(src_ma->member_name);
+                        }
+                        if (src_da) {
+                            da->share_from(*src_da);
                             return;
                         }
                     } else {
@@ -6207,33 +6429,38 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
                 bool is_member = false;
                 if (net_id == (size_t)-1 && !member_name.empty()) {
-                    std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
-                    if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
-                        net_id = engine.net_map.at(scoped_base);
-                        is_member = true;
-                    } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
-                        net_id = engine.net_map.at(base_var);
-                        is_member = true;
-                    } else if (!bp.scope.empty() && engine.net_map.find(bp.scope + "::" + base_var) != engine.net_map.end()) {
-                        net_id = engine.net_map.at(bp.scope + "::" + base_var);
+                    net_id = engine.get_net_id(bp.scope, base_var);
+                    if (net_id != (size_t)-1) {
                         is_member = true;
                     } else {
-                        for (const auto& pkg : bp.active_wildcard_imports) {
-                            std::string qname = pkg + "::" + base_var;
-                            if (engine.net_map.count(qname)) {
-                                net_id = engine.net_map.at(qname);
-                                is_member = true;
-                                break;
+                        std::string scoped_base = bp.scope.empty() ? base_var : (bp.scope + "." + base_var);
+                        if (engine.net_map.find(scoped_base) != engine.net_map.end()) {
+                            net_id = engine.net_map.at(scoped_base);
+                            is_member = true;
+                        } else if (engine.net_map.find(base_var) != engine.net_map.end()) {
+                            net_id = engine.net_map.at(base_var);
+                            is_member = true;
+                        } else if (!bp.scope.empty() && engine.net_map.find(bp.scope + "::" + base_var) != engine.net_map.end()) {
+                            net_id = engine.net_map.at(bp.scope + "::" + base_var);
+                            is_member = true;
+                        } else {
+                            for (const auto& pkg : bp.active_wildcard_imports) {
+                                std::string qname = pkg + "::" + base_var;
+                                if (engine.net_map.count(qname)) {
+                                    net_id = engine.net_map.at(qname);
+                                    is_member = true;
+                                    break;
+                                }
                             }
-                        }
-                        if (net_id == (size_t)-1) {
-                            for (const auto& kv : bp.active_explicit_imports) {
-                                if (kv.first == base_var) {
-                                    std::string qname = kv.second.first + "::" + kv.second.second;
-                                    if (engine.net_map.count(qname)) {
-                                        net_id = engine.net_map.at(qname);
-                                        is_member = true;
-                                        break;
+                            if (net_id == (size_t)-1) {
+                                for (const auto& kv : bp.active_explicit_imports) {
+                                    if (kv.first == base_var) {
+                                        std::string qname = kv.second.first + "::" + kv.second.second;
+                                        if (engine.net_map.count(qname)) {
+                                            net_id = engine.net_map.at(qname);
+                                            is_member = true;
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -6256,6 +6483,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 type_name = engine.var_to_struct_type.at(scoped_base);
                             } else if (engine.var_to_struct_type.find(base_var) != engine.var_to_struct_type.end()) {
                                 type_name = engine.var_to_struct_type.at(base_var);
+                            } else if (engine.var_to_struct_type.find(engine.netlist[net_id].name) != engine.var_to_struct_type.end()) {
+                                type_name = engine.var_to_struct_type.at(engine.netlist[net_id].name);
                             } else if (!bp.scope.empty() && engine.var_to_struct_type.find(bp.scope + "::" + base_var) != engine.var_to_struct_type.end()) {
                                 type_name = engine.var_to_struct_type.at(bp.scope + "::" + base_var);
                             } else {
@@ -6597,7 +6826,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                         if (!engine.netlist[target_id].has_procedural_assign) {
                             LogicVal old_v = engine.netlist[target_id].value;
-                            LogicVal casted = (engine.netlist[target_id].type_name == "string") ? rhs_val : LogicOps::cast_width(rhs_val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
+                            LogicVal ext_rhs = extend_unsized_literal_if_needed(assign->rhs.get(), rhs_val, engine.netlist[target_id].width);
+                            LogicVal casted = (engine.netlist[target_id].type_name == "string") ? ext_rhs : LogicOps::cast_width(ext_rhs, engine.netlist[target_id].width, engine.netlist[target_id].is_signed);
                             engine.netlist[target_id].set(casted);
                             if (target_id < engine.alias_members.size()) {
                                 for (size_t other_id : engine.alias_members[target_id]) {

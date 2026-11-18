@@ -3565,6 +3565,50 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         }
                     }
                 }
+                if (!cl_obj) {
+                    size_t dpos = arr_name.find('.');
+                    std::string base_net = (dpos != std::string::npos) ? arr_name.substr(0, dpos) : arr_name;
+                    std::string sub_mem = (dpos != std::string::npos) ? arr_name.substr(dpos + 1) : "";
+                    size_t nid = engine.get_net_id(scope, base_net);
+                    if (nid != (size_t)-1 && !sub_mem.empty()) {
+                        std::string tname = engine.netlist[nid].type_name;
+                        if (tname.empty()) {
+                            std::string fn = engine.netlist[nid].name;
+                            if (engine.var_to_struct_type.count(fn)) tname = engine.var_to_struct_type.at(fn);
+                            else if (engine.var_to_struct_type.count(base_net)) tname = engine.var_to_struct_type.at(base_net);
+                        }
+                        const PackedStructType* st = nullptr;
+                        if (!tname.empty()) {
+                            std::string scoped_t = scope.empty() ? tname : (scope + "." + tname);
+                            if (engine.struct_types.count(scoped_t)) st = &engine.struct_types.at(scoped_t);
+                            else if (engine.struct_types.count(tname)) st = &engine.struct_types.at(tname);
+                        }
+                        if (st) {
+                            const StructMember* sm = st->get_member(sub_mem);
+                            if (sm) {
+                                uint32_t prefix_offset = sm->offset;
+                                uint32_t elem_w = sm->width;
+                                const PackedStructType* elem_st = nullptr;
+                                if (!sm->type_name.empty()) {
+                                    std::string stn = scope.empty() ? sm->type_name : (scope + "." + sm->type_name);
+                                    if (engine.struct_types.count(stn)) elem_st = &engine.struct_types.at(stn);
+                                    else if (engine.struct_types.count(sm->type_name)) elem_st = &engine.struct_types.at(sm->type_name);
+                                    if (elem_st && elem_st->total_width > 0) elem_w = elem_st->total_width;
+                                }
+                                uint32_t eff_offset = prefix_offset + (uint32_t)(idx * elem_w);
+                                uint32_t eff_width = elem_w;
+                                if (elem_st) {
+                                    const StructMember* inner_sm = elem_st->get_member(member_name);
+                                    if (inner_sm) {
+                                        eff_offset += inner_sm->offset;
+                                        eff_width = inner_sm->width;
+                                    }
+                                }
+                                return engine.netlist[nid].value.extract_slice(eff_offset, eff_width);
+                            }
+                        }
+                    }
+                }
             }
         }
         if (!cl_obj && var_name.find('.') != std::string::npos) {
@@ -5295,7 +5339,14 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     if (!mem_indices.empty()) {
                         LogicVal iv = eval(mem_indices[0], scope);
                         if (iv.is_unknown()) addr_unknown = true;
-                        else linear_addr = (uint32_t)mem.to_word_offset((int64_t)iv.aval);
+                        else {
+                            int64_t idx = (int64_t)iv.aval;
+                            if (!mem.is_valid_index(idx)) {
+                                if (mem.is_real) return LogicVal(0.0);
+                                return LogicVal::make_x(mem.word_width);
+                            }
+                            linear_addr = (uint32_t)mem.to_word_offset(idx);
+                        }
                     }
                 } else {
                     for (int k = (int)U - 2; k >= 0; --k) {

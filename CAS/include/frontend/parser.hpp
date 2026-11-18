@@ -44,6 +44,8 @@ private:
     Lexer& lexer;
     Token current;
     std::vector<ParameterDef> global_parameters;
+    std::vector<PortNode> global_signals;
+    std::vector<std::string> global_events;
 
     std::deque<Token> peek_queue;
     void advance();
@@ -301,8 +303,10 @@ public:
                     if (pit->second->simple_typedefs.find(eit->second.second) != pit->second->simple_typedefs.end()) return true;
                 }
             }
+            std::unordered_set<std::string> checked_pkgs;
             int found_pkg_cnt = 0;
             for (const auto& pkg_name : current_parsing_module->wildcard_imports) {
+                if (!checked_pkgs.insert(pkg_name).second) continue;
                 auto pit = global_packages.find(pkg_name);
                 if (pit != global_packages.end()) {
                     if (pit->second->simple_typedefs.find(name) != pit->second->simple_typedefs.end() ||
