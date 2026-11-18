@@ -5,5 +5,7 @@ enum class NetKind {
     WAND,
     WOR,
     TRI,
+    TRI1,
+    TRI0,
     VAR
 };

@@ -3370,6 +3370,16 @@ bool StratifiedScheduler::resume_waiting_processes(bool for_reactive) {
         if (!bp.wait_target.active) continue;
         if (bp.is_reactive != for_reactive) continue;
 
+        if (bp.wait_target.target_local) {
+            if (bp.wait_target.target_local->change_counter > bp.wait_target.initial_local_cc) {
+                bp.wait_target.active = false;
+                bp.wait_target.target_local = nullptr;
+                step_process(pid);
+                resumed_any = true;
+            }
+            continue;
+        }
+
         const auto& net = engine.netlist[bp.wait_target.net_id];
         size_t canon_id = engine.get_canonical_net_id(bp.wait_target.net_id);
         const auto& canon_net = engine.netlist[canon_id];
@@ -3557,13 +3567,36 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         }
     }
 
+    if (!cl_obj) {
+        if (!bp.call_stack.empty() && bp.call_stack.back().this_obj) {
+            cl_obj = bp.call_stack.back().this_obj;
+        } else if (engine.evaluator.get_expr_eval().get_current_this()) {
+            cl_obj = engine.evaluator.get_expr_eval().get_current_this();
+        }
+    }
+
     if (!target_task) {
-        for (const auto& kv : bp.active_explicit_imports) {
-            if (kv.first == tcall->task_name) {
-                std::string qname = kv.second.first + "::" + kv.second.second;
-                if (engine.task_map.count(qname)) {
-                    target_task = engine.task_map.at(qname);
-                    break;
+        if (tcall->task_name.rfind("$unit::", 0) == 0) {
+            std::string uq = tcall->task_name.substr(7);
+            size_t cu_id = 0;
+            if (cl_obj && cl_obj->class_def) {
+                cu_id = cl_obj->class_def->compilation_unit_id;
+            } else if (engine.scope_cu_id.count(bp.scope)) {
+                cu_id = engine.scope_cu_id.at(bp.scope);
+            }
+            std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+            if (engine.task_map.count(cu_prefix + "::" + uq)) {
+                target_task = engine.task_map.at(cu_prefix + "::" + uq);
+            }
+        }
+        if (!target_task) {
+            for (const auto& kv : bp.active_explicit_imports) {
+                if (kv.first == tcall->task_name) {
+                    std::string qname = kv.second.first + "::" + kv.second.second;
+                    if (engine.task_map.count(qname)) {
+                        target_task = engine.task_map.at(qname);
+                        break;
+                    }
                 }
             }
         }
@@ -3579,8 +3612,30 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
         if (!target_task) {
             if (engine.task_map.find(scoped_tname) != engine.task_map.end()) {
                 target_task = engine.task_map.at(scoped_tname);
-            } else if (engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
-                target_task = engine.task_map.at(tcall->task_name);
+            } else {
+                size_t cu_id = 0;
+                if (cl_obj && cl_obj->class_def) {
+                    cu_id = cl_obj->class_def->compilation_unit_id;
+                } else if (engine.scope_cu_id.count(bp.scope)) {
+                    cu_id = engine.scope_cu_id.at(bp.scope);
+                }
+                std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+                if (engine.task_map.count(cu_prefix + "::" + tcall->task_name)) {
+                    target_task = engine.task_map.at(cu_prefix + "::" + tcall->task_name);
+                } else if (tcall->task_name.find('.') == std::string::npos) {
+                    std::string up_s = bp.scope;
+                    while (up_s.find('.') != std::string::npos) {
+                        up_s = up_s.substr(0, up_s.rfind('.'));
+                        std::string up_tname = up_s + "." + tcall->task_name;
+                        if (engine.task_map.count(up_tname)) {
+                            target_task = engine.task_map.at(up_tname);
+                            break;
+                        }
+                    }
+                }
+                if (!target_task && engine.task_map.find(tcall->task_name) != engine.task_map.end()) {
+                    target_task = engine.task_map.at(tcall->task_name);
+                }
             }
         }
         if (!target_task) {
@@ -4310,6 +4365,22 @@ void StratifiedScheduler::step_process(size_t pid) {
                     break;
                 }
 
+                LocalVar* local = nullptr;
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    local = it->local_frame.get_var(ev_stmt->signal_name);
+                    if (local) break;
+                }
+                if (local) {
+                    cur_frame.pc++;
+                    bp.wait_target.active = true;
+                    bp.wait_target.edge = ev_stmt->edge;
+                    bp.wait_target.signal_name = ev_stmt->signal_name;
+                    bp.wait_target.net_id = (size_t)-1;
+                    bp.wait_target.target_local = local;
+                    bp.wait_target.initial_local_cc = local->change_counter;
+                    break;
+                }
+
                 size_t net_id = (size_t)-1;
                 auto dot_p = ev_stmt->signal_name.find('.');
                 if (dot_p != std::string::npos) {
@@ -4600,6 +4671,22 @@ void StratifiedScheduler::step_process(size_t pid) {
                     bp.pc++;
                     bp.waiting_event_id = ev_id;
                     engine.named_events[ev_id].waiting_pids.push_back(pid);
+                    break;
+                }
+
+                LocalVar* local = nullptr;
+                for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                    local = it->local_frame.get_var(ev_stmt->signal_name);
+                    if (local) break;
+                }
+                if (local) {
+                    bp.pc++;
+                    bp.wait_target.active = true;
+                    bp.wait_target.edge = ev_stmt->edge;
+                    bp.wait_target.signal_name = ev_stmt->signal_name;
+                    bp.wait_target.net_id = (size_t)-1;
+                    bp.wait_target.target_local = local;
+                    bp.wait_target.initial_local_cc = local->change_counter;
                     break;
                 }
 

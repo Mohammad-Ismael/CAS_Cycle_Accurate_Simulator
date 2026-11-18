@@ -1678,6 +1678,8 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return LogicVal::make_real(num->real_val);
         }
         LogicVal lv(num->width, num->aval, num->bval, num->is_signed);
+        lv.is_unbased = num->is_unbased;
+        lv.unbased_char = num->unbased_char;
         if (!num->wide_aval.empty()) {
             lv.wide_aval = num->wide_aval;
             lv.wide_bval = num->wide_bval;
@@ -4619,12 +4621,49 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         if (!target_fn) {
-            if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
+            if (fn_call->func_name.rfind("$unit::", 0) == 0) {
+                std::string uq = fn_call->func_name.substr(7);
+                size_t cu_id = 0;
+                if (current_this && current_this->class_def) {
+                    cu_id = current_this->class_def->compilation_unit_id;
+                } else if (engine.scope_cu_id.count(scope)) {
+                    cu_id = engine.scope_cu_id.at(scope);
+                }
+                std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+                if (engine.function_map.count(cu_prefix + "::" + uq)) {
+                    target_fn = engine.function_map.at(cu_prefix + "::" + uq);
+                    target_fn_name = cu_prefix + "::" + uq;
+                }
+            } else if (engine.function_map.find(scoped_fn) != engine.function_map.end()) {
                 target_fn = engine.function_map.at(scoped_fn);
                 target_fn_name = scoped_fn;
-            } else if (engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
-                target_fn = engine.function_map.at(fn_call->func_name);
-                target_fn_name = fn_call->func_name;
+            } else {
+                size_t cu_id = 0;
+                if (current_this && current_this->class_def) {
+                    cu_id = current_this->class_def->compilation_unit_id;
+                } else if (engine.scope_cu_id.count(scope)) {
+                    cu_id = engine.scope_cu_id.at(scope);
+                }
+                std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+                if (engine.function_map.count(cu_prefix + "::" + fn_call->func_name)) {
+                    target_fn = engine.function_map.at(cu_prefix + "::" + fn_call->func_name);
+                    target_fn_name = cu_prefix + "::" + fn_call->func_name;
+                } else if (fn_call->func_name.find('.') == std::string::npos) {
+                    std::string up_s = scope;
+                    while (up_s.find('.') != std::string::npos) {
+                        up_s = up_s.substr(0, up_s.rfind('.'));
+                        std::string up_fname = up_s + "." + fn_call->func_name;
+                        if (engine.function_map.count(up_fname)) {
+                            target_fn = engine.function_map.at(up_fname);
+                            target_fn_name = up_fname;
+                            break;
+                        }
+                    }
+                }
+                if (!target_fn && engine.function_map.find(fn_call->func_name) != engine.function_map.end()) {
+                    target_fn = engine.function_map.at(fn_call->func_name);
+                    target_fn_name = fn_call->func_name;
+                }
             }
         }
         if (!target_fn && current_bp) {
@@ -4995,6 +5034,47 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             res.is_signed = engine.netlist[nid].is_signed;
             return res;
         }
+
+        size_t cu_id = 0;
+        if (current_this && current_this->class_def) {
+            cu_id = current_this->class_def->compilation_unit_id;
+        } else if (engine.scope_cu_id.count(scope)) {
+            cu_id = engine.scope_cu_id.at(scope);
+        }
+        std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+        if (engine.param_val_map.count(cu_prefix + "::" + ident->name)) {
+            return engine.param_val_map.at(cu_prefix + "::" + ident->name);
+        }
+        if (engine.param_val_map.count(cu_prefix + "." + ident->name)) {
+            return engine.param_val_map.at(cu_prefix + "." + ident->name);
+        }
+        if (engine.param_map.count(cu_prefix + "::" + ident->name)) {
+            return LogicVal::make_known(32, engine.param_map.at(cu_prefix + "::" + ident->name));
+        }
+        if (engine.param_map.count(cu_prefix + "." + ident->name)) {
+            return LogicVal::make_known(32, engine.param_map.at(cu_prefix + "." + ident->name));
+        }
+        if (engine.net_map.count(cu_prefix + "::" + ident->name)) {
+            size_t cu_nid = engine.net_map.at(cu_prefix + "::" + ident->name);
+            return engine.netlist[cu_nid].value;
+        }
+        if (engine.net_map.count(cu_prefix + "." + ident->name)) {
+            size_t cu_nid = engine.net_map.at(cu_prefix + "." + ident->name);
+            return engine.netlist[cu_nid].value;
+        }
+
+        if (ident->name.find('.') == std::string::npos) {
+            std::string up_s = scope;
+            while (up_s.find('.') != std::string::npos) {
+                up_s = up_s.substr(0, up_s.rfind('.'));
+                std::string up_ident = up_s + "." + ident->name;
+                if (engine.param_val_map.count(up_ident)) return engine.param_val_map.at(up_ident);
+                if (engine.param_map.count(up_ident)) return LogicVal::make_known(32, engine.param_map.at(up_ident));
+                if (engine.enum_constant_map.count(up_ident)) return engine.enum_constant_map.at(up_ident);
+                size_t up_nid = engine.get_net_id(up_s, ident->name);
+                if (up_nid != (size_t)-1) return engine.netlist[up_nid].value;
+            }
+        }
         if (engine.enum_constant_map.find(ident->name) != engine.enum_constant_map.end()) {
             return engine.enum_constant_map.at(ident->name);
         }
@@ -5318,7 +5398,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
             LogicVal addr_val = eval(idx_node->msb_expr.get(), scope);
             if (addr_val.is_unknown()) {
-                return LogicVal::make_x(q->elem_width);
+                return q->get_default_val();
             }
             int64_t idx = addr_val.to_signed();
             LogicVal elem = q->get_elem(idx);

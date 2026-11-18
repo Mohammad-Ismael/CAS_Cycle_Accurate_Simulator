@@ -343,6 +343,28 @@ LogicVal Evaluator::eval_gate(const GateInstance& g) {
     return res;
 }
 
+static void print_default_dec(const LogicVal& val) {
+    std::string s;
+    int def_w = 1;
+    if (val.is_signed) {
+        s = std::to_string(val.to_signed());
+        if (val.width <= 8) def_w = 5;
+        else if (val.width <= 16) def_w = 7;
+        else if (val.width <= 32) def_w = 14;
+        else def_w = 22;
+    } else {
+        if (val.width <= 64) s = std::to_string(val.aval);
+        else s = val.to_dec_string();
+        if (val.width == 1) def_w = 1;
+        else if (val.width <= 4) def_w = 2;
+        else if (val.width <= 32) def_w = 10;
+        else def_w = (int)std::ceil(val.width * 0.30103);
+    }
+    int pad = def_w - (int)s.size();
+    if (pad > 0) std::cout << std::string(pad, ' ');
+    std::cout << s;
+}
+
 void Evaluator::check_monitor() {
     if (!engine.monitor_session.active) return;
     set_current_process(nullptr);
@@ -409,12 +431,7 @@ void Evaluator::check_monitor() {
                 } else if (engine.monitor_session.default_radix == 'h' || engine.monitor_session.default_radix == 'x') {
                     std::cout << val.to_hex_string(true);
                 } else { // 'd'
-                    if (val.is_signed) {
-                        std::cout << val.to_signed();
-                    } else {
-                        if (val.width <= 64) std::cout << val.aval;
-                        else std::cout << val.to_dec_string();
-                    }
+                    print_default_dec(val);
                 }
             }
             std::cout << "\n";
@@ -486,6 +503,26 @@ void Evaluator::check_monitor() {
                 }
             } else {
                 std::cout << engine.monitor_session.format_string[i];
+            }
+        }
+        while (arg_idx < current_values.size()) {
+            const auto& val = current_values[arg_idx++];
+            if (val.is_string) {
+                std::cout << val.str_val;
+            } else if (val.is_real) {
+                if (engine.monitor_session.default_radix == 'd') std::cout << (int64_t)std::llround(val.real_val);
+                else std::cout << val.real_val;
+            } else if (val.is_unknown() && engine.monitor_session.default_radix == 'd') {
+                if (val.width <= 64 && val.aval == 0 && val.bval != 0) std::cout << "z";
+                else std::cout << "x";
+            } else if (engine.monitor_session.default_radix == 'b') {
+                std::cout << val.to_bin_string();
+            } else if (engine.monitor_session.default_radix == 'o') {
+                std::cout << val.to_oct_string();
+            } else if (engine.monitor_session.default_radix == 'h' || engine.monitor_session.default_radix == 'x') {
+                std::cout << val.to_hex_string(true);
+            } else { // 'd'
+                print_default_dec(val);
             }
         }
         std::cout << "\n";
@@ -3925,7 +3962,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         } else {
             if (!engine.is_display_allowed()) return;
 
-            if (disp->format_string.empty()) {
+            std::string effective_fmt = disp->format_string;
+            size_t start_arg_idx = 0;
+            if (effective_fmt.empty() && !disp->arg_exprs.empty()) {
+                LogicVal first_val = eval_expr(disp->arg_exprs[0].get(), bp.scope);
+                if (first_val.is_string && first_val.str_val.find('%') != std::string::npos) {
+                    effective_fmt = first_val.str_val;
+                    start_arg_idx = 1;
+                }
+            }
+
+            if (effective_fmt.empty()) {
                 for (size_t i = 0; i < disp->arg_exprs.size(); ++i) {
                     LogicVal val = eval_expr(disp->arg_exprs[i].get(), bp.scope);
                     if (val.is_string) {
@@ -3943,12 +3990,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     } else if (disp->default_radix == 'h' || disp->default_radix == 'x') {
                         std::cout << val.to_hex_string(true);
                     } else { // 'd'
-                        if (val.is_signed) {
-                            std::cout << val.to_signed();
-                        } else {
-                            if (val.width <= 64) std::cout << val.aval;
-                            else std::cout << val.to_dec_string();
-                        }
+                        print_default_dec(val);
                     }
                 }
                 std::cout << "\n";
@@ -3964,26 +4006,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (disp->has_leading_time) {
                 std::cout << engine.get_sim_time() << " ";
             }
-            size_t arg_idx = 0;
-            size_t fmt_len = disp->format_string.size();
+            size_t arg_idx = start_arg_idx;
+            size_t fmt_len = effective_fmt.size();
             for (size_t i = 0; i < fmt_len; ++i) {
-                if (disp->format_string[i] == '%' && i + 1 < fmt_len) {
+                if (effective_fmt[i] == '%' && i + 1 < fmt_len) {
                     ++i;
-                    if (disp->format_string[i] == '%') {
+                    if (effective_fmt[i] == '%') {
                         std::cout << '%';
                         continue;
                     }
                     bool pad_zero = false;
                     int width = 0;
-                    if (disp->format_string[i] == '0') {
+                    if (effective_fmt[i] == '0') {
                         pad_zero = true;
                         ++i;
                     }
-                    while (i < fmt_len && std::isdigit((unsigned char)disp->format_string[i])) {
-                        width = width * 10 + (disp->format_string[i] - '0');
+                    while (i < fmt_len && std::isdigit((unsigned char)effective_fmt[i])) {
+                        width = width * 10 + (effective_fmt[i] - '0');
                         ++i;
                     }
-                    char spec = (i < fmt_len) ? disp->format_string[i] : ' ';
+                    char spec = (i < fmt_len) ? effective_fmt[i] : ' ';
                     if (spec == 'm') {
                         std::cout << bp.scope;
                         continue;
@@ -4033,7 +4075,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                 } else {
-                    std::cout << disp->format_string[i];
+                    std::cout << effective_fmt[i];
                 }
             }
             while (arg_idx < disp->arg_exprs.size()) {
@@ -4053,9 +4095,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (disp->default_radix == 'h' || disp->default_radix == 'x') {
                     std::cout << val.to_hex_string(true);
                 } else {
-                    if (val.is_signed) std::cout << val.to_signed();
-                    else if (val.width <= 64) std::cout << val.aval;
-                    else std::cout << val.to_dec_string();
+                    print_default_dec(val);
                 }
             }
             std::cout << "\n";
@@ -4423,13 +4463,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             }
             if (local->type_name == "string" || rhs_val.is_string) {
-                local->value = rhs_val;
+                if (local->value != rhs_val) {
+                    local->value = rhs_val;
+                    local->change_counter++;
+                }
             } else if (local->type_name == "real" || local->type_name == "shortreal") {
-                local->value = LogicVal::make_real(rhs_val.to_real());
+                LogicVal rv = LogicVal::make_real(rhs_val.to_real());
+                if (local->value != rv) {
+                    local->value = rv;
+                    local->change_counter++;
+                }
             } else {
-                local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
-                    local->value.coerce_to_2state();
+                LogicVal cv = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                if (local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                    cv.coerce_to_2state();
+                }
+                if (local->value != cv) {
+                    local->value = cv;
+                    local->change_counter++;
                 }
             }
             return;
@@ -5889,7 +5940,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         local->queue_data.elements.clear();
                         for (const auto& el : elems) {
-                            local->queue_data.elements.push_back(el.is_string ? el : (el.width == local->queue_data.elem_width ? el : local->queue_data.cast_elem(el, local->queue_data.elem_width)));
+                            if (local->queue_data.max_bound >= 0 && (int64_t)local->queue_data.elements.size() > local->queue_data.max_bound) break;
+                            local->queue_data.elements.push_back(local->queue_data.cast_elem(el));
                         }
                         return;
                     }
@@ -6151,13 +6203,24 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     if (local->type_name == "string") {
-                        local->value = rhs_val;
+                        if (local->value != rhs_val) {
+                            local->value = rhs_val;
+                            local->change_counter++;
+                        }
                     } else if (local->type_name == "real" || local->type_name == "shortreal") {
-                        local->value = LogicVal::make_real(rhs_val.to_real());
+                        LogicVal rv = LogicVal::make_real(rhs_val.to_real());
+                        if (local->value != rv) {
+                            local->value = rv;
+                            local->change_counter++;
+                        }
                     } else {
-                        local->value = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                        if (local->is_2state || local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
-                            local->value.coerce_to_2state();
+                        LogicVal cv = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
+                        if (local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                            cv.coerce_to_2state();
+                        }
+                        if (local->value != cv) {
+                            local->value = cv;
+                            local->change_counter++;
                         }
                     }
                     if (local->is_static && !local->static_key.empty()) {
@@ -6202,7 +6265,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         q->elements.clear();
                         for (const auto& el : elems) {
-                            q->elements.push_back(el.is_string ? el : (el.width == q->elem_width ? el : q->cast_elem(el, q->elem_width)));
+                            if (q->max_bound >= 0 && (int64_t)q->elements.size() > q->max_bound) break;
+                            q->elements.push_back(q->cast_elem(el));
                         }
                         return;
                     }

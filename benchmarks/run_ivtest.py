@@ -280,6 +280,8 @@ def run_single_test(test_info):
     for a in args:
         if a == "-S":
             cmd.append("-S")
+        elif a == "-u":
+            cmd.append("-u")
         elif a.startswith("-I"):
             idir = a[2:]
             if not os.path.isabs(idir):
@@ -453,6 +455,13 @@ def main():
 
     lists = ["regress-sv.list", "regress-v12.list"]
     tests, skipped = load_tests(lists)
+
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", "-t", action="append", help="Filter test names")
+    parsed_cli, _ = parser.parse_known_args()
+    if parsed_cli.test:
+        tests = {k: v for k, v in tests.items() if any(t == k or t in k for t in parsed_cli.test)}
 
     # Classify tests into 3 main categories
     cat_map = {}

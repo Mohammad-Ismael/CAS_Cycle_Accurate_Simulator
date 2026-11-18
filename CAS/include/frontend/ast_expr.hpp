@@ -14,6 +14,8 @@ struct NumberNode : public ExpressionNode {
     double real_val = 0.0;
     bool is_signed = false;
     bool explicit_size = false;
+    bool is_unbased = false;
+    char unbased_char = 0;
     bool is_time_literal = false;
     uint64_t time_fs = 0;
     double time_fs_real = 0.0;
@@ -39,6 +41,8 @@ struct NumberNode : public ExpressionNode {
         node->is_real = is_real;
         node->real_val = real_val;
         node->explicit_size = explicit_size;
+        node->is_unbased = is_unbased;
+        node->unbased_char = unbased_char;
         node->is_time_literal = is_time_literal;
         node->time_fs = time_fs;
         node->time_fs_real = time_fs_real;

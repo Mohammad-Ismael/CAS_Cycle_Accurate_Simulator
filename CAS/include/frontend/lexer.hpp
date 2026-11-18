@@ -385,6 +385,10 @@ public:
         global_time_precision_str = "1ps";
         global_time_precision_unit = "ps";
     }
+    static std::string global_default_nettype;
+    static void set_default_nettype(const std::string& nt) { global_default_nettype = nt; }
+    static const std::string& get_default_nettype() { return global_default_nettype; }
+    static void reset_default_nettype() { global_default_nettype = "wire"; }
     static double parse_time_fs_real(const std::string& s);
     static uint64_t parse_time_fs(const std::string& s);
 

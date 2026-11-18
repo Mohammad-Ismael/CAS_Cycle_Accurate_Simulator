@@ -227,6 +227,7 @@ struct TaskNode : public ASTNode {
     bool is_pure = false;
     bool is_extern = false;
     bool has_body = true;
+    size_t compilation_unit_id = 0;
     std::vector<PortNode> ports;
     std::vector<std::unique_ptr<StatementNode>> body;
     const std::vector<std::unique_ptr<StatementNode>>* shared_body = nullptr;
@@ -249,6 +250,7 @@ struct FunctionNode : public ASTNode {
     bool is_pure = false;
     bool is_extern = false;
     bool has_body = true;
+    size_t compilation_unit_id = 0;
     uint32_t return_width = 32;
     bool return_signed = false;
     std::string return_type_name = "";
@@ -686,6 +688,8 @@ struct ConstraintBlockNode : public ASTNode {
 
 struct ClassNode : public ASTNode {
     std::string name;
+    std::string defined_in_file = "";
+    size_t compilation_unit_id = 0;
     std::string base_class_name;
     ClassNode* base_class = nullptr;
     std::vector<std::unique_ptr<ExpressionNode>> base_constructor_args;
@@ -1146,6 +1150,8 @@ struct CaseGenerateNode : public ASTNode {
 
 struct ModuleNode : public ASTNode {
     std::string name;
+    std::string default_nettype = "wire";
+    size_t compilation_unit_id = 0;
     std::string timeunit_val = "";
     std::string timeprecision_val = "";
     std::unordered_map<std::string, std::pair<std::string, std::string>> nested_timescales;

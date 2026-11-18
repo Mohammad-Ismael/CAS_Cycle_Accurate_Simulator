@@ -257,6 +257,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 auto val_expr = parse_expression();
 
                 ParameterDef pdef(pname, std::move(val_expr), is_local, ptype);
+                ParameterDef pdef_cu(pname, pdef.default_expr ? pdef.default_expr->clone() : nullptr, is_local, ptype);
+                cu_parameters[current_compilation_unit_id].push_back(std::move(pdef_cu));
                 global_parameters.push_back(std::move(pdef));
 
                 if (match(TokenType::TOKEN_COMMA)) continue;
@@ -599,6 +601,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     bind_out_of_body_function(std::move(fn));
                 } else {
+                    fn->compilation_unit_id = current_compilation_unit_id;
                     global_functions.push_back(std::move(fn));
                 }
             }
@@ -614,6 +617,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     bind_out_of_body_task(std::move(t));
                 } else {
+                    t->compilation_unit_id = current_compilation_unit_id;
                     global_tasks.push_back(std::move(t));
                 }
             }
@@ -656,11 +660,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (cu_type == "event") {
                     global_events.push_back(vname);
                 } else if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire") {
+                    ParameterDef pdef_cu(vname, val_expr->clone(), false, cu_type);
+                    cu_parameters[current_compilation_unit_id].push_back(std::move(pdef_cu));
                     ParameterDef pdef(vname, std::move(val_expr), false, cu_type);
                     global_parameters.push_back(std::move(pdef));
                 } else {
                     PortNode sig(vname, "internal", nullptr, nullptr, false, NetKind::VAR);
                     sig.type_name = cu_type;
+                    cu_signals[current_compilation_unit_id].push_back(sig.clone());
                     global_signals.push_back(std::move(sig));
                 }
                 if (match(TokenType::TOKEN_COMMA)) continue;
@@ -708,6 +715,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         }
         mod->defined_in_file = current.filename;
         mod->defined_on_line = current.line;
+        mod->default_nettype = Lexer::get_default_nettype();
+        mod->compilation_unit_id = current_compilation_unit_id;
         mod->name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, is_iface ? "Expected interface name" : (is_prog ? "Expected program name" : "Expected module name"));
         if (is_iface) known_interfaces.insert(mod->name);
@@ -4768,6 +4777,8 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
     }
 
     auto cls = std::make_unique<ClassNode>(class_name);
+    cls->defined_in_file = current.filename;
+    cls->compilation_unit_id = current_compilation_unit_id;
     cls->is_interface_class = is_interface_class;
     cls->is_abstract = is_abstract;
     cls->time_unit = !global_timeunit_val.empty() ? global_timeunit_val : Lexer::global_time_unit_str;
@@ -5092,7 +5103,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 is_virt = true;
             } else if (match(TokenType::TOKEN_STATIC)) {
                 is_stat = true;
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "protected" || current.text == "local")) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "protected" || current.text == "local" || current.text == "const")) {
                 advance();
             } else {
                 break;

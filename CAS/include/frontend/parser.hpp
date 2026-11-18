@@ -55,6 +55,10 @@ private:
     void expect(TokenType type, const std::string& err_msg);
 
 public:
+    size_t current_compilation_unit_id = 0;
+    void set_compilation_unit_id(size_t id) {
+        current_compilation_unit_id = id;
+    }
     std::unordered_map<std::string, std::shared_ptr<EnumTypeNode>> typedef_map;
     std::unordered_map<std::string, std::shared_ptr<StructTypeNode>> struct_typedef_map;
     std::vector<std::unique_ptr<TypedefNode>> global_typedefs;
@@ -76,6 +80,8 @@ public:
     static inline std::unordered_map<std::string, uint32_t> global_simple_typedefs;
     static inline std::vector<std::shared_ptr<FunctionNode>> global_functions;
     static inline std::vector<std::shared_ptr<TaskNode>> global_tasks;
+    static inline std::unordered_map<size_t, std::vector<ParameterDef>> cu_parameters;
+    static inline std::unordered_map<size_t, std::vector<PortNode>> cu_signals;
     static std::vector<std::string> global_wildcard_imports;
     static std::unordered_map<std::string, std::pair<std::string, std::string>> global_explicit_imports;
     static void clear_global_packages() {
@@ -96,6 +102,8 @@ public:
         global_forward_interface_classes.clear();
         resolved_typedefs.clear();
         global_type_dimensions.clear();
+        cu_parameters.clear();
+        cu_signals.clear();
     }
 
     bool is_package(const std::string& name) const {

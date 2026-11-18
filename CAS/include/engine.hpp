@@ -86,6 +86,7 @@ private:
     std::unordered_map<std::string, FunctionNode*> function_map;
     std::unordered_map<std::string, uint64_t> param_map;
     std::unordered_map<std::string, LogicVal> param_val_map;
+    std::unordered_map<std::string, size_t> scope_cu_id;
     std::unordered_set<std::string> unbounded_params;
     std::vector<NamedEvent> named_events;
     std::unordered_map<std::string, size_t> named_event_map;
@@ -396,8 +397,13 @@ public:
                             obj->dynamic_arrays[m.name] = DynamicArrayObject(m.name, m.width, m.is_signed);
                         } else {
                             LogicVal init_val(m.width, 0, 0);
+                            if (m.type_name == "string") {
+                                init_val.is_string = true;
+                            }
                             if (auto num = dynamic_cast<NumberNode*>(m.default_expr.get())) {
                                 init_val = LogicVal(m.width, num->aval, 0);
+                            } else if (auto str = dynamic_cast<StringNode*>(m.default_expr.get())) {
+                                init_val = LogicVal::make_string(str->value);
                             }
                             obj->properties[m.name] = init_val;
                         }

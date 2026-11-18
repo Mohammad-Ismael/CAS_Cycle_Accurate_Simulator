@@ -648,6 +648,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         uint32_t w = current.width;
         bool s = current.is_signed;
         bool is_sz = current.is_sized;
+        bool is_unb = false;
+        char unb_c = 0;
+        if (current.text.size() == 2 && current.text[0] == '\'') {
+            char c = current.text[1];
+            if (c == '0' || c == '1' || c == 'x' || c == 'X' || c == 'z' || c == 'Z') {
+                is_unb = true;
+                unb_c = c;
+            }
+        }
         bool is_time_lit = current.is_time_literal;
         double t_fs_real = current.time_fs_real;
         uint64_t t_fs = current.time_fs;
@@ -665,6 +674,8 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         }
         auto node = std::make_unique<NumberNode>(a, b, w, s);
         node->explicit_size = is_sz;
+        node->is_unbased = is_unb;
+        node->unbased_char = unb_c;
         node->is_time_literal = is_time_lit;
         node->time_fs_real = t_fs_real;
         node->time_fs = t_fs;

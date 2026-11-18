@@ -400,19 +400,40 @@ public:
         return LogicVal::make_known(1, (eq.aval == 0) ? 1 : 0);
     }
 
+    static LogicVal expand_unbased(char c, uint32_t w) {
+        if (c == '0') return LogicVal::make_known(w, 0);
+        if (c == '1') return LogicVal(w, (w >= 64) ? ~0ULL : ((1ULL << w) - 1), 0);
+        if (c == 'z' || c == 'Z') return LogicVal::make_z(w);
+        return LogicVal::make_x(w);
+    }
+
     static LogicVal case_eq(const LogicVal& l, const LogicVal& r) {
-        uint32_t w = std::max(l.width, r.width);
-        LogicVal el = cast_width(l, w, false);
-        LogicVal er = cast_width(r, w, false);
+        LogicVal el = l;
+        LogicVal er = r;
+        if (l.is_unbased && !r.is_unbased) {
+            el = expand_unbased(l.unbased_char, r.width);
+        } else if (r.is_unbased && !l.is_unbased) {
+            er = expand_unbased(r.unbased_char, l.width);
+        }
+        uint32_t w = std::max(el.width, er.width);
+        el = cast_width(el, w, false);
+        er = cast_width(er, w, false);
         bool match = (el.aval == er.aval) && (el.bval == er.bval);
         return LogicVal::make_known(1, match ? 1 : 0);
     }
 
     static LogicVal casez_eq(const LogicVal& l, const LogicVal& r) {
-        uint32_t w = std::max(l.width, r.width);
+        LogicVal el = l;
+        LogicVal er = r;
+        if (l.is_unbased && !r.is_unbased) {
+            el = expand_unbased(l.unbased_char, r.width);
+        } else if (r.is_unbased && !l.is_unbased) {
+            er = expand_unbased(r.unbased_char, l.width);
+        }
+        uint32_t w = std::max(el.width, er.width);
         uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-        LogicVal el = cast_width(l, w, false);
-        LogicVal er = cast_width(r, w, false);
+        el = cast_width(el, w, false);
+        er = cast_width(er, w, false);
         uint64_t care_mask = ~((~el.aval & el.bval) | (~er.aval & er.bval)) & mask;
         bool match = ((el.aval & care_mask) == (er.aval & care_mask)) &&
                      ((el.bval & care_mask) == (er.bval & care_mask));
@@ -463,8 +484,8 @@ public:
     }
 
     static LogicVal case_neq(const LogicVal& l, const LogicVal& r) {
-        bool match = (l.aval == r.aval) && (l.bval == r.bval);
-        return LogicVal::make_known(1, match ? 0 : 1);
+        LogicVal eq = case_eq(l, r);
+        return LogicVal::make_known(1, eq.aval ? 0 : 1);
     }
 
     static LogicVal ternary(const LogicVal& cond, const LogicVal& t_val, const LogicVal& f_val) {
@@ -612,6 +633,19 @@ public:
         switch (kind) {
             case NetKind::WAND: return resolve_wand(a, b);
             case NetKind::WOR:  return resolve_wor(a, b);
+            case NetKind::TRI1: {
+                LogicVal res = resolve_wire(a, b);
+                uint64_t both_z = (~res.aval) & res.bval;
+                res.aval |= both_z;
+                res.bval &= ~both_z;
+                return res;
+            }
+            case NetKind::TRI0: {
+                LogicVal res = resolve_wire(a, b);
+                uint64_t both_z = (~res.aval) & res.bval;
+                res.bval &= ~both_z;
+                return res;
+            }
             case NetKind::WIRE:
             case NetKind::TRI:
             default:            return resolve_wire(a, b);

@@ -38,8 +38,11 @@ struct Net {
 
     Net(std::string n, uint32_t w, bool s = false, NetKind k = NetKind::WIRE)
         : name(std::move(n)), width(w), is_signed(s), kind(k),
-          value((k == NetKind::VAR) ? LogicVal::make_x(w) : LogicVal::make_z(w)),
-          prev_value((k == NetKind::VAR) ? LogicVal::make_x(w) : LogicVal::make_z(w)),
+          value((k == NetKind::VAR) ? LogicVal::make_x(w) :
+                (k == NetKind::TRI1) ? LogicVal(w, (w >= 64 ? ~0ULL : ((1ULL << w) - 1)), 0) :
+                (k == NetKind::TRI0) ? LogicVal(w, 0, 0) :
+                LogicVal::make_z(w)),
+          prev_value(value),
           modified(false), vcd_id("") {}
 
     void set(const LogicVal& val) {
@@ -77,7 +80,7 @@ struct Net {
             clamped = val;
             clamped.width = width;
             clamped.mask();
-            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "int" || type_name == "longint") {
+            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "longint") {
                 clamped.coerce_to_2state();
             }
         }

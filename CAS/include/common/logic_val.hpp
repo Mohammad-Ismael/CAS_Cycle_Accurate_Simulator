@@ -19,6 +19,8 @@ struct LogicVal {
     bool is_unpacked = false;
     bool is_tagged_union = false;
     std::string tag_member = "";
+    bool is_unbased = false;
+    char unbased_char = 0;
     std::vector<LogicVal> unpacked_elements;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;

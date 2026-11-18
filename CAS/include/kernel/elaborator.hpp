@@ -127,6 +127,8 @@ struct EventWaitTarget {
     std::string signal_name;
     size_t net_id = 0;
     uint64_t initial_change_counter = 0;
+    LocalVar* target_local = nullptr;
+    uint64_t initial_local_cc = 0;
 };
 
 struct TaskActivationFrame {
@@ -294,6 +296,7 @@ struct ElaborationResult {
     std::vector<size_t> canonical_net_map;
     std::vector<std::vector<size_t>> alias_members;
     std::unordered_set<size_t> comb_target_net_ids;
+    std::unordered_map<std::string, size_t> scope_cu_id;
     std::string top_scope;
 };
 

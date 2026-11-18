@@ -40,6 +40,7 @@ struct LocalVar {
     bool is_static = false;
     std::string static_key = "";
     bool is_2state = false;
+    uint64_t change_counter = 0;
 
     LocalVar(std::string n, uint32_t w, bool s = false, std::string t = "", bool q = false, bool dyn = false, bool assoc = false, const std::string& key_t = "", uint32_t key_w = 32)
         : name(std::move(n)), width(w), is_signed(s),
@@ -77,33 +78,36 @@ struct LocalVar {
 
 struct ScopeFrame {
     std::string scope_name;
-    std::unordered_map<std::string, LocalVar> locals;
+    std::shared_ptr<std::unordered_map<std::string, LocalVar>> locals_ptr;
     bool returned = false;
     std::string func_return_name = "";
 
-    ScopeFrame() = default;
-    explicit ScopeFrame(std::string name) : scope_name(std::move(name)) {}
+    ScopeFrame() : locals_ptr(std::make_shared<std::unordered_map<std::string, LocalVar>>()) {}
+    explicit ScopeFrame(std::string name) : scope_name(std::move(name)), locals_ptr(std::make_shared<std::unordered_map<std::string, LocalVar>>()) {}
 
     bool has_var(const std::string& name) const {
-        return locals.find(name) != locals.end();
+        return locals_ptr && (locals_ptr->find(name) != locals_ptr->end());
     }
 
     LocalVar* get_var(const std::string& name) {
-        auto it = locals.find(name);
-        return (it != locals.end()) ? &it->second : nullptr;
+        if (!locals_ptr) return nullptr;
+        auto it = locals_ptr->find(name);
+        return (it != locals_ptr->end()) ? &it->second : nullptr;
     }
 
     const LocalVar* get_var(const std::string& name) const {
-        auto it = locals.find(name);
-        return (it != locals.end()) ? &it->second : nullptr;
+        if (!locals_ptr) return nullptr;
+        auto it = locals_ptr->find(name);
+        return (it != locals_ptr->end()) ? &it->second : nullptr;
     }
 
     void declare_var(const std::string& name, uint32_t width, bool is_signed, const std::string& type = "", bool is_q = false, bool is_dyn = false, bool is_assoc = false, const std::string& key_t = "", uint32_t key_w = 32) {
-        auto it = locals.find(name);
-        if (it != locals.end()) {
+        if (!locals_ptr) locals_ptr = std::make_shared<std::unordered_map<std::string, LocalVar>>();
+        auto it = locals_ptr->find(name);
+        if (it != locals_ptr->end()) {
             it->second = LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w);
         } else {
-            locals.emplace(name, LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w));
+            locals_ptr->emplace(name, LocalVar(name, width, is_signed, type, is_q, is_dyn, is_assoc, key_t, key_w));
         }
     }
 };

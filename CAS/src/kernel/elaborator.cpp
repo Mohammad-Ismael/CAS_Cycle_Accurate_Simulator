@@ -992,6 +992,14 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
             if (dot == std::string::npos) cur_scope = "";
             else cur_scope = cur_scope.substr(0, dot);
         }
+        size_t cu_id = (current_module) ? current_module->compilation_unit_id : 0;
+        std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+        if (result.param_map.find(cu_prefix + "::" + id->name) != result.param_map.end()) {
+            return result.param_map.at(cu_prefix + "::" + id->name);
+        }
+        if (result.param_map.find(cu_prefix + "." + id->name) != result.param_map.end()) {
+            return result.param_map.at(cu_prefix + "." + id->name);
+        }
         if (result.param_map.find(id->name) != result.param_map.end()) {
             return result.param_map.at(id->name);
         }
@@ -2168,7 +2176,14 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         }
         if (ident->name.find('.') == std::string::npos) {
             std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
-            size_t new_id = get_or_create_net(full_name, 1, false, NetKind::WIRE);
+            NetKind nk = NetKind::WIRE;
+            if (current_module) {
+                if (current_module->default_nettype == "tri1") nk = NetKind::TRI1;
+                else if (current_module->default_nettype == "tri0") nk = NetKind::TRI0;
+                else if (current_module->default_nettype == "wand") nk = NetKind::WAND;
+                else if (current_module->default_nettype == "wor") nk = NetKind::WOR;
+            }
+            size_t new_id = get_or_create_net(full_name, 1, false, nk);
             return {new_id, 0, 1};
         }
         throw std::runtime_error("Cannot resolve net reference for '" + ident->name + "' in scope '" + scope + "'");
@@ -3257,6 +3272,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                  std::ostream* debug_out) {
     ModuleNode* prev_module = current_module;
     current_module = mod;
+    result.scope_cu_id[scope] = mod->compilation_unit_id;
     if (debug_out) {
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
@@ -3674,6 +3690,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             lval = LogicOps::cast_width(lval, width, p.is_signed);
             val = lval.aval;
         }
+        bool has_local_sig = false;
+        for (const auto& s : mod->signals) {
+            if (s.name == p.name) { has_local_sig = true; break; }
+        }
+        if (has_local_sig) continue;
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
         bool is_unb = false;
@@ -4207,7 +4228,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 max_bound = (int64_t)eval_const_expr(s.queue_bound_expr.get(), scope);
             }
             std::string q_scope = scope + "." + s.name;
-            result.queue_map[q_scope] = QueueObject(q_scope, w, s.is_signed, max_bound);
+            bool is_r = (s.type_name == "real" || s.type_name == "shortreal");
+            bool is_str = (s.type_name == "string");
+            bool is_2st = (!is_r && !is_str && (s.type_name == "bit" || s.type_name == "byte" || s.type_name == "shortint" || s.type_name == "longint"));
+            result.queue_map[q_scope] = QueueObject(q_scope, w, s.is_signed, max_bound, is_r, is_str, is_2st);
             if (debug_out) {
                 *debug_out << "     * Queue allocated: " << q_scope 
                            << " [" << w << "-bit, bound=" << max_bound << "]\n";
@@ -4451,10 +4475,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.virtual_interface_names.insert(scope + "." + s.name);
                 result.virtual_interface_names.insert(s.name);
             }
-            if (s.is_2state || s.type_name == "bit" || s.type_name == "int" || s.type_name == "byte" ||
+            if (s.is_2state || s.type_name == "bit" || s.type_name == "byte" ||
                 s.type_name == "shortint" || s.type_name == "longint") {
                 result.netlist[sid].type_name = s.type_name;
                 result.netlist[sid].is_2state = true;
+                result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
+                result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
+            } else if (s.type_name == "int") {
+                result.netlist[sid].type_name = s.type_name;
                 result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
                 result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
             }
@@ -5219,7 +5247,12 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (result.netlist[gi.out_target.net_id].kind == NetKind::VAR) {
             throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: gate or primitive output cannot drive variable/reg '" + result.netlist[gi.out_target.net_id].name + "' per IEEE 1800-2023 section 28 & 29");
         }
-        for (auto& ie : g->in_exprs) gi.in_exprs.push_back(ie.get());
+        for (auto& ie : g->in_exprs) {
+            if (auto id = dynamic_cast<IdentifierNode*>(ie.get())) {
+                resolve_slice_ref(id, scope);
+            }
+            gi.in_exprs.push_back(ie.get());
+        }
         result.gates.push_back(gi);
     }
 
@@ -6452,12 +6485,45 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         result.function_map[fn->name] = fn.get();
         result.function_map["$root." + fn->name] = fn.get();
         result.function_map["$unit::" + fn->name] = fn.get();
+        result.function_map["$unit_" + std::to_string(fn->compilation_unit_id) + "::" + fn->name] = fn.get();
     }
 
     for (const auto& t : Parser::global_tasks) {
         result.task_map[t->name] = t.get();
         result.task_map["$root." + t->name] = t.get();
         result.task_map["$unit::" + t->name] = t.get();
+        result.task_map["$unit_" + std::to_string(t->compilation_unit_id) + "::" + t->name] = t.get();
+    }
+
+    for (const auto& kv : Parser::cu_parameters) {
+        size_t cu_id = kv.first;
+        std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+        for (const auto& p : kv.second) {
+            LogicVal lval;
+            if (p.default_expr) {
+                lval = eval_const_logic_val(p.default_expr.get(), cu_prefix);
+            }
+            uint64_t val = lval.aval;
+            result.param_map[cu_prefix + "::" + p.name] = val;
+            result.param_map[cu_prefix + "." + p.name] = val;
+            result.param_val_map[cu_prefix + "::" + p.name] = lval;
+            result.param_val_map[cu_prefix + "." + p.name] = lval;
+            result.param_map["$unit::" + p.name] = val;
+            result.param_map["$unit." + p.name] = val;
+            result.param_val_map["$unit::" + p.name] = lval;
+            result.param_val_map["$unit." + p.name] = lval;
+        }
+    }
+    for (const auto& kv : Parser::cu_signals) {
+        size_t cu_id = kv.first;
+        std::string cu_prefix = "$unit_" + std::to_string(cu_id);
+        for (const auto& s : kv.second) {
+            std::string net_name = cu_prefix + "." + s.name;
+            size_t nid = get_or_create_net(net_name, s.width, s.is_signed, s.net_kind);
+            result.netlist[nid].type_name = s.type_name;
+            result.net_map[cu_prefix + "::" + s.name] = nid;
+            result.net_map["$unit::" + s.name] = nid;
+        }
     }
 
     // Check forward class declarations (§6.18)

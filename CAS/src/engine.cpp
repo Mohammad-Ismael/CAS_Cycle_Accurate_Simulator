@@ -69,6 +69,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     dynamic_array_map = std::move(elab_res.dynamic_array_map);
     assoc_array_map = std::move(elab_res.assoc_array_map);
     timescale_map = std::move(elab_res.timescale_map);
+    scope_cu_id = std::move(elab_res.scope_cu_id);
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
     param_val_map = std::move(elab_res.param_val_map);

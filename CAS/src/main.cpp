@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
     bool enable_native_codegen = false;
     bool parse_only = false;
     bool elab_only = false;
+    bool separate_compilation_units = false;
     InitRegMode init_reg_mode = InitRegMode::X;
     std::string top_override = "";
     std::string timescale_unit = "1ns";
@@ -176,6 +177,24 @@ int main(int argc, char* argv[]) {
                 std::cerr << "[CAS WARNING] Unknown +initreg+ mode: " << mode_str << " (expected 0, 1, or x)\n";
             }
             cli_plusargs.push_back(argv[i]);
+        } else if (std::strcmp(argv[i], "-u") == 0) {
+            separate_compilation_units = true;
+        } else if (std::strcmp(argv[i], "-D") == 0 && i + 1 < argc) {
+            std::string def = argv[++i];
+            auto eq = def.find('=');
+            if (eq != std::string::npos) {
+                Lexer::set_define(def.substr(0, eq), def.substr(eq + 1));
+            } else {
+                Lexer::set_define(def, "");
+            }
+        } else if (std::strncmp(argv[i], "-D", 2) == 0) {
+            std::string def = argv[i] + 2;
+            auto eq = def.find('=');
+            if (eq != std::string::npos) {
+                Lexer::set_define(def.substr(0, eq), def.substr(eq + 1));
+            } else {
+                Lexer::set_define(def, "");
+            }
         } else if (std::strncmp(argv[i], "+incdir+", 8) == 0) {
             Lexer::add_include_dir(argv[i] + 8);
         } else if (std::strncmp(argv[i], "+define+", 8) == 0) {
@@ -269,17 +288,40 @@ int main(int argc, char* argv[]) {
             file_sources.push_back({file, std::move(content), base_dir});
         }
 
+        auto initial_defines = Lexer::global_defines;
+        auto initial_macro_defs = Lexer::global_macro_defs;
+        Lexer::reset_default_nettype();
+
         // Pass 1: Discover and register all PackageNode definitions across all source files
-        for (const auto& entry : file_sources) {
+        for (size_t f_idx = 0; f_idx < file_sources.size(); ++f_idx) {
+            const auto& entry = file_sources[f_idx];
+            if (separate_compilation_units) {
+                Lexer::global_defines = initial_defines;
+                Lexer::global_macro_defs = initial_macro_defs;
+                Lexer::reset_default_nettype();
+            }
             Lexer lexer(entry.filename, entry.content, entry.base_dir, nullptr);
             Parser parser(lexer);
+            parser.set_compilation_unit_id(separate_compilation_units ? f_idx : 0);
             parser.parse_packages_only();
         }
 
+        // Reset lexer defines and default nettype before Pass 2
+        Lexer::global_defines = initial_defines;
+        Lexer::global_macro_defs = initial_macro_defs;
+        Lexer::reset_default_nettype();
+
         // Pass 2: Full parsing of all modules, interfaces, and compilation units
-        for (const auto& entry : file_sources) {
+        for (size_t f_idx = 0; f_idx < file_sources.size(); ++f_idx) {
+            const auto& entry = file_sources[f_idx];
+            if (separate_compilation_units) {
+                Lexer::global_defines = initial_defines;
+                Lexer::global_macro_defs = initial_macro_defs;
+                Lexer::reset_default_nettype();
+            }
             Lexer lexer(entry.filename, entry.content, entry.base_dir, debug_ptr);
             Parser parser(lexer);
+            parser.set_compilation_unit_id(separate_compilation_units ? f_idx : 0);
             auto mods = parser.parse_all();
             for (auto& m : mods) {
                 all_modules.push_back(std::move(m));

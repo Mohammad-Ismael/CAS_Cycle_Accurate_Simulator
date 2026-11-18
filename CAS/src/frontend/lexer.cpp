@@ -13,6 +13,7 @@ std::string Lexer::global_time_precision_unit = "ps";
 std::vector<std::string> Lexer::global_include_dirs;
 std::unordered_map<std::string, std::string> Lexer::global_defines;
 std::unordered_map<std::string, Lexer::MacroDef> Lexer::global_macro_defs;
+std::string Lexer::global_default_nettype = "wire";
 
 Lexer::Lexer(const std::string& filename, const std::string& source, const std::string& base_dir, std::ostream* debug_stream)
     : current_dir(base_dir), debug_out(debug_stream) {
@@ -566,7 +567,13 @@ void Lexer::skip_whitespace_and_comments() {
                     throw std::runtime_error("`resetall is not permitted inside a design element per IEEE 1800-2023 22.3");
                 }
                 while (peek() != '\n' && peek() != '\0') advance();
-            } else if (directive == "default_nettype" || directive == "celldefine" || 
+            } else if (directive == "default_nettype") {
+                while (std::isspace(peek()) && peek() != '\n') advance();
+                std::string nt = "";
+                while (std::isalnum(peek()) || peek() == '_') nt += advance();
+                while (peek() != '\n' && peek() != '\0') advance();
+                if (!nt.empty()) global_default_nettype = nt;
+            } else if (directive == "celldefine" || 
                        directive == "endcelldefine" || directive == "begin_keywords" || directive == "end_keywords") {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
@@ -607,10 +614,6 @@ void Lexer::skip_whitespace_and_comments() {
                         int max_depth = 20;
                         bool changed = true;
                         while (changed && max_depth-- > 0) {
-                            size_t p_del = 0;
-                            while ((p_del = exp.find("``", p_del)) != std::string::npos) {
-                                exp.erase(p_del, 2);
-                            }
                             changed = false;
                             size_t mp = 0;
                             while ((mp = exp.find('`', mp)) != std::string::npos) {
@@ -675,17 +678,7 @@ void Lexer::skip_whitespace_and_comments() {
                                                 for (size_t i = 0; i < mdef.args.size(); ++i) {
                                                     const std::string& formal = mdef.args[i];
                                                     std::string act = (i < actuals.size()) ? actuals[i] : (i < mdef.defaults.size() ? mdef.defaults[i] : "");
-                                                    std::string p1 = "``" + formal;
                                                     size_t q = 0;
-                                                    while ((q = sub.find(p1, q)) != std::string::npos) { sub.replace(q, p1.length(), act); q += act.length(); }
-                                                    std::string p2 = formal + "``";
-                                                    q = 0;
-                                                    while ((q = sub.find(p2, q)) != std::string::npos) {
-                                                        std::string repl = act;
-                                                        sub.replace(q, p2.length(), repl);
-                                                        q += repl.length();
-                                                    }
-                                                    q = 0;
                                                     while ((q = sub.find(formal, q)) != std::string::npos) {
                                                         bool left_ok = (q == 0) || (!std::isalnum(static_cast<unsigned char>(sub[q-1])) && sub[q-1] != '_');
                                                         bool right_ok = (q + formal.length() >= sub.length()) || (!std::isalnum(static_cast<unsigned char>(sub[q + formal.length()])) && sub[q + formal.length()] != '_');
@@ -796,30 +789,17 @@ void Lexer::skip_whitespace_and_comments() {
                                     throw std::runtime_error("Missing required argument '" + formal + "' without default value in macro `" + directive + " per IEEE 1800-2023 22.5.1");
                                 }
                             }
-                            std::string paste1 = "``" + formal;
-                                size_t p = 0;
-                                while ((p = expanded.find(paste1, p)) != std::string::npos) {
-                                    expanded.replace(p, paste1.length(), actual);
+                            size_t p = 0;
+                            while ((p = expanded.find(formal, p)) != std::string::npos) {
+                                bool left_ok = (p == 0) || (!std::isalnum(expanded[p-1]) && expanded[p-1] != '_');
+                                bool right_ok = (p + formal.length() >= expanded.length()) || (!std::isalnum(expanded[p + formal.length()]) && expanded[p + formal.length()] != '_');
+                                if (left_ok && right_ok) {
+                                    expanded.replace(p, formal.length(), actual);
                                     p += actual.length();
+                                } else {
+                                    p += formal.length();
                                 }
-                                std::string paste2 = formal + "``";
-                                p = 0;
-                                while ((p = expanded.find(paste2, p)) != std::string::npos) {
-                                    std::string repl = actual;
-                                    expanded.replace(p, paste2.length(), repl);
-                                    p += repl.length();
-                                }
-                                p = 0;
-                                while ((p = expanded.find(formal, p)) != std::string::npos) {
-                                    bool left_ok = (p == 0) || (!std::isalnum(expanded[p-1]) && expanded[p-1] != '_');
-                                    bool right_ok = (p + formal.length() >= expanded.length()) || (!std::isalnum(expanded[p + formal.length()]) && expanded[p + formal.length()] != '_');
-                                    if (left_ok && right_ok) {
-                                        expanded.replace(p, formal.length(), actual);
-                                        p += actual.length();
-                                    } else {
-                                        p += formal.length();
-                                    }
-                                }
+                            }
                             }
                             process_macro_expansion(expanded);
                     } else {
