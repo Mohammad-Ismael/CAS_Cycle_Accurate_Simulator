@@ -646,6 +646,22 @@ void StratifiedScheduler::init_scheduler() {
         }
     }
     net_to_slice_bindings.assign(engine.netlist.size(), {});
+    net_has_rca_driver.assign(engine.netlist.size(), 0);
+    for (const auto& rca : engine.resolved_continuous_assigns) {
+        if (rca.target.net_id < net_has_rca_driver.size()) {
+            net_has_rca_driver[rca.target.net_id] = 1;
+            size_t c = engine.get_canonical_net_id(rca.target.net_id);
+            if (c < net_has_rca_driver.size()) net_has_rca_driver[c] = 1;
+        }
+    }
+    net_slice_drive_count.assign(engine.netlist.size(), 0);
+    for (const auto& b : engine.slice_bindings) {
+        if (b.dst.net_id < net_slice_drive_count.size()) {
+            net_slice_drive_count[b.dst.net_id]++;
+            size_t c = engine.get_canonical_net_id(b.dst.net_id);
+            if (c != b.dst.net_id && c < net_slice_drive_count.size()) net_slice_drive_count[c]++;
+        }
+    }
     for (size_t s_idx = 0; s_idx < engine.slice_bindings.size(); ++s_idx) {
         const auto& bind = engine.slice_bindings[s_idx];
         if (bind.src.net_id < engine.netlist.size()) {
@@ -2413,14 +2429,18 @@ void StratifiedScheduler::propagate_comb() {
                 LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
                 LogicVal val_to_write = src_val;
                 if (engine.netlist[bind.dst.net_id].kind != NetKind::VAR && !engine.netlist[bind.dst.net_id].value.is_real) {
-                    LogicVal cur_dst = engine.evaluator.read_slice(bind.dst);
-                    uint64_t mask = (bind.dst.width >= 64) ? ~0ULL : ((1ULL << bind.dst.width) - 1);
-                    uint64_t src_is_z = (~val_to_write.aval) & val_to_write.bval & mask;
-                    uint64_t dst_is_not_z = ~((~cur_dst.aval) & cur_dst.bval) & mask;
-                    uint64_t preserve = src_is_z & dst_is_not_z;
-                    if (preserve) {
-                        val_to_write.aval = (val_to_write.aval & ~preserve) | (cur_dst.aval & preserve);
-                        val_to_write.bval = (val_to_write.bval & ~preserve) | (cur_dst.bval & preserve);
+                    bool has_multiple_drivers = (bind.dst.net_id < net_has_rca_driver.size() && net_has_rca_driver[bind.dst.net_id]) ||
+                                                (bind.dst.net_id < net_slice_drive_count.size() && net_slice_drive_count[bind.dst.net_id] > 1);
+                    if (has_multiple_drivers) {
+                        LogicVal cur_dst = engine.evaluator.read_slice(bind.dst);
+                        uint64_t mask = (bind.dst.width >= 64) ? ~0ULL : ((1ULL << bind.dst.width) - 1);
+                        uint64_t src_is_z = (~val_to_write.aval) & val_to_write.bval & mask;
+                        uint64_t dst_is_known = (~cur_dst.bval) & mask;
+                        uint64_t preserve = src_is_z & dst_is_known;
+                        if (preserve) {
+                            val_to_write.aval = (val_to_write.aval & ~preserve) | (cur_dst.aval & preserve);
+                            val_to_write.bval = (val_to_write.bval & ~preserve) | (cur_dst.bval & preserve);
+                        }
                     }
                 }
                 if (val_to_write != dst_val) {
@@ -5590,14 +5610,6 @@ void StratifiedScheduler::run_simulation() {
 
     comb_proc_enqueued.assign(engine.processes.size(), 0);
     dirty_comb_procs.clear();
-    for (uint32_t i = 0; i < engine.processes.size(); ++i) {
-        if (engine.processes[i].proc && (engine.processes[i].proc->type == ProcessType::COMBINATIONAL ||
-                                         engine.processes[i].proc->is_always_comb ||
-                                         engine.processes[i].proc->is_always_latch)) {
-            comb_proc_enqueued[i] = 1;
-            dirty_comb_procs.push_back(i);
-        }
-    }
     init_scheduler();
     slice_binding_enqueued.assign(engine.slice_bindings.size(), 1);
     dirty_slice_bindings.clear();
@@ -5645,23 +5657,27 @@ void StratifiedScheduler::run_simulation() {
     for (size_t i = 0; i < num_root_processes; ++i) {
         if (engine.processes[i].parent_pid != (size_t)-1) continue;
         if (engine.processes[i].is_reactive) continue;
-        if (engine.processes[i].proc && engine.processes[i].proc->type == ProcessType::ALWAYS) {
-            if (!engine.processes[i].proc->body.empty() && 
-                dynamic_cast<EventControlStatementNode*>(engine.processes[i].proc->body[0].get())) {
-                step_process(i);
-            }
-        }
-    }
-
-    for (size_t i = 0; i < num_root_processes; ++i) {
-        if (engine.processes[i].parent_pid != (size_t)-1) continue;
-        if (engine.processes[i].is_reactive) continue;
         if (engine.processes[i].proc->type == ProcessType::INITIAL || 
             engine.processes[i].proc->type == ProcessType::ALWAYS) {
             step_process(i);
             propagate_comb();
         }
     }
+
+    // IEEE 1800-2023 §9.2.2.2.2: The always_comb procedure executes once at simulation time zero,
+    // after all initial and always blocks have been started so that the outputs of the procedure
+    // are consistent with the inputs.
+    for (uint32_t i = 0; i < engine.processes.size(); ++i) {
+        if (engine.processes[i].proc && (engine.processes[i].proc->type == ProcessType::COMBINATIONAL ||
+                                         engine.processes[i].proc->is_always_comb ||
+                                         engine.processes[i].proc->is_always_latch)) {
+            if (!comb_proc_enqueued[i]) {
+                comb_proc_enqueued[i] = 1;
+                dirty_comb_procs.push_back(i);
+            }
+        }
+    }
+    propagate_comb();
 
     for (size_t i = 0; i < num_root_processes; ++i) {
         if (engine.processes[i].parent_pid != (size_t)-1) continue;

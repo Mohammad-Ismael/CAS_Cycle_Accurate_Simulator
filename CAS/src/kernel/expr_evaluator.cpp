@@ -506,7 +506,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             }
         }
         if (local) {
-            LogicVal casted = (local->type_name == "string")
+            LogicVal casted = (local->type_name == "string" || val.is_string || local->type_name == "real" || local->type_name == "shortreal" || val.is_real)
                               ? val
                               : LogicOps::cast_width(val, local->width, local->is_signed && val.is_signed);
             if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
@@ -543,7 +543,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
                      : engine.get_net_id(scope, id->name);
         if (nid != (size_t)-1) {
             size_t target_id = (nid < engine.canonical_net_map.size()) ? engine.canonical_net_map[nid] : nid;
-            LogicVal casted = (engine.netlist[target_id].type_name == "string")
+            LogicVal casted = (engine.netlist[target_id].type_name == "string" || val.is_string || engine.netlist[target_id].type_name == "real" || engine.netlist[target_id].type_name == "shortreal" || val.is_real)
                               ? val
                               : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && val.is_signed);
             if (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
@@ -813,12 +813,17 @@ LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string
             if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
             uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
             if (unit_fs == 0) unit_fs = 1;
+            if (engine.scopes_with_timeunit.empty()) {
+                if (ident->name == "$realtime") return LogicVal::make_real((double)engine.get_sim_time());
+                return LogicVal::make_known(64, engine.get_sim_time());
+            }
             if (ident->name == "$realtime") {
                 uint64_t sim_fs = engine.get_sim_time() * engine.global_prec_fs;
                 double r_val = (double)sim_fs / (double)unit_fs;
                 return LogicVal::make_real(r_val);
             }
-            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+            uint64_t prec_fs = engine.global_prec_fs > 0 ? engine.global_prec_fs : 1000000ULL;
+            uint64_t sim_fs = engine.get_sim_time() * prec_fs;
             uint64_t scaled = sim_fs / unit_fs;
             return LogicVal::make_known(64, scaled);
         }
@@ -1483,7 +1488,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             }
             LogicVal elem;
             if (assoc->is_string_key) {
-                elem = assoc->get(addr_val.str_val);
+                elem = assoc->get(addr_val.to_ascii_string());
             } else {
                 uint64_t key = addr_val.aval;
                 if (assoc->key_width < 64 && assoc->key_width > 0) {
@@ -2476,7 +2481,7 @@ LogicVal ExprEvaluator::eval_binary_op_node(BinaryOpNode* bin, const std::string
             return LogicVal::make_known(w, ext_l.aval - ext_r.aval, expr_signed);
         }
         if (bin->op == "*") {
-            uint32_t w = std::min(64U, l.width + r.width);
+            uint32_t w = std::max(l.width, r.width);
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(w);
             return LogicVal::make_known(w, l.aval * r.aval, expr_signed);
         }
@@ -2643,7 +2648,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
 
     if (auto incdec = dynamic_cast<IncDecExprNode*>(expr)) {
         LogicVal cur_val = eval(incdec->operand.get(), scope);
-        LogicVal one = LogicVal::make_known(cur_val.width, 1, cur_val.is_signed);
+        LogicVal one = cur_val.is_real ? LogicVal::make_real(1.0) : LogicVal::make_known(cur_val.width, 1, cur_val.is_signed);
         LogicVal new_val = (incdec->op == "++")
             ? eval_binary_op("+", cur_val, one)
             : eval_binary_op("-", cur_val, one);
@@ -4436,7 +4441,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (!method_node->args.empty()) {
                     LogicVal k = eval(method_node->args[0].get(), scope);
                     if (assoc->is_string_key) {
-                        return LogicVal::make_known(1, assoc->exists(k.str_val) ? 1 : 0);
+                        return LogicVal::make_known(1, assoc->exists(k.to_ascii_string()) ? 1 : 0);
                     } else {
                         uint64_t key = k.aval;
                         if (assoc->key_width < 64 && assoc->key_width > 0) {
@@ -4516,7 +4521,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     std::string in_out_k;
                     if (!method_node->args.empty()) {
                         LogicVal kv = eval(method_node->args[0].get(), scope);
-                        in_out_k = kv.str_val;
+                        in_out_k = kv.to_ascii_string();
                     }
                     bool ok = is_next ? assoc->next(in_out_k) : assoc->prev(in_out_k);
                     if (ok && !method_node->args.empty()) {
@@ -4591,7 +4596,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 } else {
                     LogicVal k = eval(method_node->args[0].get(), scope);
                     if (assoc->is_string_key) {
-                        assoc->delete_key(k.str_val);
+                        assoc->delete_key(k.to_ascii_string());
                     } else {
                         uint64_t key = k.aval;
                         if (assoc->key_width < 64 && assoc->key_width > 0) {
@@ -5831,12 +5836,17 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
             uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
             if (unit_fs == 0) unit_fs = 1;
+            if (engine.scopes_with_timeunit.empty()) {
+                if (fn_call->func_name == "$realtime") return LogicVal::make_real((double)engine.get_sim_time());
+                return LogicVal::make_known(64, engine.get_sim_time());
+            }
             if (fn_call->func_name == "$realtime") {
                 uint64_t sim_fs = engine.get_sim_time() * engine.global_prec_fs;
                 double r_val = (double)sim_fs / (double)unit_fs;
                 return LogicVal::make_real(r_val);
             }
-            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+            uint64_t prec_fs = engine.global_prec_fs > 0 ? engine.global_prec_fs : 1000000ULL;
+            uint64_t sim_fs = engine.get_sim_time() * prec_fs;
             uint64_t scaled = sim_fs / unit_fs;
             return LogicVal::make_known(64, scaled);
         }

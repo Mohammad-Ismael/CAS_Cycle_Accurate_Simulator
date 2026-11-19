@@ -2371,43 +2371,23 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 return node;
             }
             std::string comp_op = "";
-            if (match(TokenType::TOKEN_PLUS_EQUAL)) comp_op = "+";
-            else if (match(TokenType::TOKEN_MINUS_EQUAL)) comp_op = "-";
-            else if (match(TokenType::TOKEN_STAR_EQUAL)) comp_op = "*";
-            else if (match(TokenType::TOKEN_SLASH_EQUAL)) comp_op = "/";
-            else if (match(TokenType::TOKEN_PERCENT_EQUAL)) comp_op = "%";
-            else if (match(TokenType::TOKEN_AND_EQUAL)) comp_op = "&";
-            else if (match(TokenType::TOKEN_OR_EQUAL)) comp_op = "|";
-            else if (match(TokenType::TOKEN_XOR_EQUAL)) comp_op = "^";
-            else if (match(TokenType::TOKEN_SHL_EQUAL)) comp_op = "<<";
-            else if (match(TokenType::TOKEN_SHR_EQUAL)) comp_op = ">>";
-            else if (match(TokenType::TOKEN_ASHL_EQUAL)) comp_op = "<<<";
-            else if (match(TokenType::TOKEN_ASHR_EQUAL)) comp_op = ">>>";
+            if (match(TokenType::TOKEN_PLUS_EQUAL)) comp_op = "+=";
+            else if (match(TokenType::TOKEN_MINUS_EQUAL)) comp_op = "-=";
+            else if (match(TokenType::TOKEN_STAR_EQUAL)) comp_op = "*=";
+            else if (match(TokenType::TOKEN_SLASH_EQUAL)) comp_op = "/=";
+            else if (match(TokenType::TOKEN_PERCENT_EQUAL)) comp_op = "%=";
+            else if (match(TokenType::TOKEN_AND_EQUAL)) comp_op = "&=";
+            else if (match(TokenType::TOKEN_OR_EQUAL)) comp_op = "|=";
+            else if (match(TokenType::TOKEN_XOR_EQUAL)) comp_op = "^=";
+            else if (match(TokenType::TOKEN_SHL_EQUAL)) comp_op = "<<=";
+            else if (match(TokenType::TOKEN_SHR_EQUAL)) comp_op = ">>=";
+            else if (match(TokenType::TOKEN_ASHL_EQUAL)) comp_op = "<<<=";
+            else if (match(TokenType::TOKEN_ASHR_EQUAL)) comp_op = ">>>=";
             if (!comp_op.empty()) {
                 auto rhs = parse_expression();
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
-                auto lhs_idx = std::make_unique<IndexSelectNode>(ident, idx_expr ? idx_expr->clone() : nullptr);
-                if (lsb_expr) {
-                    lhs_idx->lsb_expr = lsb_expr->clone();
-                    lhs_idx->is_part_select = true;
-                    lhs_idx->is_plus_colon = is_plus_c;
-                    lhs_idx->is_minus_colon = is_minus_c;
-                }
-                if (has_dim2 && idx_expr2) {
-                    lhs_idx->has_bit_select = true;
-                    lhs_idx->bit_msb_expr = idx_expr2->clone();
-                    if (lsb_expr2) {
-                        lhs_idx->bit_lsb_expr = lsb_expr2->clone();
-                        lhs_idx->is_plus_colon = is_plus_c2;
-                        lhs_idx->is_minus_colon = is_minus_c2;
-                    }
-                }
-                for (const auto& e : extra_indices) {
-                    lhs_idx->extra_indices.push_back(e ? e->clone() : nullptr);
-                }
-                auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_idx), std::move(rhs));
-                op_expr->is_compound_assign = true;
-                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(op_expr), std::move(idx_expr));
+                auto node = std::make_unique<BlockingAssignNode>(ident, std::move(rhs), std::move(idx_expr));
+                node->op = comp_op;
                 node->bit_lsb = std::move(lsb_expr);
                 node->is_plus_colon = is_plus_c;
                 node->is_minus_colon = is_minus_c;

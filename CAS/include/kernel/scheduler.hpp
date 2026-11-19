@@ -145,6 +145,8 @@ private:
     std::vector<uint32_t> dirty_slice_bindings;
     std::vector<uint8_t> slice_binding_enqueued;
     std::vector<std::vector<uint32_t>> net_to_slice_bindings;
+    std::vector<uint8_t> net_has_rca_driver;
+    std::vector<uint8_t> net_slice_drive_count;
     void enqueue_slice_binding(uint32_t slice_idx);
 
     std::vector<uint32_t> dirty_mcas;

@@ -776,7 +776,24 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                     if (fn_logic_env.count(id->name)) return fn_logic_env[id->name];
                 }
                 if (auto idx = dynamic_cast<IndexSelectNode*>(e)) {
-                    if (!idx->msb_expr && fn_logic_env.count(idx->name)) return fn_logic_env[idx->name];
+                    if (fn_logic_env.count(idx->name)) {
+                        LogicVal base = fn_logic_env[idx->name];
+                        if (idx->msb_expr) {
+                            LogicVal m_val = eval_fn_expr(idx->msb_expr.get());
+                            int64_t msb = m_val.is_signed ? m_val.to_signed() : (int64_t)m_val.aval;
+                            if (idx->lsb_expr) {
+                                LogicVal l_val = eval_fn_expr(idx->lsb_expr.get());
+                                int64_t lsb = l_val.is_signed ? l_val.to_signed() : (int64_t)l_val.aval;
+                                int64_t lo = std::min(msb, lsb);
+                                int64_t hi = std::max(msb, lsb);
+                                uint32_t w = (uint32_t)(hi - lo + 1);
+                                return base.extract_slice((uint32_t)lo, w);
+                            } else {
+                                return base.extract_slice((uint32_t)msb, 1);
+                            }
+                        }
+                        return base;
+                    }
                 }
                 if (auto num = dynamic_cast<NumberNode*>(e)) {
                     if (num->is_real) return LogicVal::make_real(num->real_val);
@@ -835,6 +852,12 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval % (int64_t)r.aval), true);
                         return LogicVal::make_known(l.width, l.aval % r.aval, false);
                     }
+                    if (bin->op == "&") return LogicOps::bitwise_and(l, r);
+                    if (bin->op == "|") return LogicOps::bitwise_or(l, r);
+                    if (bin->op == "^") return LogicOps::bitwise_xor(l, r);
+                    if (bin->op == "<<" || bin->op == "<<<") return LogicOps::shift_left(l, r);
+                    if (bin->op == ">>") return LogicOps::shift_right(l, r);
+                    if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, expr_signed);
                 }
                 return eval_const_logic_val(e, scope);
             };
@@ -856,9 +879,69 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         const std::string& tgt = ba->lhs_targets[0];
                         if (fn_logic_env.count(tgt)) {
                             LogicVal& cur = fn_logic_env[tgt];
-                            if (cur.is_real) {
+                            std::string bop = "";
+                            if (!ba->op.empty() && ba->op != "=") {
+                                bop = ba->op;
+                                if (bop.back() == '=') bop.pop_back();
+                            }
+                            auto apply_op = [&](LogicVal l, LogicVal r) -> LogicVal {
+                                if (bop.empty()) return r;
+                                if (l.is_real || r.is_real) {
+                                    double dl = l.to_real(), dr = r.to_real();
+                                    if (bop == "+") return LogicVal::make_real(dl + dr);
+                                    if (bop == "-") return LogicVal::make_real(dl - dr);
+                                    if (bop == "*") return LogicVal::make_real(dl * dr);
+                                    if (bop == "/") return (dr != 0.0) ? LogicVal::make_real(dl / dr) : LogicVal::make_x(64);
+                                    if (bop == "%") return (dr != 0.0) ? LogicVal::make_real(std::fmod(dl, dr)) : LogicVal::make_x(64);
+                                }
+                                bool expr_signed = l.is_signed && r.is_signed;
+                                if (bop == "+") return LogicVal::make_known(l.width, l.aval + r.aval, expr_signed);
+                                if (bop == "-") return LogicVal::make_known(l.width, l.aval - r.aval, expr_signed);
+                                if (bop == "*") return LogicVal::make_known(l.width, l.aval * r.aval, expr_signed);
+                                if (bop == "/") {
+                                    if (r.aval == 0) return LogicVal::make_x(l.width);
+                                    if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval / (int64_t)r.aval), true);
+                                    return LogicVal::make_known(l.width, l.aval / r.aval, false);
+                                }
+                                if (bop == "%") {
+                                    if (r.aval == 0) return LogicVal::make_x(l.width);
+                                    if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval % (int64_t)r.aval), true);
+                                    return LogicVal::make_known(l.width, l.aval % r.aval, false);
+                                }
+                                if (bop == "&") return LogicOps::bitwise_and(l, r);
+                                if (bop == "|") return LogicOps::bitwise_or(l, r);
+                                if (bop == "^") return LogicOps::bitwise_xor(l, r);
+                                if (bop == "<<" || bop == "<<<") return LogicOps::shift_left(l, r);
+                                if (bop == ">>") return LogicOps::shift_right(l, r);
+                                if (bop == ">>>") return LogicOps::arith_shift_right(l, r, expr_signed);
+                                return r;
+                            };
+                            if (ba->bit_idx) {
+                                LogicVal m_val = eval_fn_expr(ba->bit_idx.get());
+                                int64_t msb = m_val.is_signed ? m_val.to_signed() : (int64_t)m_val.aval;
+                                if (ba->bit_lsb) {
+                                    LogicVal l_val = eval_fn_expr(ba->bit_lsb.get());
+                                    int64_t lsb = l_val.is_signed ? l_val.to_signed() : (int64_t)l_val.aval;
+                                    int64_t lo = std::min(msb, lsb);
+                                    int64_t hi = std::max(msb, lsb);
+                                    uint32_t w = (uint32_t)(hi - lo + 1);
+                                    if (!bop.empty()) {
+                                        LogicVal cur_slice = cur.extract_slice((uint32_t)lo, w);
+                                        rhs_val = apply_op(cur_slice, rhs_val);
+                                    }
+                                    cur.deposit_slice((uint32_t)lo, w, rhs_val);
+                                } else {
+                                    if (!bop.empty()) {
+                                        LogicVal cur_slice = cur.extract_slice((uint32_t)msb, 1);
+                                        rhs_val = apply_op(cur_slice, rhs_val);
+                                    }
+                                    cur.deposit_slice((uint32_t)msb, 1, rhs_val);
+                                }
+                            } else if (cur.is_real) {
+                                if (!bop.empty()) rhs_val = apply_op(cur, rhs_val);
                                 cur = LogicVal::make_real(rhs_val.to_real());
                             } else {
+                                if (!bop.empty()) rhs_val = apply_op(cur, rhs_val);
                                 cur = LogicOps::cast_width(rhs_val, cur.width, cur.is_signed);
                             }
                         } else {

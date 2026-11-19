@@ -2304,9 +2304,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     prev_had_xz = curr_had_xz;
                     if (is_seq) {
-                        int64_t lo = std::min(seq_start, seq_end);
-                        int64_t hi = std::max(seq_start, seq_end);
-                        for (int64_t idx = lo; idx <= hi; ++idx) {
+                        int64_t step = (seq_start <= seq_end) ? 1 : -1;
+                        for (int64_t idx = seq_start; ; idx += step) {
                             std::string s_name = mname + std::to_string(idx);
                             LogicVal mval(e_width, current_val, current_bval);
                             enum_node->members.push_back({s_name, mval});
@@ -2315,11 +2314,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             pdef.is_signed = e_signed;
                             pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width, e_signed);
                             if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
-                            throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
-                        }
-                    mod->parameters.push_back(std::move(pdef));
+                                throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                            }
+                            mod->parameters.push_back(std::move(pdef));
                             current_val++;
                             current_bval = 0;
+                            if (idx == seq_end) break;
                         }
                     } else {
                         LogicVal mval(e_width, current_val, current_bval);

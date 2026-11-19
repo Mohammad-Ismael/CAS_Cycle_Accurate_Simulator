@@ -3068,7 +3068,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     const ClassNode* prev_cd_m = expr_eval.get_current_class_def();
                     expr_eval.set_current_class_def(cl_obj ? cl_obj->class_def : static_def);
                     std::string saved_scope = bp.scope;
-                    bp.scope = class_type;
+                    if (bp.scope.empty()) bp.scope = class_type;
 
                     for (auto& s : task_node->get_body()) {
                         if (has_returned(bp)) break;
@@ -3145,7 +3145,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
                     BoundProcess* prev_bp = expr_eval.get_current_process();
                     BoundProcess call_bp{frame_name, nullptr, 0, false};
-                    call_bp.scope = class_type;
+                    call_bp.scope = !bp.scope.empty() ? bp.scope : class_type;
                     expr_eval.set_current_process(&call_bp);
                     for (auto& s : func_node->get_body()) {
                         if (has_returned(call_bp)) break;
@@ -4999,7 +4999,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
             if (!addr_val.is_unknown()) {
                 if (assoc->is_string_key) {
-                    assoc->set(addr_val.str_val, rhs_val);
+                    assoc->set(addr_val.to_ascii_string(), rhs_val);
                 } else {
                     uint64_t key = addr_val.aval;
                     if (assoc->key_width < 64 && assoc->key_width > 0) {
@@ -5302,6 +5302,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (assign->intra_delay > 0) {
             return;
         }
+
 
         // FAST PATH: bound blocking assignment without bit-select or multi-target
         if (assign->is_bound && assign->cached_net_id != UINT32_MAX && !assign->bit_idx && assign->lhs_targets.size() == 1) {
@@ -5989,7 +5990,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
                             if (local->assoc_array_data.is_string_key) {
-                                local->assoc_array_data.set(idx_val.str_val, rhs_val);
+                                local->assoc_array_data.set(idx_val.to_ascii_string(), rhs_val);
                             } else {
                                 uint64_t key = idx_val.aval;
                                 if (local->assoc_array_data.key_width < 64 && local->assoc_array_data.key_width > 0) {
@@ -6267,6 +6268,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 } else if (assign->bit_idx && !local->is_class_handle) {
+                    std::string bop = "";
+                    if (assign->op != "=" && !assign->op.empty()) {
+                        bop = assign->op;
+                        if (bop.back() == '=') bop.pop_back();
+                    }
                     if (assign->bit_lsb) {
                         LogicVal msb_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         LogicVal lsb_val = eval_expr(assign->bit_lsb.get(), bp.scope);
@@ -6288,6 +6294,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (msb < lsb) std::swap(msb, lsb);
                                 slice_w = msb - lsb + 1;
                             }
+                            if (!bop.empty()) {
+                                LogicVal cur_slice = local->value.extract_slice(lsb, slice_w);
+                                rhs_val = expr_eval.eval_binary_op(bop, cur_slice, rhs_val);
+                            }
                             local->value.deposit_slice(lsb, slice_w, rhs_val);
                         }
                     } else {
@@ -6299,6 +6309,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     local->value.str_val[s_idx] = (char)(rhs_val.aval & 0xFF);
                                 }
                             } else {
+                                if (!bop.empty()) {
+                                    LogicVal cur_slice = local->value.extract_slice(idx_val.aval, 1);
+                                    rhs_val = expr_eval.eval_binary_op(bop, cur_slice, rhs_val);
+                                }
                                 local->value.deposit_slice(idx_val.aval, 1, rhs_val);
                             }
                         }
@@ -6599,7 +6613,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         LogicVal idx_val = eval_expr(assign->bit_idx.get(), bp.scope);
                         if (!idx_val.is_unknown()) {
                             if (assoc->is_string_key) {
-                                assoc->set(idx_val.str_val, rhs_val);
+                                assoc->set(idx_val.to_ascii_string(), rhs_val);
                             } else {
                                 uint64_t key = idx_val.aval;
                                 if (assoc->key_width < 64 && assoc->key_width > 0) {
@@ -6773,7 +6787,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     mem.set_raw_word(linear_addr + k, src_elems[k]);
                                 }
                             } else {
-                                mem.set_raw_word(linear_addr, rhs_val);
+                                if (assign->op != "=") {
+                                    LogicVal cur_w = mem.get_raw_word(linear_addr);
+                                    std::string bop = assign->op;
+                                    if (!bop.empty() && bop.back() == '=') bop.pop_back();
+                                    mem.set_raw_word(linear_addr, expr_eval.eval_binary_op(bop, cur_w, rhs_val));
+                                } else {
+                                    mem.set_raw_word(linear_addr, rhs_val);
+                                }
                             }
                         }
                         engine.scheduler.notify_mem_changed();
@@ -7177,7 +7198,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto old_slice = old_v.extract_slice(lsb, slice_w);
-                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                LogicVal val_to_cast = rhs_val;
+                                if (assign->op != "=" && !assign->op.empty()) {
+                                    std::string bop = assign->op;
+                                    if (bop.back() == '=') bop.pop_back();
+                                    val_to_cast = expr_eval.eval_binary_op(bop, old_slice, rhs_val);
+                                }
+                                LogicVal casted_slice = LogicOps::cast_width(val_to_cast, slice_w, engine.netlist[target_id].is_signed);
                                 if (old_slice == casted_slice) {
                                     return;
                                 }
@@ -7231,7 +7258,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
                                 auto old_v = engine.netlist[target_id].value;
                                 auto old_slice = old_v.extract_slice(lsb, slice_w);
-                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                LogicVal val_to_cast = rhs_val;
+                                if (assign->op != "=" && !assign->op.empty()) {
+                                    std::string bop = assign->op;
+                                    if (bop.back() == '=') bop.pop_back();
+                                    val_to_cast = expr_eval.eval_binary_op(bop, old_slice, rhs_val);
+                                }
+                                LogicVal casted_slice = LogicOps::cast_width(val_to_cast, slice_w, engine.netlist[target_id].is_signed);
                                 if (old_slice == casted_slice) {
                                     return;
                                 }
@@ -7294,7 +7327,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     slice_w = 1;
                                 }
                                 auto old_slice = old_v.extract_slice(lsb, slice_w);
-                                LogicVal casted_slice = LogicOps::cast_width(rhs_val, slice_w, engine.netlist[target_id].is_signed);
+                                LogicVal val_to_cast = rhs_val;
+                                if (assign->op != "=" && !assign->op.empty()) {
+                                    std::string bop = assign->op;
+                                    if (bop.back() == '=') bop.pop_back();
+                                    val_to_cast = expr_eval.eval_binary_op(bop, old_slice, rhs_val);
+                                }
+                                LogicVal casted_slice = LogicOps::cast_width(val_to_cast, slice_w, engine.netlist[target_id].is_signed);
                                 if (old_slice == casted_slice) {
                                     return;
                                 }

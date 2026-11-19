@@ -148,6 +148,7 @@ struct VarDeclStatementNode : public StatementNode {
 };
 
 struct BlockingAssignNode : public StatementNode {
+    std::string op = "=";
     std::vector<std::string> lhs_targets;
     std::vector<std::unique_ptr<ExpressionNode>> lhs_target_exprs;
     std::unique_ptr<ExpressionNode> rhs;
@@ -182,6 +183,7 @@ struct BlockingAssignNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<BlockingAssignNode>(lhs_targets, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->op = op;
         for (const auto& te : lhs_target_exprs) {
             node->lhs_target_exprs.push_back(te ? te->clone() : nullptr);
         }
