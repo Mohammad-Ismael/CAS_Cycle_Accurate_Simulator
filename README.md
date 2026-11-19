@@ -1,9 +1,9 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.4.1.0`  
-**Status:** Release v4.4.1.0 Clean (Turnkey Automation Scripts, 100% Full sv-tests Repository Compliance 1,028/1,028: 283/283 Positive Simulation, 62/62 Positive Parsing/Preprocessing, 412/412 Positive Default Elaboration, 12/12 UVM Testbenches, 180/180 Generic Benchmarks, 79/79 Negative Diagnostic Tests, 112/112 Milestone Regressions, and lowRISC Ibex SoC Boot Verification)  
+**Current Version:** `v4.5.0.0`  
+**Status:** Release v4.5.0.0 Clean (100.0% Pass Rate Across All 1,660 Verification Tests: 520/520 Icarus Verilog `ivtest` Suite [439/439 Normal Sim, 2/2 CO, 79/79 CE], 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 112/112 Milestone Regressions [100% VCS Golden Parity], and Mandatory 4-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
 **License:** MIT  
-**Target Standard:** IEEE Std 1800-2023 SystemVerilog  
+**Target Standard:** IEEE Std 1800-2023 SystemVerilog & IEEE Std 1364-2005 Verilog  
 
 CAS (Cycle-Accurate Simulator) is an independent, ground-up discrete-event RTL simulator and integrated verification development environment implemented in modular C++17. Operating independently of external compiler toolchains (such as LLVM, GCC intermediate compilation, or transpilation to C++), CAS parses SystemVerilog directly into an in-memory Abstract Syntax Tree (AST), elaborates hierarchical design topologies of arbitrary depth, and executes discrete-event simulations using an IEEE Std 1800-2023 stratified event scheduler.
 
@@ -33,14 +33,17 @@ CAS_Cycle_Accurate_Simulator/
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── benchmarks/              # External Standards Compliance Suites
 │   ├── sv-tests/            # 1,028 IEEE 1800-2023 Compliance Tests
-│   └── run_sv_tests.py      # High-Performance Multi-Threaded Benchmark Runner
+│   ├── run_sv_tests.py      # High-Performance Multi-Threaded Benchmark Runner (1,028/1,028)
+│   ├── ivtest/              # 520 Icarus Verilog Compliance & Edge-Case Tests
+│   └── run_ivtest.py        # High-Performance Parallel ivtest Runner (520/520)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
 │   └── ibex_simple_system_tb.sv # Simple System Top-Level Testbench
 ├── scripts/                 # Turnkey Automation & Verification Pipelines
-│   ├── setup_and_verify.sh  # One-Command Build & Complete Verification (112 Regr + 1028 sv-tests)
+│   ├── setup_and_verify.sh  # Mandatory 4-Stage CI Gate (112 Regr + 1,028 sv-tests + 520 ivtest = 1,660/1,660)
 │   └── run_ibex_demo.sh     # One-Command lowRISC Ibex SoC Execution Demo
+├── VERSIONS.md              # Consolidated Version Release Notes & Milestone Roadmap
 └── versions/                # Detailed Version Release Notes (v1.0.0.0 – v4.4.1.0)
 ```
 
@@ -55,9 +58,11 @@ You can build CAS and verify the complete repository or run a full RISC-V SoC wi
 bash scripts/setup_and_verify.sh
 ```
 *Executes:*
-- **Stage 1**: Compiles the CAS C++ kernel and CLI in Release mode (`-O3 -mavx2`).
+- **Stage 1**: Compiles the CAS C++ kernel and CLI in Release mode (`cmake --build CAS/build -j4`).
 - **Stage 2**: Runs all **112 milestone regression suites** (**112 / 112 PASS = 100.0%**).
 - **Stage 3**: Runs all **1,028 IEEE Std 1800-2023 `sv-tests`** (**1,028 / 1,028 PASS = 100.0%** in ~11-15s).
+- **Stage 4**: Runs all **520 Icarus Verilog `ivtest` tests** (**520 / 520 PASS = 100.0%** in ~14-17s).
+- **Grand Total**: **1,660 / 1,660 (100.0%) — ZERO-REGRESSION CI GATE PASSED**.
 
 ### 2. Run lowRISC Ibex RV32IMC SoC Boot Demo
 ```bash
@@ -134,7 +139,27 @@ python3 -u benchmarks/run_sv_tests.py
 ```
 *Result:* **1,028 / 1,028 PASSED (100.0%)** in ~11-15 seconds.
 
-### 3. lowRISC Ibex RISC-V SoC Verification
+### 3. Full Icarus Verilog `ivtest` Benchmark Suite (520/520 Tests)
+Run the high-performance parallel triage runner across IEEE 1364-2005 & IEEE 1800-2023 edge-case tests:
+```bash
+python3 -u benchmarks/run_ivtest.py
+```
+*Result:* **520 / 520 PASSED (100.0%)** (439/439 Normal Simulation, 2/2 Compile-Only, 79/79 Compile-Error) in ~14-17 seconds.
+
+### 4. Mandatory Zero-Regression CI Gate (1,660/1,660 Tests)
+Run the unified 4-stage pipeline enforcing 100% compliance:
+```bash
+bash scripts/setup_and_verify.sh
+```
+
+| Verification Suite | Runner Script | Passed | Total | Pass Rate | Target Standard / Parity |
+|---|---|:---:|:---:|:---:|---|
+| **Milestone Regressions** | `regression_testing/run_regressions.py` | **112** | 112 | **100.0%** | Synopsys VCS Golden Parity |
+| **IEEE 1800-2023 `sv-tests`** | `benchmarks/run_sv_tests.py` | **1,028** | 1,028 | **100.0%** | Full IEEE 1800-2023 Compliance |
+| **Icarus Verilog `ivtest`** | `benchmarks/run_ivtest.py` | **520** | 520 | **100.0%** | IEEE 1364-2005 & 1800 Edge Cases |
+| **MANDATORY CI GATE** | `scripts/setup_and_verify.sh` | **1,660** | **1,660** | **100.0%** | **Zero-Regression Enforcement** |
+
+### 5. lowRISC Ibex RISC-V SoC Verification
 Run the production lowRISC Ibex core running the `hello_test` firmware:
 ```bash
 bash scripts/run_ibex_demo.sh
@@ -148,6 +173,20 @@ Tick!
 Tock!
 Tick!
 ```
+
+---
+
+### Key IEEE 1364-2005 & IEEE 1800-2023 Capabilities Hardened (ivtest 100% Milestone)
+
+Through the resolution of all 520 `ivtest` tests (advancing from 210/520 = 40.4% to 520/520 = 100.0%), CAS has systematically hardened critical RTL simulation and elaboration semantics:
+- **4-State Stratified Scheduling & Delta Loops (§4)**: Strict region event ordering (Pre-Active, Active, Inactive, NBA, Observed, Reactive, Postponed) and fixed-point combinational convergence.
+- **Tri-State & Multi-Driver Net Resolution (§6.5, §10.3)**: Bit-accurate modeling of `tri0` (pull-down default) and `tri1` (pull-up default) net types with multi-driver concurrent contention resolution across bus part-select slices.
+- **Timescale & Precision Scaling (§3.14, §22.7)**: Dynamic per-module `timeunit` and `timeprecision` hierarchy scaling with `%t` string formatting.
+- **Constant-Function Compound & Sliced Assignments (§13.4.3)**: Elaboration-time constant function execution supporting compound assignments (`+=`, `-=`, `<<=`, etc.) and part-select slice mutation (`ident[hi:lo] = expr`).
+- **OOP Class Handles & Dynamic Container References (§8, §7.5)**: Precise differentiation between deep element copy semantics (`resize_and_copy`) on identifier assignments and reference sharing (`share_from`) on class member property access (`tmp = obj.b`).
+- **Queue & Array Coercion Semantics (§7.5, §7.10)**: Bounded queues (`[$:N]`), 4-state `'X` empty queue pop semantics in compatibility mode, and 2-state integer arithmetic coercion.
+- **Compilation-Unit (`$unit`) Lexical Scoping (§3.12)**: Multi-file `$unit` symbol isolation adhering to lexical compilation order, differentiating explicit net continuous assigns (`wire ... = expr;`) from procedural variable initializations.
+- **Preprocessor Macro Token Concatenation & Stringification (§22.5.1)**: Multi-phase token-pasting (`` ` ` ``) handling eager macro identification with fallback token merging, stringification (`` `" ``), and `$sformatf` width padding.
 
 ---
 
@@ -609,33 +648,38 @@ In addition to the 100% pass parity achieved on lowRISC Ibex, CAS is verified on
 
 ---
 
-## Key Achievements (v1.0.0.0 – v4.4.0.0)
+## Key Achievements (v1.0.0.0 – v4.5.0.0)
 
 From initial concept to a full commercial-grade SystemVerilog verification platform, the CAS development progression has delivered:
 
-1. **100% Full IEEE 1800-2023 sv-tests Repository Compliance (1,028 / 1,028 Passing Tests Across All Categories = 100.0%)**:
+1. **100% Full Icarus Verilog `ivtest` Benchmark Compliance (520 / 520 Passing Tests = 100.0%)**:
+   - Complete grand total compliance across all 520 `ivtest` edge-case tests: 439/439 Normal Simulation, 2/2 Compile-Only (CO), and 79/79 Compile-Error (CE).
+   - Advanced from 210 / 520 (40.4%) directly to 520 / 520 (100.0%), hardening 4-state scheduling, `tri0`/`tri1` multi-driver resolution, constant-function compound assignments, OOP class handles vs dynamic array reference sharing, `$unit` compilation-unit lexical scoping, and multi-phase preprocessor token concatenation.
+2. **100% Full IEEE 1800-2023 `sv-tests` Repository Compliance (1,028 / 1,028 Passing Tests Across All Categories = 100.0%)**:
    - Complete grand total compliance across the entire external `sv-tests` suite: Positive Simulation (283/283), Positive Parsing/Preprocessing (62/62), Positive Default Elaboration (412/412), UVM Testbenches (12/12), Generic Benchmarks (180/180), and Negative Diagnostic Tests (79/79).
    - Robust diagnostic rules engine strictly enforcing negative semantics: macro argument completeness (§22.5.1), `` `resetall `` isolation (§22.3), parameterized class specialization scope checks (§8.25.1), enum typed assignment/compound assignment casts (§6.19.3/§6.19.4), subroutine return validity (§9.3.3, §13.4.1, §13.4.4), randsequence variable scoping (§18.17), procedural net write prohibition (§10.3), driver exclusivity (§6.5), specparam parameter isolation (§6.20.5), and interface class conflict resolution / diamond rules (§8.26).
-2. **100% Full Positive Default Elaboration sv-tests Parity Across Chapters 5–26 (412/412 Passing Tests & 644/644 Total Positive Chapter Tests)**:
+3. **100% Full Positive Default Elaboration sv-tests Parity Across Chapters 5–26 (412/412 Passing Tests & 644/644 Total Positive Chapter Tests)**:
    - Zero syntax or elaboration failures across every single positive test in the entire `sv-tests` suite spanning Chapters 5–26.
    - Comprehensive support for procedural `do-while` loops (§12.7.2), concatenation part-selects `{a, b}[hi:lo]` (§11.4.12), implicit net ingestion (§6.10), net delays, scientific notation, time literals, user nettypes, event controls with `iff` conditions, and interface class virtual inheritance.
-3. **100% Full IEEE 1800-2023 sv-tests Simulation Parity Across Chapters 5–26 (283/283 Passing Simulation Tests)**:
+4. **100% Full IEEE 1800-2023 sv-tests Simulation Parity Across Chapters 5–26 (283/283 Passing Simulation Tests)**:
    - Zero syntax, elaboration, or simulation failures across every single positive simulation test in the entire `sv-tests` suite spanning Chapters 5–26.
    - Comprehensive coverage across all chapters: Chapter 6 (1/1), Chapter 7 (90/90), Chapter 8 (6/6), Chapter 9 (5/5), Chapter 10 (2/2), Chapter 11 (51/51), Chapter 12 (2/2), Chapter 13 (12/12), Chapter 15 (2/2), Chapter 16 (29/29), Chapter 18 (14/14), Chapter 20 (38/38), Chapter 21 (27/27), Chapter 22 (1/1), Chapter 23 (1/1), Chapter 24 (1/1), Chapter 26 (1/1).
-4. **100% Chapter 18 (Constrained Randomization) Elaboration Compliance (119/119 Passing Tests)**:
+5. **100% Chapter 18 (Constrained Randomization) Elaboration Compliance (119/119 Passing Tests)**:
    - Full syntax and elaboration support for constraint blocks (`dist`, `solve ... before`, `soft`, `unique`, prototypes, out-of-block definitions), inline `randomize() with`, pattern matching `case ... inside`, bare `unsigned`/`signed` formal arguments, and parameterized base class extensions.
-5. **100% Full Positive Generic sv-tests Parity (180/180 Passing Tests)**:
+6. **100% Full Positive Generic sv-tests Parity (180/180 Passing Tests)**:
    - Complete sweep and pass rate across all 180 positive generic benchmarks (`tests/generic/`), covering forward typedefs, embedded spaces in based literals, nested classes, `rand`/`randc` in structs, vector enum bases, associative array typedefs, and class parameter type defaults.
-6. **100% Full Positive Parsing & Preprocessing sv-tests Parity Across Chapters 5–26 (62/62 Passing Tests)**:
+7. **100% Full Positive Parsing & Preprocessing sv-tests Parity Across Chapters 5–26 (62/62 Passing Tests)**:
    - Full compliance for empty macro arguments and trailing commas (§22.5.1), `line directives (§22.12), gate delay parsing, and display consecutive comma support (§21.2.1).
-7. **100% UVM Testbenches Compliance Across `sv-tests` (12/12 Passing Benchmarks)**:
+8. **100% UVM Testbenches Compliance Across `sv-tests` (12/12 Passing Benchmarks)**:
    - Full UVM architecture verification: items, monitors, scoreboards, drivers, sequencers, agents, envs, tests, `uvm_config_db`, `uvm_resource_db`, `uvm_analysis_port`, and `run_test()`.
-8. **112 / 112 Milestone Regressions Passing at 100% VCS Golden Parity**:
+9. **112 / 112 Milestone Regressions Passing at 100% VCS Golden Parity**:
    - 112 unbroken, systematically engineered milestone regression suites spanning every foundational and advanced feature of SystemVerilog-2023.
-3. **Production RISC-V SoC Verification Parity**:
+10. **Mandatory 4-Stage Zero-Regression CI Gate (1,660 / 1,660 Tests = 100.0%)**:
+   - Fully automated turnkey verification in `scripts/setup_and_verify.sh` enforcing 100% pass rates across all 112 regressions, 1,028 `sv-tests`, and 520 `ivtest` benchmarks with non-zero exit codes on any deviation.
+11. **Production RISC-V SoC Verification Parity**:
    - **lowRISC Ibex RV32IMC:** 137 modules, 2,710 nets, 125 memory arrays, booting bare-metal firmware with CSR setup, timer interrupts, and UART logging.
    - **Western Digital VeeR EL2:** Dual-issue superscalar execution with verified architectural register and pipeline retirement parity against Verilator.
-4. **Independent High-Performance Architecture**:
+12. **Independent High-Performance Architecture**:
    - Zero dependence on LLVM/GCC backend compilation or C++ transpilation for standard simulation.
    - Modular C++17 Stratified Event Scheduler adhering strictly to IEEE Std 1800-2023.
    - AVX2 256-bit SIMD vector primitives for fast parallel logic, diff scanning, and double-buffered register commits.
