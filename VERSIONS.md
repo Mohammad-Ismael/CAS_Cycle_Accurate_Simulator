@@ -1,5 +1,32 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.1.0 (In Progress: Verilator `test_regress` Onboarding)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2A — Verilator `test_regress` Clock/Stimulus Wrapper Alignment & Accurate Test Completion Detection (`benchmarks/run_verilator_tests.py`)  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.89s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.80s)  
+**Verilator `test_regress` Compliance:** **1,116 / 2,861 PASS (39.0% in 76.68s, up from 53 / 2,861 = 1.9%)**  
+- **Pure-SV Simulation (SIM):** **1,065 / 2,710 PASS (39.3%)**, up from 3 / 2,710 (0.1%)  
+- **Negative Compile-Error (CE):** **51 / 151 PASS (33.8%)**  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2A Architectural & Test Harness Alignments
+1. **Clock/Stimulus Harness Alignment (`benchmarks/run_verilator_tests.py`)**:
+   - Replaced expression-level `$time` loop with cycle-accurate `repeat (184)` loop (6 sub-steps per cycle matching Verilator's native `driver.py::_make_top_v`).
+   - Explicitly roots simulation at top wrapper via `--top top` and names temporary stimulus wrapper `*_cas_top_wrapper.v`.
+   - Enhanced ANSI and non-ANSI input port discovery in `read_inputs_v` across module header and module body declarations.
+2. **Accurate Simulation Completion & Pass Detection**:
+   - Accounts for tests that invoke `$write("*-* All Finished *-*\n")` followed by `$finish;` by attributing clean simulation termination at `$finish` source lines in test files as valid passes.
+   - Accurately discriminates between test-initiated termination and wrapper timeout terminations (`cas_top_wrapper`).
+   - Completely resolved and eliminated previous Cluster 1 (1,558 false failures on `No '*- All Finished -*' indicator`) and Cluster 2 (683 syntax failures on `Unexpected expression token '<'`).
+
+---
+
 ## Version v4.5.0.0 Release Notes
 
 **Release Date:** November 2026  

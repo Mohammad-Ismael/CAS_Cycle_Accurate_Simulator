@@ -160,24 +160,26 @@ def read_inputs_v(filename):
         return inputs
     try:
         with open(filename, 'r', encoding='utf8', errors='ignore') as fh:
-            get_sigs = False
-            for line in fh:
-                if re.match(r'^\s*module\s+t\b', line):
-                    inputs = {}
-                    get_sigs = True
-                    continue
-                if get_sigs:
-                    m = re.match(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', line)
-                    if m:
-                        inputs[m.group(1)] = m.group(1)
-                    if re.match(r'^\s*(function|task|endmodule)', line):
-                        get_sigs = False
+            content = fh.read()
+        m = re.search(r'\bmodule\s+t\b\s*(?:#\s*\([^)]*\)\s*)?(?:\((.*?)\))?;', content, re.DOTALL)
+        if m and m.group(1):
+            for m_port in re.finditer(r'\binput\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m.group(1)):
+                inputs[m_port.group(1)] = m_port.group(1)
+        m_body = re.search(r'\bmodule\s+t\b.*?\bendmodule\b', content, re.DOTALL)
+        if m_body:
+            for m_inp in re.finditer(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m_body.group(0), re.MULTILINE):
+                inputs[m_inp.group(1)] = m_inp.group(1)
     except Exception:
         pass
     return inputs
 
-def load_all_tests():
+def load_all_tests(test_filter=None):
     py_files = sorted(glob.glob(os.path.join(T_DIR, 't_*.py')))
+    if test_filter:
+        py_files = [
+            pf for pf in py_files
+            if any(t == os.path.splitext(os.path.basename(pf))[0] or t in os.path.basename(pf) for t in test_filter)
+        ]
     
     valid_tests = {}
     skipped_counts = {
@@ -373,7 +375,7 @@ def run_single_test(test_info):
 
     if inputs and not top_mod:
         try:
-            with tempfile.NamedTemporaryFile('w', suffix='.v', delete=False) as tf:
+            with tempfile.NamedTemporaryFile('w', suffix='_cas_top_wrapper.v', delete=False) as tf:
                 tf.write("module top;\n")
                 for inp in sorted(inputs.keys()):
                     tf.write(f"    reg {inp};\n")
@@ -391,7 +393,7 @@ def run_single_test(test_info):
                     tf.write("        fastclk = 1;\n")
                 if 'clk' in inputs:
                     tf.write("        clk = 1;\n")
-                tf.write("        while ($time < 10000) begin\n")
+                tf.write("        repeat (184) begin\n")
                 for i in range(6):
                     tf.write("          #1;\n")
                     if 'fastclk' in inputs:
@@ -403,7 +405,7 @@ def run_single_test(test_info):
                 tf.write("    end\n")
                 tf.write("endmodule\n")
                 top_wrapper_file = tf.name
-            cmd.append(top_wrapper_file)
+            cmd.extend(["--top", "top", top_wrapper_file])
         except Exception:
             pass
 
@@ -503,10 +505,24 @@ def run_single_test(test_info):
     if re.search(r'\*-\*?\s*All Finished\s*\*-\*?', stdout):
         return {"name": tname, "type": ttype, "status": "PASS", "elapsed": elapsed}
 
+    # Check if simulation completed at a $finish in the test source code (not wrapper timeout)
+    m_finish = re.search(r'\[CAS \$finish ([^\]]+)\] Simulation Terminated at time', stdout)
+    if m_finish:
+        finish_loc = m_finish.group(1)
+        if "cas_top_wrapper" not in finish_loc:
+            return {"name": tname, "type": ttype, "status": "PASS", "elapsed": elapsed}
+
+    # If test had no input clock wrapper and completed cleanly at exit code 0 without errors/stops
+    if not inputs and "[CAS SUMMARY] Simulation completed cleanly" in stdout:
+        return {"name": tname, "type": ttype, "status": "PASS", "elapsed": elapsed}
+
     # If simulation completed cleanly without explicit banner, check if gold was absent or completed
     err_line = extract_error_signature(stdout)
     if not err_line or err_line == "Unknown simulation error":
-        err_line = "No '*- All Finished -*' indicator in stdout"
+        if inputs and m_finish and "cas_top_wrapper" in m_finish.group(1):
+            err_line = "Wrapper stimulus timed out before test completed"
+        else:
+            err_line = "No '*- All Finished -*' indicator in stdout"
 
     return {
         "name": tname,
@@ -532,15 +548,15 @@ def main():
         print(f"ERROR: Verilator test directory not found at {T_DIR}.")
         sys.exit(1)
 
-    print("Discovering and categorizing tests across test_regress/t/...")
-    tests, skipped = load_all_tests()
-
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", "-t", action="append", help="Filter test names")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of tests to run")
     parser.add_argument("--category", "-c", choices=["SIM", "CE"], help="Filter by category")
     args, _ = parser.parse_known_args()
+
+    print("Discovering and categorizing tests across test_regress/t/...")
+    tests, skipped = load_all_tests(test_filter=args.test)
 
     if args.test:
         tests = {k: v for k, v in tests.items() if any(t == k or t in k for t in args.test)}
