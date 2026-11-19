@@ -3733,6 +3733,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (st_cast) {
                     return eval_struct_pattern(ucat, *st_cast, scope);
                 }
+                std::vector<LogicVal> arr_elems = eval_array_expr(ucat, scope);
+                LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
+                res.is_unpacked = true;
+                res.unpacked_elements = std::move(arr_elems);
+                return res;
             }
             LogicVal val = eval(scast->expr.get(), scope);
             std::string target_type = scast->target_type_name;
@@ -4969,6 +4974,43 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto member_node = dynamic_cast<MemberAccessNode*>(expr)) {
+        if (member_node->var_name.empty() && member_node->index_expr) {
+            LogicVal base_val = eval(member_node->index_expr.get(), scope);
+            if (!base_val.is_unpacked && base_val.aval != 0) {
+                auto cl_obj = engine.get_class_object(base_val.aval);
+                if (cl_obj) {
+                    if (cl_obj->class_def && cl_obj->class_def->has_static_member(member_node->member_name)) {
+                        return engine.get_class_static_var(cl_obj->class_type_name, member_node->member_name);
+                    }
+                    return cl_obj->get_property(member_node->member_name);
+                }
+            }
+            const PackedStructType* st = find_struct_type_by_member("", member_node->member_name, base_val.width, scope);
+            if (st) {
+                const StructMember* sm = st->get_member(member_node->member_name);
+                if (sm) {
+                    uint32_t m_offset = sm->offset;
+                    uint32_t m_width = sm->width;
+                    if (member_node->has_member_select) {
+                        if (member_node->is_part_select) {
+                            uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
+                            uint64_t lsb = eval(member_node->member_lsb_expr.get(), scope).aval;
+                            uint32_t eff_lsb = (uint32_t)std::min(msb, lsb);
+                            uint32_t w = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                            m_offset += eff_lsb;
+                            m_width = w;
+                        } else {
+                            uint64_t b_idx = eval(member_node->member_msb_expr.get(), scope).aval;
+                            m_offset += (uint32_t)b_idx;
+                            m_width = 1;
+                        }
+                    }
+                    return base_val.extract_slice(m_offset, m_width);
+                }
+            }
+            return base_val;
+        }
+
         if (member_node->index_expr) {
             LogicVal idx_v = eval(member_node->index_expr.get(), scope);
             if (!idx_v.is_unknown()) {
@@ -7737,6 +7779,10 @@ LogicVal ExprEvaluator::eval_struct_pattern(UnpackedConcatNode* ucat, const Pack
 std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const std::string& scope) {
     if (!expr) return {};
 
+    if (auto scast = dynamic_cast<StaticCastExprNode*>(expr)) {
+        return eval_array_expr(scast->expr.get(), scope);
+    }
+
     if (auto sc = dynamic_cast<StreamingConcatNode*>(expr)) {
         int slice_sz = 1;
         if (sc->slice_size) {
@@ -7781,6 +7827,18 @@ std::vector<LogicVal> ExprEvaluator::eval_array_expr(ExpressionNode* expr, const
     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(expr)) {
         std::vector<LogicVal> res;
         for (auto& elem : ucat->elements) {
+            if (auto sub_scast = dynamic_cast<StaticCastExprNode*>(elem.get())) {
+                if (auto sub_ucat = dynamic_cast<UnpackedConcatNode*>(sub_scast->expr.get())) {
+                    const PackedStructType* st_cast = find_struct_type(sub_scast->target_type_name, scope);
+                    if (st_cast) {
+                        res.push_back(eval_struct_pattern(sub_ucat, *st_cast, scope));
+                    } else {
+                        auto sub = eval_array_expr(sub_ucat, scope);
+                        res.insert(res.end(), sub.begin(), sub.end());
+                    }
+                    continue;
+                }
+            }
             if (auto sub_ucat = dynamic_cast<UnpackedConcatNode*>(elem.get())) {
                 auto sub = eval_array_expr(sub_ucat, scope);
                 res.insert(res.end(), sub.begin(), sub.end());

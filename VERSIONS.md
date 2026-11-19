@@ -1,6 +1,47 @@
 # CAS Version History & Milestone Release Notes
 
-## Version v4.5.1.0 (In Progress: Verilator `test_regress` Onboarding)
+## Version v4.5.2.0 (Phase 2B: High-Leverage Frontend Parser Clusters Resolved)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2B — Resolution of High-Leverage Frontend Parser Clusters 4, 5, 6, 8, 9, 10, 12, & 13 Across Verilator `test_regress` Suite  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 18.26s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 21.54s)  
+**Verilator `test_regress` Compliance:** **1,218 / 2,861 PASS (42.6% in 106.23s, up from 1,116 / 2,861 = 39.0%)**  
+- **Pure-SV Simulation (SIM):** **1,170 / 2,710 PASS (43.2%)**, up from 1,065 / 2,710 (39.3%) (+105 tests passing)  
+- **Negative Compile-Error (CE):** **48 / 151 PASS (31.8%)**  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2B Architectural & Frontend Parser Implementations
+
+1. **Concatenation LHS Non-Blocking Assignment (Cluster 6 — 33 tests)**:
+   - Added support in `parser_stmt.cpp` for non-blocking assignment operator (`<=`) following concatenation targets (`{a, b} <= expr;` and `{a, b} <= #delay expr;`).
+   - Extended `NonBlockingAssignNode` in `ast_stmt.hpp` with multi-target constructors and cloning capabilities.
+   - Implemented slice extraction and distributed NBA queuing in `evaluator.cpp` for all concatenated targets with full intra-delay and intra-event semantics (`t_altera_lpm` suite now 26/26 = 100% passing).
+2. **Unsigned & Package-Scoped Struct Member Types (Cluster 4 — 50 tests)**:
+   - Added `TOKEN_UNSIGNED` modifier support across struct/union member definitions in `parser_module.cpp`.
+   - Enabled package-scoped struct member type declarations (`bba::cmd_t cmd;`) by accepting package names and scope resolution tokens in `parse_struct_or_union_body()`.
+3. **Multidimensional Array Interface Ports (Cluster 5 — 38 tests)**:
+   - Added unpacked array dimension parsing on generic interface ports (`interface b[1:0]`), typed modport ports (`iface.modport b[1:0]`), and named interface ports (`iface_type b[1:0][1:0][2:0]`) in `parser_module.cpp`.
+4. **Module-Level Virtual Interface Variable Initializers (Cluster 8 — 19 tests)**:
+   - Added inline variable initializer parsing (`virtual iface_t vif = ...;`) at module level in `parser_module.cpp`, automatically binding and dispatching declaration initialization processes (`t_interface_virtual_for` passing 100%).
+5. **Chained Member Access & Static Member Method Calls (Cluster 9 — 17 tests)**:
+   - Supported trailing method calls after static class member access (`wrapped_int::q.size()`) by resolving package/class scoped qualifiers into member method invocations in `parser_expr.cpp` (`t_class_uses_this` passing 100%).
+   - Supported member access after function calls returning structs (`odd_struct(cyc).odd`) and multidimensional array selects (`arr[i][j].i`) in `parser_expr.cpp` and `expr_evaluator.cpp`.
+6. **Parameter Ports Without Default Values (Cluster 10 — 16 tests)**:
+   - Relaxed mandatory `=` expectation in module and interface parameter port lists in `parser_module.cpp` per IEEE 1800-2023 §23.2.4 (`interface intf #(parameter int WRITE_DATA_WIDTH) ();`), falling back cleanly to type default (`t_array_non_blocking_loop` passing 100%).
+7. **Typed Assignment Patterns & Array Comparisons (Cluster 12 — 15 tests)**:
+   - Implemented typed assignment patterns (`my_type_t'{...}`, `point'{...}`, `arr4_t'{...}`) following type identifiers, package-scoped types, and primitive keywords in `parser_expr.cpp`.
+   - Connected `StaticCastExprNode` wrapping `UnpackedConcatNode` directly to struct and array pattern evaluators in `expr_evaluator.cpp` (`t_assign_pattern_cmp`, `t_assoc_method` passing 100%).
+8. **Dotted & Indexed Interface Typedef Parameters (Cluster 13 — 13 tests)**:
+   - Supported dotted and indexed type parameter assignments (`localparam type p0_rq_t = if0[0].rq_t;`) in `parser_module.cpp` and resolved scoped struct types in `parser.hpp` (`t_lparam_assign_iface_typedef` 21/21 = 100% passing).
+
+---
+
+## Version v4.5.1.0 (Phase 2A: Verilator `test_regress` Onboarding)
 
 **Release Date:** November 2026  
 **Milestone:** Phase 2A — Verilator `test_regress` Clock/Stimulus Wrapper Alignment & Accurate Test Completion Detection (`benchmarks/run_verilator_tests.py`)  

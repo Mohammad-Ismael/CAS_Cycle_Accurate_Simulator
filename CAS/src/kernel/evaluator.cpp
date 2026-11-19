@@ -4318,6 +4318,145 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
 
+        if (nassign->lhs_targets.size() > 1) {
+            LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            int shift = 0;
+            for (int i = (int)nassign->lhs_targets.size() - 1; i >= 0; --i) {
+                std::string target_name = nassign->lhs_targets[i];
+                ExpressionNode* target_expr = (i < (int)nassign->lhs_target_exprs.size()) ? nassign->lhs_target_exprs[i].get() : nullptr;
+                uint32_t slice_offset = 0;
+                uint32_t slice_width = 0;
+                bool is_sliced = false;
+
+                if (auto inode = dynamic_cast<IndexSelectNode*>(target_expr)) {
+                    target_name = inode->name;
+                    if (inode->is_part_select) {
+                        uint64_t msb = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t lsb = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)std::min(msb, lsb);
+                        slice_width = (msb >= lsb) ? (uint32_t)(msb - lsb + 1) : (uint32_t)(lsb - msb + 1);
+                        is_sliced = true;
+                    } else if (inode->is_plus_colon) {
+                        uint64_t base = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t w = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)base;
+                        slice_width = (uint32_t)w;
+                        is_sliced = true;
+                    } else if (inode->is_minus_colon) {
+                        uint64_t base = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        uint64_t w = eval_expr(inode->lsb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)(base >= w ? (base - w + 1) : 0);
+                        slice_width = (uint32_t)w;
+                        is_sliced = true;
+                    } else if (inode->msb_expr) {
+                        uint64_t b_idx = eval_expr(inode->msb_expr.get(), bp.scope).aval;
+                        slice_offset = (uint32_t)b_idx;
+                        slice_width = 1;
+                        is_sliced = true;
+                    }
+                }
+
+                LocalVar* local = nullptr;
+                if (expr_eval.get_context().has_active_frame()) {
+                    local = expr_eval.get_context().lookup_local(target_name);
+                }
+                if (!local && !bp.call_stack.empty()) {
+                    for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
+                        local = it->local_frame.get_var(target_name);
+                        if (local) break;
+                    }
+                }
+                if (local) {
+                    uint32_t width = is_sliced ? slice_width : local->width;
+                    LogicVal piece = (rhs_val.is_real || rhs_val.is_string) ? rhs_val : rhs_val.extract_slice(shift, width);
+                    if (is_sliced) {
+                        local->value.deposit_slice(slice_offset, slice_width, piece);
+                    } else {
+                        local->value = piece;
+                    }
+                    if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                        local->value.bval = 0;
+                        if (!local->value.wide_bval.empty()) {
+                            std::fill(local->value.wide_bval.begin(), local->value.wide_bval.end(), 0ULL);
+                        }
+                    }
+                    if (local->is_static && !local->static_key.empty()) {
+                        engine.procedural_static_vars[local->static_key] = local->value;
+                    }
+                    shift += width;
+                } else {
+                    size_t net_id = (size_t)-1;
+                    for (const auto& kv : bp.active_explicit_imports) {
+                        if (kv.first == target_name) {
+                            std::string qname = kv.second.first + "::" + kv.second.second;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        for (const auto& pkg : bp.active_wildcard_imports) {
+                            std::string qname = pkg + "::" + target_name;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        net_id = engine.get_net_id(bp.scope, target_name);
+                    }
+                    if (net_id == (size_t)-1) {
+                        for (const auto& kv : bp.module_explicit_imports) {
+                            if (kv.first == target_name) {
+                                std::string qname = kv.second.first + "::" + kv.second.second;
+                                if (engine.net_map.count(qname)) {
+                                    net_id = engine.net_map.at(qname);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (net_id == (size_t)-1) {
+                        for (const auto& pkg : bp.module_wildcard_imports) {
+                            std::string qname = pkg + "::" + target_name;
+                            if (engine.net_map.count(qname)) {
+                                net_id = engine.net_map.at(qname);
+                                break;
+                            }
+                        }
+                    }
+                    if (net_id != (size_t)-1) {
+                        size_t target_id = (net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[net_id] : net_id;
+                        uint32_t width = is_sliced ? slice_width : engine.netlist[target_id].width;
+                        if (!engine.netlist[target_id].has_procedural_assign) {
+                            LogicVal piece = (rhs_val.is_real || rhs_val.is_string) ? rhs_val : rhs_val.extract_slice(shift, width);
+                            LogicVal casted = (engine.netlist[target_id].type_name == "string" || piece.is_string ||
+                                               engine.netlist[target_id].type_name == "real" || engine.netlist[target_id].type_name == "shortreal")
+                                ? piece
+                                : LogicOps::cast_width(piece, width, engine.netlist[target_id].is_signed && piece.is_signed);
+                            if (nassign->has_intra_event) {
+                                size_t trig_net_id = engine.get_net_id(bp.scope, nassign->intra_signal);
+                                if (trig_net_id != (size_t)-1) {
+                                    engine.scheduler.queue_intra_event_nba(trig_net_id, nassign->intra_edge, target_id, casted);
+                                }
+                            } else if (nassign->intra_delay > 0) {
+                                uint64_t wake_time = engine.get_sim_time() + nassign->intra_delay;
+                                engine.scheduler.queue_delayed_nba(wake_time, target_id, casted, slice_offset, slice_width, is_sliced);
+                            } else {
+                                engine.scheduler.queue_nba(target_id, casted, slice_offset, slice_width, is_sliced);
+                            }
+                        }
+                        shift += width;
+                    } else {
+                        shift += is_sliced ? slice_width : 32;
+                    }
+                }
+            }
+            return;
+        }
+
         // FAST PATH: bound non-blocking assignment without bit-select, intra-event, or delay
         if (nassign->is_bound && nassign->cached_net_id != UINT32_MAX && !nassign->bit_idx && !nassign->has_intra_event && nassign->intra_delay == 0) {
             bool is_shadowed = false;

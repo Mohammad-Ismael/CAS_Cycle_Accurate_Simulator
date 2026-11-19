@@ -2019,8 +2019,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             break;
         }
         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation target list");
+        bool is_nba = false;
         std::string op_str = "";
-        if (match(TokenType::TOKEN_PLUS_EQUAL)) op_str = "+";
+        if (match(TokenType::TOKEN_LE)) {
+            is_nba = true;
+        } else if (match(TokenType::TOKEN_PLUS_EQUAL)) op_str = "+";
         else if (match(TokenType::TOKEN_MINUS_EQUAL)) op_str = "-";
         else if (match(TokenType::TOKEN_STAR_EQUAL)) op_str = "*";
         else if (match(TokenType::TOKEN_SLASH_EQUAL)) op_str = "/";
@@ -2033,7 +2036,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         else if (match(TokenType::TOKEN_ASHR_EQUAL)) op_str = ">>>";
         else if (match(TokenType::TOKEN_ASHL_EQUAL)) op_str = "<<<";
         else {
-            expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation blocking assignment");
+            expect(TokenType::TOKEN_EQUAL, "Expected '=' or '<=' in concatenation assignment");
         }
         
         uint64_t intra_delay = 0;
@@ -2054,10 +2057,17 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             rhs = std::move(bnode);
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after concatenation assignment");
-        auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
-        node->lhs_target_exprs = std::move(target_exprs);
-        if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
-        return node;
+        if (is_nba) {
+            auto node = std::make_unique<NonBlockingAssignNode>(targets, std::move(rhs), intra_delay);
+            node->lhs_target_exprs = std::move(target_exprs);
+            if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+            return node;
+        } else {
+            auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
+            node->lhs_target_exprs = std::move(target_exprs);
+            if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
+            return node;
+        }
     }
 
     if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || current.type == TokenType::TOKEN_EXPECT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {

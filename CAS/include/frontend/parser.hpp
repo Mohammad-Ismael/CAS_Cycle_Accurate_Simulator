@@ -230,6 +230,13 @@ public:
         auto git = global_struct_typedefs.find(name);
         if (git != global_struct_typedefs.end()) return git->second;
 
+        auto dot_pos = name.rfind('.');
+        if (dot_pos != std::string::npos) {
+            std::string sub = name.substr(dot_pos + 1);
+            auto st = get_struct_typedef(sub);
+            if (st) return st;
+        }
+
         auto colon_pos = name.find("::");
         if (colon_pos != std::string::npos) {
             std::string pkg = name.substr(0, colon_pos);

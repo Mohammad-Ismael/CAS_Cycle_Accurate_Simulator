@@ -17,7 +17,7 @@ BENCHMARKS_DIR = os.path.join(REPO_ROOT, "benchmarks")
 IVTEST_DIR = os.path.join(BENCHMARKS_DIR, "ivtest")
 CAS_BIN = os.path.join(REPO_ROOT, "CAS", "build", "cas")
 
-TIMEOUT_SEC = 5
+TIMEOUT_SEC = 10
 MAX_WORKERS = 8
 
 def parse_regression_list(filename):

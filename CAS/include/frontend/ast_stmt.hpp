@@ -210,6 +210,8 @@ struct BlockingAssignNode : public StatementNode {
 
 struct NonBlockingAssignNode : public StatementNode {
     std::string target;
+    std::vector<std::string> lhs_targets;
+    std::vector<std::unique_ptr<ExpressionNode>> lhs_target_exprs;
     std::unique_ptr<ExpressionNode> rhs;
     std::unique_ptr<ExpressionNode> bit_idx = nullptr;
     std::unique_ptr<ExpressionNode> bit_lsb = nullptr;
@@ -237,8 +239,15 @@ struct NonBlockingAssignNode : public StatementNode {
     NonBlockingAssignNode(std::string t, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
         : target(std::move(t)), rhs(std::move(r)), intra_delay(delay) {}
 
+    NonBlockingAssignNode(std::vector<std::string> targets, std::unique_ptr<ExpressionNode> r, uint64_t delay = 0)
+        : target(targets.empty() ? "" : targets[0]), lhs_targets(std::move(targets)), rhs(std::move(r)), intra_delay(delay) {}
+
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<NonBlockingAssignNode>(target, rhs ? rhs->clone() : nullptr, intra_delay);
+        node->lhs_targets = lhs_targets;
+        for (const auto& te : lhs_target_exprs) {
+            node->lhs_target_exprs.push_back(te ? te->clone() : nullptr);
+        }
         node->bit_idx = bit_idx ? bit_idx->clone() : nullptr;
         node->bit_lsb = bit_lsb ? bit_lsb->clone() : nullptr;
         node->is_plus_colon = is_plus_colon;
