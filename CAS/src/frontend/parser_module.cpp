@@ -705,8 +705,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             mod->default_timescale_unit = global_timeunit_val;
             mod->default_timescale_prec = !global_timeprec_val.empty() ? global_timeprec_val : Lexer::global_time_precision_str;
         } else {
-            mod->default_timescale_unit = Lexer::global_time_unit_str;
-            mod->default_timescale_prec = Lexer::global_time_precision_str;
+            mod->default_timescale_unit = !global_timeunit_val.empty() ? global_timeunit_val : "1s";
+            mod->default_timescale_prec = !global_timeprec_val.empty() ? global_timeprec_val : "1s";
         }
         for (const auto& w : global_wildcard_imports) {
             mod->wildcard_imports.push_back(w);
@@ -714,7 +714,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         for (const auto& kv : global_explicit_imports) {
             mod->explicit_imports[kv.first] = kv.second;
         }
-        if (current.type == TokenType::TOKEN_AUTOMATIC || current.type == TokenType::TOKEN_STATIC) {
+        if (current.type == TokenType::TOKEN_AUTOMATIC) {
+            mod->is_automatic = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_STATIC) {
+            mod->is_automatic = false;
             advance();
         }
         mod->defined_in_file = current.filename;
@@ -749,9 +753,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         for (const auto& gp : global_parameters) {
             mod->parameters.push_back(gp);
         }
-        for (const auto& gs : global_signals) {
-            mod->signals.push_back(gs.clone());
-        }
+        // Compilation unit variables belong to $unit, do not clone into modules
+        // for (const auto& gs : global_signals) {
+        //     mod->signals.push_back(gs.clone());
+        // }
         for (const auto& ge : global_events) {
             mod->events.push_back(ge);
         }
@@ -2139,15 +2144,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
-                        if (sig.net_kind == NetKind::VAR) {
-                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                            init_proc->is_decl_init = true;
-                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                            mod->processes.push_back(std::move(init_proc));
-                        } else {
-                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
-                            mod->continuous_assigns.push_back(std::move(ca));
-                        }
+                        sig.net_kind = NetKind::VAR;
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
                     }
                     mod->signals.push_back(std::move(sig));
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2356,15 +2357,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         auto init_expr = parse_expression();
                         sig.default_value = init_expr->clone();
-                        if (sig.net_kind == NetKind::VAR) {
-                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                            init_proc->is_decl_init = true;
-                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                            mod->processes.push_back(std::move(init_proc));
-                        } else {
-                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
-                            mod->continuous_assigns.push_back(std::move(ca));
-                        }
+                        sig.net_kind = NetKind::VAR;
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
                     }
                     mod->signals.push_back(std::move(sig));
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2535,15 +2532,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
                         }
                         sig.default_value = init_expr->clone();
-                        if (sig.net_kind == NetKind::VAR) {
-                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
-                            init_proc->is_decl_init = true;
-                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
-                            mod->processes.push_back(std::move(init_proc));
-                        } else {
-                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
-                            mod->continuous_assigns.push_back(std::move(ca));
-                        }
+                        sig.net_kind = NetKind::VAR;
+                        auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                        init_proc->is_decl_init = true;
+                        init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                        mod->processes.push_back(std::move(init_proc));
                     }
 
                     bool is_port = false;
@@ -2839,6 +2832,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     else if (is_real_sig) sig.type_name = "real";
                     if (!int_type_name.empty()) sig.type_name = int_type_name;
                     if (!udt_type_name.empty()) sig.type_name = udt_type_name;
+                    if (sig.type_name == "bit" || sig.type_name == "byte" || sig.type_name == "shortint" || sig.type_name == "longint" || sig.type_name == "int") {
+                        sig.is_2state = true;
+                    }
 
                     while (match(TokenType::TOKEN_LBRACKET)) {
                         if (match(TokenType::TOKEN_DOLLAR)) {
@@ -2908,14 +2904,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             throw std::runtime_error("The new[] operator can only be applied to dynamic arrays per IEEE 1800-2023 section 7.5");
                         }
                         sig.default_value = init_expr->clone();
-                        if (sig.net_kind == NetKind::VAR) {
+                        if (is_explicit_net) {
+                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        } else {
+                            sig.net_kind = NetKind::VAR;
                             auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
                             init_proc->is_decl_init = true;
                             init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
                             mod->processes.push_back(std::move(init_proc));
-                        } else {
-                            auto ca = std::make_unique<ContinuousAssignNode>(signame, std::move(init_expr));
-                            mod->continuous_assigns.push_back(std::move(ca));
                         }
                     }
 
@@ -2967,8 +2964,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             if (match(TokenType::TOKEN_ASSIGN)) {
+                std::string assign_drive0 = "";
+                std::string assign_drive1 = "";
                 if (match(TokenType::TOKEN_LPAREN)) {
                     while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                        if (current.text == "pull1") assign_drive1 = "Pu1";
+                        else if (current.text == "pull0") assign_drive0 = "Pu0";
+                        else if (current.text == "strong1") assign_drive1 = "St1";
+                        else if (current.text == "strong0") assign_drive0 = "St0";
+                        else if (current.text == "supply1") assign_drive1 = "Su1";
+                        else if (current.text == "supply0") assign_drive0 = "Su0";
+                        else if (current.text == "weak1") assign_drive1 = "We1";
+                        else if (current.text == "weak0") assign_drive0 = "We0";
+                        else if (current.text == "highz1") assign_drive1 = "HiZ";
+                        else if (current.text == "highz0") assign_drive0 = "HiZ";
                         advance();
                     }
                     expect(TokenType::TOKEN_RPAREN, "Expected ')' after drive strength in assign");
@@ -3187,6 +3196,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                 }
                 auto ca = std::make_unique<ContinuousAssignNode>(target, std::move(rhs));
+                ca->drive0 = assign_drive0;
+                ca->drive1 = assign_drive1;
                 ca->target_index_expr = std::move(target_idx);
                 ca->member_name = member_name;
                 ca->has_member_select = has_mem_sel;
@@ -3876,9 +3887,13 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (is_instance_array) {
                     int64_t low = std::min(arr_msb, arr_lsb);
                     int64_t high = std::max(arr_msb, arr_lsb);
+                    int64_t count = high - low + 1;
                     for (int64_t idx = low; idx <= high; ++idx) {
                         std::string elem_name = iname + "[" + std::to_string(idx) + "]";
                         auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                        inst->is_array_instance = true;
+                        inst->array_index = idx - low;
+                        inst->array_count = count;
                         for (const auto& po : param_overrides) {
                             inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
                         }
@@ -8788,7 +8803,7 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         else if (current.type == TokenType::TOKEN_WOR) pkind = NetKind::WOR;
         else if (current.type == TokenType::TOKEN_TRI) pkind = NetKind::TRI;
         std::string tname = current.text;
-        bool is_signed_sig = (current.type == TokenType::TOKEN_SIGNED);
+        bool is_signed_sig = (current.type == TokenType::TOKEN_SIGNED || tname == "int" || tname == "byte" || tname == "shortint" || tname == "longint" || tname == "integer");
         advance();
 
         if (match(TokenType::TOKEN_SIGNED)) {
@@ -8824,6 +8839,9 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             PortNode pnode(sname, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, pkind);
             pnode.type_name = tname;
             pnode.packed_dimensions = packed_dims;
+            if (tname == "bit" || tname == "byte" || tname == "shortint" || tname == "longint" || tname == "int") {
+                pnode.is_2state = true;
+            }
             while (match(TokenType::TOKEN_LBRACKET)) {
                 if (match(TokenType::TOKEN_DOLLAR)) {
                     pnode.is_queue = true;
@@ -9016,9 +9034,13 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         if (is_instance_array) {
             int64_t low = std::min(arr_msb, arr_lsb);
             int64_t high = std::max(arr_msb, arr_lsb);
+            int64_t count = high - low + 1;
             for (int64_t idx = low; idx <= high; ++idx) {
                 std::string elem_name = iname + "[" + std::to_string(idx) + "]";
                 auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                inst->is_array_instance = true;
+                inst->array_index = idx - low;
+                inst->array_count = count;
                 for (const auto& po : param_overrides) {
                     inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
                 }

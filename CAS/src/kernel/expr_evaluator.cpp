@@ -509,8 +509,8 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             LogicVal casted = (local->type_name == "string" || val.is_string || local->type_name == "real" || local->type_name == "shortreal" || val.is_real)
                               ? val
                               : LogicOps::cast_width(val, local->width, local->is_signed && val.is_signed);
-            if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
-                local->type_name == "shortint" || local->type_name == "longint") {
+            if (!val.is_queue_empty_pop && (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
+                local->type_name == "shortint" || local->type_name == "longint")) {
                 casted.bval = 0;
                 if (!casted.wide_bval.empty()) {
                     std::fill(casted.wide_bval.begin(), casted.wide_bval.end(), 0ULL);
@@ -546,9 +546,9 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             LogicVal casted = (engine.netlist[target_id].type_name == "string" || val.is_string || engine.netlist[target_id].type_name == "real" || engine.netlist[target_id].type_name == "shortreal" || val.is_real)
                               ? val
                               : LogicOps::cast_width(val, engine.netlist[target_id].width, engine.netlist[target_id].is_signed && val.is_signed);
-            if (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
+            if (!val.is_queue_empty_pop && (engine.netlist[target_id].type_name == "bit" || engine.netlist[target_id].type_name == "int" ||
                 engine.netlist[target_id].type_name == "byte" || engine.netlist[target_id].type_name == "shortint" ||
-                engine.netlist[target_id].type_name == "longint") {
+                engine.netlist[target_id].type_name == "longint")) {
                 casted.bval = 0;
                 if (!casted.wide_bval.empty()) {
                     std::fill(casted.wide_bval.begin(), casted.wide_bval.end(), 0ULL);
@@ -766,8 +766,20 @@ LogicVal ExprEvaluator::eval_number(NumberNode* num, const std::string& scope) {
                     eff_tp = it->second.second;
                 }
             }
-            if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
-            if (eff_tp.empty()) eff_tp = Lexer::global_time_precision_str;
+            if (eff_tu.empty()) {
+                if (!Lexer::global_timescale_encountered && Parser::global_timeunit_val.empty()) {
+                    eff_tu = "1s";
+                } else {
+                    eff_tu = Lexer::global_time_unit_str;
+                }
+            }
+            if (eff_tp.empty()) {
+                if (!Lexer::global_timescale_encountered && Parser::global_timeunit_val.empty()) {
+                    eff_tp = "1s";
+                } else {
+                    eff_tp = Lexer::global_time_precision_str;
+                }
+            }
             double unit_fs = Lexer::parse_time_fs_real(eff_tu);
             if (unit_fs <= 0.0) unit_fs = 1.0;
             double prec_fs = Lexer::parse_time_fs_real(eff_tp);
@@ -2203,6 +2215,12 @@ LogicVal ExprEvaluator::eval_binary_op_node(BinaryOpNode* bin, const std::string
         LogicVal l = eval(bin->lhs.get(), scope);
         LogicVal r = eval(bin->rhs.get(), scope);
 
+        if (r.is_unbased && !l.is_unbased && !l.is_real && !l.is_string && !l.is_unpacked) {
+            r = r.replicate_unbased(l.width);
+        } else if (l.is_unbased && !r.is_unbased && !r.is_real && !r.is_string && !r.is_unpacked) {
+            l = l.replicate_unbased(r.width);
+        }
+
         if ((l.is_unpacked || r.is_unpacked) && (bin->op == "==" || bin->op == "!=" || bin->op == "===" || bin->op == "!==")) {
             if (l.unpacked_elements.size() != r.unpacked_elements.size()) {
                 bool eq = false;
@@ -3556,7 +3574,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto cast_node = dynamic_cast<CastNode*>(expr)) {
         LogicVal val = eval(cast_node->expr.get(), scope);
         if (cast_node->width > 0) {
-            return LogicOps::cast_width(val, cast_node->width, cast_node->is_signed);
+            return LogicOps::cast_width(val, cast_node->width, cast_node->is_signed || val.is_signed);
         }
         if (cast_node->target_type == "bit" || cast_node->target_type == "logic") {
             return LogicOps::cast_width(val, 1, false);
@@ -3877,6 +3895,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         }
                     }
                 }
+            }
+
+            if (target_type == "string") {
+                return LogicVal::make_string(val.to_ascii_string());
             }
 
             if (!uarr && !st && !si) {
@@ -4366,7 +4388,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     q->delete_all();
                 } else {
                     LogicVal idx_v = eval(method_node->args[0].get(), scope);
-                    q->delete_at((int64_t)idx_v.aval);
+                    if (!idx_v.is_unknown()) {
+                        int64_t idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+                        q->delete_at(idx);
+                    }
                 }
                 return LogicVal::make_known(32, 0);
             } else if (method == "push_back") {
@@ -9127,19 +9152,29 @@ std::string ExprEvaluator::format_systemverilog_string(
             char spec = (i < fmt_len) ? fmt[i] : ' ';
 
             if (spec == 't') {
+                std::string s;
                 if (arg_idx < args.size()) {
                     const LogicVal& val = args[arg_idx++];
                     if (val.is_unknown()) {
-                        result += "x";
+                        s = "x";
+                    } else if (val.is_real) {
+                        s = std::to_string((int64_t)std::llround(val.real_val));
                     } else if (val.is_signed) {
-                        result += std::to_string(val.to_signed());
+                        s = std::to_string(val.to_signed());
                     } else {
-                        if (val.width <= 64) result += std::to_string(val.aval);
-                        else result += val.to_dec_string();
+                        if (val.width <= 64) s = std::to_string(val.aval);
+                        else s = val.to_dec_string();
                     }
                 } else {
-                    result += std::to_string(sim_time);
+                    s = std::to_string(sim_time);
                 }
+                int def_w = (width > 0) ? width : (pad_zero ? 0 : 20);
+                if (pad_zero && width > 0) {
+                    while (s.size() < (size_t)def_w) s = "0" + s;
+                } else if (def_w > 0) {
+                    while (s.size() < (size_t)def_w) s = " " + s;
+                }
+                result += s;
                 continue;
             }
 
@@ -9182,13 +9217,22 @@ std::string ExprEvaluator::format_systemverilog_string(
                     while (s.size() < (size_t)width) s = "0" + s;
                 } else if (!pad_zero && width > 0) {
                     while (s.size() < (size_t)width) s = " " + s;
+                } else if (!pad_zero && width == 0) {
+                    size_t def_w = (val.width <= 32) ? 11 : 20;
+                    while (s.size() < def_w) s = " " + s;
                 }
                 result += s;
             } else if (spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G' || spec == 'e' || spec == 'E') {
                 double d = val.to_real();
-                std::stringstream ss;
-                ss << d;
-                result += ss.str();
+                char buf[128];
+                char fmt_spec[16];
+                if (width > 0) {
+                    snprintf(fmt_spec, sizeof(fmt_spec), "%%%d%c", width, spec);
+                } else {
+                    snprintf(fmt_spec, sizeof(fmt_spec), "%%%c", spec);
+                }
+                snprintf(buf, sizeof(buf), fmt_spec, d);
+                result += buf;
             } else if (spec == 'h' || spec == 'x' || spec == 'H' || spec == 'X') {
                 std::string s;
                 if (!val.is_unknown()) {
@@ -9251,8 +9295,38 @@ std::string ExprEvaluator::format_systemverilog_string(
                     while (s.size() < (size_t)width) s = "0" + s;
                 } else if (!pad_zero && width > 0) {
                     while (s.size() < (size_t)width) s = " " + s;
+                } else if (!pad_zero && width == 0) {
+                    size_t oct_digits = (val.width + 2) / 3;
+                    while (s.size() < oct_digits) s = "0" + s;
                 }
                 result += s;
+            } else if (spec == 'v') {
+                if (!val.strength_str.empty()) {
+                    result += val.strength_str;
+                } else if (val.is_unknown()) {
+                    result += (val.bval != 0 && val.aval == 0) ? "HiZ" : "StX";
+                } else if (val.aval & 1) {
+                    result += "Pu1";
+                } else {
+                    result += "St0";
+                }
+            } else if (spec == 'u' || spec == 'z') {
+                size_t num_bytes = (val.width + 7) / 8;
+                if (num_bytes == 0) num_bytes = 1;
+                if (num_bytes <= 4) num_bytes = 4;
+                for (size_t b = 0; b < num_bytes; ++b) {
+                    uint8_t byte_val = 0;
+                    if (b < 8) {
+                        byte_val = (uint8_t)((val.aval >> (b * 8)) & 0xFF);
+                    } else if (!val.wide_aval.empty()) {
+                        size_t word_idx = b / 8;
+                        size_t byte_in_word = b % 8;
+                        if (word_idx < val.wide_aval.size()) {
+                            byte_val = (uint8_t)((val.wide_aval[word_idx] >> (byte_in_word * 8)) & 0xFF);
+                        }
+                    }
+                    result += (char)byte_val;
+                }
             } else if (spec == 'c') {
                 char ch = (char)(val.aval & 0xFF);
                 result += ch;
@@ -9265,11 +9339,28 @@ std::string ExprEvaluator::format_systemverilog_string(
     }
     while (arg_idx < args.size()) {
         const auto& val = args[arg_idx++];
-        if (val.is_string) result += val.str_val;
-        else if (val.is_real) result += std::to_string(val.real_val);
-        else if (val.is_signed) result += std::to_string(val.to_signed());
-        else if (val.width <= 64) result += std::to_string(val.aval);
-        else result += val.to_dec_string();
+        if (val.is_string) {
+            result += val.str_val;
+        } else if (val.is_real) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%g", val.real_val);
+            result += buf;
+        } else {
+            std::string s;
+            if (val.is_unknown()) {
+                s = "x";
+            } else if (val.is_signed) {
+                s = std::to_string(val.to_signed());
+            } else {
+                if (val.width <= 64) s = std::to_string(val.aval);
+                else s = val.to_dec_string();
+            }
+            if (!fmt.empty()) {
+                size_t def_w = (val.width <= 32) ? 11 : 20;
+                while (s.size() < def_w) s = " " + s;
+            }
+            result += s;
+        }
     }
     return result;
 }

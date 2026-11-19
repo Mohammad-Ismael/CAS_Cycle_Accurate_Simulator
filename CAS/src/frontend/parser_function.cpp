@@ -11,6 +11,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
     } else if (match(TokenType::TOKEN_STATIC)) {
         func->is_automatic = false;
         func->is_static = true;
+    } else if (current_parsing_module && current_parsing_module->is_automatic) {
+        func->is_automatic = true;
     }
 
     bool name_already_parsed = false;

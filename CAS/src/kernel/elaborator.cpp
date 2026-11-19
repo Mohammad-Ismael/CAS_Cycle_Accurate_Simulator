@@ -799,6 +799,29 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                     if (num->is_real) return LogicVal::make_real(num->real_val);
                     return LogicVal(num->width, num->aval, num->bval, num->is_signed);
                 }
+                if (auto cast_n = dynamic_cast<CastNode*>(e)) {
+                    LogicVal val = eval_fn_expr(cast_n->expr.get());
+                    return LogicOps::cast_width(val, cast_n->width, cast_n->is_signed || val.is_signed);
+                }
+                if (auto sc = dynamic_cast<StaticCastExprNode*>(e)) {
+                    LogicVal val = eval_fn_expr(sc->expr.get());
+                    if (sc->kind == CastKind::SIZE || sc->target_width > 0) {
+                        return LogicOps::cast_width(val, sc->target_width, val.is_signed);
+                    }
+                    if (sc->kind == CastKind::SIGNED) {
+                        val.is_signed = true;
+                        return val;
+                    }
+                    if (sc->kind == CastKind::UNSIGNED) {
+                        val.is_signed = false;
+                        return val;
+                    }
+                    uint32_t tw = resolve_type_width(sc->target_type_name);
+                    if (tw > 0) {
+                        return LogicOps::cast_width(val, tw, false);
+                    }
+                    return val;
+                }
                 if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
                     LogicVal op = eval_fn_expr(un->operand.get());
                     if (op.is_real) {
@@ -839,9 +862,31 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         if (bin->op == ">=") return LogicVal::make_known(1, (dl >= dr) ? 1 : 0);
                     }
                     bool expr_signed = l.is_signed && r.is_signed;
-                    if (bin->op == "+") return LogicVal::make_known(l.width, l.aval + r.aval, expr_signed);
-                    if (bin->op == "-") return LogicVal::make_known(l.width, l.aval - r.aval, expr_signed);
-                    if (bin->op == "*") return LogicVal::make_known(l.width, l.aval * r.aval, expr_signed);
+                    uint32_t op_w = std::max(l.width, r.width);
+                    if (bin->op == "+") {
+                        if (expr_signed) {
+                            int64_t sa = l.to_signed();
+                            int64_t sb = r.to_signed();
+                            return LogicVal::make_known(op_w, static_cast<uint64_t>(sa + sb), true);
+                        }
+                        return LogicVal::make_known(op_w, l.aval + r.aval, false);
+                    }
+                    if (bin->op == "-") {
+                        if (expr_signed) {
+                            int64_t sa = l.to_signed();
+                            int64_t sb = r.to_signed();
+                            return LogicVal::make_known(op_w, static_cast<uint64_t>(sa - sb), true);
+                        }
+                        return LogicVal::make_known(op_w, l.aval - r.aval, false);
+                    }
+                    if (bin->op == "*") {
+                        if (expr_signed) {
+                            int64_t sa = l.to_signed();
+                            int64_t sb = r.to_signed();
+                            return LogicVal::make_known(op_w, static_cast<uint64_t>(sa * sb), true);
+                        }
+                        return LogicVal::make_known(op_w, l.aval * r.aval, false);
+                    }
                     if (bin->op == "/") {
                         if (r.aval == 0) return LogicVal::make_x(l.width);
                         if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval / (int64_t)r.aval), true);
@@ -2401,6 +2446,9 @@ size_t Elaborator::get_net_id(const std::string& scope, const std::string& name)
     auto it2 = result.net_map.find(name);
     if (it2 != result.net_map.end()) return it2->second;
 
+    auto it_unit = result.net_map.find("$unit." + name);
+    if (it_unit != result.net_map.end()) return it_unit->second;
+
     return (size_t)-1;
 }
 
@@ -3631,9 +3679,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : mod->default_timescale_unit;
-    if (eff_tu.empty()) eff_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str;
+    if (eff_tu.empty()) eff_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : (Lexer::global_timescale_encountered ? Lexer::global_time_unit_str : "1s");
     std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : mod->default_timescale_prec;
-    if (eff_tp.empty()) eff_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str;
+    if (eff_tp.empty()) eff_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : (Lexer::global_timescale_encountered ? Lexer::global_time_precision_str : "1s");
     result.timescale_map[mod->name] = {eff_tu, eff_tp};
     result.timescale_map[scope] = {eff_tu, eff_tp};
     if (mod->has_compilation_unit_timeunit || !mod->timeunit_val.empty()) {
@@ -4381,8 +4429,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (!p.type_name.empty() && result.netlist[pid].type_name.empty()) {
             result.netlist[pid].type_name = p.type_name;
         }
-        if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" ||
-            p.type_name == "shortint" || p.type_name == "longint") {
+        if (p.type_name == "bit" || p.type_name == "byte" ||
+            p.type_name == "shortint" || p.type_name == "longint" || p.type_name == "int") {
             result.netlist[pid].type_name = p.type_name;
             result.netlist[pid].is_2state = true;
             result.netlist[pid].value = LogicVal(w, 0, 0, p.is_signed);
@@ -4907,7 +4955,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.virtual_interface_names.insert(s.name);
             }
             if (s.is_2state || s.type_name == "bit" || s.type_name == "byte" ||
-                s.type_name == "shortint" || s.type_name == "int" || s.type_name == "longint") {
+                s.type_name == "shortint" || s.type_name == "longint" || s.type_name == "int") {
                 result.netlist[sid].type_name = s.type_name;
                 result.netlist[sid].is_2state = true;
                 result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
@@ -6515,6 +6563,10 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                     NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
                     size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
                     NetSliceRef child_ref = {child_net_id, 0, result.netlist[child_net_id].width};
+                    if (inst->is_array_instance && inst->array_count > 1 && parent_ref.width == inst->array_count * child_ref.width) {
+                        parent_ref.offset += (uint32_t)(inst->array_index * child_ref.width);
+                        parent_ref.width = child_ref.width;
+                    }
                     result.slice_bindings.push_back({parent_ref, child_ref});
                 } catch (...) {
                     size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
@@ -6545,6 +6597,10 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                 NetSliceRef parent_ref = resolve_slice_ref(conn.expr.get(), scope);
                 size_t child_net_id = result.net_map.at(child_scope + "." + target_port_name);
                 NetSliceRef child_ref = {child_net_id, 0, result.netlist[child_net_id].width};
+                if (inst->is_array_instance && inst->array_count > 1 && parent_ref.width == inst->array_count * child_ref.width) {
+                    parent_ref.offset += (uint32_t)(inst->array_index * child_ref.width);
+                    parent_ref.width = child_ref.width;
+                }
 
                 if (dir == "inout") {
                     if (result.netlist[parent_ref.net_id].kind == NetKind::VAR) {
@@ -6925,8 +6981,8 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
-    std::string unit_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str;
-    std::string unit_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str;
+    std::string unit_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : (Lexer::global_timescale_encountered ? Lexer::global_time_unit_str : "1s");
+    std::string unit_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : (Lexer::global_timescale_encountered ? Lexer::global_time_precision_str : "1s");
     result.timescale_map["$unit"] = {unit_tu, unit_tp};
     result.timescale_map[""] = {unit_tu, unit_tp};
 
@@ -7012,11 +7068,34 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         size_t cu_id = kv.first;
         std::string cu_prefix = "$unit_" + std::to_string(cu_id);
         for (const auto& s : kv.second) {
+            uint32_t w = s.width;
+            if (!s.type_name.empty()) {
+                const PackedStructType* st = find_struct_type(s.type_name, cu_prefix);
+                if (!st) st = find_struct_type(s.type_name, "");
+                if (st) {
+                    w = st->total_width;
+                } else if (result.simple_types.count(cu_prefix + "::" + s.type_name)) {
+                    w = result.simple_types[cu_prefix + "::" + s.type_name].width;
+                } else if (result.simple_types.count(s.type_name)) {
+                    w = result.simple_types[s.type_name].width;
+                }
+            }
             std::string net_name = cu_prefix + "." + s.name;
-            size_t nid = get_or_create_net(net_name, s.width, s.is_signed, s.net_kind);
+            size_t nid = get_or_create_net(net_name, w, s.is_signed, s.net_kind);
             result.netlist[nid].type_name = s.type_name;
             result.net_map[cu_prefix + "::" + s.name] = nid;
+            result.net_map[cu_prefix + "." + s.name] = nid;
             result.net_map["$unit::" + s.name] = nid;
+            result.net_map["$unit." + s.name] = nid;
+            result.net_map[s.name] = nid;
+            if (!s.type_name.empty()) {
+                result.var_to_struct_type[cu_prefix + "::" + s.name] = s.type_name;
+                result.var_to_struct_type[cu_prefix + "." + s.name] = s.type_name;
+                result.var_to_struct_type["$unit::" + s.name] = s.type_name;
+                result.var_to_struct_type["$unit." + s.name] = s.type_name;
+                result.var_to_struct_type[s.name] = s.type_name;
+                result.var_to_struct_type[net_name] = s.type_name;
+            }
         }
     }
 

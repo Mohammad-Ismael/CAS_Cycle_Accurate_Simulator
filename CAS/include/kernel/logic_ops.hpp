@@ -84,6 +84,9 @@ public:
     }
 
     static LogicVal cast_width(const LogicVal& v, uint32_t target_width, bool is_signed) {
+        if (v.is_unbased) {
+            return expand_unbased(v.unbased_char, target_width);
+        }
         if (v.is_real) {
             int64_t ival = (std::isnan(v.real_val) || std::isinf(v.real_val)) ? 0 : std::llround(v.real_val);
             LogicVal res;
@@ -402,7 +405,16 @@ public:
 
     static LogicVal expand_unbased(char c, uint32_t w) {
         if (c == '0') return LogicVal::make_known(w, 0);
-        if (c == '1') return LogicVal(w, (w >= 64) ? ~0ULL : ((1ULL << w) - 1), 0);
+        if (c == '1') {
+            LogicVal v(w, ~0ULL, 0);
+            if (w > 64) {
+                size_t nwords = ((size_t)w + 63) / 64;
+                v.wide_aval.assign(nwords, ~0ULL);
+                v.wide_bval.assign(nwords, 0ULL);
+                v.mask();
+            }
+            return v;
+        }
         if (c == 'z' || c == 'Z') return LogicVal::make_z(w);
         return LogicVal::make_x(w);
     }

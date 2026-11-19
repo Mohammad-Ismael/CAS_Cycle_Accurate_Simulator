@@ -4100,7 +4100,7 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
         } else {
             casted = LogicOps::cast_width(val, net.width, net.is_signed);
         }
-        if (net.type_name == "bit" || net.type_name == "int" || net.type_name == "byte" || net.type_name == "shortint" || net.type_name == "longint") {
+        if (net.type_name == "bit" || net.type_name == "byte" || net.type_name == "shortint" || net.type_name == "longint") {
             casted.coerce_to_2state();
         }
         if (net.value != casted) {

@@ -2662,7 +2662,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         q->delete_all();
                     } else {
                         LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
-                        q->delete_at((int64_t)idx_v.aval);
+                        if (!idx_v.is_unknown()) {
+                            int64_t idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+                            q->delete_at(idx);
+                        }
                     }
                     return;
                 }
@@ -3246,7 +3249,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (tcall->args.size() >= 2) {
                         LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
                         LogicVal item_v = eval_expr(tcall->args[1].get(), bp.scope);
-                        q->insert((int64_t)idx_v.aval, item_v);
+                        if (!idx_v.is_unknown()) {
+                            int64_t idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+                            q->insert(idx, item_v);
+                        }
                     }
                     return;
                 } else if (method == "delete") {
@@ -3254,7 +3260,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         q->delete_all();
                     } else {
                         LogicVal idx_v = eval_expr(tcall->args[0].get(), bp.scope);
-                        q->delete_at((int64_t)idx_v.aval);
+                        if (!idx_v.is_unknown()) {
+                            int64_t idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
+                            q->delete_at(idx);
+                        }
                     }
                     return;
                 } else if (method == "reverse") {
@@ -4514,7 +4523,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 }
             } else {
                 LogicVal cv = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                if (local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                if ((local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint" || local->type_name == "int") && !rhs_val.is_queue_empty_pop) {
                     cv.coerce_to_2state();
                 }
                 if (local->value != cv) {
@@ -4969,10 +4978,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto mem_assign = dynamic_cast<MemAssignNode*>(stmt)) {
         QueueObject* q = engine.get_queue(mem_assign->mem_name, bp.scope);
         if (q) {
+            expr_eval.queue_dollar_stack.push_back((int64_t)q->size() - 1);
             LogicVal addr_val = eval_expr(mem_assign->addr_expr.get(), bp.scope);
+            expr_eval.queue_dollar_stack.pop_back();
             LogicVal rhs_val = eval_expr(mem_assign->rhs.get(), bp.scope);
             if (!addr_val.is_unknown()) {
-                int64_t idx = (int64_t)addr_val.aval;
+                int64_t idx = addr_val.is_signed ? addr_val.to_signed() : (int64_t)addr_val.aval;
                 q->set_elem(idx, rhs_val);
             }
             return;
@@ -6132,7 +6143,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             src_da = engine.get_dynamic_array(src_id->name, bp.scope);
                         }
                         if (src_da) {
-                            local->dyn_array_data.share_from(*src_da);
+                            local->dyn_array_data.resize_and_copy(src_da->size(), *src_da);
                             return;
                         }
                     } else if (auto src_ma = dynamic_cast<MemberAccessNode*>(assign->rhs.get())) {
@@ -6166,7 +6177,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             src_da = src_cl->get_dynamic_array(src_ma->member_name);
                         }
                         if (src_da) {
-                            local->dyn_array_data.share_from(*src_da);
+                            local->dyn_array_data.resize_and_copy(src_da->size(), *src_da);
                             return;
                         }
                     } else {
@@ -6185,6 +6196,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             }
                             local->dyn_array_data.elements = std::move(elems);
+                            local->dyn_array_data.storage = nullptr;
                             return;
                         }
                     }
@@ -6306,7 +6318,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             if (local->value.is_string || local->type_name == "string") {
                                 int64_t s_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
                                 if (s_idx >= 0 && (size_t)s_idx < local->value.str_val.size()) {
-                                    local->value.str_val[s_idx] = (char)(rhs_val.aval & 0xFF);
+                                    char ch = (char)(rhs_val.aval & 0xFF);
+                                if (ch != 0) {
+                                    local->value.str_val[s_idx] = ch;
+                                }
                                 }
                             } else {
                                 if (!bop.empty()) {
@@ -6345,7 +6360,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     } else {
                         LogicVal cv = LogicOps::cast_width(rhs_val, local->width, local->is_signed);
-                        if (local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                        if ((local->is_2state || local->type_name == "bit" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint" || local->type_name == "int") && !rhs_val.is_queue_empty_pop) {
                             cv.coerce_to_2state();
                         }
                         if (local->value != cv) {
@@ -6536,7 +6551,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             src_da = engine.get_dynamic_array(src_id->name, bp.scope);
                         }
                         if (src_da) {
-                            da->share_from(*src_da);
+                            da->resize_and_copy(src_da->size(), *src_da);
                             return;
                         }
                     } else if (auto src_ma = dynamic_cast<MemberAccessNode*>(assign->rhs.get())) {
@@ -7294,8 +7309,10 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (old_v.is_string || engine.netlist[target_id].type_name == "string") {
                                     int64_t s_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
                                     if (s_idx >= 0 && (size_t)s_idx < old_v.str_val.size()) {
+                                    char ch = (char)(rhs_val.aval & 0xFF);
+                                    if (ch != 0) {
                                         auto cur = old_v;
-                                        cur.str_val[s_idx] = (char)(rhs_val.aval & 0xFF);
+                                        cur.str_val[s_idx] = ch;
                                         engine.netlist[target_id].set(cur);
                                         if (target_id < engine.alias_members.size()) {
                                             for (size_t other_id : engine.alias_members[target_id]) {
@@ -7305,6 +7322,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                             }
                                         }
                                         engine.scheduler.notify_net_changed(target_id);
+                                    }
                                     }
                                     return;
                                 }

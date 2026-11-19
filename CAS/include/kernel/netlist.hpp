@@ -81,7 +81,7 @@ struct Net {
             clamped.width = width;
             clamped.is_signed = is_signed;
             clamped.mask();
-            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "int" || type_name == "longint") {
+            if ((is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "longint" || type_name == "int") && !val.is_queue_empty_pop) {
                 clamped.coerce_to_2state();
             }
         }

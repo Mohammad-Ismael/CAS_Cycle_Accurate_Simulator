@@ -4,21 +4,21 @@
 
 ParsedNumber NumberParser::parse_unbased_literal(char lit) {
     ParsedNumber res;
-    res.width = 64;
+    res.width = 1;
     res.text = std::string("'") + lit;
 
     if (lit == '0') {
         res.aval = 0;
         res.bval = 0;
     } else if (lit == '1') {
-        res.aval = ~0ULL;
+        res.aval = 1;
         res.bval = 0;
     } else if (lit == 'x' || lit == 'X') {
-        res.aval = ~0ULL;
-        res.bval = ~0ULL;
+        res.aval = 1;
+        res.bval = 1;
     } else if (lit == 'z' || lit == 'Z') {
         res.aval = 0;
-        res.bval = ~0ULL;
+        res.bval = 1;
     } else {
         throw std::runtime_error("Invalid unbased unsized literal: '" + std::string(1, lit) + "'. IEEE Std 1800-2023 §5.7.1 restricts unbased literals to '0, '1, 'z/'Z, and 'x/'X.");
     }

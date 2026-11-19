@@ -279,6 +279,9 @@ struct InstantiationNode : public ASTNode {
     std::vector<ParamOverride> param_overrides;
     std::vector<PortConnection> connections;
     bool is_positional = false;
+    bool is_array_instance = false;
+    int64_t array_index = 0;
+    int64_t array_count = 1;
 
     InstantiationNode() = default;
 
@@ -290,6 +293,9 @@ struct InstantiationNode : public ASTNode {
 
     std::unique_ptr<InstantiationNode> clone() const {
         auto node = std::make_unique<InstantiationNode>(module_type, instance_name, is_positional);
+        node->is_array_instance = is_array_instance;
+        node->array_index = array_index;
+        node->array_count = array_count;
         for (const auto& po : param_overrides) {
             node->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
         }
@@ -302,6 +308,8 @@ struct InstantiationNode : public ASTNode {
 
 struct ContinuousAssignNode : public ASTNode {
     std::string target_name;
+    std::string drive0 = "";
+    std::string drive1 = "";
     std::vector<std::string> concat_targets;
     std::vector<std::unique_ptr<ExpressionNode>> concat_target_exprs;
     std::unique_ptr<ExpressionNode> target_index_expr = nullptr;
@@ -319,6 +327,8 @@ struct ContinuousAssignNode : public ASTNode {
 
     std::unique_ptr<ContinuousAssignNode> clone() const {
         auto node = std::make_unique<ContinuousAssignNode>(target_name, rhs ? rhs->clone() : nullptr);
+        node->drive0 = drive0;
+        node->drive1 = drive1;
         node->concat_targets = concat_targets;
         for (const auto& e : concat_target_exprs) {
             node->concat_target_exprs.push_back(e ? e->clone() : nullptr);
@@ -1170,6 +1180,7 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, std::pair<std::string, std::string>> nested_timescales;
     bool is_interface = false;
     bool is_program = false;
+    bool is_automatic = false;
     std::string defined_in_file = "";
     size_t defined_on_line = 0;
     std::unordered_set<std::string> genvars;

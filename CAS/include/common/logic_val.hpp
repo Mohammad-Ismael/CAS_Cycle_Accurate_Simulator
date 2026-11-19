@@ -21,6 +21,8 @@ struct LogicVal {
     std::string tag_member = "";
     bool is_unbased = false;
     char unbased_char = 0;
+    std::string strength_str = "";
+    bool is_queue_empty_pop = false;
     std::vector<LogicVal> unpacked_elements;
     std::vector<uint64_t> wide_aval;
     std::vector<uint64_t> wide_bval;
@@ -518,6 +520,49 @@ struct LogicVal {
             s_out.push_back((char)byte_val);
         }
         return s_out;
+    }
+
+    LogicVal replicate_unbased(uint32_t target_width) const {
+        LogicVal res(target_width, 0, 0, is_signed);
+        res.is_unbased = false;
+        if (unbased_char == '1') {
+            res.aval = ~0ULL;
+            res.bval = 0;
+            if (target_width > 64) {
+                size_t n = ((size_t)target_width + 63) / 64;
+                res.wide_aval.assign(n, ~0ULL);
+                res.wide_bval.assign(n, 0ULL);
+            }
+            res.mask();
+        } else if (unbased_char == 'x' || unbased_char == 'X') {
+            res.aval = ~0ULL;
+            res.bval = ~0ULL;
+            if (target_width > 64) {
+                size_t n = ((size_t)target_width + 63) / 64;
+                res.wide_aval.assign(n, ~0ULL);
+                res.wide_bval.assign(n, ~0ULL);
+            }
+            res.mask();
+        } else if (unbased_char == 'z' || unbased_char == 'Z') {
+            res.aval = 0ULL;
+            res.bval = ~0ULL;
+            if (target_width > 64) {
+                size_t n = ((size_t)target_width + 63) / 64;
+                res.wide_aval.assign(n, 0ULL);
+                res.wide_bval.assign(n, ~0ULL);
+            }
+            res.mask();
+        } else {
+            res.aval = 0ULL;
+            res.bval = 0ULL;
+            if (target_width > 64) {
+                size_t n = ((size_t)target_width + 63) / 64;
+                res.wide_aval.assign(n, 0ULL);
+                res.wide_bval.assign(n, 0ULL);
+            }
+            res.mask();
+        }
+        return res;
     }
 };
 

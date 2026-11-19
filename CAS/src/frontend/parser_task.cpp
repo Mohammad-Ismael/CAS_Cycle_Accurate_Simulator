@@ -12,6 +12,8 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
     } else if (match(TokenType::TOKEN_STATIC)) {
         task_node->is_automatic = false;
         task_node->is_static = true;
+    } else if (current_parsing_module && current_parsing_module->is_automatic) {
+        task_node->is_automatic = true;
     }
 
     task_node->name = current.text;

@@ -697,6 +697,13 @@ void Lexer::skip_whitespace_and_comments() {
                                 }
                                 mp = id_end;
                             }
+                            if (!changed) {
+                                size_t dbl = exp.find("``");
+                                if (dbl != std::string::npos) {
+                                    exp.erase(dbl, 2);
+                                    changed = true;
+                                }
+                            }
                         }
 
                         bool in_normal_string = false;

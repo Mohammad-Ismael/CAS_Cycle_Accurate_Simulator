@@ -33,7 +33,7 @@ bool BytecodeCompiler::compile_node(ExpressionNode* node, CompileContext& ctx, u
     }
 
     if (auto num = dynamic_cast<NumberNode*>(node)) {
-        if (num->is_real) return false;
+        if (num->is_real || num->is_unbased) return false;
         out_width = num->width;
         out_signed = num->is_signed;
         if (num->bval != 0 || out_width > 64) {

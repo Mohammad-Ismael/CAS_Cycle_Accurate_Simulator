@@ -1574,6 +1574,9 @@ size_t Engine::get_net_id(const std::string& scope, const std::string& name) con
     auto it2 = net_map.find(name);
     if (it2 != net_map.end()) return it2->second;
 
+    auto it_unit = net_map.find("$unit." + name);
+    if (it_unit != net_map.end()) return it_unit->second;
+
     if (scope == "$unit" || scope.empty()) {
         for (const auto& pair : net_map) {
             auto d = pair.first.rfind('.');

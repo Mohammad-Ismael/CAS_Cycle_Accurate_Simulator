@@ -22,8 +22,9 @@ struct QueueObject {
     LogicVal get_default_val() const {
         if (is_real) return LogicVal::make_real(0.0);
         if (is_string) return LogicVal::make_string("");
-        if (is_2state) return LogicVal(elem_width, 0, 0, is_signed);
-        return LogicVal::make_x(elem_width);
+        LogicVal res = LogicVal::make_x(elem_width);
+        res.is_queue_empty_pop = true;
+        return res;
     }
 
     LogicVal cast_elem(const LogicVal& v) const {

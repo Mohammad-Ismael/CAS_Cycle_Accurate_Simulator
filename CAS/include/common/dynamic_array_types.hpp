@@ -95,8 +95,10 @@ struct DynamicArrayObject {
         is_signed = src.is_signed;
         is_four_state = src.is_four_state;
         is_real = src.is_real;
-        storage = nullptr;
-        const std::vector<LogicVal>& src_v = (src.storage && src.storage->size() == src.elements.size()) ? *src.storage : src.elements;
-        elements = src_v;
+        if (!src.storage || src.storage->size() != src.elements.size()) {
+            src.storage = std::make_shared<std::vector<LogicVal>>(src.elements);
+        }
+        storage = src.storage;
+        elements = *storage;
     }
 };
