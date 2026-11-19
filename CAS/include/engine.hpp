@@ -147,6 +147,9 @@ public:
     ConstraintSolver solver;
     DpiRegistry dpi_registry;
     std::unordered_map<std::string, std::pair<std::string, std::string>> timescale_map;
+    uint64_t global_prec_fs = 1000000ULL;
+    std::unordered_set<std::string> scopes_with_timeunit;
+    bool has_scope_timeunit(const std::string& scope) const;
     std::vector<std::string> source_search_paths;
     std::unordered_map<std::string, DpiImportNode*> dpi_import_map;
     std::unordered_map<std::string, DpiExportNode*> dpi_export_map;
@@ -776,6 +779,7 @@ public:
     size_t resolve_vif_net_id(const VirtualInterfaceHandle& vif, const std::string& member_name);
 
     uint64_t get_sim_time() const { return scheduler.get_sim_time(); }
+    uint64_t get_scope_timeunit_fs(const std::string& scope) const;
 
     std::string resolve_scoped_name(const std::string& scope, const std::string& name) const;
     size_t get_net_id(const std::string& scope, const std::string& name) const;

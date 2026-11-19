@@ -18,6 +18,8 @@ struct StructMember {
     std::shared_ptr<ExpressionNode> default_expr = nullptr;
     bool has_default = false;
     LogicVal default_val;
+    uint32_t elem_width = 1;
+    int64_t outer_low = 0;
 };
 
 struct PackedStructType {

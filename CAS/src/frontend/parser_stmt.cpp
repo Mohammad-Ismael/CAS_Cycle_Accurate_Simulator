@@ -492,6 +492,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             vnode->is_static = is_procedural_static;
             vnode->is_class_handle = inf.is_class_handle;
             vnode->class_type_name = inf.class_type_name;
+            if (vnode->is_class_handle) vnode->width = 64;
             vnode->is_covergroup_handle = inf.is_covergroup_handle;
             vnode->covergroup_type_name = inf.covergroup_type_name;
             vnode->is_virtual_interface = inf.is_virtual_interface;
@@ -797,13 +798,20 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (match(TokenType::TOKEN_HASH)) {
         std::unique_ptr<ExpressionNode> delay_expr = nullptr;
         uint64_t d = 0;
+        bool is_time_lit = false;
+        double lit_time_fs = 0.0;
+        double raw_d = -1.0;
         if (current.type == TokenType::TOKEN_NUMBER) {
-            if (current.is_time_literal && current.time_fs > 0) {
-                d = current.time_fs / 1000000ULL;
-                if (d == 0 && current.time_fs > 0) d = 1;
+            if (current.is_time_literal && (current.time_fs > 0 || current.time_fs_real > 0.0)) {
+                is_time_lit = true;
+                lit_time_fs = (current.time_fs_real > 0.0) ? current.time_fs_real : (double)current.time_fs;
+                d = (uint64_t)std::round(lit_time_fs / 1000000.0);
+                if (d == 0 && lit_time_fs > 0.0) d = 1;
             } else if (current.is_real) {
+                raw_d = current.real_val;
                 d = static_cast<uint64_t>(std::round(current.real_val * Lexer::get_timescale_ratio()));
             } else {
+                raw_d = (double)current.num_val;
                 d = current.num_val * Lexer::get_timescale_ratio();
             }
             advance();
@@ -825,13 +833,21 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             delay_expr = parse_expression();
         }
 
+        auto make_delay_node = [&]() {
+            auto dnode = std::make_unique<DelayStatementNode>(d, std::move(delay_expr));
+            dnode->is_time_literal = is_time_lit;
+            dnode->time_fs = lit_time_fs;
+            dnode->raw_delay = raw_d;
+            return dnode;
+        };
+
         if (match(TokenType::TOKEN_SEMICOLON)) {
-            return std::make_unique<DelayStatementNode>(d, std::move(delay_expr));
+            return make_delay_node();
         }
 
         auto target_stmt = parse_statement();
         std::vector<std::unique_ptr<StatementNode>> stmts;
-        stmts.push_back(std::make_unique<DelayStatementNode>(d, std::move(delay_expr)));
+        stmts.push_back(make_delay_node());
         stmts.push_back(std::move(target_stmt));
         return std::make_unique<BlockStatementNode>(std::move(stmts));
     }

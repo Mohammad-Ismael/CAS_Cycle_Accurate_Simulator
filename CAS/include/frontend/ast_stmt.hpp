@@ -717,12 +717,19 @@ struct TaskCallNode : public StatementNode {
 struct DelayStatementNode : public StatementNode {
     uint64_t delay;
     std::unique_ptr<ExpressionNode> delay_expr = nullptr;
+    bool is_time_literal = false;
+    double time_fs = 0.0;
+    double raw_delay = -1.0;
 
     explicit DelayStatementNode(uint64_t d, std::unique_ptr<ExpressionNode> expr = nullptr)
         : delay(d), delay_expr(std::move(expr)) {}
 
     std::unique_ptr<StatementNode> clone() const override {
-        return std::make_unique<DelayStatementNode>(delay, delay_expr ? delay_expr->clone() : nullptr);
+        auto c = std::make_unique<DelayStatementNode>(delay, delay_expr ? delay_expr->clone() : nullptr);
+        c->is_time_literal = is_time_literal;
+        c->time_fs = time_fs;
+        c->raw_delay = raw_delay;
+        return c;
     }
 };
 

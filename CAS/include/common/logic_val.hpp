@@ -511,7 +511,7 @@ struct LogicVal {
             if (width <= 64) {
                 byte_val = (uint8_t)((aval >> (b * 8)) & 0xFF);
             } else {
-                byte_val = (uint8_t)extract_slice(b * 8 + 7, b * 8).aval;
+                byte_val = (uint8_t)extract_slice(b * 8, 8).aval;
             }
             if (leading && byte_val == 0) continue;
             leading = false;

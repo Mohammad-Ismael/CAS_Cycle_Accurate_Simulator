@@ -274,6 +274,8 @@ struct ElaborationResult {
     std::unordered_set<std::string> covergroup_handle_names;
     std::unordered_map<std::string, std::string> var_to_covergroup_type;
     std::unordered_map<std::string, std::pair<std::string, std::string>> timescale_map;
+    uint64_t global_prec_fs = 1000000ULL;
+    std::unordered_set<std::string> scopes_with_timeunit;
     std::vector<SvaAssertionInstance> sva_assertions;
     std::unordered_map<std::string, std::shared_ptr<PropertyNode>> property_defs;
     std::unordered_map<std::string, std::shared_ptr<SequenceNode>> sequence_defs;

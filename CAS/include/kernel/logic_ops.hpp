@@ -418,7 +418,7 @@ public:
         uint32_t w = std::max(el.width, er.width);
         el = cast_width(el, w, false);
         er = cast_width(er, w, false);
-        bool match = (el.aval == er.aval) && (el.bval == er.bval);
+        bool match = (el == er);
         return LogicVal::make_known(1, match ? 1 : 0);
     }
 

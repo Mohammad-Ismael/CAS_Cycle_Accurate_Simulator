@@ -421,6 +421,8 @@ struct StructMemberNode : public ASTNode {
     int64_t msb = 0;
     int64_t lsb = 0;
     std::shared_ptr<ExpressionNode> default_value = nullptr;
+    uint32_t elem_width = 1;
+    int64_t outer_low = 0;
 };
 
 struct StructTypeNode : public ASTNode {
@@ -839,7 +841,10 @@ struct ClassNode : public ASTNode {
 
 inline bool ClassObject::has_property(const std::string& name) const {
     if (properties.find(name) != properties.end()) return true;
-    if (class_def && class_def->param_values.find(name) != class_def->param_values.end()) return true;
+    if (class_def) {
+        if (class_def->find_member_var(name)) return true;
+        if (class_def->param_values.find(name) != class_def->param_values.end()) return true;
+    }
     return false;
 }
 
@@ -847,6 +852,10 @@ inline LogicVal ClassObject::get_property(const std::string& name) const {
     auto it = properties.find(name);
     if (it != properties.end()) return it->second;
     if (class_def) {
+        if (const auto* mv = class_def->find_member_var(name)) {
+            uint32_t w = mv->width > 0 ? mv->width : 32;
+            return LogicVal::make_x(w);
+        }
         auto pit = class_def->param_values.find(name);
         if (pit != class_def->param_values.end()) {
             return LogicVal(32, pit->second, 0);
@@ -1154,6 +1163,10 @@ struct ModuleNode : public ASTNode {
     size_t compilation_unit_id = 0;
     std::string timeunit_val = "";
     std::string timeprecision_val = "";
+    bool has_timescale_directive = false;
+    bool has_compilation_unit_timeunit = false;
+    std::string default_timescale_unit = "";
+    std::string default_timescale_prec = "";
     std::unordered_map<std::string, std::pair<std::string, std::string>> nested_timescales;
     bool is_interface = false;
     bool is_program = false;

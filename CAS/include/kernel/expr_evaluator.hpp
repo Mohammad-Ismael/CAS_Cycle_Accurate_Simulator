@@ -20,6 +20,7 @@ private:
     BoundProcess* current_bp = nullptr;
     ClassObject* current_this = nullptr;
     const ClassNode* current_class_def = nullptr;
+    std::string current_class_type = "";
     const std::vector<LogicVal>* preponed_override = nullptr;
     const std::deque<std::vector<LogicVal>>* current_clock_history = nullptr;
     std::map<std::string, LogicVal>* current_sva_local_vars = nullptr;
@@ -49,11 +50,18 @@ public:
 
     void set_current_this(ClassObject* obj) {
         current_this = obj;
-        if (obj && obj->class_def) current_class_def = obj->class_def;
-        else if (!obj) current_class_def = nullptr;
+        if (obj && obj->class_def) {
+            current_class_def = obj->class_def;
+            current_class_type = obj->class_type_name;
+        } else if (!obj) {
+            current_class_def = nullptr;
+            current_class_type = "";
+        }
     }
     ClassObject* get_current_this() const { return current_this; }
     void set_current_class_def(const ClassNode* cd) { current_class_def = cd; }
+    void set_current_class_type(const std::string& ct) { current_class_type = ct; }
+    const std::string& get_current_class_type() const { return current_class_type; }
     const ClassNode* get_current_class_def() const {
         if (current_class_def) return current_class_def;
         if (current_this && current_this->class_def) return current_this->class_def;

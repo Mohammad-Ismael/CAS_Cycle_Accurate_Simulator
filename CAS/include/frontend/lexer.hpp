@@ -346,6 +346,7 @@ private:
     void handle_timescale();
 
 public:
+    static bool global_timescale_encountered;
     static uint64_t global_timescale_ratio;
     static std::string global_time_unit_str;
     static std::string global_time_precision_str;
@@ -380,6 +381,7 @@ public:
     static uint64_t get_timescale_ratio() { return global_timescale_ratio; }
     static const std::string& get_time_precision_unit() { return global_time_precision_unit; }
     static void reset_timescale() {
+        global_timescale_encountered = false;
         global_timescale_ratio = 1;
         global_time_unit_str = "1ns";
         global_time_precision_str = "1ps";

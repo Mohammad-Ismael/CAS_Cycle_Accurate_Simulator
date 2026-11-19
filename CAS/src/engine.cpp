@@ -1,4 +1,5 @@
 #include "../include/engine.hpp"
+#include "../include/frontend/lexer.hpp"
 #include "../include/kernel/logic_ops.hpp"
 #include "../include/kernel/codegen.hpp"
 #include "../include/kernel/native_jit.hpp"
@@ -69,6 +70,8 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     dynamic_array_map = std::move(elab_res.dynamic_array_map);
     assoc_array_map = std::move(elab_res.assoc_array_map);
     timescale_map = std::move(elab_res.timescale_map);
+    global_prec_fs = elab_res.global_prec_fs;
+    scopes_with_timeunit = std::move(elab_res.scopes_with_timeunit);
     scope_cu_id = std::move(elab_res.scope_cu_id);
     task_map = std::move(elab_res.task_map);
     param_map = std::move(elab_res.param_map);
@@ -182,6 +185,16 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             out_reads_mem = true;
         }
         size_t raw_nid = engine.get_net_id(scope, id->name);
+        if (raw_nid == (size_t)-1 && id->name.find('.') != std::string::npos) {
+            std::string iname = id->name;
+            size_t dpos = iname.rfind('.');
+            while (dpos != std::string::npos) {
+                std::string base = iname.substr(0, dpos);
+                raw_nid = engine.get_net_id(scope, base);
+                if (raw_nid != (size_t)-1) break;
+                dpos = iname.rfind('.', dpos - 1);
+            }
+        }
         if (raw_nid != (size_t)-1) {
             size_t canon = engine.get_canonical_net_id(raw_nid);
             out_net_ids.push_back((uint32_t)canon);
@@ -225,15 +238,19 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
     if (auto mem = dynamic_cast<const MemberAccessNode*>(expr)) {
         std::string full_name = mem->var_name + "." + mem->member_name;
         size_t raw_nid = engine.get_net_id(scope, full_name);
+        if (raw_nid == (size_t)-1) {
+            std::string iname = full_name;
+            size_t dpos = iname.rfind('.');
+            while (dpos != std::string::npos) {
+                std::string base = iname.substr(0, dpos);
+                raw_nid = engine.get_net_id(scope, base);
+                if (raw_nid != (size_t)-1) break;
+                dpos = iname.rfind('.', dpos - 1);
+            }
+        }
         if (raw_nid != (size_t)-1) {
             size_t canon = engine.get_canonical_net_id(raw_nid);
             out_net_ids.push_back((uint32_t)canon);
-        } else {
-            raw_nid = engine.get_net_id(scope, mem->var_name);
-            if (raw_nid != (size_t)-1) {
-                size_t canon = engine.get_canonical_net_id(raw_nid);
-                out_net_ids.push_back((uint32_t)canon);
-            }
         }
         if (mem->index_expr) collect_read_nets_internal(mem->index_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         return;
@@ -1948,4 +1965,45 @@ size_t Engine::resolve_vif_net_id(const VirtualInterfaceHandle& vif, const std::
         return net_map.at(member_name);
     }
     throw std::runtime_error("Virtual interface member not found in netlist: " + full_net);
+}
+
+uint64_t Engine::get_scope_timeunit_fs(const std::string& scope) const {
+    std::string eff_tu = "";
+    if (!scope.empty()) {
+        auto it = timescale_map.find(scope);
+        if (it != timescale_map.end() && !it->second.first.empty()) eff_tu = it->second.first;
+    }
+    if (eff_tu.empty() && !scope.empty()) {
+        auto dot = scope.find('.');
+        if (dot != std::string::npos) {
+            std::string mod_n = scope.substr(0, dot);
+            auto it = timescale_map.find(mod_n);
+            if (it != timescale_map.end() && !it->second.first.empty()) eff_tu = it->second.first;
+        }
+    }
+    if (eff_tu.empty()) {
+        auto it = timescale_map.find("$unit");
+        if (it != timescale_map.end() && !it->second.first.empty()) eff_tu = it->second.first;
+    }
+    if (eff_tu.empty()) {
+        auto it = timescale_map.find("");
+        if (it != timescale_map.end() && !it->second.first.empty()) eff_tu = it->second.first;
+    }
+    if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
+    if (eff_tu.empty()) return global_prec_fs;
+    uint64_t tu_fs = Lexer::parse_time_fs(eff_tu);
+    return tu_fs > 0 ? tu_fs : global_prec_fs;
+}
+
+bool Engine::has_scope_timeunit(const std::string& scope) const {
+    if (scopes_with_timeunit.count(scope)) return true;
+    auto dot = scope.find('.');
+    if (dot != std::string::npos) {
+        if (scopes_with_timeunit.count(scope.substr(0, dot))) return true;
+        auto last_dot = scope.rfind('.');
+        if (last_dot != std::string::npos) {
+            if (scopes_with_timeunit.count(scope.substr(last_dot + 1))) return true;
+        }
+    }
+    return false;
 }

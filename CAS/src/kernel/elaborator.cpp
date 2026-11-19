@@ -948,6 +948,22 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
             if (l.is_unknown() || r.is_unknown()) return LogicVal::make_x(1);
             return LogicVal::make_known(1, (l.to_bool() == r.to_bool()) ? 1 : 0);
         }
+        LogicVal l = eval_const_logic_val(bin->lhs.get(), scope);
+        LogicVal r = eval_const_logic_val(bin->rhs.get(), scope);
+        if (l.is_real || r.is_real) {
+            double ld = l.to_real();
+            double rd = r.to_real();
+            if (bin->op == "+") return LogicVal::make_real(ld + rd);
+            if (bin->op == "-") return LogicVal::make_real(ld - rd);
+            if (bin->op == "*") return LogicVal::make_real(ld * rd);
+            if (bin->op == "/") return LogicVal::make_real((rd != 0.0) ? (ld / rd) : 0.0);
+            if (bin->op == "==" || bin->op == "===") return LogicVal::make_known(1, ld == rd ? 1 : 0);
+            if (bin->op == "!=" || bin->op == "!==") return LogicVal::make_known(1, ld != rd ? 1 : 0);
+            if (bin->op == "<")  return LogicVal::make_known(1, ld < rd ? 1 : 0);
+            if (bin->op == "<=") return LogicVal::make_known(1, ld <= rd ? 1 : 0);
+            if (bin->op == ">")  return LogicVal::make_known(1, ld > rd ? 1 : 0);
+            if (bin->op == ">=") return LogicVal::make_known(1, ld >= rd ? 1 : 0);
+        }
     }
     uint64_t val = eval_const_expr(expr, scope);
     return LogicVal::make_known(32, val);
@@ -2196,10 +2212,15 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
     if (!tname.empty()) {
         st = find_struct_type(tname, scope);
     }
+    std::string root_mem = member_name;
+    auto first_dot = root_mem.find('.');
+    if (first_dot != std::string::npos) {
+        root_mem = root_mem.substr(0, first_dot);
+    }
     if (!st) {
         for (const auto& pair : result.struct_types) {
             if (pair.second.total_width == result.netlist[net_id].width &&
-                pair.second.get_member(member_name)) {
+                (pair.second.get_member(member_name) || pair.second.get_member(root_mem))) {
                 st = &pair.second;
                 break;
             }
@@ -2207,7 +2228,7 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
     }
     if (!st) {
         for (const auto& pair : result.struct_types) {
-            if (pair.second.get_member(member_name)) {
+            if (pair.second.get_member(member_name) || pair.second.get_member(root_mem)) {
                 st = &pair.second;
                 break;
             }
@@ -2518,7 +2539,9 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                 uint32_t total_off = struct_member_offset;
                 uint32_t slice_w = 0;
                 for (size_t d = 0; d < N; ++d) {
-                    int64_t dim_low = it_vdm->second.dimensions[d].low();
+                    const auto& dim_info = it_vdm->second.dimensions[d];
+                    bool is_ascending = (dim_info.left <= dim_info.right);
+                    int64_t dim_low = dim_info.low();
                     if (d == 0 && base_low > 0 && dim_low == 0) dim_low = base_low;
                     const auto& di = dims[d];
                     if (di.is_part_select) {
@@ -2534,15 +2557,28 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                         } else {
                             b_lsb = di.lsb ? eval_const_expr(di.lsb, scope) : b_msb;
                             count = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                            b_lsb = std::min(b_msb, b_lsb);
                         }
-                        if (dim_low > 0 && b_lsb >= (uint64_t)dim_low) b_lsb -= (uint64_t)dim_low;
-                        total_off += (uint32_t)b_lsb * strides[d];
+                        if (is_ascending) {
+                            uint64_t max_b = std::max(b_msb, b_lsb);
+                            int64_t eff_off = dim_info.right - (int64_t)max_b;
+                            if (eff_off < 0) eff_off = 0;
+                            total_off += (uint32_t)eff_off * strides[d];
+                        } else {
+                            uint64_t min_b = std::min(b_msb, b_lsb);
+                            if (dim_low > 0 && min_b >= (uint64_t)dim_low) min_b -= (uint64_t)dim_low;
+                            total_off += (uint32_t)min_b * strides[d];
+                        }
                         slice_w = count * strides[d];
                     } else {
                         uint64_t val = eval_const_expr(di.msb, scope);
-                        if (dim_low > 0 && val >= (uint64_t)dim_low) val -= (uint64_t)dim_low;
-                        total_off += (uint32_t)val * strides[d];
+                        if (is_ascending) {
+                            int64_t eff_off = dim_info.right - (int64_t)val;
+                            if (eff_off < 0) eff_off = 0;
+                            total_off += (uint32_t)eff_off * strides[d];
+                        } else {
+                            if (dim_low > 0 && val >= (uint64_t)dim_low) val -= (uint64_t)dim_low;
+                            total_off += (uint32_t)val * strides[d];
+                        }
                         if (d == N - 1) {
                             slice_w = strides[d];
                         }
@@ -3085,15 +3121,20 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             if (concat_rhs && concat_rhs->elements.size() == ca_copy->concat_targets.size()) {
                 for (size_t i = 0; i < ca_copy->concat_targets.size(); ++i) {
                     const auto& tname = ca_copy->concat_targets[i];
-                    size_t tid = resolve_gen_net_id(current_scope, tname);
-                    if (tid == (size_t)-1) continue;
-
-                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    NetSliceRef t_slice{(size_t)-1, 0, 0};
                     if (i < ca_copy->concat_target_exprs.size() && ca_copy->concat_target_exprs[i]) {
                         try {
                             t_slice = resolve_slice_ref(ca_copy->concat_target_exprs[i].get(), current_scope);
                         } catch (...) {}
                     }
+                    if (t_slice.net_id == (size_t)-1) {
+                        size_t tid = resolve_gen_net_id(current_scope, tname);
+                        if (tid != (size_t)-1) {
+                            t_slice = NetSliceRef{tid, 0, result.netlist[tid].width};
+                        }
+                    }
+                    if (t_slice.net_id == (size_t)-1) continue;
+
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, concat_rhs->elements[i]->clone());
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
@@ -3103,16 +3144,21 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 uint32_t cur_offset = 0;
                 for (int i = (int)ca_copy->concat_targets.size() - 1; i >= 0; --i) {
                     const auto& tname = ca_copy->concat_targets[i];
-                    size_t tid = resolve_gen_net_id(current_scope, tname);
-                    if (tid == (size_t)-1) continue;
-
-                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    NetSliceRef t_slice{(size_t)-1, 0, 0};
                     if ((size_t)i < ca_copy->concat_target_exprs.size() && ca_copy->concat_target_exprs[i]) {
                         try {
                             t_slice = resolve_slice_ref(ca_copy->concat_target_exprs[i].get(), current_scope);
                         } catch (...) {}
                     }
-                    tid = t_slice.net_id;
+                    if (t_slice.net_id == (size_t)-1) {
+                        size_t tid = resolve_gen_net_id(current_scope, tname);
+                        if (tid != (size_t)-1) {
+                            t_slice = NetSliceRef{tid, 0, result.netlist[tid].width};
+                        }
+                    }
+                    if (t_slice.net_id == (size_t)-1) continue;
+
+                    size_t tid = t_slice.net_id;
                     uint32_t target_offset = t_slice.offset;
                     uint32_t w = t_slice.width;
 
@@ -3501,10 +3547,16 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
 
-    std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : (!Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str);
-    std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : (!Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str);
+    std::string eff_tu = !mod->timeunit_val.empty() ? mod->timeunit_val : mod->default_timescale_unit;
+    if (eff_tu.empty()) eff_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : Lexer::global_time_unit_str;
+    std::string eff_tp = !mod->timeprecision_val.empty() ? mod->timeprecision_val : mod->default_timescale_prec;
+    if (eff_tp.empty()) eff_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : Lexer::global_time_precision_str;
     result.timescale_map[mod->name] = {eff_tu, eff_tp};
     result.timescale_map[scope] = {eff_tu, eff_tp};
+    if (mod->has_compilation_unit_timeunit || !mod->timeunit_val.empty()) {
+        result.scopes_with_timeunit.insert(mod->name);
+        result.scopes_with_timeunit.insert(scope);
+    }
     for (const auto& kv : mod->nested_timescales) {
         std::string ntu = !kv.second.first.empty() ? kv.second.first : eff_tu;
         std::string ntp = !kv.second.second.empty() ? kv.second.second : eff_tp;
@@ -3574,6 +3626,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     result.var_to_struct_type[scope + "." + s.name] = s.type_name;
                     if (parent_scope.empty()) result.var_to_struct_type[s.name] = s.type_name;
                 }
+                if (s.is_dynamic_array) {
+                    auto dait = result.dynamic_array_map.find(pkg_name + "::" + s.name);
+                    if (dait != result.dynamic_array_map.end()) {
+                        result.dynamic_array_map[scope + "." + s.name] = dait->second;
+                        if (parent_scope.empty()) result.dynamic_array_map[s.name] = dait->second;
+                    }
+                }
                 if (s.is_class_handle) {
                     result.class_handle_names.insert(scope + "." + s.name);
                     if (parent_scope.empty()) result.class_handle_names.insert(s.name);
@@ -3611,6 +3670,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (!s.type_name.empty()) {
                     result.var_to_struct_type[scope + "." + item_name] = s.type_name;
                     if (parent_scope.empty()) result.var_to_struct_type[item_name] = s.type_name;
+                }
+                if (s.is_dynamic_array) {
+                    auto dait = result.dynamic_array_map.find(pkg_name + "::" + item_name);
+                    if (dait != result.dynamic_array_map.end()) {
+                        result.dynamic_array_map[scope + "." + item_name] = dait->second;
+                        if (parent_scope.empty()) result.dynamic_array_map[item_name] = dait->second;
+                    }
                 }
             }
             if (pkg->param_constants.count(item_name)) {
@@ -3702,6 +3768,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sm.type_name = mn.type_name;
                 sm.msb = mn.msb;
                 sm.lsb = mn.lsb;
+                sm.elem_width = mn.elem_width;
+                sm.outer_low = mn.outer_low;
                 sm.default_expr = mn.default_value;
                 st.members.push_back(sm);
             }
@@ -3770,6 +3838,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             sm.type_name = mn.type_name;
             sm.msb = mn.msb;
             sm.lsb = mn.lsb;
+            sm.elem_width = mn.elem_width;
+            sm.outer_low = mn.outer_low;
             sm.default_expr = mn.default_value;
             st.members.push_back(sm);
         }
@@ -3815,6 +3885,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             sm.type_name = mn.type_name;
             sm.msb = mn.msb;
             sm.lsb = mn.lsb;
+            sm.elem_width = mn.elem_width;
+            sm.outer_low = mn.outer_low;
             sm.default_expr = mn.default_value;
             st.members.push_back(sm);
         }
@@ -3827,6 +3899,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         result.function_map[f->name] = f.get();
     }
 
+    size_t non_local_param_idx = 0;
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
@@ -3875,7 +3948,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     val = lval.aval;
                     overridden = true;
                     break;
-                } else if (ov.param_name.empty() && oi == i) {
+                } else if (ov.param_name.empty() && oi == non_local_param_idx) {
                     lval = eval_const_logic_val(ov.expr.get(), parent_scope);
                     val = lval.aval;
                     overridden = true;
@@ -3913,19 +3986,24 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint32_t width = (uint32_t)(std::abs(msb - lsb) + 1);
             lval = LogicOps::cast_width(lval, width, p.is_signed);
             val = lval.aval;
+        } else if (p.is_signed) {
+            lval.is_signed = true;
         }
         if (p.type_name == "bit" || p.type_name == "byte" || p.type_name == "shortint" ||
             p.type_name == "int" || p.type_name == "longint") {
             lval.coerce_to_2state();
             val = lval.aval;
-        } else if (p.type_name == "real" || p.type_name == "shortreal") {
+        } else if (p.type_name == "real" || p.type_name == "shortreal" || lval.is_real) {
             lval = LogicVal::make_real(lval.to_real());
         }
         bool has_local_sig = false;
         for (const auto& s : mod->signals) {
             if (s.name == p.name) { has_local_sig = true; break; }
         }
-        if (has_local_sig) continue;
+        if (has_local_sig) {
+            if (!p.is_localparam) ++non_local_param_idx;
+            continue;
+        }
         result.param_map[scope + "." + p.name] = val;
         result.param_val_map[scope + "." + p.name] = lval;
         bool is_unb = false;
@@ -3937,7 +4015,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (overridden && overrides && !p.is_localparam) {
             for (size_t oi = 0; oi < overrides->size(); ++oi) {
                 const auto& ov = (*overrides)[oi];
-                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == i)) {
+                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == non_local_param_idx)) {
                     if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
                         if (ov_id->name == "$" || ov_id->name == "__CAS_QUEUE_DOLLAR__") {
                             is_unb = true;
@@ -3966,7 +4044,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         if (overridden && overrides && !p.is_localparam) {
             for (size_t oi = 0; oi < overrides->size(); ++oi) {
                 const auto& ov = (*overrides)[oi];
-                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == i)) {
+                if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == non_local_param_idx)) {
                     if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
                         std::string ov_scoped = parent_scope.empty() ? ov_id->name : (parent_scope + "." + ov_id->name);
                         if (result.var_to_struct_type.count(ov_scoped)) {
@@ -3981,6 +4059,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 }
             }
         }
+        if (!p.is_localparam) ++non_local_param_idx;
     }
 
     auto get_type_width = [&](const std::string& tname, const std::string& sc) -> uint32_t {
@@ -4456,7 +4535,34 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             auto dao = DynamicArrayObject(da_scope, w, s.is_signed);
             dao.is_four_state = is_4st;
             dao.is_real = is_real;
+            if (s.default_value) {
+                if (auto new_arr = dynamic_cast<NewArrayNode*>(s.default_value.get())) {
+                    uint64_t sz = eval_const_expr(new_arr->size_expr.get(), scope);
+                    dao.allocate((size_t)sz);
+                    if (new_arr->copy_source_expr) {
+                        if (auto uc = dynamic_cast<UnpackedConcatNode*>(new_arr->copy_source_expr.get())) {
+                            for (size_t i = 0; i < (size_t)sz && i < uc->elements.size(); ++i) {
+                                dao.set_elem(i, eval_const_logic_val(uc->elements[i].get(), scope));
+                            }
+                        } else if (auto cat = dynamic_cast<ConcatNode*>(new_arr->copy_source_expr.get())) {
+                            for (size_t i = 0; i < (size_t)sz && i < cat->elements.size(); ++i) {
+                                dao.set_elem(i, eval_const_logic_val(cat->elements[i].get(), scope));
+                            }
+                        } else {
+                            try {
+                                LogicVal init_val = eval_const_logic_val(new_arr->copy_source_expr.get(), scope);
+                                for (size_t i = 0; i < (size_t)sz; ++i) {
+                                    dao.set_elem(i, init_val);
+                                }
+                            } catch (...) {}
+                        }
+                    }
+                }
+            }
             result.dynamic_array_map[da_scope] = std::move(dao);
+            if (parent_scope.empty()) {
+                result.dynamic_array_map[s.name] = result.dynamic_array_map[da_scope];
+            }
             if (debug_out) {
                 *debug_out << "     * Dynamic Array allocated: " << da_scope 
                            << " [" << w << "-bit]\n";
@@ -5176,18 +5282,23 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (concat_rhs && concat_rhs->elements.size() == ca->concat_targets.size()) {
                 for (size_t i = 0; i < ca->concat_targets.size(); ++i) {
                     const auto& tname = ca->concat_targets[i];
-                    std::string scoped_t = scope.empty() ? tname : (scope + "." + tname);
-                    size_t tid = (size_t)-1;
-                    if (result.net_map.find(scoped_t) != result.net_map.end()) tid = result.net_map.at(scoped_t);
-                    else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
-                    if (tid == (size_t)-1) continue;
-
-                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    NetSliceRef t_slice{(size_t)-1, 0, 0};
                     if (i < ca->concat_target_exprs.size() && ca->concat_target_exprs[i]) {
                         try {
                             t_slice = resolve_slice_ref(ca->concat_target_exprs[i].get(), scope);
                         } catch (...) {}
                     }
+                    if (t_slice.net_id == (size_t)-1) {
+                        std::string scoped_t = scope.empty() ? tname : (scope + "." + tname);
+                        size_t tid = (size_t)-1;
+                        if (result.net_map.find(scoped_t) != result.net_map.end()) tid = result.net_map.at(scoped_t);
+                        else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
+                        if (tid != (size_t)-1) {
+                            t_slice = NetSliceRef{tid, 0, result.netlist[tid].width};
+                        }
+                    }
+                    if (t_slice.net_id == (size_t)-1) continue;
+
                     auto new_ca = std::make_unique<ContinuousAssignNode>(tname, concat_rhs->elements[i]->clone());
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
@@ -5197,19 +5308,24 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 uint32_t cur_offset = 0;
                 for (int i = (int)ca->concat_targets.size() - 1; i >= 0; --i) {
                     const auto& tname = ca->concat_targets[i];
-                    std::string scoped_t = scope.empty() ? tname : (scope + "." + tname);
-                    size_t tid = (size_t)-1;
-                    if (result.net_map.find(scoped_t) != result.net_map.end()) tid = result.net_map.at(scoped_t);
-                    else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
-                    if (tid == (size_t)-1) continue;
-
-                    NetSliceRef t_slice{tid, 0, result.netlist[tid].width};
+                    NetSliceRef t_slice{(size_t)-1, 0, 0};
                     if ((size_t)i < ca->concat_target_exprs.size() && ca->concat_target_exprs[i]) {
                         try {
                             t_slice = resolve_slice_ref(ca->concat_target_exprs[i].get(), scope);
                         } catch (...) {}
                     }
-                    tid = t_slice.net_id;
+                    if (t_slice.net_id == (size_t)-1) {
+                        std::string scoped_t = scope.empty() ? tname : (scope + "." + tname);
+                        size_t tid = (size_t)-1;
+                        if (result.net_map.find(scoped_t) != result.net_map.end()) tid = result.net_map.at(scoped_t);
+                        else if (result.net_map.find(tname) != result.net_map.end()) tid = result.net_map.at(tname);
+                        if (tid != (size_t)-1) {
+                            t_slice = NetSliceRef{tid, 0, result.netlist[tid].width};
+                        }
+                    }
+                    if (t_slice.net_id == (size_t)-1) continue;
+
+                    size_t tid = t_slice.net_id;
                     uint32_t target_offset = t_slice.offset;
                     uint32_t w = t_slice.width;
 
@@ -6439,6 +6555,8 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 sm.type_name = mn.type_name;
                 sm.msb = mn.msb;
                 sm.lsb = mn.lsb;
+                sm.elem_width = mn.elem_width;
+                sm.outer_low = mn.outer_low;
                 sm.default_expr = mn.default_value;
                 s.members.push_back(sm);
             }
@@ -6632,6 +6750,42 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 result.var_to_struct_type[pkg_name + "." + s.name] = s.type_name;
             }
 
+            if (s.is_dynamic_array) {
+                std::string da_scope1 = pkg_name + "::" + s.name;
+                std::string da_scope2 = pkg_name + "." + s.name;
+                bool is_real = (s.type_name == "real" || s.type_name == "shortreal");
+                bool is_4st = (!is_real && s.type_name != "bit" && s.type_name != "byte" && s.type_name != "shortint" && s.type_name != "int" && s.type_name != "longint");
+                auto dao = DynamicArrayObject(da_scope1, w, s.is_signed);
+                dao.is_four_state = is_4st;
+                dao.is_real = is_real;
+                if (s.default_value) {
+                    if (auto new_arr = dynamic_cast<NewArrayNode*>(s.default_value.get())) {
+                        uint64_t sz = eval_const_expr(new_arr->size_expr.get(), pkg_name);
+                        dao.allocate((size_t)sz);
+                        if (new_arr->copy_source_expr) {
+                            if (auto uc = dynamic_cast<UnpackedConcatNode*>(new_arr->copy_source_expr.get())) {
+                                for (size_t i = 0; i < (size_t)sz && i < uc->elements.size(); ++i) {
+                                    dao.set_elem(i, eval_const_logic_val(uc->elements[i].get(), pkg_name));
+                                }
+                            } else if (auto cat = dynamic_cast<ConcatNode*>(new_arr->copy_source_expr.get())) {
+                                for (size_t i = 0; i < (size_t)sz && i < cat->elements.size(); ++i) {
+                                    dao.set_elem(i, eval_const_logic_val(cat->elements[i].get(), pkg_name));
+                                }
+                            } else {
+                                try {
+                                    LogicVal init_val = eval_const_logic_val(new_arr->copy_source_expr.get(), pkg_name);
+                                    for (size_t i = 0; i < (size_t)sz; ++i) {
+                                        dao.set_elem(i, init_val);
+                                    }
+                                } catch (...) {}
+                            }
+                        }
+                    }
+                }
+                result.dynamic_array_map[da_scope1] = dao;
+                result.dynamic_array_map[da_scope2] = std::move(dao);
+            }
+
             if (s.default_value) {
                 try {
                     LogicVal iv = eval_const_logic_val(s.default_value.get(), pkg_name);
@@ -6721,6 +6875,21 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     for (const auto& gt : Parser::global_tasks) {
         if (gt->scope.empty()) gt->scope = "$unit";
         result.timescale_map[gt->name] = {unit_tu, unit_tp};
+    }
+
+    uint64_t min_prec = 0;
+    for (const auto& kv : result.timescale_map) {
+        if (!kv.second.second.empty()) {
+            uint64_t p_fs = Lexer::parse_time_fs(kv.second.second);
+            if (p_fs > 0 && (min_prec == 0 || p_fs < min_prec)) {
+                min_prec = p_fs;
+            }
+        }
+    }
+    if (min_prec > 0) {
+        result.global_prec_fs = min_prec;
+    } else {
+        result.global_prec_fs = 1000000ULL;
     }
 
     for (const auto& fn : Parser::global_functions) {
@@ -7475,6 +7644,19 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         elaborate_module(m, m->name, module_defs, nullptr, "", debug_out);
     }
     result.top_scope = top->name;
+
+    min_prec = 0;
+    for (const auto& kv : result.timescale_map) {
+        if (!kv.second.second.empty()) {
+            uint64_t p_fs = Lexer::parse_time_fs(kv.second.second);
+            if (p_fs > 0 && (min_prec == 0 || p_fs < min_prec)) {
+                min_prec = p_fs;
+            }
+        }
+    }
+    if (min_prec > 0) {
+        result.global_prec_fs = min_prec;
+    }
 
     // IEEE 1800-2023 §10.6: Net Aliasing & Canonical Net Unification
     struct NetDSU {

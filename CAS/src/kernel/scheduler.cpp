@@ -2412,6 +2412,17 @@ void StratifiedScheduler::propagate_comb() {
                 }
                 LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
                 LogicVal val_to_write = src_val;
+                if (engine.netlist[bind.dst.net_id].kind != NetKind::VAR && !engine.netlist[bind.dst.net_id].value.is_real) {
+                    LogicVal cur_dst = engine.evaluator.read_slice(bind.dst);
+                    uint64_t mask = (bind.dst.width >= 64) ? ~0ULL : ((1ULL << bind.dst.width) - 1);
+                    uint64_t src_is_z = (~val_to_write.aval) & val_to_write.bval & mask;
+                    uint64_t dst_is_not_z = ~((~cur_dst.aval) & cur_dst.bval) & mask;
+                    uint64_t preserve = src_is_z & dst_is_not_z;
+                    if (preserve) {
+                        val_to_write.aval = (val_to_write.aval & ~preserve) | (cur_dst.aval & preserve);
+                        val_to_write.bval = (val_to_write.bval & ~preserve) | (cur_dst.bval & preserve);
+                    }
+                }
                 if (val_to_write != dst_val) {
                     if (iters == 50) {
                         std::cerr << "[OscillatingSlice] src=" << engine.netlist[bind.src.net_id].name
@@ -3968,7 +3979,8 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     for (auto* s : frame.flattened_body) {
         if (auto vdecl = dynamic_cast<VarDeclStatementNode*>(s)) {
             if (!frame.local_frame.has_var(vdecl->var_name)) {
-                uint32_t eff_w = vdecl->width;
+                bool is_cl = vdecl->is_class_handle || engine.is_class(vdecl->type_name);
+                uint32_t eff_w = is_cl ? 64 : vdecl->width;
                 if (!vdecl->packed_dimensions.empty()) {
                     uint32_t tot_w = 0;
                     for (const auto& pd : vdecl->packed_dimensions) {
@@ -3984,6 +3996,19 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                     if (tot_w > 0) eff_w = tot_w;
                 }
                 frame.local_frame.declare_var(vdecl->var_name, eff_w, vdecl->is_signed, vdecl->type_name, vdecl->is_queue, vdecl->is_dynamic_array, vdecl->is_associative_array, vdecl->assoc_key_type, vdecl->assoc_key_width);
+                LocalVar* callee_lv = frame.local_frame.get_var(vdecl->var_name);
+                if (callee_lv) {
+                    if (is_cl) {
+                        callee_lv->is_class_handle = true;
+                        callee_lv->class_type_name = !vdecl->class_type_name.empty() ? vdecl->class_type_name : vdecl->type_name;
+                        callee_lv->width = 64;
+                    }
+                    if (vdecl->is_virtual_interface) {
+                        callee_lv->is_virtual_interface = true;
+                        callee_lv->interface_name = vdecl->interface_name;
+                        callee_lv->modport_name = vdecl->modport_name;
+                    }
+                }
             }
         }
     }
@@ -4394,9 +4419,15 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
                 cur_frame.pc++;
                 uint64_t d = delay->delay;
-                if (delay->delay_expr) {
+                if (delay->is_time_literal) {
+                    double d_ticks = delay->time_fs / (double)engine.global_prec_fs;
+                    d = (uint64_t)std::round(d_ticks);
+                } else if (delay->delay_expr) {
                     LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
-                    d = dval.is_unknown() ? 0 : dval.aval;
+                    d = dval.is_unknown() ? 0 : (dval.is_real ? (uint64_t)std::round(dval.to_real()) : dval.aval);
+                } else if (delay->raw_delay >= 0.0 && engine.has_scope_timeunit(bp.scope) && engine.global_prec_fs > 0) {
+                    double ratio = (double)engine.get_scope_timeunit_fs(bp.scope) / (double)engine.global_prec_fs;
+                    d = (uint64_t)std::round(delay->raw_delay * ratio);
                 }
                 uint64_t wake_time = current_sim_time + d;
                 bp.is_delayed = true;
@@ -4833,9 +4864,15 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
                 bp.pc++;
                 uint64_t d = delay->delay;
-                if (delay->delay_expr) {
+                if (delay->is_time_literal) {
+                    double d_ticks = delay->time_fs / (double)engine.global_prec_fs;
+                    d = (uint64_t)std::round(d_ticks);
+                } else if (delay->delay_expr) {
                     LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
-                    d = dval.is_unknown() ? 0 : dval.aval;
+                    d = dval.is_unknown() ? 0 : (dval.is_real ? (uint64_t)std::round(dval.to_real()) : dval.aval);
+                } else if (delay->raw_delay >= 0.0 && engine.has_scope_timeunit(bp.scope) && engine.global_prec_fs > 0) {
+                    double ratio = (double)engine.get_scope_timeunit_fs(bp.scope) / (double)engine.global_prec_fs;
+                    d = (uint64_t)std::round(delay->raw_delay * ratio);
                 }
                 uint64_t wake_time = current_sim_time + d;
                 bp.is_delayed = true;
@@ -5252,9 +5289,15 @@ void StratifiedScheduler::step_process(size_t pid) {
         if (auto delay = dynamic_cast<DelayStatementNode*>(stmt)) {
             bp.pc++;
             uint64_t d = delay->delay;
-            if (delay->delay_expr) {
+            if (delay->is_time_literal) {
+                double d_ticks = delay->time_fs / (double)engine.global_prec_fs;
+                d = (uint64_t)std::round(d_ticks);
+            } else if (delay->delay_expr) {
                 LogicVal dval = engine.evaluator.eval_expr(delay->delay_expr.get(), bp.scope);
-                d = dval.is_unknown() ? 0 : dval.aval;
+                d = dval.is_unknown() ? 0 : (dval.is_real ? (uint64_t)std::round(dval.to_real()) : dval.aval);
+            } else if (delay->raw_delay >= 0.0 && engine.has_scope_timeunit(bp.scope) && engine.global_prec_fs > 0) {
+                double ratio = (double)engine.get_scope_timeunit_fs(bp.scope) / (double)engine.global_prec_fs;
+                d = (uint64_t)std::round(delay->raw_delay * ratio);
             }
             uint64_t wake_time = current_sim_time + d;
             bp.is_delayed = true;
@@ -5595,6 +5638,8 @@ void StratifiedScheduler::run_simulation() {
             }
         }
     }
+
+    propagate_comb();
 
     size_t num_root_processes = engine.processes.size();
     for (size_t i = 0; i < num_root_processes; ++i) {

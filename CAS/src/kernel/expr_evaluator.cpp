@@ -380,7 +380,9 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     if (!fn) return false;
 
     const ClassNode* prev_class_def = current_class_def;
+    std::string prev_class_type = current_class_type;
     current_class_def = engine.get_class_def(class_type);
+    current_class_type = class_type;
 
     std::string frame_name = class_type + "::" + fn->name + "__call";
     context.push_frame(frame_name);
@@ -483,6 +485,7 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
 
     context.pop_frame();
     current_class_def = prev_class_def;
+    current_class_type = prev_class_type;
     return true;
 }
 
@@ -793,8 +796,7 @@ LogicVal ExprEvaluator::eval_number(NumberNode* num, const std::string& scope) {
 
 LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string& scope) {
     if (!ident) return LogicVal::make_x(1);
-        if (ident->name == "$time") {
-            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+        if (ident->name == "$time" || ident->name == "$realtime") {
             std::string eff_tu = "";
             if (current_class_def && !current_class_def->name.empty()) {
                 auto it = engine.timescale_map.find(current_class_def->name);
@@ -811,6 +813,12 @@ LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string
             if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
             uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
             if (unit_fs == 0) unit_fs = 1;
+            if (ident->name == "$realtime") {
+                uint64_t sim_fs = engine.get_sim_time() * engine.global_prec_fs;
+                double r_val = (double)sim_fs / (double)unit_fs;
+                return LogicVal::make_real(r_val);
+            }
+            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
             uint64_t scaled = sim_fs / unit_fs;
             return LogicVal::make_known(64, scaled);
         }
@@ -915,6 +923,9 @@ LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string
         }
 
         if (current_this) {
+            if (current_this->class_def && current_this->class_def->has_static_member(ident->name)) {
+                return engine.get_class_static_var(current_this->class_type_name, ident->name);
+            }
             if (current_this->has_virtual_interface(ident->name)) {
                 return LogicVal(64, current_this->get_virtual_interface(ident->name).id, 0);
             }
@@ -935,7 +946,8 @@ LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string
                 return LogicVal::make_known(32, current_class_def->param_values.at(ident->name));
             }
             if (current_class_def->has_static_member(ident->name)) {
-                return engine.get_class_static_var(current_class_def->name, ident->name);
+                std::string cname = !current_class_type.empty() ? current_class_type : current_class_def->name;
+                return engine.get_class_static_var(cname, ident->name);
             }
         }
 
@@ -1301,7 +1313,27 @@ LogicVal ExprEvaluator::eval_concat(ConcatNode* cat, const std::string& scope) {
 
 LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::string& scope) {
     if (!idx_node) return LogicVal::make_x(1);
-        QueueObject* q = nullptr;
+    if (current_this) {
+        std::string prop_key = idx_node->name;
+        if (idx_node->msb_expr) {
+            LogicVal iv = eval(idx_node->msb_expr.get(), scope);
+            if (!iv.is_unknown()) prop_key += "[" + std::to_string(iv.aval) + "]";
+        }
+        if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+            LogicVal iv = eval(idx_node->bit_msb_expr.get(), scope);
+            if (!iv.is_unknown()) prop_key += "[" + std::to_string(iv.aval) + "]";
+        }
+        for (const auto& ei : idx_node->extra_indices) {
+            if (ei) {
+                LogicVal iv = eval(ei.get(), scope);
+                if (!iv.is_unknown()) prop_key += "[" + std::to_string(iv.aval) + "]";
+            }
+        }
+        if (current_this->has_property(prop_key)) {
+            return current_this->get_property(prop_key);
+        }
+    }
+    QueueObject* q = nullptr;
         if (context.has_active_frame()) {
             LocalVar* lq = context.lookup_local(idx_node->name);
             if (lq && lq->is_queue) q = &lq->queue_data;
@@ -1485,6 +1517,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
         size_t nid = (size_t)-1;
         bool found_struct_member = false;
         int64_t struct_member_lsb = 0;
+        const StructMember* last_found_sm = nullptr;
 
         LocalVar* local = nullptr;
         bool found_sva_local = false;
@@ -1717,6 +1750,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             }
 
             nid = (size_t)-1;
+            last_found_sm = nullptr;
             auto dot_p = idx_node->name.find('.');
             if (dot_p != std::string::npos) {
                 std::string base = idx_node->name.substr(0, dot_p);
@@ -1762,6 +1796,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                             target_val = base_val.extract_slice(sm->offset, sm->width);
                             found_struct_member = true;
                             struct_member_lsb = sm->lsb;
+                            last_found_sm = sm;
                         }
                     }
                 } else if (base_id == (size_t)-1 && !memb.empty()) {
@@ -1782,6 +1817,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                                 target_val = base_val.extract_slice(sm->offset, sm->width);
                                 found_struct_member = true;
                                 struct_member_lsb = sm->lsb;
+                                last_found_sm = sm;
                             }
                         }
                     } else {
@@ -1819,6 +1855,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                                     target_val = base_val.extract_slice(sm->offset, sm->width);
                                     found_struct_member = true;
                                     struct_member_lsb = sm->lsb;
+                                    last_found_sm = sm;
                                 }
                             }
                         }
@@ -1887,6 +1924,10 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
         }
         int64_t base_low = found_struct_member ? struct_member_lsb : 0;
         uint32_t elem_w = 1;
+        if (found_struct_member && last_found_sm && last_found_sm->elem_width > 0) {
+            elem_w = last_found_sm->elem_width;
+            base_low = last_found_sm->outer_low;
+        }
         if (vdm && !vdm->dimensions.empty()) {
             base_low = vdm->dimensions[0].low();
             if (vdm->dimensions.size() > 1) {
@@ -5773,8 +5814,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
-        if (fn_call->func_name == "$time") {
-            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
+        if (fn_call->func_name == "$time" || fn_call->func_name == "$realtime") {
             std::string eff_tu = "";
             if (current_class_def && !current_class_def->name.empty()) {
                 auto it = engine.timescale_map.find(current_class_def->name);
@@ -5791,6 +5831,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (eff_tu.empty()) eff_tu = Lexer::global_time_unit_str;
             uint64_t unit_fs = Lexer::parse_time_fs(eff_tu);
             if (unit_fs == 0) unit_fs = 1;
+            if (fn_call->func_name == "$realtime") {
+                uint64_t sim_fs = engine.get_sim_time() * engine.global_prec_fs;
+                double r_val = (double)sim_fs / (double)unit_fs;
+                return LogicVal::make_real(r_val);
+            }
+            uint64_t sim_fs = engine.get_sim_time() * 1000000ULL;
             uint64_t scaled = sim_fs / unit_fs;
             return LogicVal::make_known(64, scaled);
         }

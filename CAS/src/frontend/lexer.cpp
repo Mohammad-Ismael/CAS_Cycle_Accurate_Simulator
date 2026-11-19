@@ -6,6 +6,7 @@
 #include <sstream>
 #include <cmath>
 
+bool Lexer::global_timescale_encountered = false;
 uint64_t Lexer::global_timescale_ratio = 1;
 std::string Lexer::global_time_unit_str = "1ns";
 std::string Lexer::global_time_precision_str = "1ps";
@@ -197,6 +198,7 @@ void Lexer::handle_timescale() {
     validate_time_spec(unit_str);
     validate_time_spec(prec_str);
 
+    global_timescale_encountered = true;
     global_time_unit_str = unit_str;
     global_time_precision_str = prec_str;
     size_t u_idx = 0;

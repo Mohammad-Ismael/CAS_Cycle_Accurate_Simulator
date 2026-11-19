@@ -356,14 +356,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
-            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
-                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -383,7 +380,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -530,14 +526,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
-            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
-                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -557,7 +550,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -704,6 +696,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
         auto mod = is_iface ? std::make_unique<InterfaceNode>() : 
                    (is_prog ? std::make_unique<ProgramNode>() : std::make_unique<ModuleNode>());
         current_parsing_module = mod.get();
+        if (Lexer::global_timescale_encountered) {
+            mod->has_timescale_directive = true;
+            mod->default_timescale_unit = Lexer::global_time_unit_str;
+            mod->default_timescale_prec = Lexer::global_time_precision_str;
+        } else if (!global_timeunit_val.empty()) {
+            mod->has_compilation_unit_timeunit = true;
+            mod->default_timescale_unit = global_timeunit_val;
+            mod->default_timescale_prec = !global_timeprec_val.empty() ? global_timeprec_val : Lexer::global_time_precision_str;
+        } else {
+            mod->default_timescale_unit = Lexer::global_time_unit_str;
+            mod->default_timescale_prec = Lexer::global_time_precision_str;
+        }
         for (const auto& w : global_wildcard_imports) {
             mod->wildcard_imports.push_back(w);
         }
@@ -961,7 +965,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                       port_user_type == "string";
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (!port_user_type.empty()) {
-                    port_kind = NetKind::VAR;
+                    if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
+                        port_kind = NetKind::VAR;
+                    }
                 }
                 if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
@@ -1621,7 +1627,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                       port_user_type == "string";
                 NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
                 if (!port_user_type.empty()) {
-                    port_kind = NetKind::VAR;
+                    if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
+                        port_kind = NetKind::VAR;
+                    }
                 }
                 if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                     port_kind = NetKind::VAR;
@@ -2430,7 +2438,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::VAR);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::WIRE);
                     sig.type_name = type_name;
                     sig.packed_dimensions = packed_dims;
                     if (uarr_info) {
@@ -2805,7 +2813,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     }
                     if (!is_explicit_net && !udt_type_name.empty()) {
-                        sig_kind = NetKind::VAR;
+                        if (is_class(udt_type_name) || is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
+                            sig_kind = NetKind::VAR;
+                        }
                     }
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     sig.packed_dimensions = packed_dims;
@@ -3994,6 +4004,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
         bool mem_signed = false;
         std::string mem_type = "logic";
         uint32_t field_width = 1;
+        std::vector<std::pair<int64_t, int64_t>> member_packed_dims;
 
         std::shared_ptr<StructTypeNode> nested_st = nullptr;
         if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
@@ -4106,6 +4117,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 uint32_t dim_w = 1;
                 if (ok) {
                     dim_w = (msb_v >= lsb_v) ? (uint32_t)(msb_v - lsb_v + 1) : (uint32_t)(lsb_v - msb_v + 1);
+                    member_packed_dims.push_back({(int64_t)msb_v, (int64_t)lsb_v});
                 }
                 total_member_width *= dim_w;
             }
@@ -4168,6 +4180,18 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             sm.width = field_width * unpacked_mult;
             sm.is_signed = mem_signed;
             sm.type_name = mem_type;
+            if (!member_packed_dims.empty()) {
+                sm.msb = member_packed_dims[0].first;
+                sm.lsb = member_packed_dims[0].second;
+                if (member_packed_dims.size() > 1) {
+                    int64_t outer_size = std::abs(member_packed_dims[0].first - member_packed_dims[0].second) + 1;
+                    sm.elem_width = (outer_size > 0) ? (field_width / (uint32_t)outer_size) : 1;
+                    sm.outer_low = std::min(member_packed_dims[0].first, member_packed_dims[0].second);
+                } else {
+                    sm.elem_width = 1;
+                    sm.outer_low = std::min(member_packed_dims[0].first, member_packed_dims[0].second);
+                }
+            }
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 if (is_packed) {
                     throw std::runtime_error("Packed struct member declarations cannot have default values per IEEE 1800-2023 7.2.1");
@@ -5218,6 +5242,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 fn->has_body = !is_pure && !is_ext;
                 fn->is_virtual = is_virt;
                 fn->is_static = is_stat || fn->is_static;
+                if (!fn->is_static) fn->is_automatic = true;
                 cls->add_function(std::move(fn));
             }
             continue;
@@ -5236,6 +5261,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 t->has_body = !is_pure && !is_ext;
                 t->is_virtual = is_virt;
                 t->is_static = is_stat || t->is_static;
+                if (!t->is_static) t->is_automatic = true;
                 cls->add_task(std::move(t));
             }
             continue;
@@ -7765,14 +7791,11 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeunit declaration '" + t_unit + "' differs from previous '" + global_timeunit_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeunit_val = t_unit;
-            Lexer::global_time_unit_str = t_unit;
             if (!t_prec.empty()) {
                 if (!global_timeprec_val.empty() && global_timeprec_val != t_prec) {
                     throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
                 }
                 global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
-                Lexer::global_time_precision_str = t_prec;
             }
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
@@ -7792,7 +7815,6 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 throw std::runtime_error("[CAS-TIME] Repeated timeprecision declaration '" + t_prec + "' differs from previous '" + global_timeprec_val + "' per IEEE 1800-2023 §3.14.2");
             }
             global_timeprec_val = t_prec;
-            Lexer::global_time_precision_str = t_prec;
             while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) advance();
             match(TokenType::TOKEN_SEMICOLON);
             continue;
@@ -8353,6 +8375,10 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         advance();
         bool has_type = false;
         std::string ptype = "";
+        bool is_signed = false;
+        std::unique_ptr<ExpressionNode> p_msb;
+        std::unique_ptr<ExpressionNode> p_lsb;
+        bool has_range = false;
         while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
                current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
@@ -8360,6 +8386,7 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                (!has_type && is_type_identifier(current.text)) ||
                (!has_type && current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON)) {
             has_type = true;
+            if (current.type == TokenType::TOKEN_SIGNED) is_signed = true;
             if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 ptype = current.text;
                 advance();
@@ -8373,19 +8400,21 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             }
             while (current.type == TokenType::TOKEN_LBRACKET) {
                 advance();
-                parse_expression();
+                p_msb = parse_expression();
                 if (match(TokenType::TOKEN_COLON)) {
-                    parse_expression();
+                    p_lsb = parse_expression();
                 }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+                has_range = true;
             }
         }
         while (match(TokenType::TOKEN_LBRACKET)) {
-            parse_expression();
+            p_msb = parse_expression();
             if (match(TokenType::TOKEN_COLON)) {
-                parse_expression();
+                p_lsb = parse_expression();
             }
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
+            has_range = true;
         }
         while (true) {
             std::string pname = current.text;
@@ -8399,7 +8428,14 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             }
             expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
             auto val_expr = parse_expression();
-            mod->parameters.push_back(ParameterDef(pname, std::move(val_expr), is_local, ptype));
+            ParameterDef pdef(pname, std::move(val_expr), is_local, ptype);
+            if (has_range && p_msb) {
+                pdef.has_range = true;
+                pdef.msb_expr = p_msb->clone();
+                if (p_lsb) pdef.lsb_expr = p_lsb->clone();
+            }
+            pdef.is_signed = is_signed;
+            mod->parameters.push_back(std::move(pdef));
             if (match(TokenType::TOKEN_COMMA)) continue;
             break;
         }

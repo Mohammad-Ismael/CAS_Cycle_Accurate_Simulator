@@ -312,6 +312,9 @@ int main(int argc, char* argv[]) {
         Lexer::global_defines = initial_defines;
         Lexer::global_macro_defs = initial_macro_defs;
         Lexer::reset_default_nettype();
+        Lexer::reset_timescale();
+        Parser::global_timeunit_val = "";
+        Parser::global_timeprec_val = "";
 
         // Pass 2: Full parsing of all modules, interfaces, and compilation units
         for (size_t f_idx = 0; f_idx < file_sources.size(); ++f_idx) {

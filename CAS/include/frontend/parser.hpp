@@ -104,6 +104,8 @@ public:
         global_type_dimensions.clear();
         cu_parameters.clear();
         cu_signals.clear();
+        global_timeunit_val = "";
+        global_timeprec_val = "";
     }
 
     bool is_package(const std::string& name) const {
