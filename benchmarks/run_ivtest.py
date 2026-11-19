@@ -552,5 +552,12 @@ def main():
         print(f"     Examples: {sample}")
     print("=" * 80)
 
+    if grand_passed != grand_total or grand_passed != 520 or grand_total != 520:
+        print(f"\n[CI FAILURE] ivtest failed: {grand_passed}/{grand_total} passed (expected 520/520)")
+        sys.exit(1)
+    else:
+        print("\nALL 520 IVTEST BENCHMARKS PASSED WITH 100.0% COMPLIANCE!")
+        sys.exit(0)
+
 if __name__ == "__main__":
     main()

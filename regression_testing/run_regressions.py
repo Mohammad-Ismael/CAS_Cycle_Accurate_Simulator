@@ -175,5 +175,6 @@ print("-" * 80)
 passed_count = sum(1 for r in results if r[2] == "PASS")
 print(f"TOTAL: {len(suites)} | PASSED: {passed_count} | FAILED: {len(suites) - passed_count}")
 
-if not all_passed:
+if not all_passed or passed_count != 112 or len(suites) != 112:
     sys.exit(1)
+sys.exit(0)

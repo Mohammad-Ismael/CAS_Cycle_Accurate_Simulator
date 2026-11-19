@@ -138,8 +138,8 @@ def main():
     print(f"Elapsed Time: {elapsed:.2f}s")
     print("=" * 80 + "\n")
 
-    if failed:
-        print(f"FAILED ({len(failed)} tests):")
+    if failed or total_passed != 1028 or total_tests != 1028:
+        print(f"FAILED ({len(failed)} tests, {total_passed}/{total_tests} passed, expected 1028/1028):")
         for t, cat, ret in failed:
             print(f"  [{cat}] {os.path.basename(t)} (ret={ret})")
         sys.exit(1)
