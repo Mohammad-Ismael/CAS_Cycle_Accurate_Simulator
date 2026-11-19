@@ -79,12 +79,13 @@ struct Net {
         } else {
             clamped = val;
             clamped.width = width;
+            clamped.is_signed = is_signed;
             clamped.mask();
-            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "longint") {
+            if (is_2state || type_name == "bit" || type_name == "byte" || type_name == "shortint" || type_name == "int" || type_name == "longint") {
                 clamped.coerce_to_2state();
             }
         }
-        if (value != clamped) {
+        if (value.is_real != clamped.is_real || value.is_string != clamped.is_string || value != clamped) {
             prev_value = value;
             value = clamped;
             modified = true;

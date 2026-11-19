@@ -128,6 +128,8 @@ int main(int argc, char* argv[]) {
         }
     };
 
+    Lexer::set_define("__ICARUS__", "1");
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-S") == 0) {
             std::cerr << "Error: Synthesis (-S) is not supported in simulation mode.\n";

@@ -942,3 +942,15 @@ struct LetStatementNode : public StatementNode {
         return std::make_unique<LetStatementNode>(let_decl);
     }
 };
+
+struct ForLoopJumpStatementNode : public StatementNode {
+    std::shared_ptr<ExpressionNode> condition;
+    size_t loop_start_pc = 0;
+
+    ForLoopJumpStatementNode(std::shared_ptr<ExpressionNode> cond, size_t pc)
+        : condition(std::move(cond)), loop_start_pc(pc) {}
+
+    std::unique_ptr<StatementNode> clone() const override {
+        return std::make_unique<ForLoopJumpStatementNode>(condition ? condition->clone() : nullptr, loop_start_pc);
+    }
+};

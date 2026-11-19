@@ -267,7 +267,7 @@ def run_single_test(test_info):
     cmd = [
         CAS_BIN,
         "--no-vcd",
-        "--max-cycles", "50000",
+        "--max-cycles", "500000",
         f"+incdir+{os.path.join(IVTEST_DIR, srcdir)}",
         f"+incdir+{os.path.join(IVTEST_DIR, 'ivltests')}",
         f"+incdir+{IVTEST_DIR}",

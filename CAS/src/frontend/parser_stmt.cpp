@@ -1154,7 +1154,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     lhs_elems.push_back(te->clone());
                 }
                 auto lhs_cat = std::make_unique<ConcatNode>(std::move(lhs_elems));
-                rhs = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
+                auto bnode = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
+                bnode->is_compound_assign = true;
+                rhs = std::move(bnode);
             }
             auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), 0);
             node->lhs_target_exprs = std::move(target_exprs);
@@ -1176,61 +1178,73 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(step_rhs));
+                add->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
             } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(step_rhs));
+                sub->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
             } else if (match(TokenType::TOKEN_STAR_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto mul = std::make_unique<BinaryOpNode>("*", std::move(lhs_id), std::move(step_rhs));
+                mul->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(mul));
             } else if (match(TokenType::TOKEN_SLASH_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("/", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_PERCENT_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("%", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_AND_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("&", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_OR_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("|", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_XOR_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("^", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_SHL_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("<<", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_SHR_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>(">>", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_ASHL_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>("<<<", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else if (match(TokenType::TOKEN_ASHR_EQUAL)) {
                 auto step_rhs = parse_expression();
                 auto lhs_id = std::make_unique<IdentifierNode>(target);
                 auto op = std::make_unique<BinaryOpNode>(">>>", std::move(lhs_id), std::move(step_rhs));
+                op->is_compound_assign = true;
                 step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
             } else {
                 expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
@@ -2019,7 +2033,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 lhs_elems.push_back(te->clone());
             }
             auto lhs_cat = std::make_unique<ConcatNode>(std::move(lhs_elems));
-            rhs = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
+            auto bnode = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
+            bnode->is_compound_assign = true;
+            rhs = std::move(bnode);
         }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after concatenation assignment");
         auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), intra_delay);
@@ -2374,6 +2390,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     lhs_idx->extra_indices.push_back(e ? e->clone() : nullptr);
                 }
                 auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_idx), std::move(rhs));
+                op_expr->is_compound_assign = true;
                 auto node = std::make_unique<BlockingAssignNode>(ident, std::move(op_expr), std::move(idx_expr));
                 node->bit_lsb = std::move(lsb_expr);
                 node->is_plus_colon = is_plus_c;
@@ -2459,6 +2476,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 }
                 auto lhs_id = std::make_unique<IdentifierNode>(ident);
                 auto op_expr = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_id), std::move(rhs));
+                op_expr->is_compound_assign = true;
                 return std::make_unique<BlockingAssignNode>(ident, std::move(op_expr));
             }
         }

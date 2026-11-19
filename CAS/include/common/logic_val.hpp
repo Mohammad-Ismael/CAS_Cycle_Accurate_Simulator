@@ -341,8 +341,12 @@ struct LogicVal {
     }
 
     bool operator==(const LogicVal& o) const {
-        if (is_real || o.is_real) {
+        if (is_real != o.is_real) {
+            if (is_unknown() || o.is_unknown()) return false;
             return to_real() == o.to_real();
+        }
+        if (is_real) {
+            return real_val == o.real_val;
         }
         if (is_string || o.is_string) {
             return str_val == o.str_val;

@@ -922,6 +922,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 bool is_signed_port = false;
                 bool is_int_port = false;
                 std::string int_port_type = "";
+                bool is_real_port = false;
+                bool is_shortreal_port = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     is_signed_port = true;
                     advance();
@@ -975,7 +977,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
                     }
                 }
-                if (current.type == TokenType::TOKEN_IDENTIFIER &&
+                if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "real" || current.text == "realtime"))) {
+                    is_real_port = true;
+                    port_user_type = "real";
+                    port_kind = NetKind::VAR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_SHORTREAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal")) {
+                    is_shortreal_port = true;
+                    port_user_type = "shortreal";
+                    port_kind = NetKind::VAR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_IDENTIFIER &&
                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint")) {
                     is_int_port = true;
                     int_port_type = current.text;
@@ -986,6 +998,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    if (current.type == TokenType::TOKEN_BIT) port_user_type = "bit";
                     advance();
                 } else if (current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_WAND ||
                            current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
@@ -1006,7 +1019,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                          (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
                           current.text == "longint" || is_type_identifier(current.text)))) {
                         if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
-                        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                        if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "real" || current.text == "realtime"))) {
+                            is_real_port = true;
+                            port_user_type = "real";
+                        } else if (current.type == TokenType::TOKEN_SHORTREAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal")) {
+                            is_shortreal_port = true;
+                            port_user_type = "shortreal";
+                        } else if (current.type == TokenType::TOKEN_BIT) {
+                            port_user_type = "bit";
+                        } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                             if (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
                                 is_int_port = true;
                                 int_port_type = current.text;
@@ -1065,8 +1086,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         lsb = std::make_unique<NumberNode>(0ULL, 32);
                     }
                 } else if (packed_dims.empty()) {
-                    if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
+                    if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port || is_real_port) {
                         msb = std::make_unique<NumberNode>(63, 32);
+                        lsb = std::make_unique<NumberNode>(0, 32);
+                    } else if (is_shortreal_port) {
+                        msb = std::make_unique<NumberNode>(31, 32);
                         lsb = std::make_unique<NumberNode>(0, 32);
                     } else if (is_int_port) {
                         uint32_t iw = 32;
@@ -1122,6 +1146,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     if (is_string_port) {
                         port.type_name = "string";
+                    }
+                    if (is_real_port) {
+                        port.type_name = "real";
+                    }
+                    if (is_shortreal_port) {
+                        port.type_name = "shortreal";
+                    }
+                    if (port_user_type == "bit") {
+                        port.is_2state = true;
+                        port.type_name = "bit";
                     }
                     if (port.type_name.empty() && !port_user_type.empty()) {
                         port.type_name = port_user_type;
@@ -1548,6 +1582,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 bool is_signed_port = false;
                 bool is_int_port = false;
                 std::string int_port_type = "";
+                bool is_real_port = false;
+                bool is_shortreal_port = false;
                 if (current.type == TokenType::TOKEN_SIGNED) {
                     is_signed_port = true;
                     advance();
@@ -1600,10 +1636,21 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing mailbox parameter");
                     }
+                } else if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "real" || current.text == "realtime"))) {
+                    is_real_port = true;
+                    port_user_type = "real";
+                    port_kind = NetKind::VAR;
+                    advance();
+                } else if (current.type == TokenType::TOKEN_SHORTREAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal")) {
+                    is_shortreal_port = true;
+                    port_user_type = "shortreal";
+                    port_kind = NetKind::VAR;
+                    advance();
                 } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_BIT) {
                     port_kind = NetKind::VAR;
                     if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
+                    if (current.type == TokenType::TOKEN_BIT) port_user_type = "bit";
                     advance();
                 } else if (current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_WAND ||
                            current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
@@ -1624,7 +1671,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                          (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
                           current.text == "longint" || is_type_identifier(current.text)))) {
                         if (current.type == TokenType::TOKEN_INTEGER) is_signed_port = true;
-                        if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                        if (current.type == TokenType::TOKEN_REAL || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "real" || current.text == "realtime"))) {
+                            is_real_port = true;
+                            port_user_type = "real";
+                        } else if (current.type == TokenType::TOKEN_SHORTREAL || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortreal")) {
+                            is_shortreal_port = true;
+                            port_user_type = "shortreal";
+                        } else if (current.type == TokenType::TOKEN_BIT) {
+                            port_user_type = "bit";
+                        } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
                             if (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint") {
                                 is_int_port = true;
                                 int_port_type = current.text;
@@ -1653,8 +1708,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_COLON, "Expected ':' in range");
                     lsb = parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
-                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
+                } else if (is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port || is_real_port) {
                     msb = std::make_unique<NumberNode>(63, 32);
+                    lsb = std::make_unique<NumberNode>(0, 32);
+                } else if (is_shortreal_port) {
+                    msb = std::make_unique<NumberNode>(31, 32);
                     lsb = std::make_unique<NumberNode>(0, 32);
                 } else if (is_int_port) {
                     uint32_t iw = 32;
@@ -1690,7 +1748,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             if (is_string_port) {
                                 p.type_name = "string";
                             }
-                            if (!port_user_type.empty()) {
+                            if (is_real_port) {
+                                p.type_name = "real";
+                            }
+                            if (is_shortreal_port) {
+                                p.type_name = "shortreal";
+                            }
+                            if (port_user_type == "bit") {
+                                p.is_2state = true;
+                                p.type_name = "bit";
+                            }
+                            if (p.type_name.empty() && !port_user_type.empty()) {
                                 p.type_name = port_user_type;
                             }
                             found = true;
@@ -1714,7 +1782,17 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (is_string_port) {
                             port_decl.type_name = "string";
                         }
-                        if (!port_user_type.empty()) {
+                        if (is_real_port) {
+                            port_decl.type_name = "real";
+                        }
+                        if (is_shortreal_port) {
+                            port_decl.type_name = "shortreal";
+                        }
+                        if (port_user_type == "bit") {
+                            port_decl.is_2state = true;
+                            port_decl.type_name = "bit";
+                        }
+                        if (port_decl.type_name.empty() && !port_user_type.empty()) {
                             port_decl.type_name = port_user_type;
                         }
                         mod->ports.push_back(std::move(port_decl));
@@ -2852,6 +2930,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 p.is_mailbox = true;
                                 p.type_name = "mailbox";
                             }
+                            if (is_shortreal_sig) p.type_name = "shortreal";
+                            else if (is_real_sig) p.type_name = "real";
+                            if (is_bit_type) { p.is_2state = true; p.type_name = "bit"; }
+                            if (!int_type_name.empty()) p.type_name = int_type_name;
+                            if (p.type_name.empty() && !udt_type_name.empty()) p.type_name = udt_type_name;
                             is_port = true;
                             break;
                         }

@@ -56,7 +56,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
         } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
             current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_BIT) {
             func->return_width = 1;
-            func->return_type_name = "logic";
+            func->return_type_name = (current.type == TokenType::TOKEN_BIT) ? "bit" : "logic";
             advance();
         } else if (current.type == TokenType::TOKEN_INTEGER) {
             func->return_width = 32;
@@ -260,6 +260,8 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
                 else if (current.type == TokenType::TOKEN_REAL) { is_s = false; is_int = false; def_w = 64; arg_type_name = "real"; }
                 else if (current.type == TokenType::TOKEN_SHORTREAL) { is_s = false; is_int = false; def_w = 32; arg_type_name = "shortreal"; }
+                else if (current.type == TokenType::TOKEN_BIT) { arg_type_name = "bit"; }
+                else if (current.type == TokenType::TOKEN_LOGIC) { arg_type_name = "logic"; }
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal")) {
                 has_explicit_type = true;

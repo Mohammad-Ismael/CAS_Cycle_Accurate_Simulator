@@ -713,6 +713,201 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
             }
             if (!returned) ret_val = fn_real_env[target_fn->name];
             return LogicVal::make_real(ret_val);
+        } else if (target_fn) {
+            std::unordered_map<std::string, LogicVal> fn_logic_env;
+            for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
+                const auto& in_p = target_fn->inputs[i];
+                uint32_t w = in_p.width > 0 ? in_p.width : 32;
+                if (in_p.msb_expr && in_p.lsb_expr) {
+                    try {
+                        uint64_t m = eval_const_expr(in_p.msb_expr.get(), scope);
+                        uint64_t l = in_p.lsb_expr ? eval_const_expr(in_p.lsb_expr.get(), scope) : 0;
+                        w = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                    } catch (...) {}
+                }
+                LogicVal arg_val(w, 0, 0, in_p.is_signed);
+                if (i < fc->args.size() && fc->args[i]) {
+                    arg_val = eval_const_logic_val(fc->args[i].get(), scope);
+                } else if (in_p.default_value) {
+                    std::function<void(ExpressionNode*)> check_const = [&](ExpressionNode* e) {
+                        if (!e) return;
+                        if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                            std::string scoped = scope.empty() ? id->name : (scope + "." + id->name);
+                            bool is_param = result.param_val_map.count(scoped) || result.param_val_map.count(id->name) ||
+                                            result.param_map.count(scoped) || result.param_map.count(id->name) ||
+                                            result.enum_constant_map.count(scoped) || result.enum_constant_map.count(id->name);
+                            if (!is_param) {
+                                if (result.net_map.count(scoped) || result.net_map.count(id->name)) {
+                                    throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                }
+                                if (current_module) {
+                                    for (const auto& sig : current_module->signals) {
+                                        if (sig.name == id->name) {
+                                            throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                        }
+                                    }
+                                    for (const auto& prt : current_module->ports) {
+                                        if (prt.name == id->name) {
+                                            throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (auto bin = dynamic_cast<BinaryOpNode*>(e)) { check_const(bin->lhs.get()); check_const(bin->rhs.get()); }
+                        if (auto un = dynamic_cast<UnaryOpNode*>(e)) { check_const(un->operand.get()); }
+                    };
+                    check_const(in_p.default_value.get());
+                    arg_val = eval_const_logic_val(in_p.default_value.get(), scope);
+                }
+                arg_val = LogicOps::cast_width(arg_val, w, in_p.is_signed);
+                if (in_p.type_name == "bit" || in_p.type_name == "int" || in_p.type_name == "byte" || in_p.type_name == "shortint" || in_p.type_name == "longint") {
+                    arg_val.coerce_to_2state();
+                }
+                fn_logic_env[in_p.name] = arg_val;
+            }
+            uint32_t ret_w = target_fn->return_width > 0 ? target_fn->return_width : 32;
+            LogicVal ret_val(ret_w, 0, 0, target_fn->return_signed);
+            fn_logic_env[target_fn->name] = ret_val;
+            bool returned = false;
+            std::function<LogicVal(ExpressionNode*)> eval_fn_expr = [&](ExpressionNode* e) -> LogicVal {
+                if (!e) return LogicVal(0, 0, 0);
+                if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                    if (fn_logic_env.count(id->name)) return fn_logic_env[id->name];
+                }
+                if (auto idx = dynamic_cast<IndexSelectNode*>(e)) {
+                    if (!idx->msb_expr && fn_logic_env.count(idx->name)) return fn_logic_env[idx->name];
+                }
+                if (auto num = dynamic_cast<NumberNode*>(e)) {
+                    if (num->is_real) return LogicVal::make_real(num->real_val);
+                    return LogicVal(num->width, num->aval, num->bval, num->is_signed);
+                }
+                if (auto un = dynamic_cast<UnaryOpNode*>(e)) {
+                    LogicVal op = eval_fn_expr(un->operand.get());
+                    if (op.is_real) {
+                        if (un->op == "-") return LogicVal::make_real(-op.real_val);
+                        if (un->op == "+") return op;
+                        if (un->op == "!") return LogicVal::make_known(1, op.real_val == 0.0 ? 1 : 0);
+                    }
+                    if (un->op == "-") {
+                        int64_t ival = op.is_signed ? op.to_signed() : static_cast<int64_t>(op.aval);
+                        return LogicVal::make_known(op.width, static_cast<uint64_t>(-ival), true);
+                    }
+                }
+                if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
+                    LogicVal l = eval_fn_expr(bin->lhs.get());
+                    LogicVal r = eval_fn_expr(bin->rhs.get());
+                    if (bin->is_compound_assign && !l.is_real && r.is_real) {
+                        int64_t il = l.is_signed ? l.to_signed() : static_cast<int64_t>(l.aval);
+                        int64_t ir = (int64_t)std::trunc(r.real_val);
+                        if (bin->op == "+") return LogicVal::make_known(l.width, (uint64_t)(il + ir), l.is_signed);
+                        if (bin->op == "-") return LogicVal::make_known(l.width, (uint64_t)(il - ir), l.is_signed);
+                        if (bin->op == "*") return LogicVal::make_known(l.width, (uint64_t)(il * ir), l.is_signed);
+                        if (bin->op == "/") return (ir != 0) ? LogicVal::make_known(l.width, (uint64_t)(il / ir), l.is_signed) : LogicVal::make_x(l.width);
+                        if (bin->op == "%") return (ir != 0) ? LogicVal::make_known(l.width, (uint64_t)(il % ir), l.is_signed) : LogicVal::make_x(l.width);
+                    }
+                    if (l.is_real || r.is_real) {
+                        double dl = l.to_real();
+                        double dr = r.to_real();
+                        if (bin->op == "+") return LogicVal::make_real(dl + dr);
+                        if (bin->op == "-") return LogicVal::make_real(dl - dr);
+                        if (bin->op == "*") return LogicVal::make_real(dl * dr);
+                        if (bin->op == "/") return (dr != 0.0) ? LogicVal::make_real(dl / dr) : LogicVal::make_x(64);
+                        if (bin->op == "%") return (dr != 0.0) ? LogicVal::make_real(std::fmod(dl, dr)) : LogicVal::make_x(64);
+                        if (bin->op == "==") return LogicVal::make_known(1, (dl == dr) ? 1 : 0);
+                        if (bin->op == "!=") return LogicVal::make_known(1, (dl != dr) ? 1 : 0);
+                        if (bin->op == "<") return LogicVal::make_known(1, (dl < dr) ? 1 : 0);
+                        if (bin->op == "<=") return LogicVal::make_known(1, (dl <= dr) ? 1 : 0);
+                        if (bin->op == ">") return LogicVal::make_known(1, (dl > dr) ? 1 : 0);
+                        if (bin->op == ">=") return LogicVal::make_known(1, (dl >= dr) ? 1 : 0);
+                    }
+                    bool expr_signed = l.is_signed && r.is_signed;
+                    if (bin->op == "+") return LogicVal::make_known(l.width, l.aval + r.aval, expr_signed);
+                    if (bin->op == "-") return LogicVal::make_known(l.width, l.aval - r.aval, expr_signed);
+                    if (bin->op == "*") return LogicVal::make_known(l.width, l.aval * r.aval, expr_signed);
+                    if (bin->op == "/") {
+                        if (r.aval == 0) return LogicVal::make_x(l.width);
+                        if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval / (int64_t)r.aval), true);
+                        return LogicVal::make_known(l.width, l.aval / r.aval, false);
+                    }
+                    if (bin->op == "%") {
+                        if (r.aval == 0) return LogicVal::make_x(l.width);
+                        if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval % (int64_t)r.aval), true);
+                        return LogicVal::make_known(l.width, l.aval % r.aval, false);
+                    }
+                }
+                return eval_const_logic_val(e, scope);
+            };
+            std::function<void(StatementNode*)> eval_logic_stmt = [&](StatementNode* s) {
+                if (!s || returned) return;
+                if (auto ret = dynamic_cast<ReturnStatementNode*>(s)) {
+                    if (ret->expr) {
+                        ret_val = eval_fn_expr(ret->expr.get());
+                        fn_logic_env[target_fn->name] = ret_val;
+                    } else {
+                        ret_val = fn_logic_env[target_fn->name];
+                    }
+                    returned = true;
+                    return;
+                }
+                if (auto ba = dynamic_cast<BlockingAssignNode*>(s)) {
+                    LogicVal rhs_val = eval_fn_expr(ba->rhs.get());
+                    if (!ba->lhs_targets.empty()) {
+                        const std::string& tgt = ba->lhs_targets[0];
+                        if (fn_logic_env.count(tgt)) {
+                            LogicVal& cur = fn_logic_env[tgt];
+                            if (cur.is_real) {
+                                cur = LogicVal::make_real(rhs_val.to_real());
+                            } else {
+                                cur = LogicOps::cast_width(rhs_val, cur.width, cur.is_signed);
+                            }
+                        } else {
+                            fn_logic_env[tgt] = rhs_val;
+                        }
+                    }
+                    return;
+                }
+                if (auto vd = dynamic_cast<VarDeclStatementNode*>(s)) {
+                    LogicVal init_val(32, 0, 0);
+                    if (vd->init_expr) {
+                        init_val = eval_fn_expr(vd->init_expr.get());
+                    }
+                    fn_logic_env[vd->var_name] = init_val;
+                    return;
+                }
+                if (auto if_s = dynamic_cast<IfStatementNode*>(s)) {
+                    LogicVal cond = eval_fn_expr(if_s->condition.get());
+                    if (cond.to_bool()) {
+                        for (auto& st : if_s->then_branch) {
+                            eval_logic_stmt(st.get());
+                            if (returned) break;
+                        }
+                    } else {
+                        for (auto& st : if_s->else_branch) {
+                            eval_logic_stmt(st.get());
+                            if (returned) break;
+                        }
+                    }
+                    return;
+                }
+                if (auto blk = dynamic_cast<BlockStatementNode*>(s)) {
+                    for (auto& child : blk->statements) {
+                        eval_logic_stmt(child.get());
+                        if (returned) break;
+                    }
+                    return;
+                }
+            };
+            for (auto& st : target_fn->get_body()) {
+                eval_logic_stmt(st.get());
+                if (returned) break;
+            }
+            if (!returned) ret_val = fn_logic_env[target_fn->name];
+            ret_val = LogicOps::cast_width(ret_val, ret_w, target_fn->return_signed);
+            if (target_fn->return_type_name == "bit" || target_fn->return_type_name == "int" || target_fn->return_type_name == "byte" || target_fn->return_type_name == "shortint" || target_fn->return_type_name == "longint") {
+                ret_val.coerce_to_2state();
+            }
+            return ret_val;
         }
         uint64_t cval = eval_const_expr(fc, scope);
         uint32_t rw = (target_fn && target_fn->return_width > 0) ? target_fn->return_width : 32;
@@ -1542,6 +1737,35 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 if (i < fc->args.size() && fc->args[i]) {
                     arg_val = eval_const_expr(fc->args[i].get(), scope, local_env, local_signed, local_width);
                 } else if (in_p.default_value) {
+                    std::function<void(ExpressionNode*)> check_const = [&](ExpressionNode* e) {
+                        if (!e) return;
+                        if (auto id = dynamic_cast<IdentifierNode*>(e)) {
+                            std::string scoped = scope.empty() ? id->name : (scope + "." + id->name);
+                            bool is_param = result.param_val_map.count(scoped) || result.param_val_map.count(id->name) ||
+                                            result.param_map.count(scoped) || result.param_map.count(id->name) ||
+                                            result.enum_constant_map.count(scoped) || result.enum_constant_map.count(id->name);
+                            if (!is_param) {
+                                if (result.net_map.count(scoped) || result.net_map.count(id->name)) {
+                                    throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                }
+                                if (current_module) {
+                                    for (const auto& sig : current_module->signals) {
+                                        if (sig.name == id->name) {
+                                            throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                        }
+                                    }
+                                    for (const auto& prt : current_module->ports) {
+                                        if (prt.name == id->name) {
+                                            throw std::runtime_error("[CAS-CFUNC] Non-constant variable '" + id->name + "' referenced in port default in constant context per IEEE 1800-2023 §13.4.3");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (auto bin = dynamic_cast<BinaryOpNode*>(e)) { check_const(bin->lhs.get()); check_const(bin->rhs.get()); }
+                        if (auto un = dynamic_cast<UnaryOpNode*>(e)) { check_const(un->operand.get()); }
+                    };
+                    check_const(in_p.default_value.get());
                     arg_val = eval_const_expr(in_p.default_value.get(), scope, &fn_env, &fn_signed, &fn_width);
                 }
                 fn_env[in_p.name] = arg_val;
@@ -3690,6 +3914,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             lval = LogicOps::cast_width(lval, width, p.is_signed);
             val = lval.aval;
         }
+        if (p.type_name == "bit" || p.type_name == "byte" || p.type_name == "shortint" ||
+            p.type_name == "int" || p.type_name == "longint") {
+            lval.coerce_to_2state();
+            val = lval.aval;
+        } else if (p.type_name == "real" || p.type_name == "shortreal") {
+            lval = LogicVal::make_real(lval.to_real());
+        }
         bool has_local_sig = false;
         for (const auto& s : mod->signals) {
             if (s.name == p.name) { has_local_sig = true; break; }
@@ -3995,6 +4226,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.netlist[pid].value = LogicVal(w, 0, 0, p.is_signed);
             result.netlist[pid].prev_value = LogicVal(w, 0, 0, p.is_signed);
         }
+        if (p.type_name == "real" || p.type_name == "shortreal") {
+            result.netlist[pid].type_name = p.type_name;
+            result.netlist[pid].value = LogicVal::make_real(0.0);
+            result.netlist[pid].prev_value = LogicVal::make_real(0.0);
+        }
         if (p.is_chandle || p.type_name == "chandle") {
             result.netlist[pid].is_chandle = true;
             result.netlist[pid].type_name = "chandle";
@@ -4106,12 +4342,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         VariableDimMetadata pvdm;
         pvdm.name = scope + "." + p.name;
         if (!p.packed_dimensions.empty()) {
+            uint32_t p_total = 1;
             for (const auto& pdim : p.packed_dimensions) {
                 int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
                 int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
                 pvdm.dimensions.push_back({b1, b2, false, false, false});
+                p_total *= (uint32_t)(std::abs(b1 - b2) + 1);
             }
-            if (elem_w > 1) {
+            if (elem_w > 1 && w > p_total) {
                 pvdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
             }
             pvdm.is_vector_or_array = true;
@@ -4119,7 +4357,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
             int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
             pvdm.dimensions.push_back({b1, b2, false, false, false});
-            if (elem_w > 1) {
+            uint32_t dim_w = (uint32_t)(std::abs(b1 - b2) + 1);
+            if (elem_w > 1 && w > dim_w) {
                 pvdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
             }
             pvdm.is_vector_or_array = true;
@@ -4367,12 +4606,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 svdm.is_vector_or_array = true;
                 svdm.unpacked_dims = 1;
             } else if (!s.packed_dimensions.empty()) {
+                uint32_t p_total = 1;
                 for (const auto& pdim : s.packed_dimensions) {
                     int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
                     int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
                     svdm.dimensions.push_back({b1, b2, false, false, false});
+                    p_total *= (uint32_t)(std::abs(b1 - b2) + 1);
                 }
-                if (elem_w > 1) {
+                if (elem_w > 1 && w > p_total) {
                     svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
                 }
                 svdm.is_vector_or_array = true;
@@ -4384,7 +4625,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 int64_t b1 = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
                 int64_t b2 = s.lsb_expr ? eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope)) : 0;
                 svdm.dimensions.push_back({b1, b2, false, false, false});
-                if (elem_w > 1) {
+                uint32_t dim_w = (uint32_t)(std::abs(b1 - b2) + 1);
+                if (elem_w > 1 && w > dim_w) {
                     svdm.dimensions.push_back({(int64_t)(elem_w - 1), 0, false, false, false});
                 }
                 svdm.is_vector_or_array = true;
@@ -4476,15 +4718,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 result.virtual_interface_names.insert(s.name);
             }
             if (s.is_2state || s.type_name == "bit" || s.type_name == "byte" ||
-                s.type_name == "shortint" || s.type_name == "longint") {
+                s.type_name == "shortint" || s.type_name == "int" || s.type_name == "longint") {
                 result.netlist[sid].type_name = s.type_name;
                 result.netlist[sid].is_2state = true;
                 result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
                 result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
-            } else if (s.type_name == "int") {
+            } else if (s.type_name == "real" || s.type_name == "shortreal") {
                 result.netlist[sid].type_name = s.type_name;
-                result.netlist[sid].value = LogicVal(w, 0, 0, s.is_signed);
-                result.netlist[sid].prev_value = LogicVal(w, 0, 0, s.is_signed);
+                result.netlist[sid].value = LogicVal::make_real(0.0);
+                result.netlist[sid].prev_value = LogicVal::make_real(0.0);
             }
             if (!s.type_name.empty()) {
                 result.netlist[sid].type_name = s.type_name;

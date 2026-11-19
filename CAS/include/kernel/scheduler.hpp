@@ -105,6 +105,7 @@ private:
 
     uint64_t current_sim_time = 0;
     bool simulation_active = true;
+    bool has_sequential_processes = false;
 
     size_t delta_cycles_count = 0;
     size_t nba_commits_count = 0;

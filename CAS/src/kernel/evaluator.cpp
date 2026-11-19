@@ -68,7 +68,11 @@ LogicVal Evaluator::read_slice(const NetSliceRef& ref) {
     if (net_val.is_string || net.type_name == "string" || net_val.is_real || net.type_name == "real" || net.type_name == "shortreal") {
         return net_val;
     }
-    return net_val.extract_slice(ref.offset, ref.width);
+    LogicVal res = net_val.extract_slice(ref.offset, ref.width);
+    if (ref.offset == 0 && ref.width == net.width) {
+        res.is_signed = net.is_signed;
+    }
+    return res;
 }
 
 void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {

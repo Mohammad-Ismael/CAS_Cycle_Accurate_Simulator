@@ -90,6 +90,8 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
                 if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
                 else if (current.type == TokenType::TOKEN_REAL) { is_s = false; is_int = false; def_w = 64; arg_type_name = "real"; }
                 else if (current.type == TokenType::TOKEN_SHORTREAL) { is_s = false; is_int = false; def_w = 32; arg_type_name = "shortreal"; }
+                else if (current.type == TokenType::TOKEN_BIT) { arg_type_name = "bit"; }
+                else if (current.type == TokenType::TOKEN_LOGIC) { arg_type_name = "logic"; }
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal")) {
                 has_explicit_type = true;

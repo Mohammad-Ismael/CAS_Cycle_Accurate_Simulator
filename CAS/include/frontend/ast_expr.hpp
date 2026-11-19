@@ -26,13 +26,13 @@ struct NumberNode : public ExpressionNode {
     explicit NumberNode(T val, uint32_t w = 32, bool unk = false, bool s = false)
         : aval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : static_cast<uint64_t>(val)),
           bval(unk ? ((w >= 64) ? ~0ULL : ((1ULL << w) - 1)) : 0),
-          width(w), is_real(false), real_val(0.0), is_signed(s) {}
+          width(w), is_real(false), real_val(0.0), is_signed(s) { expr_kind = ExprKind::NUMBER; }
 
     NumberNode(uint64_t a, uint64_t b, uint32_t w, bool s = false)
-        : aval(a), bval(b), width(w), is_real(false), real_val(0.0), is_signed(s) {}
+        : aval(a), bval(b), width(w), is_real(false), real_val(0.0), is_signed(s) { expr_kind = ExprKind::NUMBER; }
 
     explicit NumberNode(double r)
-        : aval(static_cast<uint64_t>(r)), bval(0), width(64), is_real(true), real_val(r), is_signed(false) {}
+        : aval(static_cast<uint64_t>(r)), bval(0), width(64), is_real(true), real_val(r), is_signed(false) { expr_kind = ExprKind::NUMBER; }
 
     bool is_unknown() const { return bval != 0; }
 
@@ -57,7 +57,7 @@ struct IdentifierNode : public ExpressionNode {
     mutable uint32_t cached_net_id = UINT32_MAX;
     mutable bool is_bound = false;
 
-    explicit IdentifierNode(std::string n) : name(std::move(n)), cached_net_id(UINT32_MAX), is_bound(false) {}
+    explicit IdentifierNode(std::string n) : name(std::move(n)), cached_net_id(UINT32_MAX), is_bound(false) { expr_kind = ExprKind::IDENTIFIER; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         auto node = std::make_unique<IdentifierNode>(name);
@@ -73,7 +73,7 @@ struct FunctionCallNode : public ExpressionNode {
     std::vector<std::string> arg_names = {};
 
     FunctionCallNode(std::string name, std::vector<std::unique_ptr<ExpressionNode>> a, std::vector<std::string> anames = {})
-        : func_name(std::move(name)), args(std::move(a)), arg_names(std::move(anames)) {}
+        : func_name(std::move(name)), args(std::move(a)), arg_names(std::move(anames)) { expr_kind = ExprKind::FUNCTION_CALL; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> c_args;
@@ -95,10 +95,10 @@ struct IndexSelectNode : public ExpressionNode {
     std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
-        : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) {}
+        : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) { expr_kind = ExprKind::INDEX_SELECT; }
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> msb, std::unique_ptr<ExpressionNode> lsb)
-        : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) {}
+        : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) { expr_kind = ExprKind::INDEX_SELECT; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::unique_ptr<IndexSelectNode> node;
@@ -129,9 +129,9 @@ struct ConcatNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> msb_expr = nullptr;
     std::unique_ptr<ExpressionNode> lsb_expr = nullptr;
 
-    ConcatNode() = default;
+    ConcatNode() { expr_kind = ExprKind::CONCAT; }
     explicit ConcatNode(std::vector<std::unique_ptr<ExpressionNode>> elems)
-        : elements(std::move(elems)) {}
+        : elements(std::move(elems)) { expr_kind = ExprKind::CONCAT; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::vector<std::unique_ptr<ExpressionNode>> cloned;
@@ -207,7 +207,7 @@ struct ReplicateNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> target_expr;
 
     ReplicateNode(std::unique_ptr<ExpressionNode> c, std::unique_ptr<ExpressionNode> t)
-        : count_expr(std::move(c)), target_expr(std::move(t)) {}
+        : count_expr(std::move(c)), target_expr(std::move(t)) { expr_kind = ExprKind::REPLICATE; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         return std::make_unique<ReplicateNode>(
@@ -222,10 +222,10 @@ struct UnaryOpNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> operand;
 
     UnaryOpNode(std::string o, std::unique_ptr<ExpressionNode> opnd)
-        : op(std::move(o)), operand(std::move(opnd)) {}
+        : op(std::move(o)), operand(std::move(opnd)) { expr_kind = ExprKind::UNARY_OP; }
 
     UnaryOpNode(char o, std::unique_ptr<ExpressionNode> opnd)
-        : op(1, o), operand(std::move(opnd)) {}
+        : op(1, o), operand(std::move(opnd)) { expr_kind = ExprKind::UNARY_OP; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         return std::make_unique<UnaryOpNode>(op, operand ? operand->clone() : nullptr);
@@ -236,16 +236,19 @@ struct BinaryOpNode : public ExpressionNode {
     std::string op;
     std::unique_ptr<ExpressionNode> lhs;
     std::unique_ptr<ExpressionNode> rhs;
+    bool is_compound_assign = false;
 
     BinaryOpNode(std::string o, std::unique_ptr<ExpressionNode> l, std::unique_ptr<ExpressionNode> r)
-        : op(std::move(o)), lhs(std::move(l)), rhs(std::move(r)) {}
+        : op(std::move(o)), lhs(std::move(l)), rhs(std::move(r)) { expr_kind = ExprKind::BINARY_OP; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<BinaryOpNode>(
+        auto res = std::make_unique<BinaryOpNode>(
             op,
             lhs ? lhs->clone() : nullptr,
             rhs ? rhs->clone() : nullptr
         );
+        res->is_compound_assign = is_compound_assign;
+        return res;
     }
 };
 

@@ -61,6 +61,12 @@ public:
     }
 
     LogicVal eval(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_number(NumberNode* num, const std::string& scope);
+    LogicVal eval_identifier(IdentifierNode* ident, const std::string& scope);
+    LogicVal eval_binary_op_node(BinaryOpNode* bin, const std::string& scope);
+    LogicVal eval_concat(ConcatNode* cat, const std::string& scope);
+    LogicVal eval_replicate(ReplicateNode* rep, const std::string& scope);
+    LogicVal eval_index_select(IndexSelectNode* idx_node, const std::string& scope);
     LogicVal writeback_lvalue(ExpressionNode* target, const LogicVal& val, const std::string& scope);
     LogicVal eval_binary_op(const std::string& op, const LogicVal& l, const LogicVal& r);
     LogicVal eval_sampled_func(SysSampledFuncNode* func, const std::string& scope);

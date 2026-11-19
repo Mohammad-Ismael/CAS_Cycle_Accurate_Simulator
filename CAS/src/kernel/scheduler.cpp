@@ -381,6 +381,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
 }
 
 void StratifiedScheduler::transfer_due_delayed_updates(uint64_t target_time) {
+    if (delayed_nba_queue.empty() && delayed_nba_mem_queue.empty() && delayed_blocking_queue.empty() && pending_specify_events.empty()) return;
     // 1. Commit due delayed NBAs directly so they are immediately visible in this time slot
     auto it = delayed_nba_queue.find(target_time);
     if (it != delayed_nba_queue.end()) {
@@ -666,6 +667,13 @@ void StratifiedScheduler::init_scheduler() {
         enqueue_mca(i);
     }
     memory_fastpath.init(engine);
+    has_sequential_processes = false;
+    for (const auto& bp : engine.processes) {
+        if (bp.proc && bp.proc->type == ProcessType::SEQUENTIAL) {
+            has_sequential_processes = true;
+            break;
+        }
+    }
     std::cout << "[INIT_SCHEDULER] slice_bindings=" << engine.slice_bindings.size()
               << " memory_bindings=" << engine.memory_bindings.size()
               << " memory_continuous_assigns=" << engine.memory_continuous_assigns.size()
@@ -1077,6 +1085,7 @@ LogicVal StratifiedScheduler::execute_bytecode_logicval(const CompiledExpr& expr
             case Opcode::PUSH_NET_U64: {
                 if (inst.arg0 < engine.netlist.size()) {
                     stack[sp++] = engine.netlist[inst.arg0].value;
+                    stack[sp - 1].is_signed = engine.netlist[inst.arg0].is_signed;
                 } else {
                     stack[sp++] = LogicVal::make_x(inst.arg1 > 0 ? inst.arg1 : 1);
                 }
@@ -2390,8 +2399,16 @@ void StratifiedScheduler::propagate_comb() {
                 auto& bind = engine.slice_bindings[s_idx];
                 if (engine.netlist[bind.dst.net_id].has_procedural_assign) continue;
                 LogicVal src_val = engine.evaluator.read_slice(bind.src);
-                if (src_val.width != bind.dst.width && !src_val.is_string) {
+                bool dst_is_real = (engine.netlist[bind.dst.net_id].type_name == "real" || engine.netlist[bind.dst.net_id].type_name == "shortreal" || engine.netlist[bind.dst.net_id].value.is_real);
+                if (dst_is_real) {
+                    src_val = LogicVal::make_real(src_val.to_real());
+                } else if (src_val.is_real) {
                     src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
+                } else if (src_val.width != bind.dst.width && !src_val.is_string) {
+                    src_val = LogicOps::cast_width(src_val, bind.dst.width, engine.netlist[bind.dst.net_id].is_signed);
+                }
+                if (engine.netlist[bind.dst.net_id].type_name == "bit" || engine.netlist[bind.dst.net_id].type_name == "int" || engine.netlist[bind.dst.net_id].type_name == "byte" || engine.netlist[bind.dst.net_id].type_name == "shortint" || engine.netlist[bind.dst.net_id].type_name == "longint") {
+                    src_val.coerce_to_2state();
                 }
                 LogicVal dst_val = engine.evaluator.read_slice(bind.dst);
                 LogicVal val_to_write = src_val;
@@ -2625,7 +2642,7 @@ void StratifiedScheduler::propagate_comb() {
                         if (!computed) {
                             resolved = execute_bytecode_logicval(rca.compiled_expr);
                             if (resolved.width != rca.target.width || resolved.is_signed != engine.netlist[rca.target.net_id].is_signed) {
-                                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
+                                resolved = LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                             }
                             computed = true;
                         }
@@ -2638,18 +2655,18 @@ void StratifiedScheduler::propagate_comb() {
                             resolved = eval_driver(rca.drivers[0]);
                             resolved = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
                                 ? resolved
-                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
+                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                         } else {
                             resolved = eval_driver(rca.drivers[0]);
                             resolved = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
                                 ? resolved
-                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed && resolved.is_signed);
+                                : LogicOps::cast_width(resolved, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                             NetKind kind = engine.netlist[rca.target.net_id].kind;
                             for (size_t i = 1; i < rca.drivers.size(); ++i) {
                                 LogicVal d_val = eval_driver(rca.drivers[i]);
                                 d_val = (engine.netlist[rca.target.net_id].type_name == "real" || engine.netlist[rca.target.net_id].type_name == "shortreal")
                                     ? d_val
-                                    : LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed && d_val.is_signed);
+                                    : LogicOps::cast_width(d_val, rca.target.width, engine.netlist[rca.target.net_id].is_signed);
                                 resolved = LogicOps::resolve_net(kind, resolved, d_val);
                             }
                         }
@@ -2968,10 +2985,11 @@ bool StratifiedScheduler::evaluate_timing_checks() {
 }
 
 bool StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, EdgeType edge) {
-    bool any_triggered = false;
     auto seq_fn = (llvm_dispatch.is_active && llvm_dispatch.seq_clock_fn != nullptr)
                   ? llvm_dispatch.seq_clock_fn
                   : (native_dispatch.is_active ? native_dispatch.seq_clock_fn : nullptr);
+    if (!has_sequential_processes && seq_fn == nullptr) return false;
+    bool any_triggered = false;
     if (!native_seq_fired_in_time_slot && seq_fn != nullptr) {
         bool clock_triggered = false;
         if (triggered_net_id != UINT32_MAX) {
@@ -3915,7 +3933,16 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
                     }
                 } else if (lv) {
                     LogicVal arg_val = engine.evaluator.eval_expr(val_expr, bp.scope);
-                    lv->value = (p.type_name == "string" || arg_val.is_string || p.type_name == "real" || p.type_name == "shortreal") ? arg_val : LogicOps::cast_width(arg_val, w, p.is_signed);
+                    if (p.type_name == "real" || p.type_name == "shortreal") {
+                        lv->value = LogicVal::make_real(arg_val.to_real());
+                    } else if (p.type_name == "string" || arg_val.is_string) {
+                        lv->value = arg_val;
+                    } else {
+                        lv->value = LogicOps::cast_width(arg_val, w, p.is_signed);
+                    }
+                    if (p.type_name == "bit" || p.type_name == "int" || p.type_name == "byte" || p.type_name == "shortint" || p.type_name == "longint") {
+                        lv->value.coerce_to_2state();
+                    }
                     if (p.is_virtual_interface) {
                         lv->vif_handle = arg_val.aval;
                     }
@@ -3970,7 +3997,16 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
         auto& caller_frame = bp.call_stack[bp.call_stack.size() - 2];
         LocalVar* lv = caller_frame.local_frame.get_var(actual_name);
         if (lv) {
-            lv->value = (lv->type_name == "real" || lv->type_name == "shortreal") ? val : LogicOps::cast_width(val, lv->width, lv->is_signed);
+            if (lv->type_name == "real" || lv->type_name == "shortreal") {
+                lv->value = LogicVal::make_real(val.to_real());
+            } else if (lv->type_name == "string" || val.is_string) {
+                lv->value = val;
+            } else {
+                lv->value = LogicOps::cast_width(val, lv->width, lv->is_signed);
+            }
+            if (lv->type_name == "bit" || lv->type_name == "int" || lv->type_name == "byte" || lv->type_name == "shortint" || lv->type_name == "longint") {
+                lv->value.coerce_to_2state();
+            }
             return;
         }
         if (caller_frame.this_obj && caller_frame.this_obj->has_property(actual_name)) {
@@ -3987,7 +4023,16 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
     if (engine.evaluator.get_expr_eval().get_context().has_active_frame()) {
         LocalVar* local = engine.evaluator.get_expr_eval().get_context().lookup_local(actual_name);
         if (local) {
-            local->value = (local->type_name == "real" || local->type_name == "shortreal") ? val : LogicOps::cast_width(val, local->width, local->is_signed);
+            if (local->type_name == "real" || local->type_name == "shortreal") {
+                local->value = LogicVal::make_real(val.to_real());
+            } else if (local->type_name == "string" || val.is_string) {
+                local->value = val;
+            } else {
+                local->value = LogicOps::cast_width(val, local->width, local->is_signed);
+            }
+            if (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" || local->type_name == "shortint" || local->type_name == "longint") {
+                local->value.coerce_to_2state();
+            }
             return;
         }
     }
@@ -4002,7 +4047,17 @@ void StratifiedScheduler::write_task_output(BoundProcess& bp, const std::string&
 
     if (net_id != (size_t)-1) {
         auto& net = engine.netlist[net_id];
-        LogicVal casted = (net.type_name == "real" || net.type_name == "shortreal") ? val : LogicOps::cast_width(val, net.width, net.is_signed);
+        LogicVal casted;
+        if (net.type_name == "real" || net.type_name == "shortreal") {
+            casted = LogicVal::make_real(val.to_real());
+        } else if (net.type_name == "string" || val.is_string) {
+            casted = val;
+        } else {
+            casted = LogicOps::cast_width(val, net.width, net.is_signed);
+        }
+        if (net.type_name == "bit" || net.type_name == "int" || net.type_name == "byte" || net.type_name == "shortint" || net.type_name == "longint") {
+            casted.coerce_to_2state();
+        }
         if (net.value != casted) {
             net.set(casted);
             notify_net_changed(net_id);
@@ -4973,6 +5028,20 @@ void StratifiedScheduler::step_process(size_t pid) {
             continue;
         }
 
+        // ForLoopJumpStatementNode execution
+        if (auto jump = dynamic_cast<ForLoopJumpStatementNode*>(stmt)) {
+            bool cond = true;
+            if (jump->condition) {
+                cond = engine.evaluator.eval_expr(jump->condition.get(), bp.scope).to_bool();
+            }
+            if (cond) {
+                bp.pc = jump->loop_start_pc;
+            } else {
+                bp.pc++;
+            }
+            continue;
+        }
+
         // 0b. Loop unrolling / expansion for ForStatementNode with blocking timing controls
         if (auto for_stmt = dynamic_cast<ForStatementNode*>(stmt)) {
             if (stmt_has_timing_control(for_stmt)) {
@@ -4986,7 +5055,11 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
                 if (cond) {
                     std::vector<std::unique_ptr<StatementNode>> new_body;
-                    new_body.reserve(for_stmt->body.size() + 2 + (bp.proc->body.size() - bp.pc));
+                    new_body.reserve(for_stmt->body.size() + 2 + bp.proc->body.size());
+                    for (size_t i = 0; i < bp.pc; ++i) {
+                        new_body.push_back(std::move(bp.proc->body[i]));
+                    }
+                    size_t loop_start = new_body.size();
                     for (auto& s : for_stmt->body) {
                         if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
                             for (auto& bs : blk->statements) {
@@ -4999,12 +5072,13 @@ void StratifiedScheduler::step_process(size_t pid) {
                     if (for_stmt->step_stmt) {
                         new_body.push_back(for_stmt->step_stmt->clone());
                     }
-                    new_body.push_back(std::move(bp.proc->body[bp.pc]));
+                    std::shared_ptr<ExpressionNode> cond_expr = for_stmt->condition ? for_stmt->condition->clone() : nullptr;
+                    new_body.push_back(std::make_unique<ForLoopJumpStatementNode>(cond_expr, loop_start));
                     for (size_t i = bp.pc + 1; i < bp.proc->body.size(); ++i) {
                         new_body.push_back(std::move(bp.proc->body[i]));
                     }
                     bp.proc->body = std::move(new_body);
-                    bp.pc = 0;
+                    bp.pc = loop_start;
                     continue;
                 } else {
                     bp.pc++;
@@ -5335,7 +5409,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
         }
 
-        // 6. IEEE 1800-2023 Â§10.6.1: Blocking Assignment with Intra-Assignment Delay
+        // 6. IEEE 1800-2023 §10.6.1: Blocking Assignment with Intra-Assignment Delay
         if (auto assign = dynamic_cast<BlockingAssignNode*>(stmt)) {
             if (assign->intra_delay > 0) {
                 LogicVal rhs_val = engine.evaluator.eval_expr(assign->rhs.get(), bp.scope);
@@ -5565,6 +5639,8 @@ void StratifiedScheduler::run_simulation() {
     }
 
     uint64_t sim_step_count = 0;
+    std::vector<uint32_t> due_active_pids;
+    due_active_pids.reserve(32);
     while (simulation_active && !time_wheel.empty()) {
         if (engine.max_cycles > 0 && sim_step_count >= engine.max_cycles) {
             simulation_active = false;
@@ -5573,8 +5649,8 @@ void StratifiedScheduler::run_simulation() {
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
         sim_step_count++;
-        if (sim_step_count % 10000 == 0) {
-            std::cout << "[CAS PROGRESS] Time: " << current_sim_time << " ns (" << sim_step_count << " steps)\n" << std::flush;
+        if (sim_step_count % 50000 == 0) {
+            std::cout << "[CAS PROGRESS] Time: " << current_sim_time << " ns (" << sim_step_count << " steps)\n";
         }
 
         for (auto& n : engine.netlist) {
@@ -5606,7 +5682,7 @@ void StratifiedScheduler::run_simulation() {
         capture_preponed_samples();
 
         // 1. Active Region: Drain events for current timestamp
-        std::vector<uint32_t> due_active_pids;
+        due_active_pids.clear();
         due_reactive_pids.clear();
         while (!time_wheel.empty() && time_wheel.next_time() == slot_time && simulation_active) {
             SimEvent ev = time_wheel.pop();
