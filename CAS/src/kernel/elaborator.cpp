@@ -6458,6 +6458,24 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                 result.interface_port_map[child_port_key] = bound_target;
                 if (!modport_view.empty()) {
                     result.modport_binding_map[child_port_key] = modport_view;
+                    std::string iface_type = formal_p ? formal_p->interface_name : "";
+                    if (iface_type.empty() && current_module_defs) {
+                        for (const auto& kv : *current_module_defs) {
+                            if (kv.second && kv.second->is_interface && kv.second->modport_map.count(modport_view)) {
+                                iface_type = kv.first;
+                                break;
+                            }
+                        }
+                    }
+                    if (!iface_type.empty() && current_module_defs && current_module_defs->count(iface_type)) {
+                        ModuleNode* iface_def = current_module_defs->at(iface_type);
+                        if (iface_def && iface_def->modport_map.count(modport_view)) {
+                            ModportItemNode* mp = iface_def->modport_map.at(modport_view);
+                            for (const auto& kv : mp->port_expr_map) {
+                                result.interface_port_map[child_port_key + "." + kv.first] = bound_target + "." + kv.second;
+                            }
+                        }
+                    }
                 }
                 if (debug_out) {
                     *debug_out << "     * Bound interface port: " << child_port_key 

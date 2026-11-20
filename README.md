@@ -35,7 +35,8 @@ CAS_Cycle_Accurate_Simulator/
 │   ├── sv-tests/            # 1,028 IEEE 1800-2023 Compliance Tests
 │   ├── run_sv_tests.py      # High-Performance Multi-Threaded Benchmark Runner (1,028/1,028)
 │   ├── ivtest/              # 520 Icarus Verilog Compliance & Edge-Case Tests
-│   └── run_ivtest.py        # High-Performance Parallel ivtest Runner (520/520)
+│   ├── run_ivtest.py        # High-Performance Parallel ivtest Runner (520/520)
+│   └── run_verilator_tests.py # Verilator test_regress Triage Runner (1,943/2,804 = 69.3%)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware

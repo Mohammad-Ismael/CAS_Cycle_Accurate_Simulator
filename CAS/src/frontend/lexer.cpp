@@ -955,6 +955,17 @@ Token Lexer::next_token() {
             advance();
             return {TokenType::TOKEN_REP_CONSEC, "[*", 0, 0, cur_file, cur_line, 0};
         }
+        if (peek() == '+') {
+            if (!file_stack.empty()) {
+                const auto& cur = file_stack.back();
+                size_t p = cur.cursor + 1;
+                while (p < cur.src.size() && (cur.src[p] == ' ' || cur.src[p] == '\t' || cur.src[p] == '\r' || cur.src[p] == '\n')) p++;
+                if (p < cur.src.size() && cur.src[p] == ']') {
+                    advance();
+                    return {TokenType::TOKEN_REP_CONSEC, "[+", 0, 0, cur_file, cur_line, 0};
+                }
+            }
+        }
         if (peek() == '=') {
             advance();
             return {TokenType::TOKEN_REP_NON_CONSEC, "[=", 0, 0, cur_file, cur_line, 0};

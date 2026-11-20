@@ -1,5 +1,52 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.7.0 (Phase 2G: Parser Clusters 7–15 & Specialized Typedef Elaboration Resolved)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2G — Resolution of Frontend Parser Clusters 7–15 (~50 Tests) & Specialized Interface Typedef Sub-Cluster (~65 Tests) Across Verilator `test_regress` Suite  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.05s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 13.64s)  
+**Verilator `test_regress` Compliance:** **1,943 / 2,804 PASS (69.3% in 107.92s, up from 1,851 / 2,804 = 66.0%) (+92 tests passing)**  
+- **Pure-SV Simulation (SIM):** **1,895 / 2,672 PASS (70.9%)**, up from 1,802 / 2,672 (67.4%) (+93 passing SIM tests)  
+- **Negative Compile-Error (CE):** **48 / 132 PASS (36.4%)**  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2G Architectural, Kernel, & Frontend Parser Implementations
+
+1. **Cluster 7: Chained Method Calls, Foreach Loops, & `.randomize() with {...}` on Hierarchical and Indexed Struct/Array References (`parser_expr.cpp`, `parser_stmt.cpp`, `expr_evaluator.cpp`)**:
+   - Added support for method calls and `.randomize() with {...}` directly on indexed struct members (`ident.sub_name[i].size()`, `ident.sub_name[i].randomize() with {...}`).
+   - Extended `ForeachStatementNode` parsing to support hierarchical array selections (`foreach (s_arr[i].arr[j])`).
+   - Extended `MethodCallNode` with `std::unique_ptr<ExpressionNode> target_expr` and dynamic evaluation in `expr_evaluator.cpp` for array query methods (`.size()`, etc.) and class object handles.
+2. **Cluster 8: Modport Port Expressions & Comma-Separated Continuous Assignments (`ast_module.hpp`, `parser_module.cpp`, `elaborator.cpp`)**:
+   - Implemented modport port expressions `.port_id(internal_name)` per IEEE 1800-2023 §25.5.4 in `ModportPort`, storing `internal_name` and mapping interface port expressions in `Elaborator::elaborate_modport_bindings`.
+   - Supported comma-separated list of continuous assignments in a single `assign` statement (`assign a = b, c = d;`) per IEEE 1800-2023 §10.3 across module and block scopes.
+3. **Cluster 9: Net Delays on Packed Vector Declarations (`parser_module.cpp`)**:
+   - Supported net delay specifications (`#delay`, `#(min:typ:max)`) declared after packed vector ranges before signal identifier lists (`wire [7:0] #5 a, b;`).
+4. **Cluster 10: Parameter Type Forward References, Class Parameter Ranges, & Procedural Typedef Parameters (`ast_module.hpp`, `parser.cpp`, `parser_module.cpp`, `parser_stmt.cpp`)**:
+   - Supported `parameter type T = ...;` and `localparam type T = ...;` across module, package, and procedural scopes with registration into `simple_typedef_map`.
+   - Supported packed vector ranges and data type forward references on class parameter declarations (`class Cls #( logic [B:0] A = 0, type B = int );`).
+   - Moved procedural parameter declarations before procedural variable declarations in `parser_stmt.cpp`, allowing typed parameters (`localparam type octet_t = ...; localparam octet_t [9:0] DIGITS = ...;`) to resolve packed dimensions and typedefs naturally.
+5. **Cluster 11: Array Sort Methods with Procedural `with (...)` Clauses (`ast_stmt.hpp`, `parser_stmt.cpp`, `evaluator.cpp`)**:
+   - Extended `TaskCallNode` with `std::unique_ptr<ExpressionNode> with_expr` to capture `arr.sort(x) with (expr);` and `arr.rsort(x) with (expr);` at the procedural statement level.
+   - Enhanced runtime sorting in `evaluator.cpp` for queues and dynamic arrays with arbitrary `with` expression ordering.
+6. **Cluster 12: SVA Consecutive Repetition `[+]` & Empty Dimension Parameters (`lexer.cpp`, `parser_expr.cpp`, `parser_module.cpp`)**:
+   - Added `[+]` tokenization as `TOKEN_REP_CONSEC` in `lexer.cpp` and support in sequence repetition parsing (`rep_min = 1, rep_max = UNBOUNDED`).
+   - Supported empty `[]` dynamic array parameter and port dimensions.
+7. **Cluster 13: `not` Boolean Operator in Expressions & Assertions (`parser_expr.cpp`)**:
+   - Mapped `TOKEN_GATE_NOT` (`not`) when used in unary expression context to logical NOT `!` per IEEE 1800-2023 §16.12.
+8. **Cluster 14: `defparam` in Generate Blocks (`parser_module.cpp`)**:
+   - Supported `defparam` statements inside `generate ... endgenerate` blocks (`parse_generate_item`).
+9. **Cluster 15: Concatenation LHS in `force` & `release` (`parser_stmt.cpp`, `evaluator.cpp`)**:
+   - Supported multi-signal concatenation LHS targets in procedural `force {a, b} = expr;` and `release {a, b};` per IEEE 1800-2023 §10.6.2, including runtime bit-slicing and multi-net driver overrides.
+10. **Specialized Typedef Elaboration Sub-Cluster (`parser_module.cpp`)**:
+    - Supported interface instance and interface port typedefs (`typedef if0.rq_t p0_rq_t;`) per IEEE 1800-2023 §25.8, resolving member types through instance and port bindings without false undefined type errors.
+
+---
+
 ## Version v4.5.6.0 (Phase 2F: Parser Clusters 7–15 & Top Negative Compile-Error Diagnostics Resolved)
 
 **Release Date:** November 2026  

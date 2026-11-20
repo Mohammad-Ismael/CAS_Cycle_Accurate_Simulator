@@ -102,6 +102,7 @@ struct ParameterDef {
     std::unique_ptr<ExpressionNode> lsb_expr;
     bool has_range = false;
     bool is_signed = false;
+    bool is_dynamic_array = false;
 
     ParameterDef() = default;
     ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false, std::string t = "")
@@ -114,7 +115,8 @@ struct ParameterDef {
           msb_expr(other.msb_expr ? other.msb_expr->clone() : nullptr),
           lsb_expr(other.lsb_expr ? other.lsb_expr->clone() : nullptr),
           has_range(other.has_range),
-          is_signed(other.is_signed) {}
+          is_signed(other.is_signed),
+          is_dynamic_array(other.is_dynamic_array) {}
     ParameterDef& operator=(const ParameterDef& other) {
         if (this != &other) {
             name = other.name;
@@ -125,6 +127,7 @@ struct ParameterDef {
             lsb_expr = other.lsb_expr ? other.lsb_expr->clone() : nullptr;
             has_range = other.has_range;
             is_signed = other.is_signed;
+            is_dynamic_array = other.is_dynamic_array;
         }
         return *this;
     }
@@ -451,6 +454,12 @@ struct SimpleTypedef {
     std::string base_type;
     uint32_t width = 1;
     bool is_signed = false;
+
+    SimpleTypedef() = default;
+    SimpleTypedef(std::string n, std::string bt, uint32_t w, bool s)
+        : name(std::move(n)), base_type(std::move(bt)), width(w), is_signed(s) {}
+    SimpleTypedef(std::string bt, uint32_t w, bool s)
+        : name(""), base_type(std::move(bt)), width(w), is_signed(s) {}
 };
 
 struct UnpackedArrayTypedef {
@@ -497,19 +506,24 @@ struct TypedefNode : public ASTNode {
 struct ModportPort {
     std::string direction; // "input", "output", "inout"
     std::string name;
+    std::string internal_name = "";
 };
 
 struct ModportItemNode : public ASTNode {
     std::string name;
     std::vector<ModportPort> ports;
     std::unordered_map<std::string, std::string> signal_directions;
+    std::unordered_map<std::string, std::string> port_expr_map;
 
     ModportItemNode() = default;
     explicit ModportItemNode(std::string n) : name(std::move(n)) {}
 
-    void add_port(const std::string& dir, const std::string& sig_name) {
-        ports.push_back({dir, sig_name});
+    void add_port(const std::string& dir, const std::string& sig_name, const std::string& int_name = "") {
+        ports.push_back({dir, sig_name, int_name});
         signal_directions[sig_name] = dir;
+        if (!int_name.empty()) {
+            port_expr_map[sig_name] = int_name;
+        }
     }
 };
 

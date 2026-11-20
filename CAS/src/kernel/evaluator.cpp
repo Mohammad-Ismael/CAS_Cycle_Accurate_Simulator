@@ -3280,19 +3280,44 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (method == "reverse") {
                     std::reverse(q->elements.begin(), q->elements.end());
                     return;
-                } else if (method == "sort") {
-                    std::stable_sort(q->elements.begin(), q->elements.end(), [](const LogicVal& a, const LogicVal& b) {
-                        if (a.is_string && b.is_string) return a.str_val < b.str_val;
-                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() < (int64_t)b.to_signed();
-                        return a.aval < b.aval;
+                } else if (method == "sort" || method == "rsort") {
+                    std::string iter_name = "item";
+                    if (!tcall->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[0].get())) {
+                            iter_name = id->name;
+                        }
+                    }
+                    auto eval_elem_key = [&](const LogicVal& elem, size_t idx) -> LogicVal {
+                        if (!tcall->with_expr) return elem;
+                        expr_eval.get_context().push_frame("with_frame");
+                        expr_eval.get_context().declare_local(iter_name, elem.width, elem.is_signed);
+                        expr_eval.get_context().set_local_value(iter_name, elem);
+                        expr_eval.get_context().declare_local(iter_name + ".index", 32, false);
+                        expr_eval.get_context().set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)idx));
+                        expr_eval.get_context().declare_local(iter_name + "_index", 32, false);
+                        expr_eval.get_context().set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)idx));
+                        expr_eval.get_context().declare_local("index", 32, false);
+                        expr_eval.get_context().set_local_value("index", LogicVal::make_known(32, (uint64_t)idx));
+                        LogicVal key = expr_eval.eval(tcall->with_expr.get(), bp.scope);
+                        expr_eval.get_context().pop_frame();
+                        return key;
+                    };
+                    std::vector<std::pair<LogicVal, size_t>> tagged(q->elements.size());
+                    for (size_t i = 0; i < q->elements.size(); ++i) {
+                        tagged[i] = {eval_elem_key(q->elements[i], i), i};
+                    }
+                    std::stable_sort(tagged.begin(), tagged.end(), [&](const auto& a, const auto& b) {
+                        bool less = false;
+                        if (a.first.is_string && b.first.is_string) less = (a.first.str_val < b.first.str_val);
+                        else if (a.first.is_signed && b.first.is_signed) less = ((int64_t)a.first.to_signed() < (int64_t)b.first.to_signed());
+                        else less = (a.first.aval < b.first.aval);
+                        return (method == "rsort") ? (!less && !(a.first == b.first)) : less;
                     });
-                    return;
-                } else if (method == "rsort") {
-                    std::stable_sort(q->elements.begin(), q->elements.end(), [](const LogicVal& a, const LogicVal& b) {
-                        if (a.is_string && b.is_string) return a.str_val > b.str_val;
-                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() > (int64_t)b.to_signed();
-                        return a.aval > b.aval;
-                    });
+                    std::deque<LogicVal> sorted_elems(q->elements.size());
+                    for (size_t i = 0; i < q->elements.size(); ++i) {
+                        sorted_elems[i] = q->elements[tagged[i].second];
+                    }
+                    q->elements = std::move(sorted_elems);
                     return;
                 }
             }
@@ -3323,19 +3348,44 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 } else if (method == "reverse") {
                     std::reverse(da->elements.begin(), da->elements.end());
                     return;
-                } else if (method == "sort") {
-                    std::stable_sort(da->elements.begin(), da->elements.end(), [](const LogicVal& a, const LogicVal& b) {
-                        if (a.is_string && b.is_string) return a.str_val < b.str_val;
-                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() < (int64_t)b.to_signed();
-                        return a.aval < b.aval;
+                } else if (method == "sort" || method == "rsort") {
+                    std::string iter_name = "item";
+                    if (!tcall->args.empty()) {
+                        if (auto id = dynamic_cast<IdentifierNode*>(tcall->args[0].get())) {
+                            iter_name = id->name;
+                        }
+                    }
+                    auto eval_elem_key = [&](const LogicVal& elem, size_t idx) -> LogicVal {
+                        if (!tcall->with_expr) return elem;
+                        expr_eval.get_context().push_frame("with_frame");
+                        expr_eval.get_context().declare_local(iter_name, elem.width, elem.is_signed);
+                        expr_eval.get_context().set_local_value(iter_name, elem);
+                        expr_eval.get_context().declare_local(iter_name + ".index", 32, false);
+                        expr_eval.get_context().set_local_value(iter_name + ".index", LogicVal::make_known(32, (uint64_t)idx));
+                        expr_eval.get_context().declare_local(iter_name + "_index", 32, false);
+                        expr_eval.get_context().set_local_value(iter_name + "_index", LogicVal::make_known(32, (uint64_t)idx));
+                        expr_eval.get_context().declare_local("index", 32, false);
+                        expr_eval.get_context().set_local_value("index", LogicVal::make_known(32, (uint64_t)idx));
+                        LogicVal key = expr_eval.eval(tcall->with_expr.get(), bp.scope);
+                        expr_eval.get_context().pop_frame();
+                        return key;
+                    };
+                    std::vector<std::pair<LogicVal, size_t>> tagged(da->elements.size());
+                    for (size_t i = 0; i < da->elements.size(); ++i) {
+                        tagged[i] = {eval_elem_key(da->elements[i], i), i};
+                    }
+                    std::stable_sort(tagged.begin(), tagged.end(), [&](const auto& a, const auto& b) {
+                        bool less = false;
+                        if (a.first.is_string && b.first.is_string) less = (a.first.str_val < b.first.str_val);
+                        else if (a.first.is_signed && b.first.is_signed) less = ((int64_t)a.first.to_signed() < (int64_t)b.first.to_signed());
+                        else less = (a.first.aval < b.first.aval);
+                        return (method == "rsort") ? (!less && !(a.first == b.first)) : less;
                     });
-                    return;
-                } else if (method == "rsort") {
-                    std::stable_sort(da->elements.begin(), da->elements.end(), [](const LogicVal& a, const LogicVal& b) {
-                        if (a.is_string && b.is_string) return a.str_val > b.str_val;
-                        if (a.is_signed && b.is_signed) return (int64_t)a.to_signed() > (int64_t)b.to_signed();
-                        return a.aval > b.aval;
-                    });
+                    std::vector<LogicVal> sorted_elems(da->elements.size());
+                    for (size_t i = 0; i < da->elements.size(); ++i) {
+                        sorted_elems[i] = da->elements[tagged[i].second];
+                    }
+                    da->elements = std::move(sorted_elems);
                     return;
                 }
             }
@@ -7587,6 +7637,50 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
     // IEEE 1800-2023 §10.4.2: Procedural Continuous Assignment
     if (auto passign = dynamic_cast<ProceduralAssignNode*>(stmt)) {
+        if (!passign->target.empty() && passign->target.front() == '{' && passign->target.back() == '}') {
+            std::string inner = passign->target.substr(1, passign->target.size() - 2);
+            std::vector<std::string> sub_targets;
+            std::stringstream ss(inner);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                size_t start = item.find_first_not_of(" \t");
+                size_t end = item.find_last_not_of(" \t");
+                if (start != std::string::npos && end != std::string::npos) {
+                    sub_targets.push_back(item.substr(start, end - start + 1));
+                }
+            }
+            LogicVal rhs_val = eval_expr(passign->rhs.get(), bp.scope);
+            std::vector<size_t> net_ids;
+            uint32_t total_w = 0;
+            for (const auto& st : sub_targets) {
+                std::string st_scoped = bp.scope.empty() ? st : (bp.scope + "." + st);
+                size_t nid = (size_t)-1;
+                if (engine.net_map.count(st_scoped)) nid = engine.net_map.at(st_scoped);
+                else if (engine.net_map.count(st)) nid = engine.net_map.at(st);
+                net_ids.push_back(nid);
+                if (nid != (size_t)-1) total_w += engine.netlist[nid].width;
+            }
+            uint32_t cur_offset = total_w;
+            for (size_t i = 0; i < sub_targets.size(); ++i) {
+                size_t nid = net_ids[i];
+                if (nid != (size_t)-1) {
+                    uint32_t nw = engine.netlist[nid].width;
+                    cur_offset = (cur_offset >= nw) ? (cur_offset - nw) : 0;
+                    LogicVal slice = rhs_val.extract_slice(cur_offset, nw);
+                    auto connected = get_connected_nets(nid);
+                    for (size_t cid : connected) {
+                        auto& net = engine.netlist[cid];
+                        if (!net.has_procedural_assign) {
+                            engine.procedural_assign_active_nets.push_back(cid);
+                        }
+                        net.has_procedural_assign = true;
+                        net.procedural_assign_scope = bp.scope;
+                        net.set(slice);
+                    }
+                }
+            }
+            return;
+        }
         size_t net_id = (size_t)-1;
         std::string scoped_target = bp.scope.empty() ? passign->target : (bp.scope + "." + passign->target);
         if (engine.net_map.find(scoped_target) != engine.net_map.end()) {
@@ -7624,6 +7718,36 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto pdeassign = dynamic_cast<ProceduralDeassignNode*>(stmt)) {
+        if (!pdeassign->target.empty() && pdeassign->target.front() == '{' && pdeassign->target.back() == '}') {
+            std::string inner = pdeassign->target.substr(1, pdeassign->target.size() - 2);
+            std::stringstream ss(inner);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                size_t start = item.find_first_not_of(" \t");
+                size_t end = item.find_last_not_of(" \t");
+                if (start != std::string::npos && end != std::string::npos) {
+                    std::string st = item.substr(start, end - start + 1);
+                    std::string st_scoped = bp.scope.empty() ? st : (bp.scope + "." + st);
+                    size_t nid = (size_t)-1;
+                    if (engine.net_map.count(st_scoped)) nid = engine.net_map.at(st_scoped);
+                    else if (engine.net_map.count(st)) nid = engine.net_map.at(st);
+                    if (nid != (size_t)-1) {
+                        auto connected = get_connected_nets(nid);
+                        for (size_t cid : connected) {
+                            auto& net = engine.netlist[cid];
+                            net.has_procedural_assign = false;
+                            net.procedural_assign_rhs = nullptr;
+                            net.procedural_assign_scope = "";
+                            auto it = std::find(engine.procedural_assign_active_nets.begin(), engine.procedural_assign_active_nets.end(), cid);
+                            if (it != engine.procedural_assign_active_nets.end()) {
+                                engine.procedural_assign_active_nets.erase(it);
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
         size_t net_id = (size_t)-1;
         std::string scoped_target = bp.scope.empty() ? pdeassign->target : (bp.scope + "." + pdeassign->target);
         if (engine.net_map.find(scoped_target) != engine.net_map.end()) {

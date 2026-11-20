@@ -568,6 +568,36 @@ void Parser::parse_packages_only() {
         } else if (current.type == TokenType::TOKEN_PARAMETER || current.type == TokenType::TOKEN_LOCALPARAM) {
             bool is_local = (current.type == TokenType::TOKEN_LOCALPARAM);
             advance();
+            if (current.type == TokenType::TOKEN_TYPE || current.text == "type") {
+                advance();
+                while (true) {
+                    std::string pname = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
+                    expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
+                    std::string def_type = current.text;
+                    advance();
+                    while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_COLON_COLON || current.type == TokenType::TOKEN_HASH || current.type == TokenType::TOKEN_LBRACKET) {
+                        if (match(TokenType::TOKEN_LBRACKET)) {
+                            def_type += "[";
+                            while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) {
+                                def_type += current.text;
+                                advance();
+                            }
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in type parameter default");
+                            def_type += "]";
+                        } else {
+                            def_type += current.text;
+                            advance();
+                        }
+                    }
+                    simple_typedef_map[pname] = SimpleTypedef(pname, def_type, 32, false);
+                    global_simple_typedefs[pname] = 32;
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after parameter declaration");
+                continue;
+            }
             std::string ptype = "";
             while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
@@ -640,6 +670,26 @@ void Parser::parse_packages_only() {
                 advance();
             }
             if (current.type == TokenType::TOKEN_ENDMODULE) {
+                advance();
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+            }
+        } else if (current.type == TokenType::TOKEN_FUNCTION) {
+            while (current.type != TokenType::TOKEN_ENDFUNCTION && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_ENDFUNCTION) {
+                advance();
+                if (match(TokenType::TOKEN_COLON)) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+            }
+        } else if (current.type == TokenType::TOKEN_TASK) {
+            while (current.type != TokenType::TOKEN_ENDTASK && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            if (current.type == TokenType::TOKEN_ENDTASK) {
                 advance();
                 if (match(TokenType::TOKEN_COLON)) {
                     if (current.type == TokenType::TOKEN_IDENTIFIER) advance();

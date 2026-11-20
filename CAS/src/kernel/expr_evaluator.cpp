@@ -3569,6 +3569,12 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
         }
+        if (!cl_obj && rcall->target_handle) {
+            LogicVal hval = eval(rcall->target_handle.get(), scope);
+            if (!hval.is_unknown() && hval.aval != 0) {
+                cl_obj = engine.get_class_object(hval.aval).get();
+            }
+        }
         if (!cl_obj) {
             return LogicVal::make_known(32, 0);
         }
@@ -4037,6 +4043,44 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto method_node = dynamic_cast<MethodCallNode*>(expr)) {
+        if (method_node->target_expr) {
+            std::string method = method_node->method_name;
+            LogicVal tval = eval(method_node->target_expr.get(), scope);
+            if (method == "size") {
+                if (tval.is_unpacked) {
+                    return LogicVal::make_known(32, (uint64_t)tval.unpacked_elements.size());
+                }
+                if (tval.is_string) {
+                    return LogicVal::make_known(32, (uint64_t)tval.str_val.size());
+                }
+            }
+            if (!tval.is_unpacked && tval.aval != 0) {
+                auto cl_obj = engine.get_class_object(tval.aval).get();
+                if (cl_obj) {
+                    if (method == "randomize") {
+                        std::vector<std::unique_ptr<ExpressionNode>> dummy_inline;
+                        ClassObject* prev_this = current_this;
+                        current_this = cl_obj;
+                        bool ok = engine.solver.solve(cl_obj, dummy_inline, scope, [&](ExpressionNode* e) {
+                            return eval(e, scope);
+                        });
+                        current_this = prev_this;
+                        return LogicVal::make_known(32, ok ? 1 : 0);
+                    }
+                    FunctionNode* fn = cl_obj->class_def ? cl_obj->class_def->find_function(method) : nullptr;
+                    if (fn) {
+                        std::vector<LogicVal> evaluated_args;
+                        for (auto& a : method_node->args) evaluated_args.push_back(eval(a.get(), scope));
+                        LogicVal res;
+                        ClassObject* prev_this = current_this;
+                        current_this = cl_obj;
+                        eval_function(fn->name, evaluated_args, res);
+                        current_this = prev_this;
+                        return res;
+                    }
+                }
+            }
+        }
         std::string var_name = method_node->var_name;
 
         if (engine.is_semaphore(var_name, scope)) {
