@@ -17,6 +17,11 @@ static bool stmt_has_timing_control(const StatementNode* stmt) {
     if (dynamic_cast<const WaitConditionStatementNode*>(stmt)) return true;
     if (dynamic_cast<const WaitEventTriggeredStatementNode*>(stmt)) return true;
     if (dynamic_cast<const WaitForkStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const TaskCallNode*>(stmt)) return true;
+    if (dynamic_cast<const VoidCastStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const FinishStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const SeverityTaskStatementNode*>(stmt)) return true;
+    if (dynamic_cast<const ExitStatementNode*>(stmt)) return true;
     if (auto ba = dynamic_cast<const BlockingAssignNode*>(stmt)) {
         if (ba->intra_delay > 0 || ba->has_intra_event) return true;
     }
@@ -6254,6 +6259,22 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
         }
 
         if (module_defs.find(effective_mod_type) == module_defs.end()) {
+            static const std::unordered_set<std::string> switch_primitives = {
+                "pmos", "nmos", "cmos", "rpmos", "rnmos", "rcmos",
+                "tran", "tranif0", "tranif1", "rtran", "rtranif0", "rtranif1",
+                "pullup", "pulldown"
+            };
+            if (switch_primitives.count(effective_mod_type)) {
+                if (inst->connections.size() >= 2 && inst->connections[0].expr && inst->connections[1].expr) {
+                    auto out_ref = resolve_slice_ref(inst->connections[0].expr.get(), scope);
+                    auto in_expr = inst->connections[1].expr->clone();
+                    auto* rhs_ptr = in_expr.get();
+                    auto new_ca = std::make_unique<ContinuousAssignNode>("", std::move(in_expr));
+                    result.generated_continuous_assigns.push_back(std::move(new_ca));
+                    result.continuous_assigns.push_back({scope, out_ref, rhs_ptr});
+                }
+                return;
+            }
             if (Parser::global_udp_defs.find(effective_mod_type) != Parser::global_udp_defs.end()) {
                 GateInstance gi;
                 gi.type = GateType::UDP;

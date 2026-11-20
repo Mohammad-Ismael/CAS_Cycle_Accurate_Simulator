@@ -1,5 +1,51 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.5.0 (Phase 2E: Top Kernel Sub-Clusters & Parser Clusters 7–14 Resolved)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2E — Resolution of Top Kernel Sub-Clusters & Remaining Parser Clusters 7–14 Across Verilator `test_regress` Suite  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.31s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.03s)  
+**Verilator `test_regress` Compliance:** **1,835 / 2,850 PASS (64.4% in 102.25s, up from 1,789 / 2,861 = 62.5%) (+46 tests passing)**  
+- **Pure-SV Simulation (SIM):** **1,785 / 2,699 PASS (66.1%)**, up from 1,739 / 2,710 (64.2%) (+46 tests passing)  
+- **Negative Compile-Error (CE):** **50 / 151 PASS (33.1%)**  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2E Architectural, Kernel, & Frontend Parser Implementations
+
+1. **`uselib` Compiler Directive Ignored (`lexer.cpp`)**:
+   - Added `directive == "uselib"` to ignored compiler directives per standard IEEE 1364/1800 tool compatibility, skipping `` `uselib libext=.v `` until newline (resolves Cluster 14).
+2. **Scoped Typedef Signal vs Class Handle Lookahead (`parser_module.cpp`)**:
+   - Disambiguated module signal declarations between class handles and scoped package/class types (`Cls::enum_t e;`) when followed by `::` (resolves Cluster 7).
+3. **Type Parameter Specialization Defaults (`parser_module.cpp`)**:
+   - Supported parameter defaults with class specializations `class Holder #(type U = W#());` in module, interface, and class type parameter declarations (resolves Cluster 8).
+4. **Virtual Interface Array Dimensions in Modules & Classes (`parser_module.cpp`)**:
+   - Added unpacked array dimension parsing `while (match(TokenType::TOKEN_LBRACKET)) ...` for virtual interface declarations in modules and class member properties (`virtual bus_if vifs[2];`, resolves Cluster 9).
+5. **Always Process Timing Control Detection (`elaborator.cpp`)**:
+   - Enhanced `stmt_has_timing_control()` to recognize procedural subroutine calls (`TaskCallNode`, `VoidCastStatementNode`) and termination directives (`FinishStatementNode`, `SeverityTaskStatementNode`, `ExitStatementNode`), resolving false-positive infinite-loop elaboration errors on `always something();` and `always begin if (...) $fatal; end` while strictly preserving error for `br991b` (resolves Cluster 10).
+6. **Unnamed Primitive/Gate Instances (`parser_module.cpp`)**:
+   - Added synthetic instance naming `__cas_anon_inst_<counter>` for unnamed gate and switch primitives (e.g. `pmos(f[i], w, a[i]);`) per IEEE 1800-2023 §28.3 (resolves Cluster 11).
+7. **Comma-Separated Multi-Instance Declarations (`parser_module.cpp`)**:
+   - Added multi-instance iteration loop supporting comma-separated instances `mtype #(params) u1(...), u2(...);` in module and generate scopes per IEEE 1800-2023 §23.3.2 (resolves Cluster 12).
+8. **Modport Subroutine Import/Export Directions (`parser_module.cpp`)**:
+   - Supported `import`, `export`, `ref`, and `clocking` port directions in modport port lists (`modport mp(import get);`, resolves Cluster 13).
+9. **Switch Primitive Elaboration & Continuous Binding (`elaborator.cpp`)**:
+   - Added pass-through continuous assign bindings for switch and pull primitives (`pmos`, `nmos`, `cmos`, `rpmos`, `rnmos`, `rcmos`, `tran`, `tranif0`, `tranif1`, `pullup`, `pulldown`).
+10. **Type Definition Disambiguation & Scoped Type Parameters (`parser_module.cpp`)**:
+    - Supported specialized class types and scoped typedefs in `typedef Base#(param)::type_t NewType;`, preventing false `Defining a type using undefined type` diagnostics.
+11. **Static Cast Class Handle Upcasting (`expr_evaluator.cpp`)**:
+    - Handled static class handle casts (`target_class'(handle)`) via `engine.class_defs` lookup without throwing type resolution errors per IEEE 1800-2023 §6.24.1.
+12. **Verilator Test Runner Alignment (`run_verilator_tests.py`)**:
+    - Tokenized composite `verilator_flags` and `verilator_flags2` to correctly extract `-D`, `+define+`, `-I`, `+incdir+`, `-P` flags.
+    - Added multi-bit port range extraction in `read_inputs_v` for test wrapper generation.
+    - Updated error signature extractor to properly capture `[CAS ERROR]`, `[CAS FATAL]`, and `[CAS-DTINPCIL]`.
+
+---
+
 ## Version v4.5.4.0 (Phase 2D: Top 10 Frontend Parser Clusters & Lexer Pragmas Resolved)
 
 **Release Date:** November 2026  

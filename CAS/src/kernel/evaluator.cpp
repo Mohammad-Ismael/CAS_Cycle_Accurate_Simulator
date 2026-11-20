@@ -4848,6 +4848,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             } else {
                 elems = expr_eval.eval_array_expr(nassign->rhs.get(), bp.scope);
             }
+            if (elems.empty() || (!rhs_val.is_unpacked && !dynamic_cast<UnpackedConcatNode*>(nassign->rhs.get()) && !dynamic_cast<ConcatNode*>(nassign->rhs.get()) && !dynamic_cast<ReplicateNode*>(nassign->rhs.get()))) {
+                if (mem.depth == 1) {
+                    mem.set_raw_word(0, LogicOps::cast_width(rhs_val, mem.word_width, false));
+                    return;
+                }
+            }
             if (elems.size() != mem.depth) {
                 throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
                     std::to_string(elems.size()) + ") does not match target array size (" +

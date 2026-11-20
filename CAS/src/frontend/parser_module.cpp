@@ -885,7 +885,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             } else {
                                 std::string def_type = current.text;
                                 advance();
-                                while (match(TokenType::TOKEN_DOT) || match(TokenType::TOKEN_COLON_COLON) || current.type == TokenType::TOKEN_LBRACKET) {
+                                while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_COLON_COLON || current.type == TokenType::TOKEN_HASH || current.type == TokenType::TOKEN_LBRACKET) {
                                     if (match(TokenType::TOKEN_LBRACKET)) {
                                         def_type += "[";
                                         parse_expression();
@@ -894,8 +894,27 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                         }
                                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in type parameter indexing");
                                         def_type += "]";
+                                    } else if (match(TokenType::TOKEN_HASH)) {
+                                        def_type += "#";
+                                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in type parameter default");
+                                        def_type += "(";
+                                        int paren_depth = 1;
+                                        while (paren_depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                                            if (current.type == TokenType::TOKEN_LPAREN) paren_depth++;
+                                            else if (current.type == TokenType::TOKEN_RPAREN) {
+                                                paren_depth--;
+                                                if (paren_depth == 0) {
+                                                    advance();
+                                                    break;
+                                                }
+                                            }
+                                            def_type += current.text;
+                                            advance();
+                                        }
+                                        def_type += ")";
                                     } else {
-                                        def_type += "." + current.text;
+                                        advance();
+                                        def_type += "::" + current.text;
                                         expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' or '::' in type parameter");
                                     }
                                 }
@@ -1623,18 +1642,32 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         if (current.type == TokenType::TOKEN_INPUT) { pdir = "input"; advance(); }
                         else if (current.type == TokenType::TOKEN_OUTPUT) { pdir = "output"; advance(); }
                         else if (current.type == TokenType::TOKEN_INOUT) { pdir = "inout"; advance(); }
+                        else if (current.type == TokenType::TOKEN_REF || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "ref")) { pdir = "ref"; advance(); }
+                        else if (current.type == TokenType::TOKEN_IMPORT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "import")) { pdir = "import"; advance(); }
+                        else if (current.type == TokenType::TOKEN_EXPORT || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "export")) { pdir = "export"; advance(); }
+                        else if (current.type == TokenType::TOKEN_CLOCKING || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "clocking")) { pdir = "clocking"; advance(); }
                         else {
                             throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
-                                ": error: Expected 'input', 'output', or 'inout' in modport port list (found: '" + current.text + "')");
+                                ": error: Expected 'input', 'output', 'inout', 'ref', 'import', or 'export' in modport port list (found: '" + current.text + "')");
                         }
                         while (true) {
+                            if (current.type == TokenType::TOKEN_FUNCTION || current.type == TokenType::TOKEN_TASK) advance();
                             std::string sig_name = current.text;
-                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in modport");
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal or method name in modport");
+                            if (match(TokenType::TOKEN_LPAREN)) {
+                                while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+                                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing method prototype in modport");
+                            }
                             mp_node->add_port(pdir, sig_name);
                             if (match(TokenType::TOKEN_COMMA)) {
                                 if (current.type == TokenType::TOKEN_INPUT || 
                                     current.type == TokenType::TOKEN_OUTPUT || 
                                     current.type == TokenType::TOKEN_INOUT ||
+                                    current.type == TokenType::TOKEN_REF ||
+                                    current.type == TokenType::TOKEN_IMPORT ||
+                                    current.type == TokenType::TOKEN_EXPORT ||
+                                    current.type == TokenType::TOKEN_CLOCKING ||
+                                    current.text == "ref" || current.text == "import" || current.text == "export" || current.text == "clocking" ||
                                     current.type == TokenType::TOKEN_RPAREN) {
                                     break;
                                 }
@@ -2315,7 +2348,9 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
                 maybe_cls_ident += "::" + peek_token_n(2).text;
             }
-            if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_class(maybe_cls_ident))) {
+            if (current.type == TokenType::TOKEN_IDENTIFIER && 
+                ((peek_token().type != TokenType::TOKEN_COLON_COLON && is_class(current.text)) || 
+                 (peek_token().type == TokenType::TOKEN_COLON_COLON && is_class(maybe_cls_ident)))) {
                 std::string class_type = parse_class_type_and_specialize();
                 while (true) {
                     std::string signame = current.text;
@@ -2371,6 +2406,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected virtual interface variable name");
+                    std::vector<AstDimension> unpacked_dims;
+                    bool is_arr = false;
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        is_arr = true;
+                        auto l = parse_expression();
+                        std::unique_ptr<ExpressionNode> r = nullptr;
+                        bool is_single = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            r = parse_expression();
+                            is_single = false;
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        AstDimension ad;
+                        ad.left_expr = std::move(l);
+                        ad.right_expr = std::move(r);
+                        ad.is_single = is_single;
+                        unpacked_dims.push_back(std::move(ad));
+                    }
                     std::unique_ptr<ExpressionNode> init_expr = nullptr;
                     if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                         init_expr = parse_expression();
@@ -2382,6 +2435,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig.interface_name = iface_name;
                     sig.modport_name = modport_name;
                     sig.type_name = iface_name;
+                    sig.is_array = is_arr;
+                    sig.unpacked_dimensions = std::move(unpacked_dims);
                     if (init_expr) {
                         sig.default_value = init_expr->clone();
                         sig.net_kind = NetKind::VAR;
@@ -4153,139 +4208,135 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parameter override list");
                 }
 
-                std::string iname = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
-                bool is_instance_array = false;
-                int64_t arr_msb = 0, arr_lsb = 0;
-                std::vector<std::pair<int64_t, int64_t>> inst_dims;
-                while (match(TokenType::TOKEN_LBRACKET)) {
-                    is_instance_array = true;
-                    int64_t d_msb = 0, d_lsb = 0;
-                    auto r_msb = parse_expression();
-                    if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) d_msb = num->aval;
-                    else {
-                        try {
-                            d_msb = (int64_t)eval_const_expr(r_msb.get());
-                        } catch (...) {}
+                while (true) {
+                    static uint64_t anon_gate_cnt = 0;
+                    std::string iname;
+                    if (current.type == TokenType::TOKEN_LPAREN) {
+                        iname = "__cas_anon_inst_" + std::to_string(anon_gate_cnt++);
+                    } else {
+                        iname = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
                     }
-                    if (match(TokenType::TOKEN_COLON)) {
-                        auto r_lsb = parse_expression();
-                        if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) d_lsb = num->aval;
+                    bool is_instance_array = false;
+                    int64_t arr_msb = 0, arr_lsb = 0;
+                    std::vector<std::pair<int64_t, int64_t>> inst_dims;
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        is_instance_array = true;
+                        int64_t d_msb = 0, d_lsb = 0;
+                        auto r_msb = parse_expression();
+                        if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) d_msb = num->aval;
                         else {
                             try {
-                                d_lsb = (int64_t)eval_const_expr(r_lsb.get());
+                                d_msb = (int64_t)eval_const_expr(r_msb.get());
                             } catch (...) {}
                         }
-                    } else {
-                        d_lsb = 0;
-                        d_msb = d_msb > 0 ? (d_msb - 1) : 0;
-                    }
-                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
-                    inst_dims.push_back({d_msb, d_lsb});
-                    arr_msb = d_msb;
-                    arr_lsb = d_lsb;
-                }
-                if (match(TokenType::TOKEN_SEMICOLON)) {
-                    if (is_instance_array) {
-                        std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
-                            if (d_idx == inst_dims.size()) {
-                                auto inst = std::make_unique<InstantiationNode>(mtype, prefix, false);
-                                for (const auto& po : param_overrides) {
-                                    inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
-                                }
-                                mod->instantiations.push_back(std::move(inst));
-                                return;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            auto r_lsb = parse_expression();
+                            if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) d_lsb = num->aval;
+                            else {
+                                try {
+                                    d_lsb = (int64_t)eval_const_expr(r_lsb.get());
+                                } catch (...) {}
                             }
-                            int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                            int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                            for (int64_t idx = low; idx <= high; ++idx) {
-                                expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
-                            }
-                        };
-                        expand_dims(0, iname);
-                    } else {
-                        auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
-                        inst->param_overrides = std::move(param_overrides);
-                        mod->instantiations.push_back(std::move(inst));
-                    }
-                    continue;
-                }
-                expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
-
-                bool positional = false;
-                std::vector<PortConnection> conns;
-                while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-                    if (match(TokenType::TOKEN_COMMA)) {
-                        positional = true;
-                        conns.push_back({"", nullptr});
-                        continue;
-                    }
-                    if (match(TokenType::TOKEN_DOT)) {
-                        if (match(TokenType::TOKEN_STAR)) {
-                            conns.push_back({"*", nullptr});
                         } else {
-                            std::string port_name = current.text;
-                            expect(TokenType::TOKEN_IDENTIFIER, "Expected port name after '.'");
-                            if (match(TokenType::TOKEN_LPAREN)) {
-                                std::unique_ptr<ExpressionNode> expr = nullptr;
-                                if (current.type != TokenType::TOKEN_RPAREN) {
-                                    expr = parse_expression();
+                            d_lsb = 0;
+                            d_msb = d_msb > 0 ? (d_msb - 1) : 0;
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
+                        inst_dims.push_back({d_msb, d_lsb});
+                        arr_msb = d_msb;
+                        arr_lsb = d_lsb;
+                    }
+                    if (match(TokenType::TOKEN_SEMICOLON)) {
+                        if (is_instance_array) {
+                            std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
+                                if (d_idx == inst_dims.size()) {
+                                    auto inst = std::make_unique<InstantiationNode>(mtype, prefix, false);
+                                    for (const auto& po : param_overrides) {
+                                        inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                                    }
+                                    mod->instantiations.push_back(std::move(inst));
+                                    return;
                                 }
-                                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
-                                conns.push_back({port_name, std::move(expr)});
-                            } else {
-                                PortConnection pc;
-                                pc.port_name = port_name;
-                                pc.expr = std::make_unique<IdentifierNode>(port_name);
-                                pc.is_implicit_name_only = true;
-                                conns.push_back(std::move(pc));
-                            }
-                        }
-                    } else {
-                        positional = true;
-                        auto expr = parse_expression();
-                        conns.push_back({"", std::move(expr)});
-                    }
-                    if (match(TokenType::TOKEN_COMMA)) {
-                        if (current.type == TokenType::TOKEN_COMMA) {
-                            positional = true;
-                            conns.push_back({"", nullptr});
-                            advance();
-                        }
-                        continue;
-                    }
-                    break;
-                }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
-                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
-
-                if (is_prog) {
-                    throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program instantiation '" + iname + "' is illegal in program scope per IEEE 1800-2023 section 24.3");
-                }
-
-                if (is_instance_array) {
-                    if (inst_dims.size() == 1) {
-                        int64_t low = std::min(inst_dims[0].first, inst_dims[0].second);
-                        int64_t high = std::max(inst_dims[0].first, inst_dims[0].second);
-                        int64_t count = high - low + 1;
-                        for (int64_t idx = low; idx <= high; ++idx) {
-                            std::string elem_name = iname + "[" + std::to_string(idx) + "]";
-                            auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
-                            inst->is_array_instance = true;
-                            inst->array_index = idx - low;
-                            inst->array_count = count;
+                                int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                                int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                                for (int64_t idx = low; idx <= high; ++idx) {
+                                    expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
+                                }
+                            };
+                            expand_dims(0, iname);
+                        } else {
+                            auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
                             for (const auto& po : param_overrides) {
                                 inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
                             }
-                            for (const auto& pc : conns) {
-                                inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
-                            }
                             mod->instantiations.push_back(std::move(inst));
                         }
-                    } else {
-                        std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
-                            if (d_idx == inst_dims.size()) {
-                                auto inst = std::make_unique<InstantiationNode>(mtype, prefix, positional);
+                        break;
+                    }
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
+
+                    bool positional = false;
+                    std::vector<PortConnection> conns;
+                    while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                        if (match(TokenType::TOKEN_COMMA)) {
+                            positional = true;
+                            conns.push_back({"", nullptr});
+                            continue;
+                        }
+                        if (match(TokenType::TOKEN_DOT)) {
+                            if (match(TokenType::TOKEN_STAR)) {
+                                conns.push_back({"*", nullptr});
+                            } else {
+                                std::string port_name = current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected port name after '.'");
+                                if (match(TokenType::TOKEN_LPAREN)) {
+                                    std::unique_ptr<ExpressionNode> expr = nullptr;
+                                    if (current.type != TokenType::TOKEN_RPAREN) {
+                                        expr = parse_expression();
+                                    }
+                                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
+                                    conns.push_back({port_name, std::move(expr)});
+                                } else {
+                                    PortConnection pc;
+                                    pc.port_name = port_name;
+                                    pc.expr = std::make_unique<IdentifierNode>(port_name);
+                                    pc.is_implicit_name_only = true;
+                                    conns.push_back(std::move(pc));
+                                }
+                            }
+                        } else {
+                            positional = true;
+                            auto expr = parse_expression();
+                            conns.push_back({"", std::move(expr)});
+                        }
+                        if (match(TokenType::TOKEN_COMMA)) {
+                            if (current.type == TokenType::TOKEN_COMMA) {
+                                positional = true;
+                                conns.push_back({"", nullptr});
+                                advance();
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
+
+                    if (is_prog) {
+                        throw std::runtime_error("[CAS-DTINPCIL] Dynamic type in non-procedural context: module, interface, or program instantiation '" + iname + "' is illegal in program scope per IEEE 1800-2023 section 24.3");
+                    }
+
+                    if (is_instance_array) {
+                        if (inst_dims.size() == 1) {
+                            int64_t low = std::min(inst_dims[0].first, inst_dims[0].second);
+                            int64_t high = std::max(inst_dims[0].first, inst_dims[0].second);
+                            int64_t count = high - low + 1;
+                            for (int64_t idx = low; idx <= high; ++idx) {
+                                std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                                auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                                inst->is_array_instance = true;
+                                inst->array_index = idx - low;
+                                inst->array_count = count;
                                 for (const auto& po : param_overrides) {
                                     inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
                                 }
@@ -4293,21 +4344,39 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                     inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
                                 }
                                 mod->instantiations.push_back(std::move(inst));
-                                return;
                             }
-                            int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                            int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                            for (int64_t idx = low; idx <= high; ++idx) {
-                                expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
-                            }
-                        };
-                        expand_dims(0, iname);
+                        } else {
+                            std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
+                                if (d_idx == inst_dims.size()) {
+                                    auto inst = std::make_unique<InstantiationNode>(mtype, prefix, positional);
+                                    for (const auto& po : param_overrides) {
+                                        inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                                    }
+                                    for (const auto& pc : conns) {
+                                        inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
+                                    }
+                                    mod->instantiations.push_back(std::move(inst));
+                                    return;
+                                }
+                                int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                                int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                                for (int64_t idx = low; idx <= high; ++idx) {
+                                    expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
+                                }
+                            };
+                            expand_dims(0, iname);
+                        }
+                    } else {
+                        auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
+                        for (const auto& po : param_overrides) {
+                            inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                        }
+                        inst->connections = std::move(conns);
+                        mod->instantiations.push_back(std::move(inst));
                     }
-                } else {
-                    auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
-                    inst->param_overrides = std::move(param_overrides);
-                    inst->connections = std::move(conns);
-                    mod->instantiations.push_back(std::move(inst));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
+                    break;
                 }
                 continue;
             }
@@ -4814,17 +4883,29 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         if (current.type != TokenType::TOKEN_STRUCT && current.type != TokenType::TOKEN_ENUM) {
             std::string base_t = current.text;
             advance();
-            while (match(TokenType::TOKEN_COLON_COLON)) {
-                base_t += "::" + current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::' in typedef");
-            }
-            if (match(TokenType::TOKEN_HASH)) {
-                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in typedef");
-                int pdepth = 1;
-                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
-                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
-                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
-                    advance();
+            while (current.type == TokenType::TOKEN_COLON_COLON || current.type == TokenType::TOKEN_HASH) {
+                if (match(TokenType::TOKEN_HASH)) {
+                    base_t += "#";
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        base_t += "(";
+                        int pdepth = 1;
+                        while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                            else if (current.type == TokenType::TOKEN_RPAREN) {
+                                pdepth--;
+                                if (pdepth == 0) {
+                                    advance();
+                                    break;
+                                }
+                            }
+                            base_t += current.text;
+                            advance();
+                        }
+                        base_t += ")";
+                    }
+                } else if (match(TokenType::TOKEN_COLON_COLON)) {
+                    base_t += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::' in typedef");
                 }
             }
             bool is_sgn = (base_t == "integer" || base_t == "int" || base_t == "byte" || base_t == "shortint" || base_t == "longint" || base_t == "signed");
@@ -4858,7 +4939,13 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
                     if (p.name == base_t) { is_type_param = true; break; }
                 }
             }
-            if (!is_builtin && !struct_def && !enum_def && !has_sm && !is_class(base_t) && !is_forward_class(base_t) && !is_type_param) {
+            if (!is_type_param && current_parsing_module) {
+                for (const auto& p : current_parsing_module->parameters) {
+                    if (p.name == base_t) { is_type_param = true; break; }
+                }
+            }
+            bool is_scoped_or_param = (base_t.find("::") != std::string::npos) || (base_t.find('#') != std::string::npos);
+            if (!is_builtin && !struct_def && !enum_def && !has_sm && !is_class(base_t) && !is_forward_class(base_t) && !is_type_param && !is_scoped_or_param) {
                 throw std::runtime_error("Defining a type using undefined type '" + base_t + "' per IEEE 1800-2023 6.18");
             }
             if (struct_def) {
@@ -5440,7 +5527,40 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                         current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG ||
                         current.type == TokenType::TOKEN_WIRE ||
                         (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || is_type_identifier(current.text)))) {
+                        std::string def_type = current.text;
                         advance();
+                        while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_COLON_COLON || current.type == TokenType::TOKEN_HASH || current.type == TokenType::TOKEN_LBRACKET) {
+                            if (match(TokenType::TOKEN_LBRACKET)) {
+                                def_type += "[";
+                                parse_expression();
+                                if (match(TokenType::TOKEN_COLON)) parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in type parameter indexing");
+                                def_type += "]";
+                            } else if (match(TokenType::TOKEN_HASH)) {
+                                def_type += "#";
+                                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in type parameter default");
+                                def_type += "(";
+                                int paren_depth = 1;
+                                while (paren_depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                                    if (current.type == TokenType::TOKEN_LPAREN) paren_depth++;
+                                    else if (current.type == TokenType::TOKEN_RPAREN) {
+                                        paren_depth--;
+                                        if (paren_depth == 0) {
+                                            advance();
+                                            break;
+                                        }
+                                    }
+                                    def_type += current.text;
+                                    advance();
+                                }
+                                def_type += ")";
+                            } else {
+                                advance();
+                                def_type += "::" + current.text;
+                                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' or '::' in type parameter");
+                            }
+                        }
+                        pexpr = std::make_unique<IdentifierNode>(def_type);
                     } else {
                         pexpr = parse_expression();
                     }
@@ -6002,6 +6122,19 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
             while (true) {
                 std::string var_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected virtual interface variable name");
+                std::vector<std::pair<std::unique_ptr<ExpressionNode>, std::unique_ptr<ExpressionNode>>> unpacked_dims;
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                    } else {
+                        r = std::make_unique<NumberNode>(0, 32);
+                        l = std::make_unique<BinaryOpNode>("-", std::move(l), std::make_unique<NumberNode>(1, 32));
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    unpacked_dims.push_back({std::move(l), std::move(r)});
+                }
                 std::unique_ptr<ExpressionNode> init_expr = nullptr;
                 if (match(TokenType::TOKEN_EQUAL)) {
                     init_expr = parse_expression();
@@ -6013,6 +6146,7 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 mvar.is_virtual_interface = true;
                 mvar.interface_name = iface_name;
                 mvar.modport_name = modport_name;
+                mvar.unpacked_dimensions = std::move(unpacked_dims);
                 mvar.default_expr = std::move(init_expr);
                 cls->add_member_var(std::move(mvar));
                 if (match(TokenType::TOKEN_COMMA)) continue;
@@ -9448,138 +9582,133 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parameter override list");
         }
 
-        std::string iname = current.text;
-        expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
-        bool is_instance_array = false;
-        int64_t arr_msb = 0, arr_lsb = 0;
-        std::vector<std::pair<int64_t, int64_t>> inst_dims;
-        while (match(TokenType::TOKEN_LBRACKET)) {
-            is_instance_array = true;
-            int64_t d_msb = 0, d_lsb = 0;
-            auto r_msb = parse_expression();
-            if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) d_msb = num->aval;
-            else {
-                try {
-                    d_msb = (int64_t)eval_const_expr(r_msb.get());
-                } catch (...) {}
+        while (true) {
+            static uint64_t anon_gate_cnt = 0;
+            std::string iname;
+            if (current.type == TokenType::TOKEN_LPAREN) {
+                iname = "__cas_anon_inst_" + std::to_string(anon_gate_cnt++);
+            } else {
+                iname = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier");
             }
-            if (match(TokenType::TOKEN_COLON)) {
-                auto r_lsb = parse_expression();
-                if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) d_lsb = num->aval;
+            bool is_instance_array = false;
+            int64_t arr_msb = 0, arr_lsb = 0;
+            std::vector<std::pair<int64_t, int64_t>> inst_dims;
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                is_instance_array = true;
+                int64_t d_msb = 0, d_lsb = 0;
+                auto r_msb = parse_expression();
+                if (auto num = dynamic_cast<NumberNode*>(r_msb.get())) d_msb = num->aval;
                 else {
                     try {
-                        d_lsb = (int64_t)eval_const_expr(r_lsb.get());
+                        d_msb = (int64_t)eval_const_expr(r_msb.get());
                     } catch (...) {}
                 }
-            } else {
-                d_lsb = 0;
-                d_msb = d_msb > 0 ? (d_msb - 1) : 0;
-            }
-            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
-            inst_dims.push_back({d_msb, d_lsb});
-            arr_msb = d_msb;
-            arr_lsb = d_lsb;
-        }
-        if (match(TokenType::TOKEN_SEMICOLON)) {
-            if (is_instance_array) {
-                std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
-                    if (d_idx == inst_dims.size()) {
-                        auto inst = std::make_unique<InstantiationNode>(mtype, prefix, false);
-                        for (const auto& po : param_overrides) {
-                            inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
-                        }
-                        if (blk) blk->instantiations.push_back(std::move(inst));
-                        else mod->instantiations.push_back(std::move(inst));
-                        return;
+                if (match(TokenType::TOKEN_COLON)) {
+                    auto r_lsb = parse_expression();
+                    if (auto num = dynamic_cast<NumberNode*>(r_lsb.get())) d_lsb = num->aval;
+                    else {
+                        try {
+                            d_lsb = (int64_t)eval_const_expr(r_lsb.get());
+                        } catch (...) {}
                     }
-                    int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                    int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                    for (int64_t idx = low; idx <= high; ++idx) {
-                        expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
-                    }
-                };
-                expand_dims(0, iname);
-            } else {
-                auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
-                inst->param_overrides = std::move(param_overrides);
-                if (blk) blk->instantiations.push_back(std::move(inst));
-                else mod->instantiations.push_back(std::move(inst));
-            }
-            return;
-        }
-        expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
-
-        bool positional = false;
-        std::vector<PortConnection> conns;
-        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
-            if (match(TokenType::TOKEN_COMMA)) {
-                positional = true;
-                conns.push_back({"", nullptr});
-                continue;
-            }
-            if (match(TokenType::TOKEN_DOT)) {
-                if (match(TokenType::TOKEN_STAR)) {
-                    conns.push_back({"*", nullptr});
                 } else {
-                    std::string port_name = current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected port name after '.'");
-                    if (match(TokenType::TOKEN_LPAREN)) {
-                        std::unique_ptr<ExpressionNode> expr = nullptr;
-                        if (current.type != TokenType::TOKEN_RPAREN) {
-                            expr = parse_expression();
+                    d_lsb = 0;
+                    d_msb = d_msb > 0 ? (d_msb - 1) : 0;
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in instance range");
+                inst_dims.push_back({d_msb, d_lsb});
+                arr_msb = d_msb;
+                arr_lsb = d_lsb;
+            }
+            if (match(TokenType::TOKEN_SEMICOLON)) {
+                if (is_instance_array) {
+                    std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
+                        if (d_idx == inst_dims.size()) {
+                            auto inst = std::make_unique<InstantiationNode>(mtype, prefix, false);
+                            for (const auto& po : param_overrides) {
+                                inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                            }
+                            if (blk) blk->instantiations.push_back(std::move(inst));
+                            else mod->instantiations.push_back(std::move(inst));
+                            return;
                         }
-                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
-                        conns.push_back({port_name, std::move(expr)});
-                    } else {
-                        PortConnection pc;
-                        pc.port_name = port_name;
-                        pc.expr = std::make_unique<IdentifierNode>(port_name);
-                        pc.is_implicit_name_only = true;
-                        conns.push_back(std::move(pc));
-                    }
-                }
-            } else {
-                positional = true;
-                auto expr = parse_expression();
-                conns.push_back({"", std::move(expr)});
-            }
-            if (match(TokenType::TOKEN_COMMA)) {
-                if (current.type == TokenType::TOKEN_COMMA) {
-                    positional = true;
-                    conns.push_back({"", nullptr});
-                    advance();
-                }
-                continue;
-            }
-            break;
-        }
-        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
-        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
-
-        if (is_instance_array) {
-            if (inst_dims.size() == 1) {
-                int64_t low = std::min(inst_dims[0].first, inst_dims[0].second);
-                int64_t high = std::max(inst_dims[0].first, inst_dims[0].second);
-                int64_t count = high - low + 1;
-                for (int64_t idx = low; idx <= high; ++idx) {
-                    std::string elem_name = iname + "[" + std::to_string(idx) + "]";
-                    auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
-                    inst->is_array_instance = true;
-                    inst->array_index = idx - low;
-                    inst->array_count = count;
+                        int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                        int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                        for (int64_t idx = low; idx <= high; ++idx) {
+                            expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
+                        }
+                    };
+                    expand_dims(0, iname);
+                } else {
+                    auto inst = std::make_unique<InstantiationNode>(mtype, iname, false);
                     for (const auto& po : param_overrides) {
                         inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
-                    }
-                    for (const auto& pc : conns) {
-                        inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
                     }
                     if (blk) blk->instantiations.push_back(std::move(inst));
                     else mod->instantiations.push_back(std::move(inst));
                 }
-            } else {
-                std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
-                    if (d_idx == inst_dims.size()) {
-                        auto inst = std::make_unique<InstantiationNode>(mtype, prefix, positional);
+                break;
+            }
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in instance port connections");
+
+            bool positional = false;
+            std::vector<PortConnection> conns;
+            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                if (match(TokenType::TOKEN_COMMA)) {
+                    positional = true;
+                    conns.push_back({"", nullptr});
+                    continue;
+                }
+                if (match(TokenType::TOKEN_DOT)) {
+                    if (match(TokenType::TOKEN_STAR)) {
+                        conns.push_back({"*", nullptr});
+                    } else {
+                        std::string port_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected port name after '.'");
+                        if (match(TokenType::TOKEN_LPAREN)) {
+                            std::unique_ptr<ExpressionNode> expr = nullptr;
+                            if (current.type != TokenType::TOKEN_RPAREN) {
+                                expr = parse_expression();
+                            }
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing port connection");
+                            conns.push_back({port_name, std::move(expr)});
+                        } else {
+                            PortConnection pc;
+                            pc.port_name = port_name;
+                            pc.expr = std::make_unique<IdentifierNode>(port_name);
+                            pc.is_implicit_name_only = true;
+                            conns.push_back(std::move(pc));
+                        }
+                    }
+                } else {
+                    positional = true;
+                    auto expr = parse_expression();
+                    conns.push_back({"", std::move(expr)});
+                }
+                if (match(TokenType::TOKEN_COMMA)) {
+                    if (current.type == TokenType::TOKEN_COMMA) {
+                        positional = true;
+                        conns.push_back({"", nullptr});
+                        advance();
+                    }
+                    continue;
+                }
+                break;
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing instance port connections");
+
+            if (is_instance_array) {
+                if (inst_dims.size() == 1) {
+                    int64_t low = std::min(inst_dims[0].first, inst_dims[0].second);
+                    int64_t high = std::max(inst_dims[0].first, inst_dims[0].second);
+                    int64_t count = high - low + 1;
+                    for (int64_t idx = low; idx <= high; ++idx) {
+                        std::string elem_name = iname + "[" + std::to_string(idx) + "]";
+                        auto inst = std::make_unique<InstantiationNode>(mtype, elem_name, positional);
+                        inst->is_array_instance = true;
+                        inst->array_index = idx - low;
+                        inst->array_count = count;
                         for (const auto& po : param_overrides) {
                             inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
                         }
@@ -9588,22 +9717,41 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                         }
                         if (blk) blk->instantiations.push_back(std::move(inst));
                         else mod->instantiations.push_back(std::move(inst));
-                        return;
                     }
-                    int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                    int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
-                    for (int64_t idx = low; idx <= high; ++idx) {
-                        expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
-                    }
-                };
-                expand_dims(0, iname);
+                } else {
+                    std::function<void(size_t, const std::string&)> expand_dims = [&](size_t d_idx, const std::string& prefix) {
+                        if (d_idx == inst_dims.size()) {
+                            auto inst = std::make_unique<InstantiationNode>(mtype, prefix, positional);
+                            for (const auto& po : param_overrides) {
+                                inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                            }
+                            for (const auto& pc : conns) {
+                                inst->connections.push_back({pc.port_name, pc.expr ? pc.expr->clone() : nullptr, pc.is_implicit_name_only});
+                            }
+                            if (blk) blk->instantiations.push_back(std::move(inst));
+                            else mod->instantiations.push_back(std::move(inst));
+                            return;
+                        }
+                        int64_t low = std::min(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                        int64_t high = std::max(inst_dims[d_idx].first, inst_dims[d_idx].second);
+                        for (int64_t idx = low; idx <= high; ++idx) {
+                            expand_dims(d_idx + 1, prefix + "[" + std::to_string(idx) + "]");
+                        }
+                    };
+                    expand_dims(0, iname);
+                }
+            } else {
+                auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
+                for (const auto& po : param_overrides) {
+                    inst->param_overrides.push_back({po.param_name, po.expr ? po.expr->clone() : nullptr});
+                }
+                inst->connections = std::move(conns);
+                if (blk) blk->instantiations.push_back(std::move(inst));
+                else mod->instantiations.push_back(std::move(inst));
             }
-        } else {
-            auto inst = std::make_unique<InstantiationNode>(mtype, iname, positional);
-            inst->param_overrides = std::move(param_overrides);
-            inst->connections = std::move(conns);
-            if (blk) blk->instantiations.push_back(std::move(inst));
-            else mod->instantiations.push_back(std::move(inst));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after instance");
+            break;
         }
         return;
     }

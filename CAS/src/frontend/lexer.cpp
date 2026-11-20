@@ -667,7 +667,8 @@ void Lexer::skip_whitespace_and_comments() {
                        directive == "default_trireg_strength" || directive == "autoexpand_vectornets" ||
                        directive == "accelerate" || directive == "noaccelerate" ||
                        directive == "expand_vectornets" || directive == "noexpand_vectornets" ||
-                       directive == "verilog" || directive == "protect" || directive == "endprotect") {
+                       directive == "verilog" || directive == "protect" || directive == "endprotect" ||
+                       directive == "uselib") {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
                 if (is_active) {

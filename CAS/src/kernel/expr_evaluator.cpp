@@ -3926,6 +3926,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 return LogicVal::make_string(val.to_ascii_string());
             }
 
+            std::string scoped_cls = scope.empty() ? target_type : (scope + "." + target_type);
+            if (engine.class_defs.count(target_type) || engine.class_defs.count(scoped_cls)) {
+                return val;
+            }
+
             if (!uarr && !st && !si) {
                 uint32_t param_w = 0;
                 if (engine.param_map.count(target_type)) param_w = static_cast<uint32_t>(engine.param_map.at(target_type));

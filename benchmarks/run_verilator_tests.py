@@ -81,19 +81,31 @@ class MockTest:
         self.has_compile = True
         if kwargs.get('fails'): self.fails = True
         if kwargs.get('expect_filename'): self.expect_filename = kwargs.get('expect_filename')
-        vflags = kwargs.get('verilator_flags2', [])
-        if isinstance(vflags, list):
-            for i, f in enumerate(vflags):
-                if not isinstance(f, str): continue
-                self.verilator_flags2.append(f)
-                if f == '--top-module' and i + 1 < len(vflags) and isinstance(vflags[i+1], str):
-                    self.top_module = vflags[i+1]
-                elif f.startswith('+define+'):
-                    self.defines.append(f[8:])
-                elif f.startswith('+incdir+'):
-                    self.includes.append(f[8:])
-                elif f == '-P' and i + 1 < len(vflags) and isinstance(vflags[i+1], str):
-                    self.parameters.append(vflags[i+1])
+        raw_flags = []
+        for k in ('verilator_flags', 'verilator_flags2'):
+            val = kwargs.get(k, [])
+            if isinstance(val, list):
+                raw_flags.extend(val)
+        tokens = []
+        for item in raw_flags:
+            if isinstance(item, str):
+                tokens.extend(item.split())
+        for i, f in enumerate(tokens):
+            self.verilator_flags2.append(f)
+            if f == '--top-module' and i + 1 < len(tokens):
+                self.top_module = tokens[i+1]
+            elif f.startswith('+define+'):
+                self.defines.append(f[8:])
+            elif f.startswith('-D'):
+                self.defines.append(f[2:])
+            elif f.startswith('+incdir+'):
+                self.includes.append(f[8:])
+            elif f.startswith('-I'):
+                self.includes.append(f[2:])
+            elif f == '-P' and i + 1 < len(tokens):
+                self.parameters.append(tokens[i+1])
+            elif f.startswith('-P'):
+                self.parameters.append(f[2:])
 
     def execute(self, **kwargs):
         self.has_execute = True
@@ -163,12 +175,14 @@ def read_inputs_v(filename):
             content = fh.read()
         m = re.search(r'\bmodule\s+t\b\s*(?:#\s*\([^)]*\)\s*)?(?:\((.*?)\))?;', content, re.DOTALL)
         if m and m.group(1):
-            for m_port in re.finditer(r'\binput\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m.group(1)):
-                inputs[m_port.group(1)] = m_port.group(1)
+            for m_port in re.finditer(r'\binput\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m.group(1)):
+                rng = m_port.group(1) or ""
+                inputs[m_port.group(2)] = rng.strip()
         m_body = re.search(r'\bmodule\s+t\b.*?\bendmodule\b', content, re.DOTALL)
         if m_body:
-            for m_inp in re.finditer(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(?:\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m_body.group(0), re.MULTILINE):
-                inputs[m_inp.group(1)] = m_inp.group(1)
+            for m_inp in re.finditer(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m_body.group(0), re.MULTILINE):
+                rng = m_inp.group(1) or ""
+                inputs[m_inp.group(2)] = rng.strip()
     except Exception:
         pass
     return inputs
@@ -317,11 +331,15 @@ def extract_error_signature(stdout):
     lines = stdout.splitlines()
     for line in lines:
         line_s = line.strip()
-        if any(kw in line_s for kw in ["[CAS Error", "[CAS Fatal", "syntax error", "Cannot resolve", "Semantic Error", "Elaboration Error", "Assertion failed"]):
+        if any(kw in line_s for kw in [
+            "[CAS Error", "[CAS ERROR]", "[CAS Fatal", "[CAS FATAL]",
+            "[CAS-DTINPCIL]", "[PREPROC-ERROR]", "[PREPROC-FATAL]",
+            "syntax error", "Cannot resolve", "Semantic Error", "Elaboration Error", "Assertion failed"
+        ]):
             return normalize_error_message(line_s)
         if "%Error" in line_s:
             return normalize_error_message(line_s)
-        if line_s.startswith("Error:"):
+        if line_s.startswith("Error:") or line_s.startswith("error:"):
             return normalize_error_message(line_s)
         if "Simulation Terminated at time" in line_s and ("$stop" in line_s or "$fatal" in line_s):
             return normalize_error_message(line_s)
@@ -381,8 +399,11 @@ def run_single_test(test_info):
                 sim_time = 15000
             with tempfile.NamedTemporaryFile('w', suffix='_cas_top_wrapper.v', delete=False) as tf:
                 tf.write("module top;\n")
-                for inp in sorted(inputs.keys()):
-                    tf.write(f"    reg {inp};\n")
+                for inp, rng in sorted(inputs.items()):
+                    if rng:
+                        tf.write(f"    reg {rng} {inp};\n")
+                    else:
+                        tf.write(f"    reg {inp};\n")
                 tf.write("    t t (\n")
                 comma = ""
                 for inp in sorted(inputs.keys()):
