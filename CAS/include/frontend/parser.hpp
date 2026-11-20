@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include "lexer.hpp"
 #include "ast_base.hpp"
 #include "ast_expr.hpp"
@@ -856,6 +857,7 @@ public:
     void parse_generate_item(ModuleNode* mod, GenerateBlock* blk);
 
     std::unique_ptr<ExpressionNode> parse_expression();
+    std::vector<std::unique_ptr<ExpressionNode>> parse_inline_constraint_block();
     std::unique_ptr<ExpressionNode> parse_logical_implies_equiv();
     std::unique_ptr<ExpressionNode> parse_logical_or();
     std::unique_ptr<ExpressionNode> parse_logical_and();

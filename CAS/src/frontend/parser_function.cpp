@@ -216,7 +216,13 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
             bool has_explicit_dir = false;
             std::string dir = has_prev_arg ? prev_dir : "input";
-            if (match(TokenType::TOKEN_INPUT)) { dir = "input"; has_explicit_dir = true; }
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+                advance();
+                if (match(TokenType::TOKEN_REF)) {
+                    dir = "ref";
+                    has_explicit_dir = true;
+                }
+            } else if (match(TokenType::TOKEN_INPUT)) { dir = "input"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_OUTPUT)) { dir = "output"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_INOUT)) { dir = "inout"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_REF)) { dir = "ref"; has_explicit_dir = true; }
@@ -540,9 +546,13 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
 
     while (current.type != TokenType::TOKEN_ENDFUNCTION && current.type != TokenType::TOKEN_EOF) {
         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT ||
-            current.type == TokenType::TOKEN_INOUT || current.type == TokenType::TOKEN_REF) {
+            current.type == TokenType::TOKEN_INOUT || current.type == TokenType::TOKEN_REF ||
+            (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const")) {
             std::string dir = "input";
-            if (match(TokenType::TOKEN_INPUT)) dir = "input";
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+                advance();
+                if (match(TokenType::TOKEN_REF)) dir = "ref";
+            } else if (match(TokenType::TOKEN_INPUT)) dir = "input";
             else if (match(TokenType::TOKEN_OUTPUT)) dir = "output";
             else if (match(TokenType::TOKEN_INOUT)) dir = "inout";
             else if (match(TokenType::TOKEN_REF)) dir = "ref";

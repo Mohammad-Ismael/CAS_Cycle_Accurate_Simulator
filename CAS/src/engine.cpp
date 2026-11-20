@@ -1039,6 +1039,16 @@ static void bind_ast_stmt(StatementNode* stmt, const std::string& scope, const E
     }
 
     if (auto ev_ctl = dynamic_cast<EventControlStatementNode*>(stmt)) {
+        for (const auto& idx : ev_ctl->index_exprs) {
+            if (idx) bind_ast_expr(idx.get(), scope, engine);
+        }
+        return;
+    }
+
+    if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
+        for (const auto& idx : trig->index_exprs) {
+            if (idx) bind_ast_expr(idx.get(), scope, engine);
+        }
         return;
     }
 

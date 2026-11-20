@@ -2138,7 +2138,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     }
 
     if (auto trig = dynamic_cast<EventTriggerStatementNode*>(stmt)) {
-        engine.scheduler.trigger_named_event(trig->event_name, bp.scope, trig->is_nonblocking);
+        std::string ev_name = trig->event_name;
+        for (const auto& idx : trig->index_exprs) {
+            if (idx) {
+                auto val = expr_eval.eval(idx.get(), bp.scope);
+                if (val.is_string) {
+                    ev_name += "[" + val.str_val + "]";
+                } else {
+                    ev_name += "[" + std::to_string(val.aval) + "]";
+                }
+            }
+        }
+        engine.scheduler.trigger_named_event(ev_name, bp.scope, trig->is_nonblocking);
         return;
     }
 
@@ -5881,14 +5892,15 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     bool is_shallow_copy = false;
                     if (new_node->is_shallow_copy && new_node->args.size() == 1 && new_node->arg_names.empty()) {
                         LogicVal arg_v = eval_expr(new_node->args[0].get(), bp.scope);
-                        if (arg_v.aval != 0) {
-                            auto src_obj = engine.get_class_object(arg_v.aval);
-                            if (src_obj) {
-                                obj->properties = src_obj->properties;
-                                obj->dynamic_arrays = src_obj->dynamic_arrays;
-                                obj->virtual_interfaces = src_obj->virtual_interfaces;
-                                is_shallow_copy = true;
-                            }
+                        if (arg_v.aval == 0) {
+                            throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: shallow copy of null class handle per IEEE 1800-2023 section 8.7");
+                        }
+                        auto src_obj = engine.get_class_object(arg_v.aval);
+                        if (src_obj) {
+                            obj->properties = src_obj->properties;
+                            obj->dynamic_arrays = src_obj->dynamic_arrays;
+                            obj->virtual_interfaces = src_obj->virtual_interfaces;
+                            is_shallow_copy = true;
                         }
                     }
                     if (!is_shallow_copy) {
@@ -6017,10 +6029,28 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     if (h_local && h_local->is_class_handle) {
                         obj = engine.get_class_object(h_local->value.aval).get();
+                        if (!obj) {
+                            std::string ctype = h_local->class_type_name;
+                            auto it_cls = engine.class_defs.find(ctype);
+                            if (it_cls != engine.class_defs.end() && it_cls->second && it_cls->second->has_static_member(member_name)) {
+                                engine.set_class_static_var(ctype, member_name, rhs_val);
+                                return;
+                            }
+                            throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: accessing member '" + member_name + "' of null handle per IEEE 1800-2023 section 8.4");
+                        }
                     } else {
                         size_t nid = engine.get_net_id(bp.scope, base_var);
                         if (nid != (size_t)-1 && engine.netlist[nid].is_class_handle) {
                             obj = engine.get_class_object(engine.netlist[nid].value.aval).get();
+                            if (!obj) {
+                                std::string ctype = engine.netlist[nid].type_name;
+                                auto it_cls = engine.class_defs.find(ctype);
+                                if (it_cls != engine.class_defs.end() && it_cls->second && it_cls->second->has_static_member(member_name)) {
+                                    engine.set_class_static_var(ctype, member_name, rhs_val);
+                                    return;
+                                }
+                                throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: accessing member '" + member_name + "' of null handle per IEEE 1800-2023 section 8.4");
+                            }
                         }
                     }
                 }

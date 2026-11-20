@@ -1733,9 +1733,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
                 std::string clk_sig = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected clock signal identifier");
-                while (match(TokenType::TOKEN_DOT)) {
-                    clk_sig += "." + current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in clocking signal");
+                while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_COLON_COLON) {
+                    std::string sep = (current.type == TokenType::TOKEN_COLON_COLON) ? "::" : ".";
+                    advance();
+                    clk_sig += sep + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in clocking signal");
+                }
+                if (current.type == TokenType::TOKEN_IFF || current.text == "iff") {
+                    advance();
+                    parse_expression();
                 }
                 expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clocking event");
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after clocking header");
@@ -2197,6 +2203,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string ev_name = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier");
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    }
                     mod->events.push_back(ev_name);
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
@@ -2352,6 +2362,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 ((peek_token().type != TokenType::TOKEN_COLON_COLON && is_class(current.text)) || 
                  (peek_token().type == TokenType::TOKEN_COLON_COLON && is_class(maybe_cls_ident)))) {
                 std::string class_type = parse_class_type_and_specialize();
+                while (match(TokenType::TOKEN_COLON_COLON)) {
+                    class_type += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+                    if (match(TokenType::TOKEN_HASH)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in specialization");
+                        int pdepth = 1;
+                        while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                            else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                            advance();
+                        }
+                    }
+                }
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected class handle identifier");
@@ -4107,14 +4130,19 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             }
                             std::string sig = current.text;
                             expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
-                            while (match(TokenType::TOKEN_DOT)) {
-                                sig += "." + current.text;
-                                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
-                            }
-                            while (match(TokenType::TOKEN_LBRACKET)) {
-                                parse_expression();
-                                if (match(TokenType::TOKEN_COLON)) parse_expression();
-                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in sensitivity list select");
+                            while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                                if (match(TokenType::TOKEN_DOT)) {
+                                    sig += "." + current.text;
+                                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                                } else if (match(TokenType::TOKEN_LBRACKET)) {
+                                    sig += "[" + current.text;
+                                    advance();
+                                    while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) {
+                                        sig += current.text;
+                                        advance();
+                                    }
+                                    if (match(TokenType::TOKEN_RBRACKET)) sig += "]";
+                                }
                             }
                             if (match(TokenType::TOKEN_IFF)) {
                                 parse_expression();
@@ -4176,6 +4204,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     continue;
                 }
+            }
+
+            if (current.type == TokenType::TOKEN_CLOCKING || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "clocking")) {
+                advance();
+                if (current.type == TokenType::TOKEN_DEFAULT) advance();
+                if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                while (current.type != TokenType::TOKEN_ENDCLOCKING && current.type != TokenType::TOKEN_EOF) advance();
+                if (match(TokenType::TOKEN_ENDCLOCKING)) {}
+                continue;
             }
 
             if (current.type == TokenType::TOKEN_IDENTIFIER) {
@@ -7314,6 +7351,21 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing event trigger");
     }
 
+    if (match(TokenType::TOKEN_WITH)) {
+        if (current.type == TokenType::TOKEN_FUNCTION || current.text == "function") {
+            advance();
+        }
+        if (current.text == "sample") {
+            advance();
+        }
+        if (match(TokenType::TOKEN_LPAREN)) {
+            while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing sample argument list");
+        }
+    }
+
     expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after covergroup header");
 
     while (current.type != TokenType::TOKEN_ENDGROUP && current.type != TokenType::TOKEN_EOF) {
@@ -7384,6 +7436,15 @@ std::unique_ptr<CovergroupNode> Parser::parse_covergroup() {
                             match(TokenType::TOKEN_COMMA);
                         }
                         expect(TokenType::TOKEN_RBRACE, "Expected '}' closing bin values");
+                        if (match(TokenType::TOKEN_WITH)) {
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                            int pdepth = 1;
+                            while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                                if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                                else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                                advance();
+                            }
+                        }
                         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after bin declaration");
                         cp->bins.push_back(std::make_unique<CovergroupBinNode>(bin_name, std::move(bin_ranges)));
                     } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "option") {
@@ -8198,6 +8259,10 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
             while (true) {
                 std::string ev_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected event identifier in package");
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                }
                 pkg->events.push_back(ev_name);
                 if (match(TokenType::TOKEN_COMMA)) continue;
                 break;
@@ -9368,14 +9433,19 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                     }
                     std::string sig = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal name in sensitivity list");
-                    while (match(TokenType::TOKEN_DOT)) {
-                        sig += "." + current.text;
-                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
-                    }
-                    while (match(TokenType::TOKEN_LBRACKET)) {
-                        parse_expression();
-                        if (match(TokenType::TOKEN_COLON)) parse_expression();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in sensitivity list select");
+                    while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                        if (match(TokenType::TOKEN_DOT)) {
+                            sig += "." + current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in sensitivity list");
+                        } else if (match(TokenType::TOKEN_LBRACKET)) {
+                            sig += "[" + current.text;
+                            advance();
+                            while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) {
+                                sig += current.text;
+                                advance();
+                            }
+                            if (match(TokenType::TOKEN_RBRACKET)) sig += "]";
+                        }
                     }
                     if (match(TokenType::TOKEN_IFF)) {
                         parse_expression();
@@ -9550,6 +9620,15 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             }
             return;
         }
+    }
+
+    if (current.type == TokenType::TOKEN_CLOCKING || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "clocking")) {
+        advance();
+        if (current.type == TokenType::TOKEN_DEFAULT) advance();
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+        while (current.type != TokenType::TOKEN_ENDCLOCKING && current.type != TokenType::TOKEN_EOF) advance();
+        if (match(TokenType::TOKEN_ENDCLOCKING)) {}
+        return;
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER) {

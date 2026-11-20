@@ -3389,14 +3389,15 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             bool is_shallow_copy = false;
             if (cnew->is_shallow_copy && cnew->args.size() == 1 && cnew->arg_names.empty()) {
                 LogicVal arg_v = eval(cnew->args[0].get(), scope);
-                if (arg_v.aval != 0) {
-                    auto src_obj = engine.get_class_object(arg_v.aval);
-                    if (src_obj) {
-                        obj->properties = src_obj->properties;
-                        obj->dynamic_arrays = src_obj->dynamic_arrays;
-                        obj->virtual_interfaces = src_obj->virtual_interfaces;
-                        is_shallow_copy = true;
-                    }
+                if (arg_v.aval == 0) {
+                    throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: shallow copy of null class handle per IEEE 1800-2023 section 8.7");
+                }
+                auto src_obj = engine.get_class_object(arg_v.aval);
+                if (src_obj) {
+                    obj->properties = src_obj->properties;
+                    obj->dynamic_arrays = src_obj->dynamic_arrays;
+                    obj->virtual_interfaces = src_obj->virtual_interfaces;
+                    is_shallow_copy = true;
                 }
             }
             if (!is_shallow_copy) {
@@ -5683,6 +5684,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (it_cls != engine.class_defs.end() && it_cls->second && it_cls->second->has_static_member(member_name)) {
                     return engine.get_class_static_var(ctype, member_name);
                 }
+                throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: accessing member '" + member_name + "' of null handle per IEEE 1800-2023 section 8.4");
             }
         }
         if (!cl_obj && var_name.find('[') != std::string::npos) {

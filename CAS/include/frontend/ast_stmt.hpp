@@ -10,6 +10,7 @@
 struct EventControlStatementNode : public StatementNode {
     EdgeType edge = EdgeType::LEVEL;
     std::string signal_name;
+    std::vector<std::unique_ptr<ExpressionNode>> index_exprs;
     std::vector<std::pair<EdgeType, std::string>> events;
 
     EventControlStatementNode(EdgeType e, std::string sig)
@@ -17,6 +18,9 @@ struct EventControlStatementNode : public StatementNode {
 
     std::unique_ptr<StatementNode> clone() const override {
         auto node = std::make_unique<EventControlStatementNode>(edge, signal_name);
+        for (const auto& idx : index_exprs) {
+            if (idx) node->index_exprs.push_back(idx->clone());
+        }
         node->events = events;
         return node;
     }
@@ -675,13 +679,18 @@ struct WaitForkStatementNode : public StatementNode {
 
 struct EventTriggerStatementNode : public StatementNode {
     std::string event_name;
+    std::vector<std::unique_ptr<ExpressionNode>> index_exprs;
     bool is_nonblocking = false;
 
     EventTriggerStatementNode(std::string name, bool nb = false)
         : event_name(std::move(name)), is_nonblocking(nb) {}
 
     std::unique_ptr<StatementNode> clone() const override {
-        return std::make_unique<EventTriggerStatementNode>(event_name, is_nonblocking);
+        auto node = std::make_unique<EventTriggerStatementNode>(event_name, is_nonblocking);
+        for (const auto& idx : index_exprs) {
+            if (idx) node->index_exprs.push_back(idx->clone());
+        }
+        return node;
     }
 };
 

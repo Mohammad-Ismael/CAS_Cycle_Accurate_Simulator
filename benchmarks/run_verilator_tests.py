@@ -214,6 +214,11 @@ def load_all_tests(test_filter=None):
         has_sc = '--sc' in all_flags or 'sc_time' in all_flags
         is_dpi_vpi = tname.startswith('t_dpi_') or tname.startswith('t_vpi_') or tname.startswith('t_vpi')
         is_cli_flag_only = any(f.startswith('--debug') or f in ('-V', '--version', '--help', '--gdbbt') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
+        is_tool_internal = (
+            any(f in ('-V', '--version', '--help', '--gdbbt', '--lib-create', '--protect-ids', '--hierarchical-block', '--savable') or f.startswith('--debug') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
+            or tname.startswith(('t_savable_', 't_hier_block', 't_runflag', 't_protect_ids', 't_lib_create'))
+            or '--savable' in all_flags or '--hierarchical-block' in all_flags or '--lib-create' in all_flags or '--protect-ids' in all_flags
+        )
         is_coverage = '--coverage' in all_flags or tname.startswith('t_vlcov_') or tname.startswith('t_cover_')
 
         if not os.path.exists(t.top_filename):
@@ -228,7 +233,7 @@ def load_all_tests(test_filter=None):
         if has_cpp:
             skipped_counts['exe_cpp'] += 1
             continue
-        if (t.has_lint and not t.has_compile and not t.has_execute) or '--lint-only' in all_flags or is_cli_flag_only or is_coverage:
+        if (t.has_lint and not t.has_compile and not t.has_execute) or '--lint-only' in all_flags or is_cli_flag_only or is_tool_internal or is_coverage:
             skipped_counts['lint_only'] += 1
             continue
 

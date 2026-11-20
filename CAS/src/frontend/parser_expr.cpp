@@ -486,35 +486,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         }
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
                     }
-                    expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
-                    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                        if (match(TokenType::TOKEN_SEMICOLON)) continue;
-                        if (match(TokenType::TOKEN_SOFT)) {}
-                        auto expr = parse_expression();
-                        if (match(TokenType::TOKEN_DIST)) {
-                            expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
-                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                                if (match(TokenType::TOKEN_LBRACKET)) {
-                                    parse_expression();
-                                    expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
-                                    parse_expression();
-                                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
-                                } else {
-                                    parse_expression();
-                                }
-                                if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
-                                    parse_expression();
-                                }
-                                if (match(TokenType::TOKEN_COMMA)) continue;
-                            }
-                            expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
-                        }
-                        if (expr) {
-                            inline_constraints.push_back(std::move(expr));
-                        }
-                        match(TokenType::TOKEN_SEMICOLON);
-                    }
-                    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
+                    inline_constraints = parse_inline_constraint_block();
                 }
                 std::unique_ptr<ExpressionNode> rand_target = (path == "this") ?
                     std::unique_ptr<ExpressionNode>(std::make_unique<ThisNode>()) :
@@ -888,15 +860,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             }
             std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
             if (match(TokenType::TOKEN_WITH)) {
-                expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
-                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                    auto expr = parse_expression();
-                    if (expr) {
-                        inline_constraints.push_back(std::move(expr));
-                    }
-                    match(TokenType::TOKEN_SEMICOLON);
-                }
-                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
+                inline_constraints = parse_inline_constraint_block();
             }
             return std::make_unique<RandomizeCallNode>(std::make_unique<ThisNode>(), std::move(inline_constraints));
         }
@@ -1023,35 +987,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         }
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with argument list");
                     }
-                    expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
-                    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                        if (match(TokenType::TOKEN_SEMICOLON)) continue;
-                        if (match(TokenType::TOKEN_SOFT)) {}
-                        auto expr = parse_expression();
-                        if (match(TokenType::TOKEN_DIST)) {
-                            expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
-                            while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
-                                if (match(TokenType::TOKEN_LBRACKET)) {
-                                    parse_expression();
-                                    expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
-                                    parse_expression();
-                                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
-                                } else {
-                                    parse_expression();
-                                }
-                                if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
-                                    parse_expression();
-                                }
-                                if (match(TokenType::TOKEN_COMMA)) continue;
-                            }
-                            expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
-                        }
-                        if (expr) {
-                            inline_constraints.push_back(std::move(expr));
-                        }
-                        match(TokenType::TOKEN_SEMICOLON);
-                    }
-                    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
+                    inline_constraints = parse_inline_constraint_block();
                 }
                 return std::make_unique<RandomizeCallNode>(std::make_unique<IdentifierNode>(name), std::move(inline_constraints));
             }
@@ -1593,7 +1529,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         ma->has_member_select = true;
                     }
                 }
-                return ma;
+                std::unique_ptr<ExpressionNode> expr_res = std::move(ma);
+                while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                    if (match(TokenType::TOKEN_DOT)) {
+                        std::string sub_mem = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                        auto member_node = std::make_unique<MemberAccessNode>("", sub_mem);
+                        member_node->index_expr = std::move(expr_res);
+                        expr_res = std::move(member_node);
+                    } else if (match(TokenType::TOKEN_LBRACKET)) {
+                        auto msb = parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            auto lsb = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                            node->index_expr = std::move(expr_res);
+                            expr_res = std::move(node);
+                        } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                            auto width = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                            node->is_plus_colon = true;
+                            node->index_expr = std::move(expr_res);
+                            expr_res = std::move(node);
+                        } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                            auto width = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                            node->is_minus_colon = true;
+                            node->index_expr = std::move(expr_res);
+                            expr_res = std::move(node);
+                        } else {
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                            node->index_expr = std::move(expr_res);
+                            expr_res = std::move(node);
+                        }
+                    }
+                }
+                return expr_res;
             }
             auto idx_node = std::make_unique<IndexSelectNode>(name, std::move(msb));
             if (match(TokenType::TOKEN_LBRACKET)) {
@@ -2195,12 +2169,146 @@ std::unique_ptr<ExpressionNode> Parser::parse_logical_implies_equiv() {
     auto lhs = parse_logical_or();
 
     while (current.type == TokenType::TOKEN_TRIGGER || current.type == TokenType::TOKEN_EQUIV) {
+        if (current.type == TokenType::TOKEN_TRIGGER) {
+            TokenType nxt = peek_token().type;
+            if (nxt == TokenType::TOKEN_LBRACE || nxt == TokenType::TOKEN_IF ||
+                nxt == TokenType::TOKEN_FOREACH || nxt == TokenType::TOKEN_UNIQUE ||
+                nxt == TokenType::TOKEN_SOFT || nxt == TokenType::TOKEN_DISABLE) {
+                // In constraint contexts, '-> {' or '-> if' or '-> foreach' is a constraint block / statement, not a binary expression
+                break;
+            }
+        }
         std::string op = current.text;
         advance();
         auto rhs = parse_logical_or();
         lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
     }
     return lhs;
+}
+
+std::vector<std::unique_ptr<ExpressionNode>> Parser::parse_inline_constraint_block() {
+    std::vector<std::unique_ptr<ExpressionNode>> inline_constraints;
+    expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'with'");
+
+    std::function<void(std::vector<std::unique_ptr<ExpressionNode>>&)> parse_item =
+        [&](std::vector<std::unique_ptr<ExpressionNode>>& out_exprs) {
+            if (match(TokenType::TOKEN_SEMICOLON)) return;
+            if (match(TokenType::TOKEN_SOFT)) {}
+            if (match(TokenType::TOKEN_UNIQUE)) {
+                expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'unique'");
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    parse_expression();
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing unique constraint list");
+                match(TokenType::TOKEN_SEMICOLON);
+                return;
+            }
+            if (match(TokenType::TOKEN_FOREACH)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'foreach' in constraint");
+                while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) advance();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing foreach in constraint");
+                if (match(TokenType::TOKEN_LBRACE)) {
+                    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                        parse_item(out_exprs);
+                    }
+                    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing foreach constraint block");
+                } else {
+                    parse_item(out_exprs);
+                }
+                return;
+            }
+            if (current.type == TokenType::TOKEN_IF) {
+                advance(); // consume 'if'
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'if' in constraint");
+                auto cond = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' after condition in constraint");
+                std::vector<std::unique_ptr<ExpressionNode>> then_exprs;
+                if (match(TokenType::TOKEN_LBRACE)) {
+                    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                        parse_item(then_exprs);
+                    }
+                    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing constraint if-block");
+                } else {
+                    parse_item(then_exprs);
+                }
+                std::vector<std::unique_ptr<ExpressionNode>> else_exprs;
+                if (match(TokenType::TOKEN_ELSE)) {
+                    if (match(TokenType::TOKEN_LBRACE)) {
+                        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                            parse_item(else_exprs);
+                        }
+                        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing constraint else-block");
+                    } else {
+                        parse_item(else_exprs);
+                    }
+                }
+                for (auto& t : then_exprs) {
+                    auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                    auto tern = std::make_unique<TernaryOpNode>(cond ? cond->clone() : nullptr, std::move(t), std::move(true_node));
+                    out_exprs.push_back(std::move(tern));
+                }
+                for (auto& e : else_exprs) {
+                    auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                    auto tern = std::make_unique<TernaryOpNode>(cond ? cond->clone() : nullptr, std::move(true_node), std::move(e));
+                    out_exprs.push_back(std::move(tern));
+                }
+                return;
+            }
+            auto expr = parse_expression();
+            if (match(TokenType::TOKEN_TRIGGER)) {
+                if (match(TokenType::TOKEN_LBRACE)) {
+                    std::vector<std::unique_ptr<ExpressionNode>> imp_exprs;
+                    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                        parse_item(imp_exprs);
+                    }
+                    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing implication block");
+                    for (auto& ie : imp_exprs) {
+                        auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                        auto tern = std::make_unique<TernaryOpNode>(expr ? expr->clone() : nullptr, std::move(ie), std::move(true_node));
+                        out_exprs.push_back(std::move(tern));
+                    }
+                    return;
+                } else {
+                    std::vector<std::unique_ptr<ExpressionNode>> imp_exprs;
+                    parse_item(imp_exprs);
+                    for (auto& ie : imp_exprs) {
+                        auto true_node = std::make_unique<NumberNode>(1, 1, 0);
+                        auto tern = std::make_unique<TernaryOpNode>(expr ? expr->clone() : nullptr, std::move(ie), std::move(true_node));
+                        out_exprs.push_back(std::move(tern));
+                    }
+                    return;
+                }
+            }
+            if (match(TokenType::TOKEN_DIST)) {
+                expect(TokenType::TOKEN_LBRACE, "Expected '{' after 'dist'");
+                while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        parse_expression();
+                        expect(TokenType::TOKEN_COLON, "Expected ':' in dist range");
+                        parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dist range");
+                    } else {
+                        parse_expression();
+                    }
+                    if (match(TokenType::TOKEN_COLON_EQ) || match(TokenType::TOKEN_COLON_DIV)) {
+                        parse_expression();
+                    }
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' after dist list");
+            }
+            if (expr) {
+                out_exprs.push_back(std::move(expr));
+            }
+            match(TokenType::TOKEN_SEMICOLON);
+        };
+
+    while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+        parse_item(inline_constraints);
+    }
+    expect(TokenType::TOKEN_RBRACE, "Expected '}' closing inline constraint block");
+    return inline_constraints;
 }
 
 std::unique_ptr<ExpressionNode> Parser::parse_expression() {

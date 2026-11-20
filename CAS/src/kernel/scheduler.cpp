@@ -4244,6 +4244,17 @@ void StratifiedScheduler::trigger_named_event(const std::string& ev_name, const 
         ev_id = engine.named_event_map.at(scoped_name);
     } else if (engine.named_event_map.find(ev_name) != engine.named_event_map.end()) {
         ev_id = engine.named_event_map.at(ev_name);
+    } else if (ev_name.find('[') != std::string::npos) {
+        std::string base = ev_name.substr(0, ev_name.find('['));
+        std::string scoped_base = scope.empty() ? base : (scope + "." + base);
+        if (engine.named_event_map.count(scoped_base) || engine.named_event_map.count(base)) {
+            ev_id = engine.named_events.size();
+            engine.named_events.push_back({scoped_name, (uint64_t)-1, {}});
+            engine.named_event_map[scoped_name] = ev_id;
+            if (engine.named_event_map.find(ev_name) == engine.named_event_map.end()) {
+                engine.named_event_map[ev_name] = ev_id;
+            }
+        }
     }
 
     if (ev_id == (size_t)-1) return;
@@ -4457,12 +4468,34 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // Procedural Event Control inside task: @(...)
             if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
-                std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                std::string resolved_sig = ev_stmt->signal_name;
+                for (const auto& idx : ev_stmt->index_exprs) {
+                    if (idx) {
+                        auto val = engine.evaluator.get_expr_eval().eval(idx.get(), bp.scope);
+                        if (val.is_string) {
+                            resolved_sig += "[" + val.str_val + "]";
+                        } else {
+                            resolved_sig += "[" + std::to_string(val.aval) + "]";
+                        }
+                    }
+                }
+                std::string scoped_sig = bp.scope.empty() ? resolved_sig : (bp.scope + "." + resolved_sig);
                 size_t ev_id = (size_t)-1;
                 if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
                     ev_id = engine.named_event_map.at(scoped_sig);
-                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
-                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                } else if (engine.named_event_map.find(resolved_sig) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(resolved_sig);
+                } else if (!ev_stmt->index_exprs.empty() || resolved_sig.find('[') != std::string::npos) {
+                    std::string base = ev_stmt->signal_name;
+                    std::string scoped_base = bp.scope.empty() ? base : (bp.scope + "." + base);
+                    if (engine.named_event_map.count(scoped_base) || engine.named_event_map.count(base)) {
+                        ev_id = engine.named_events.size();
+                        engine.named_events.push_back({scoped_sig, (uint64_t)-1, {}});
+                        engine.named_event_map[scoped_sig] = ev_id;
+                        if (engine.named_event_map.find(resolved_sig) == engine.named_event_map.end()) {
+                            engine.named_event_map[resolved_sig] = ev_id;
+                        }
+                    }
                 }
                 if (ev_id != (size_t)-1) {
                     cur_frame.pc++;
@@ -4473,14 +4506,14 @@ void StratifiedScheduler::step_process(size_t pid) {
 
                 LocalVar* local = nullptr;
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
-                    local = it->local_frame.get_var(ev_stmt->signal_name);
+                    local = it->local_frame.get_var(resolved_sig);
                     if (local) break;
                 }
                 if (local) {
                     cur_frame.pc++;
                     bp.wait_target.active = true;
                     bp.wait_target.edge = ev_stmt->edge;
-                    bp.wait_target.signal_name = ev_stmt->signal_name;
+                    bp.wait_target.signal_name = resolved_sig;
                     bp.wait_target.net_id = (size_t)-1;
                     bp.wait_target.target_local = local;
                     bp.wait_target.initial_local_cc = local->change_counter;
@@ -4488,17 +4521,17 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
 
                 size_t net_id = (size_t)-1;
-                auto dot_p = ev_stmt->signal_name.find('.');
+                auto dot_p = resolved_sig.find('.');
                 if (dot_p != std::string::npos) {
-                    std::string base = ev_stmt->signal_name.substr(0, dot_p);
-                    std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                    std::string base = resolved_sig.substr(0, dot_p);
+                    std::string mem = resolved_sig.substr(dot_p + 1);
                     VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
                     if (vif.is_valid_vif) {
                         net_id = engine.resolve_vif_net_id(vif, mem);
                     }
                 }
                 if (net_id == (size_t)-1) {
-                    net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                    net_id = engine.get_net_id(bp.scope, resolved_sig);
                 }
                 if (net_id != (size_t)-1) {
                     cur_frame.pc++;
@@ -4726,10 +4759,21 @@ void StratifiedScheduler::step_process(size_t pid) {
 
             // 1. Procedural In-Body Event Control: @(...)
             if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
-                std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+                std::string resolved_sig = ev_stmt->signal_name;
+                for (const auto& idx : ev_stmt->index_exprs) {
+                    if (idx) {
+                        auto val = engine.evaluator.get_expr_eval().eval(idx.get(), bp.scope);
+                        if (val.is_string) {
+                            resolved_sig += "[" + val.str_val + "]";
+                        } else {
+                            resolved_sig += "[" + std::to_string(val.aval) + "]";
+                        }
+                    }
+                }
+                std::string scoped_sig = bp.scope.empty() ? resolved_sig : (bp.scope + "." + resolved_sig);
                 size_t ev_id = (size_t)-1;
                 for (const auto& kv : bp.active_explicit_imports) {
-                    if (kv.first == ev_stmt->signal_name) {
+                    if (kv.first == resolved_sig) {
                         std::string qname = kv.second.first + "::" + kv.second.second;
                         if (engine.named_event_map.count(qname)) {
                             ev_id = engine.named_event_map.at(qname);
@@ -4739,7 +4783,7 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
                 if (ev_id == (size_t)-1) {
                     for (const auto& pkg : bp.active_wildcard_imports) {
-                        std::string qname = pkg + "::" + ev_stmt->signal_name;
+                        std::string qname = pkg + "::" + resolved_sig;
                         if (engine.named_event_map.count(qname)) {
                             ev_id = engine.named_event_map.at(qname);
                             break;
@@ -4749,13 +4793,13 @@ void StratifiedScheduler::step_process(size_t pid) {
                 if (ev_id == (size_t)-1) {
                     if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
                         ev_id = engine.named_event_map.at(scoped_sig);
-                    } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
-                        ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                    } else if (engine.named_event_map.find(resolved_sig) != engine.named_event_map.end()) {
+                        ev_id = engine.named_event_map.at(resolved_sig);
                     }
                 }
                 if (ev_id == (size_t)-1) {
                     for (const auto& kv : bp.module_explicit_imports) {
-                        if (kv.first == ev_stmt->signal_name) {
+                        if (kv.first == resolved_sig) {
                             std::string qname = kv.second.first + "::" + kv.second.second;
                             if (engine.named_event_map.count(qname)) {
                                 ev_id = engine.named_event_map.at(qname);
@@ -4765,11 +4809,23 @@ void StratifiedScheduler::step_process(size_t pid) {
                     }
                     if (ev_id == (size_t)-1) {
                         for (const auto& pkg : bp.module_wildcard_imports) {
-                            std::string qname = pkg + "::" + ev_stmt->signal_name;
+                            std::string qname = pkg + "::" + resolved_sig;
                             if (engine.named_event_map.count(qname)) {
                                 ev_id = engine.named_event_map.at(qname);
                                 break;
                             }
+                        }
+                    }
+                }
+                if (ev_id == (size_t)-1 && (!ev_stmt->index_exprs.empty() || resolved_sig.find('[') != std::string::npos)) {
+                    std::string base = ev_stmt->signal_name;
+                    std::string scoped_base = bp.scope.empty() ? base : (bp.scope + "." + base);
+                    if (engine.named_event_map.count(scoped_base) || engine.named_event_map.count(base)) {
+                        ev_id = engine.named_events.size();
+                        engine.named_events.push_back({scoped_sig, (uint64_t)-1, {}});
+                        engine.named_event_map[scoped_sig] = ev_id;
+                        if (engine.named_event_map.find(resolved_sig) == engine.named_event_map.end()) {
+                            engine.named_event_map[resolved_sig] = ev_id;
                         }
                     }
                 }
@@ -4782,14 +4838,14 @@ void StratifiedScheduler::step_process(size_t pid) {
 
                 LocalVar* local = nullptr;
                 for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
-                    local = it->local_frame.get_var(ev_stmt->signal_name);
+                    local = it->local_frame.get_var(resolved_sig);
                     if (local) break;
                 }
                 if (local) {
                     bp.pc++;
                     bp.wait_target.active = true;
                     bp.wait_target.edge = ev_stmt->edge;
-                    bp.wait_target.signal_name = ev_stmt->signal_name;
+                    bp.wait_target.signal_name = resolved_sig;
                     bp.wait_target.net_id = (size_t)-1;
                     bp.wait_target.target_local = local;
                     bp.wait_target.initial_local_cc = local->change_counter;
@@ -4797,17 +4853,17 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
 
                 size_t net_id = (size_t)-1;
-                auto dot_p = ev_stmt->signal_name.find('.');
+                auto dot_p = resolved_sig.find('.');
                 if (dot_p != std::string::npos) {
-                    std::string base = ev_stmt->signal_name.substr(0, dot_p);
-                    std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                    std::string base = resolved_sig.substr(0, dot_p);
+                    std::string mem = resolved_sig.substr(dot_p + 1);
                     VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
                     if (vif.is_valid_vif) {
                         net_id = engine.resolve_vif_net_id(vif, mem);
                     }
                 }
                 if (net_id == (size_t)-1) {
-                    net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                    net_id = engine.get_net_id(bp.scope, resolved_sig);
                 }
                 if (net_id == (size_t)-1) {
                     bp.pc++;
@@ -5146,10 +5202,21 @@ void StratifiedScheduler::step_process(size_t pid) {
 
         // 1. Procedural In-Body Event Control: @(...)
         if (auto ev_stmt = dynamic_cast<EventControlStatementNode*>(stmt)) {
-            std::string scoped_sig = bp.scope.empty() ? ev_stmt->signal_name : (bp.scope + "." + ev_stmt->signal_name);
+            std::string resolved_sig = ev_stmt->signal_name;
+            for (const auto& idx : ev_stmt->index_exprs) {
+                if (idx) {
+                    auto val = engine.evaluator.get_expr_eval().eval(idx.get(), bp.scope);
+                    if (val.is_string) {
+                        resolved_sig += "[" + val.str_val + "]";
+                    } else {
+                        resolved_sig += "[" + std::to_string(val.aval) + "]";
+                    }
+                }
+            }
+            std::string scoped_sig = bp.scope.empty() ? resolved_sig : (bp.scope + "." + resolved_sig);
             size_t ev_id = (size_t)-1;
             for (const auto& kv : bp.active_explicit_imports) {
-                if (kv.first == ev_stmt->signal_name) {
+                if (kv.first == resolved_sig) {
                     std::string qname = kv.second.first + "::" + kv.second.second;
                     if (engine.named_event_map.count(qname)) {
                         ev_id = engine.named_event_map.at(qname);
@@ -5159,7 +5226,7 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
             if (ev_id == (size_t)-1) {
                 for (const auto& pkg : bp.active_wildcard_imports) {
-                    std::string qname = pkg + "::" + ev_stmt->signal_name;
+                    std::string qname = pkg + "::" + resolved_sig;
                     if (engine.named_event_map.count(qname)) {
                         ev_id = engine.named_event_map.at(qname);
                         break;
@@ -5169,13 +5236,13 @@ void StratifiedScheduler::step_process(size_t pid) {
             if (ev_id == (size_t)-1) {
                 if (engine.named_event_map.find(scoped_sig) != engine.named_event_map.end()) {
                     ev_id = engine.named_event_map.at(scoped_sig);
-                } else if (engine.named_event_map.find(ev_stmt->signal_name) != engine.named_event_map.end()) {
-                    ev_id = engine.named_event_map.at(ev_stmt->signal_name);
+                } else if (engine.named_event_map.find(resolved_sig) != engine.named_event_map.end()) {
+                    ev_id = engine.named_event_map.at(resolved_sig);
                 }
             }
             if (ev_id == (size_t)-1) {
                 for (const auto& kv : bp.module_explicit_imports) {
-                    if (kv.first == ev_stmt->signal_name) {
+                    if (kv.first == resolved_sig) {
                         std::string qname = kv.second.first + "::" + kv.second.second;
                         if (engine.named_event_map.count(qname)) {
                             ev_id = engine.named_event_map.at(qname);
@@ -5185,11 +5252,23 @@ void StratifiedScheduler::step_process(size_t pid) {
                 }
                 if (ev_id == (size_t)-1) {
                     for (const auto& pkg : bp.module_wildcard_imports) {
-                        std::string qname = pkg + "::" + ev_stmt->signal_name;
+                        std::string qname = pkg + "::" + resolved_sig;
                         if (engine.named_event_map.count(qname)) {
                             ev_id = engine.named_event_map.at(qname);
                             break;
                         }
+                    }
+                }
+            }
+            if (ev_id == (size_t)-1 && (!ev_stmt->index_exprs.empty() || resolved_sig.find('[') != std::string::npos)) {
+                std::string base = ev_stmt->signal_name;
+                std::string scoped_base = bp.scope.empty() ? base : (bp.scope + "." + base);
+                if (engine.named_event_map.count(scoped_base) || engine.named_event_map.count(base)) {
+                    ev_id = engine.named_events.size();
+                    engine.named_events.push_back({scoped_sig, (uint64_t)-1, {}});
+                    engine.named_event_map[scoped_sig] = ev_id;
+                    if (engine.named_event_map.find(resolved_sig) == engine.named_event_map.end()) {
+                        engine.named_event_map[resolved_sig] = ev_id;
                     }
                 }
             }
@@ -5201,17 +5280,17 @@ void StratifiedScheduler::step_process(size_t pid) {
             }
 
             size_t net_id = (size_t)-1;
-            auto dot_p = ev_stmt->signal_name.find('.');
+            auto dot_p = resolved_sig.find('.');
             if (dot_p != std::string::npos) {
-                std::string base = ev_stmt->signal_name.substr(0, dot_p);
-                std::string mem = ev_stmt->signal_name.substr(dot_p + 1);
+                std::string base = resolved_sig.substr(0, dot_p);
+                std::string mem = resolved_sig.substr(dot_p + 1);
                 VirtualInterfaceHandle vif = engine.lookup_virtual_interface(base, bp.scope, engine.evaluator.get_expr_eval().get_current_this(), &bp);
                 if (vif.id != 0 || !vif.inst_path.empty()) {
                     net_id = engine.resolve_vif_net_id(vif, mem);
                 }
             }
             if (net_id == (size_t)-1) {
-                net_id = engine.get_net_id(bp.scope, ev_stmt->signal_name);
+                net_id = engine.get_net_id(bp.scope, resolved_sig);
             }
             if (net_id == (size_t)-1) {
                 bp.pc++;

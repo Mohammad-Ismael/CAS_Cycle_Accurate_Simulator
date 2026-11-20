@@ -46,7 +46,13 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
         while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
             bool has_explicit_dir = false;
             std::string dir = has_prev_arg ? prev_dir : "input";
-            if (match(TokenType::TOKEN_INPUT)) { dir = "input"; has_explicit_dir = true; }
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+                advance();
+                if (match(TokenType::TOKEN_REF)) {
+                    dir = "ref";
+                    has_explicit_dir = true;
+                }
+            } else if (match(TokenType::TOKEN_INPUT)) { dir = "input"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_OUTPUT)) { dir = "output"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_INOUT)) { dir = "inout"; has_explicit_dir = true; }
             else if (match(TokenType::TOKEN_REF)) { dir = "ref"; has_explicit_dir = true; }
