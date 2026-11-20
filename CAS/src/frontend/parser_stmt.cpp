@@ -190,6 +190,25 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         return std::make_unique<ContinueStatementNode>(f, l);
     }
 
+    // Optional Procedural Lifetime / Variable Qualifiers (§6.8, §8.4)
+    bool is_stmt_automatic = false;
+    bool is_stmt_static = false;
+    bool is_stmt_const = false;
+    if (match(TokenType::TOKEN_AUTOMATIC) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "automatic")) {
+        is_stmt_automatic = true;
+        if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "automatic") advance();
+    } else if (match(TokenType::TOKEN_STATIC) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "static")) {
+        is_stmt_static = true;
+        if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "static") advance();
+    }
+    if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
+        is_stmt_const = true;
+        advance();
+    }
+    if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") {
+        advance();
+    }
+
     // Virtual Interface Variable Declaration (§25.9)
     if (match(TokenType::TOKEN_VIRTUAL)) {
         std::string iface_name = "";
@@ -341,12 +360,14 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     }
 
     // 1. Variable Declarations in Procedural Scopes (integer i; logic [7:0] temp; state_t s;)
-    bool is_procedural_static = false;
-    bool is_procedural_automatic = false;
-    if (match(TokenType::TOKEN_STATIC)) {
+    bool is_procedural_static = is_stmt_static;
+    bool is_procedural_automatic = is_stmt_automatic;
+    if (match(TokenType::TOKEN_STATIC) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "static")) {
         is_procedural_static = true;
-    } else if (match(TokenType::TOKEN_AUTOMATIC)) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    } else if (match(TokenType::TOKEN_AUTOMATIC) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "automatic")) {
         is_procedural_automatic = true;
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
 
     std::string proc_type_name = "";

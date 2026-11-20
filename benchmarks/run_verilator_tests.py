@@ -236,6 +236,7 @@ def load_all_tests(test_filter=None):
             'defines': t.defines,
             'includes': t.includes,
             'parameters': t.parameters,
+            'sim_time': getattr(t, 'sim_time', 15000) if getattr(t, 'sim_time', 15000) else 15000,
         }
 
     return valid_tests, skipped_counts
@@ -375,6 +376,9 @@ def run_single_test(test_info):
 
     if inputs and not top_mod:
         try:
+            sim_time = test_info.get('sim_time', 15000)
+            if not sim_time or sim_time < 5000:
+                sim_time = 15000
             with tempfile.NamedTemporaryFile('w', suffix='_cas_top_wrapper.v', delete=False) as tf:
                 tf.write("module top;\n")
                 for inp in sorted(inputs.keys()):
@@ -393,16 +397,13 @@ def run_single_test(test_info):
                     tf.write("        fastclk = 1;\n")
                 if 'clk' in inputs:
                     tf.write("        clk = 1;\n")
-                tf.write("        repeat (184) begin\n")
-                for i in range(6):
-                    tf.write("          #1;\n")
-                    if 'fastclk' in inputs:
-                        tf.write("          fastclk = !fastclk;\n")
-                    if i == 4 and 'clk' in inputs:
-                        tf.write("          clk = !clk;\n")
-                tf.write("        end\n")
+                tf.write(f"        #{sim_time};\n")
                 tf.write("        $finish;\n")
                 tf.write("    end\n")
+                if 'clk' in inputs:
+                    tf.write("    always #6 if ($time >= 10) clk = ~clk;\n")
+                if 'fastclk' in inputs:
+                    tf.write("    always #1 if ($time >= 10) fastclk = ~fastclk;\n")
                 tf.write("endmodule\n")
                 top_wrapper_file = tf.name
             cmd.extend(["--top", "top", top_wrapper_file])

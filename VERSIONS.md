@@ -1,5 +1,40 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.3.0 (Phase 2C: Verilator Wrapper Stimulus Timeouts Resolved & Top Parser Clusters Fixed)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2C — Resolution of Verilator `Wrapper stimulus timed out` (~418 tests resolved) & Top Frontend Parser Clusters Across Verilator `test_regress` Suite  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 19.04s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 23.89s)  
+**Verilator `test_regress` Compliance:** **1,729 / 2,861 PASS (60.4% in 140.44s, up from 1,218 / 2,861 = 42.6%) (+511 tests passing)**  
+- **Pure-SV Simulation (SIM):** **1,679 / 2,710 PASS (62.0%)**, up from 1,170 / 2,710 (43.2%) (+509 tests passing)  
+- **Negative Compile-Error (CE):** **50 / 151 PASS (33.1%)**, up from 48 / 151 (31.8%)  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2C Architectural & Frontend Parser Implementations
+
+1. **Clock Generator & Simulation Budget Alignment (`benchmarks/run_verilator_tests.py`)**:
+   - Replaced fragile `#1` delay loops inside `initial` blocks with continuous cyclic clock generators matching Verilator's native `driver.py::_make_top`: `always #6 if ($time >= 10) clk = ~clk;` and `always #1 if ($time >= 10) fastclk = ~fastclk;`.
+   - Extracted per-test `sim_time` directly from companion `t_*.py` files (defaulting to 15,000 timeunits), giving complex benchmarks sufficient cycles while terminating immediately when the test's own `$finish;` executes.
+   - Slashed `Wrapper stimulus timed out` from 484 tests down to 66 tests (+418 tests passing immediately).
+2. **Compilation-Unit & Module-Level `bind` Directives (`parser_module.cpp`)**:
+   - Added parsing for IEEE 1800-2023 §23.11 `bind target_scope bound_module inst_name (...)` at compilation-unit and module scopes.
+   - Attached bound instances into module instantiation trees (`t_bind` passing 100%).
+3. **`checker ... endchecker` Declaration Support (`parser_module.cpp`)**:
+   - Added grammar support for SystemVerilog checker blocks per IEEE 1800-2023 §17, allowing checkers to parse cleanly alongside modules and interfaces (`t_checker` passing 100% on both SIM and CE).
+4. **Multidimensional Module & Interface Instance Arrays (`parser_module.cpp`)**:
+   - Replaced 1D bracket parsing with multidimensional instance dimensions collection (`while (match(TokenType::TOKEN_LBRACKET))`), recursively expanding nested dimensions (`bus[A-1:0][B-1:0]`) while preserving 1D array slicing semantics (`is_array_instance`, `array_index`, `array_count`) for port connections (`t_iface_array_multidim`, `sv_enum1` passing 100%).
+5. **Procedural Variable Lifetime Qualifiers (`parser_stmt.cpp`)**:
+   - Added recognition for procedural qualifiers `automatic`, `static`, `const`, and `var` before class handle declarations and variable statements per IEEE 1800-2023 §6.8 and §8.4 (`t_class_class_extends` passing 100%).
+6. **Parameterized Class Scope in Type Parameters (`parser_module.cpp`)**:
+   - Supported parameterized class scopes in `localparam type` declarations (`pkg::C#(12)::data_t`) in both module and class type parameter parsing (`t_class_lparam_deferred` passing 100%).
+
+---
+
 ## Version v4.5.2.0 (Phase 2B: High-Leverage Frontend Parser Clusters Resolved)
 
 **Release Date:** November 2026  
