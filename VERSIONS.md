@@ -1,5 +1,49 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.4.0 (Phase 2D: Top 10 Frontend Parser Clusters & Lexer Pragmas Resolved)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2D — Resolution of Remaining Top 10 Frontend Parser Clusters (Clusters 5–7 & 9–15) Across Verilator `test_regress` Suite  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.64s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.14s)  
+**Verilator `test_regress` Compliance:** **1,789 / 2,861 PASS (62.5% in 91.78s, up from 1,729 / 2,861 = 60.4%) (+60 tests passing)**  
+- **Pure-SV Simulation (SIM):** **1,739 / 2,710 PASS (64.2%)**, up from 1,679 / 2,710 (62.0%) (+60 tests passing)  
+- **Negative Compile-Error (CE):** **50 / 151 PASS (33.1%)**  
+**Combined Mandatory CI Gate:** 1,660 / 1,660 PASS (100.0%) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2D Architectural & Frontend Parser Implementations
+
+1. **Preprocessor Boolean Condition Evaluator & Compiler Pragmas (`lexer.hpp`, `lexer.cpp`)**:
+   - Implemented recursive-descent boolean expression parser `evaluate_pp_condition()` handling `!`, `&&`, `||`, grouped subexpressions `(...)`, and constant literals (`0`/`1`) in `` `ifdef (...) ``, `` `ifndef (...) ``, and `` `elsif (...) `` per IEEE 1800-2023 §22.6.
+   - Added recognition and whitespace-skipping for standard EDA tool compiler directives and pragmas: `suppress_faults`, `nosuppress_faults`, `enable_portfaults`, `disable_portfaults`, `delay_mode_*`, `default_decay_time`, `default_trireg_strength`, `autoexpand_vectornets`, `accelerate`, `noaccelerate`, `expand_vectornets`, `noexpand_vectornets`, `verilog`, `protect`, and `endprotect`.
+   - Added severity compiler directives: `` `error ``, `` `fatal ``, `` `warning ``, and `` `info `` per §22.11 (`t_pp_pragmas` passing 100%).
+2. **Trailing Selects & Dotted Member Accesses on Method/Function Calls (`parser_expr.cpp`, `ast_expr.hpp`, `expr_evaluator.cpp`)**:
+   - Added trailing selection loop allowing chained member and slice accesses directly following method and function calls (e.g. `mc1.getS(1'b0).dp`).
+   - Extended `IndexSelectNode` with `index_expr` and implemented expression-based indexing in `ExprEvaluator::eval_index_select` (`t_func_dotted` passing 100%).
+3. **Generic Interface Ports with Modport Reference (`parser_module.cpp`)**:
+   - Added support for generic `interface [.modport] port_name` port declarations in ANSI port lists per IEEE 1800-2023 §25.5.
+4. **`default disable iff` Assertion Directive (`parser_module.cpp`, `ast_module.hpp`)**:
+   - Added grammar and AST node support for module-level `default disable iff ( expr ) ;` per IEEE 1800-2023 §16.12.
+5. **Module Type Parameters & Bind Instance Arrays (`parser_module.cpp`)**:
+   - Supported module-level type parameter identifiers (`type TYPE = logic`) in internal signal declarations via `is_module_type_parameter()`.
+   - Handled optional range brackets on instance identifiers in compilation-unit and module bind statements (`bind target_scope bound_module inst[0:1]()`).
+6. **Virtual Interface Type Definitions & Procedural Declarations (`parser_module.cpp`, `parser_stmt.cpp`, `parser_function.cpp`, `parser_task.cpp`)**:
+   - Added support for `typedef virtual [interface] IfaceName [#(params)] [.modport] TypeName;`.
+   - Supported parameter specializations `#(params)` and `.modport` selections in procedural `virtual` interface variable declarations and subroutine argument lists (`t_class_extern_virtual_interface` passing 100%).
+7. **Multidimensional Dynamic & Associative Array Signals (`parser_module.cpp`, `parser_stmt.cpp`)**:
+   - Supported multidimensional brackets across signal, package, and generate variable declarations (`logic [31:0] arr[][]`, associative keys).
+8. **Real and Complex Member Types in Structs/Unions (`parser_module.cpp`)**:
+   - Enabled `real`, `shortreal`, `string`, and `chandle` members within `struct` and `union` type declarations.
+9. **Data Type Keywords in Primary Expressions & Specialization Resolution (`parser_expr.cpp`, `parser_module.cpp`)**:
+   - Allowed data type tokens (`logic`, `reg`, `bit`, `int`, etc.) in `parse_primary()` as identifier nodes for parameter overrides and size queries.
+   - Refined `parse_class_type_and_specialize()` to distinguish class type prefixes from static scope resolution (`::new`, `::b`), enforcing IEEE 1800-2023 §8.25.1 parameterized class specialization rules.
+
+---
+
 ## Version v4.5.3.0 (Phase 2C: Verilator Wrapper Stimulus Timeouts Resolved & Top Parser Clusters Fixed)
 
 **Release Date:** November 2026  

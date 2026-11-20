@@ -147,11 +147,24 @@ public:
     }
     std::unordered_set<std::string> forward_typedefs;
     void register_forward_type(const std::string& name);
+    bool is_module_type_parameter(const std::string& name) const {
+        if (current_parsing_module) {
+            for (const auto& p : current_parsing_module->parameters) {
+                if (p.name == name && (p.type_name == "type" || p.type_name == "type_param")) return true;
+            }
+        }
+        return false;
+    }
     bool is_type_identifier(const std::string& name) const {
         if (current_parsing_class) {
             if (current_parsing_class->name == name) return true;
             for (const auto& p : current_parsing_class->parameters) {
                 if (p.name == name) return true;
+            }
+        }
+        if (current_parsing_module) {
+            for (const auto& p : current_parsing_module->parameters) {
+                if (p.name == name && (p.type_name == "type" || p.type_name == "type_param")) return true;
             }
         }
         return is_builtin_type_name(name) || is_typedef(name) || is_simple_typedef(name) || is_unpacked_array_typedef(name) || is_class(name) || is_known_class(name) || is_forward_class(name) || forward_typedefs.find(name) != forward_typedefs.end();

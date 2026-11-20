@@ -710,6 +710,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
             std::string inst_name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected instance identifier in bind");
+            bool is_arr_inst = false;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                is_arr_inst = true;
+                while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                match(TokenType::TOKEN_RBRACKET);
+            }
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in bind port connections");
             std::vector<PortConnection> conns;
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -997,10 +1003,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 else if (current.type == TokenType::TOKEN_INOUT) { dir = "inout"; advance(); }
                 else if (current.type == TokenType::TOKEN_INTERFACE) {
                     advance();
+                    std::string mp_name = "";
+                    if (match(TokenType::TOKEN_DOT)) {
+                        mp_name = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected modport identifier after '.'");
+                    }
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected interface port identifier");
                     PortNode port(pname, "interface");
                     port.is_interface = true;
+                    port.modport_name = mp_name;
                     while (match(TokenType::TOKEN_LBRACKET)) {
                         port.is_array = true;
                         auto l = parse_expression();
@@ -1641,6 +1653,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if (current.type == TokenType::TOKEN_DEFAULT && (peek_token().type == TokenType::TOKEN_DISABLE || (peek_token().type == TokenType::TOKEN_IDENTIFIER && peek_token().text == "disable"))) {
+                advance(); // consume 'default'
+                advance(); // consume 'disable'
+                if (match(TokenType::TOKEN_IFF) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "iff")) {
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+                }
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'default disable iff'");
+                auto dis_expr = parse_expression();
+                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing 'default disable iff'");
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after 'default disable iff'");
+                mod->default_disable_iff = std::move(dis_expr);
+                continue;
+            }
+
             bool is_def_cb = false;
             if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_CLOCKING) {
                 advance(); // consume 'default'
@@ -2030,6 +2056,22 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 while (true) {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier");
+                    std::vector<AstDimension> port_unpacked_dims;
+                    while (match(TokenType::TOKEN_LBRACKET)) {
+                        auto l = parse_expression();
+                        std::unique_ptr<ExpressionNode> r = nullptr;
+                        bool is_single = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            r = parse_expression();
+                            is_single = false;
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        AstDimension ad;
+                        ad.left_expr = std::move(l);
+                        ad.right_expr = std::move(r);
+                        ad.is_single = is_single;
+                        port_unpacked_dims.push_back(std::move(ad));
+                    }
                     bool found = false;
                     for (auto& p : mod->ports) {
                         if (p.name == pname) {
@@ -2038,6 +2080,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             p.net_kind = port_kind;
                             if (msb) p.msb_expr = msb->clone();
                             if (lsb) p.lsb_expr = lsb->clone();
+                            if (!port_unpacked_dims.empty()) {
+                                p.is_array = true;
+                                p.unpacked_dimensions = port_unpacked_dims;
+                            }
                             if (is_chandle_port) {
                                 p.is_chandle = true;
                                 p.type_name = "chandle";
@@ -2072,6 +2118,10 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                     if (!found) {
                         PortNode port_decl(pname, dir, msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_port, port_kind);
+                        if (!port_unpacked_dims.empty()) {
+                            port_decl.is_array = true;
+                            port_decl.unpacked_dimensions = port_unpacked_dims;
+                        }
                         if (is_chandle_port) {
                             port_decl.is_chandle = true;
                             port_decl.type_name = "chandle";
@@ -2261,7 +2311,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 advance(); // consume optional const modifier
             }
 
-            if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+            std::string maybe_cls_ident = current.text;
+            if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                maybe_cls_ident += "::" + peek_token_n(2).text;
+            }
+            if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_class(maybe_cls_ident))) {
                 std::string class_type = parse_class_type_and_specialize();
                 while (true) {
                     std::string signame = current.text;
@@ -2683,7 +2737,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string t_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
                 mod_sig_type = p_name + "::" + t_name;
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr || is_module_type_parameter(current.text))) {
                 mod_sig_type = current.text;
                 advance();
             }
@@ -2784,15 +2838,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 }
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                            break;
+                            continue;
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
-                            break;
+                            continue;
                         } else if (is_assoc_key_token(current)) {
                             sig.is_associative_array = true;
                             parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                            break;
+                            continue;
                         } else {
                             sig.is_array = true;
                             auto l = parse_expression();
@@ -3156,15 +3210,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                 }
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                            break;
+                            continue;
                         } else if (match(TokenType::TOKEN_RBRACKET)) {
                             sig.is_dynamic_array = true;
-                            break;
+                            continue;
                         } else if (is_assoc_key_token(current)) {
                             sig.is_associative_array = true;
                             parse_assoc_key_type(sig.assoc_key_type, sig.assoc_key_width);
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                            break;
+                            continue;
                         } else {
                             sig.is_array = true;
                             auto l = parse_expression();
@@ -4415,10 +4469,13 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
                 current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
-                current.type == TokenType::TOKEN_BIT   ||
+                current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
+                current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_STRING ||
                 (current.type == TokenType::TOKEN_IDENTIFIER &&
                  (current.text == "int" || current.text == "byte" || current.text == "bit" ||
-                  current.text == "shortint" || current.text == "longint" || current.text == "time"))) {
+                  current.text == "shortint" || current.text == "longint" || current.text == "time" ||
+                  current.text == "real" || current.text == "shortreal" || current.text == "string" ||
+                  current.text == "chandle"))) {
                 mem_type = current.text;
                 if (current.type == TokenType::TOKEN_INTEGER || current.text == "int" ||
                     current.text == "byte" || current.text == "shortint" || current.text == "longint") {
@@ -4453,7 +4510,8 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
             if (mem_type == "int" || mem_type == "integer") field_width = 32;
             else if (mem_type == "byte") field_width = 8;
             else if (mem_type == "shortint") field_width = 16;
-            else if (mem_type == "longint" || mem_type == "time") field_width = 64;
+            else if (mem_type == "longint" || mem_type == "time" || mem_type == "real" || mem_type == "chandle" || mem_type == "string") field_width = 64;
+            else if (mem_type == "shortreal") field_width = 32;
             else if (get_simple_typedef(mem_type, smp_t)) { field_width = smp_t.width; mem_signed = smp_t.is_signed; }
             else if (en_def) { field_width = en_def->base_width; mem_signed = en_def->is_signed; }
             else if (st_def) { field_width = st_def->total_width; mem_signed = st_def->is_signed; }
@@ -4698,6 +4756,54 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
 
         return std::make_unique<TypedefNode>(cls_name, true, is_iface);
+    }
+
+    if (current.type == TokenType::TOKEN_VIRTUAL) {
+        advance(); // consume 'virtual'
+        if (current.type == TokenType::TOKEN_INTERFACE) {
+            advance(); // consume optional 'interface'
+        }
+        std::string base_iface = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected interface identifier after 'virtual'");
+        while (match(TokenType::TOKEN_COLON_COLON)) {
+            base_iface += "::" + current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+        }
+        if (match(TokenType::TOKEN_HASH)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in virtual interface typedef");
+            int pdepth = 1;
+            while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                advance();
+            }
+        }
+        std::string mp_name = "";
+        if (match(TokenType::TOKEN_DOT)) {
+            mp_name = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.' in virtual interface typedef");
+        }
+        std::string tname = current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected typedef type identifier");
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after typedef declaration");
+
+        SimpleTypedef st;
+        st.name = tname;
+        st.base_type = base_iface;
+        st.width = 64;
+        st.is_signed = false;
+        simple_typedef_map[tname] = st;
+        global_simple_typedefs[tname] = 64;
+        if (current_parsing_package) {
+            current_parsing_package->simple_typedefs[tname] = st;
+        } else if (current_parsing_module) {
+            current_parsing_module->simple_typedefs[tname] = st;
+        }
+        resolved_typedefs.insert(tname);
+        auto td = std::make_unique<TypedefNode>(tname, false, false);
+        td->base_type = base_iface;
+        td->width = 64;
+        return td;
     }
 
     if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_INTEGER ||
@@ -6155,9 +6261,13 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                     break;
                 }
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after member variable declaration");
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text))) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text) || (peek_token().type == TokenType::TOKEN_COLON_COLON && (is_class(current.text + "::" + peek_token_n(2).text) || is_known_class(current.text + "::" + peek_token_n(2).text))))) {
                 std::string class_type = current.text;
                 advance();
+                while (match(TokenType::TOKEN_COLON_COLON)) {
+                    class_type += "::" + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+                }
                 if (match(TokenType::TOKEN_HASH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in class parameter specialization");
                     int pdepth = 1;
@@ -6660,6 +6770,11 @@ std::string Parser::parse_class_type_and_specialize() {
         while (!base_name.empty() && std::isspace(base_name.back())) base_name.pop_back();
     }
     advance();
+    while (current.type == TokenType::TOKEN_COLON_COLON && (is_class(base_name + "::" + peek_token().text) || is_known_class(base_name + "::" + peek_token().text))) {
+        advance();
+        base_name += "::" + current.text;
+        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '::'");
+    }
 
     ClassNode* base_cls = find_class(base_name);
 
@@ -8357,15 +8472,15 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                             pnode.queue_bound_expr = parse_expression();
                         }
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                        break;
+                        continue;
                     } else if (match(TokenType::TOKEN_RBRACKET)) {
                         pnode.is_dynamic_array = true;
-                        break;
+                        continue;
                     } else if (is_assoc_key_token(current)) {
                         pnode.is_associative_array = true;
                         parse_assoc_key_type(pnode.assoc_key_type, pnode.assoc_key_width);
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                        break;
+                        continue;
                     } else {
                         pnode.is_array = true;
                         auto l = parse_expression();
@@ -9238,15 +9353,15 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                         pnode.queue_bound_expr = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                    break;
+                    continue;
                 } else if (match(TokenType::TOKEN_RBRACKET)) {
                     pnode.is_dynamic_array = true;
-                    break;
+                    continue;
                 } else if (is_assoc_key_token(current)) {
                     pnode.is_associative_array = true;
                     parse_assoc_key_type(pnode.assoc_key_type, pnode.assoc_key_width);
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                    break;
+                    continue;
                 } else {
                     pnode.is_array = true;
                     auto l = parse_expression();

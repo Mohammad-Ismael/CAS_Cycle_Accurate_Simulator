@@ -1330,6 +1330,26 @@ LogicVal ExprEvaluator::eval_concat(ConcatNode* cat, const std::string& scope) {
 
 LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::string& scope) {
     if (!idx_node) return LogicVal::make_x(1);
+    if (idx_node->index_expr) {
+        LogicVal base = eval(idx_node->index_expr.get(), scope);
+        if (idx_node->is_part_select) {
+            uint64_t msb = eval(idx_node->msb_expr.get(), scope).aval;
+            uint64_t lsb = eval(idx_node->lsb_expr.get(), scope).aval;
+            uint32_t offset = (uint32_t)std::min(msb, lsb);
+            uint32_t width = (uint32_t)(std::max(msb, lsb) - offset + 1);
+            if (idx_node->is_plus_colon) {
+                offset = (uint32_t)msb;
+                width = (uint32_t)lsb;
+            } else if (idx_node->is_minus_colon) {
+                width = (uint32_t)lsb;
+                offset = (msb >= width - 1) ? (uint32_t)(msb - width + 1) : 0;
+            }
+            return base.extract_slice(offset, width);
+        } else {
+            uint64_t idx = eval(idx_node->msb_expr.get(), scope).aval;
+            return base.extract_slice((uint32_t)idx, 1);
+        }
+    }
     if (current_this) {
         std::string prop_key = idx_node->name;
         if (idx_node->msb_expr) {

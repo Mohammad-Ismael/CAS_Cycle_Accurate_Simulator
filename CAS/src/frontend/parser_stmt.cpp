@@ -211,11 +211,28 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // Virtual Interface Variable Declaration (§25.9)
     if (match(TokenType::TOKEN_VIRTUAL)) {
+        match(TokenType::TOKEN_INTERFACE);
         std::string iface_name = "";
         std::string modport_name = "";
         if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
             iface_name = current.text;
             advance();
+            if (match(TokenType::TOKEN_HASH)) {
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    int pdepth = 1;
+                    while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                        else if (current.type == TokenType::TOKEN_RPAREN) {
+                            pdepth--;
+                            if (pdepth == 0) {
+                                advance();
+                                break;
+                            }
+                        }
+                        advance();
+                    }
+                }
+            }
             if (match(TokenType::TOKEN_DOT)) {
                 modport_name = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");
@@ -223,6 +240,11 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         }
         std::string vname = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
+        while (match(TokenType::TOKEN_LBRACKET)) {
+            while (!match(TokenType::TOKEN_RBRACKET) && current.type != TokenType::TOKEN_EOF) {
+                advance();
+            }
+        }
         std::unique_ptr<ExpressionNode> init_expr = nullptr;
         if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
             init_expr = parse_expression();
@@ -256,12 +278,18 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
 
     // Class Handle Variable Declaration (§8.4) or Static Scope Resolution (§8.25)
     // Or lookahead for user-defined types (e.g. unknown class / interface type declared in another file)
-    bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text));
+    std::string maybe_cls_ident = current.text;
+    if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+        maybe_cls_ident += "::" + peek_token_n(2).text;
+    }
+    bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_class(maybe_cls_ident)));
     bool is_udt_decl = false;
     if (current.type == TokenType::TOKEN_IDENTIFIER && current.text != "var" && !is_type_identifier(current.text) &&
         !is_covergroup(current.text) && !is_interface_type(current.text)) {
         TokenType next_tok = peek_token().type;
-        if (next_tok == TokenType::TOKEN_IDENTIFIER) {
+        if (next_tok == TokenType::TOKEN_IDENTIFIER || next_tok == TokenType::TOKEN_HASH) {
+            is_udt_decl = true;
+        } else if (next_tok == TokenType::TOKEN_COLON_COLON && (peek_token_n(3).type == TokenType::TOKEN_IDENTIFIER || peek_token_n(3).type == TokenType::TOKEN_HASH)) {
             is_udt_decl = true;
         }
     }
@@ -480,15 +508,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     is_q = true;
                     if (match(TokenType::TOKEN_COLON)) parse_expression();
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                    break;
+                    continue;
                 } else if (match(TokenType::TOKEN_RBRACKET)) {
                     is_dyn = true;
-                    break;
+                    continue;
                 } else if (is_assoc_key_token(current)) {
                     is_assoc = true;
                     parse_assoc_key_type(assoc_key_type, assoc_key_width);
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                    break;
+                    continue;
                 } else {
                     auto l = parse_expression();
                     std::unique_ptr<ExpressionNode> r = nullptr;
@@ -684,15 +712,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                         parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
-                    break;
+                    continue;
                 } else if (match(TokenType::TOKEN_RBRACKET)) {
                     is_dyn = true;
-                    break;
+                    continue;
                 } else if (is_assoc_key_token(current)) {
                     is_assoc = true;
                     parse_assoc_key_type(assoc_key_type, assoc_key_width);
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
-                    break;
+                    continue;
                 } else {
                     auto l = parse_expression();
                     std::unique_ptr<ExpressionNode> r = nullptr;

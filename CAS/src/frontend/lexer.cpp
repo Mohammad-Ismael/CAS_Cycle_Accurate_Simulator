@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include <functional>
 
 bool Lexer::global_timescale_encountered = false;
 uint64_t Lexer::global_timescale_ratio = 1;
@@ -286,10 +287,8 @@ void Lexer::skip_inactive_block() {
                 }
             } else if (dir == "elsif") {
                 if (depth == 0) {
-                    while (std::isspace(peek()) && peek() != '\n') advance();
-                    std::string mname = parse_macro_ident();
                     bool parent_active = cond_stack.size() > 1 ? cond_stack[cond_stack.size() - 2].is_active : true;
-                    bool cond = (global_defines.find(mname) != global_defines.end());
+                    bool cond = evaluate_pp_condition();
                     if (parent_active && !cond_stack.back().branch_taken && cond) {
                         cond_stack.back().is_active = true;
                         cond_stack.back().branch_taken = true;
@@ -299,6 +298,81 @@ void Lexer::skip_inactive_block() {
             }
         }
     }
+}
+
+bool Lexer::evaluate_pp_condition() {
+    while (std::isspace(peek()) && peek() != '\n') advance();
+    if (peek() != '(') {
+        std::string mname = parse_macro_ident();
+        return global_defines.find(mname) != global_defines.end();
+    }
+    advance(); // consume '('
+
+    auto skip_ws = [this]() {
+        while (std::isspace(peek()) && peek() != '\n') advance();
+    };
+
+    std::function<bool()> parse_or;
+    std::function<bool()> parse_and;
+    std::function<bool()> parse_unary;
+    std::function<bool()> parse_prim;
+
+    parse_prim = [&]() -> bool {
+        skip_ws();
+        if (peek() == '(') {
+            advance();
+            bool v = parse_or();
+            skip_ws();
+            if (peek() == ')') advance();
+            return v;
+        }
+        std::string id = "";
+        while (std::isalnum(peek()) || peek() == '_') id += advance();
+        skip_ws();
+        if (id == "1") return true;
+        if (id == "0") return false;
+        return global_defines.find(id) != global_defines.end();
+    };
+
+    parse_unary = [&]() -> bool {
+        skip_ws();
+        if (peek() == '!') {
+            advance();
+            return !parse_unary();
+        }
+        return parse_prim();
+    };
+
+    parse_and = [&]() -> bool {
+        bool left = parse_unary();
+        skip_ws();
+        while (peek() == '&') {
+            advance();
+            if (peek() == '&') advance();
+            bool right = parse_unary();
+            left = left && right;
+            skip_ws();
+        }
+        return left;
+    };
+
+    parse_or = [&]() -> bool {
+        bool left = parse_and();
+        skip_ws();
+        while (peek() == '|') {
+            advance();
+            if (peek() == '|') advance();
+            bool right = parse_and();
+            left = left || right;
+            skip_ws();
+        }
+        return left;
+    };
+
+    bool res = parse_or();
+    skip_ws();
+    if (peek() == ')') advance();
+    return res;
 }
 
 void Lexer::skip_whitespace_and_comments() {
@@ -487,17 +561,11 @@ void Lexer::skip_whitespace_and_comments() {
                 }
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "ifdef") {
-                while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = parse_macro_ident();
-                bool parent = is_active;
-                bool cond = parent && (global_defines.find(mname) != global_defines.end());
+                bool cond = is_active && evaluate_pp_condition();
                 cond_stack.push_back({cond, cond});
                 if (!cond) skip_inactive_block();
             } else if (directive == "ifndef") {
-                while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = parse_macro_ident();
-                bool parent = is_active;
-                bool cond = parent && (global_defines.find(mname) == global_defines.end());
+                bool cond = is_active && !evaluate_pp_condition();
                 cond_stack.push_back({cond, cond});
                 if (!cond) skip_inactive_block();
             } else if (directive == "else") {
@@ -509,15 +577,31 @@ void Lexer::skip_whitespace_and_comments() {
                     if (!cond) skip_inactive_block();
                 }
             } else if (directive == "elsif") {
-                while (std::isspace(peek()) && peek() != '\n') advance();
-                std::string mname = parse_macro_ident();
                 if (!cond_stack.empty()) {
                     bool parent = cond_stack.size() > 1 ? cond_stack[cond_stack.size() - 2].is_active : true;
-                    bool cond = parent && !cond_stack.back().branch_taken && (global_defines.find(mname) != global_defines.end());
+                    bool cond = parent && !cond_stack.back().branch_taken && evaluate_pp_condition();
                     cond_stack.back().is_active = cond;
                     if (cond) cond_stack.back().branch_taken = true;
                     if (!cond) skip_inactive_block();
                 }
+            } else if (directive == "error") {
+                if (is_active) {
+                    while (std::isspace(peek()) && peek() != '\n') advance();
+                    std::string msg = "";
+                    while (peek() != '\n' && peek() != '\0') msg += advance();
+                    throw std::runtime_error("[PREPROC-ERROR] `error directive: " + msg);
+                }
+                while (peek() != '\n' && peek() != '\0') advance();
+            } else if (directive == "fatal") {
+                if (is_active) {
+                    while (std::isspace(peek()) && peek() != '\n') advance();
+                    std::string msg = "";
+                    while (peek() != '\n' && peek() != '\0') msg += advance();
+                    throw std::runtime_error("[PREPROC-FATAL] `fatal directive: " + msg);
+                }
+                while (peek() != '\n' && peek() != '\0') advance();
+            } else if (directive == "warning" || directive == "info") {
+                while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "endif") {
                 if (!cond_stack.empty()) cond_stack.pop_back();
             } else if (directive == "line") {
@@ -576,7 +660,14 @@ void Lexer::skip_whitespace_and_comments() {
                 while (peek() != '\n' && peek() != '\0') advance();
                 if (!nt.empty()) global_default_nettype = nt;
             } else if (directive == "celldefine" || 
-                       directive == "endcelldefine" || directive == "begin_keywords" || directive == "end_keywords") {
+                       directive == "endcelldefine" || directive == "begin_keywords" || directive == "end_keywords" ||
+                       directive == "suppress_faults" || directive == "nosuppress_faults" ||
+                       directive == "enable_portfaults" || directive == "disable_portfaults" ||
+                       directive.rfind("delay_mode_", 0) == 0 || directive == "default_decay_time" ||
+                       directive == "default_trireg_strength" || directive == "autoexpand_vectornets" ||
+                       directive == "accelerate" || directive == "noaccelerate" ||
+                       directive == "expand_vectornets" || directive == "noexpand_vectornets" ||
+                       directive == "verilog" || directive == "protect" || directive == "endprotect") {
                 while (peek() != '\n' && peek() != '\0') advance();
             } else if (directive == "__FILE__") {
                 if (is_active) {

@@ -84,6 +84,7 @@ struct FunctionCallNode : public ExpressionNode {
 
 struct IndexSelectNode : public ExpressionNode {
     std::string name;
+    std::unique_ptr<ExpressionNode> index_expr = nullptr;
     std::unique_ptr<ExpressionNode> msb_expr;
     std::unique_ptr<ExpressionNode> lsb_expr;
     bool is_part_select = false;
@@ -114,6 +115,7 @@ struct IndexSelectNode : public ExpressionNode {
         node->is_plus_colon = is_plus_colon;
         node->is_minus_colon = is_minus_colon;
         node->has_bit_select = has_bit_select;
+        if (index_expr) node->index_expr = index_expr->clone();
         node->bit_msb_expr = bit_msb_expr ? bit_msb_expr->clone() : nullptr;
         node->bit_lsb_expr = bit_lsb_expr ? bit_lsb_expr->clone() : nullptr;
         for (const auto& e : extra_indices) {

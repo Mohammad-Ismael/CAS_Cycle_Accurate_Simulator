@@ -1213,6 +1213,7 @@ struct ModuleNode : public ASTNode {
     std::unordered_map<std::string, ClockingBlockNode*> clocking_block_map;
     std::string default_clocking_name = "";
     std::vector<std::unique_ptr<DefaultClockingNode>> default_clocking_nodes;
+    std::unique_ptr<ExpressionNode> default_disable_iff;
     std::vector<std::shared_ptr<ClassNode>> classes;
     std::unordered_map<std::string, ClassNode*> class_map;
     std::vector<std::shared_ptr<CovergroupNode>> covergroups;

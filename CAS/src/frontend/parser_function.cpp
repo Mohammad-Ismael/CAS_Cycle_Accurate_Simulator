@@ -232,9 +232,19 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             if (match(TokenType::TOKEN_VIRTUAL)) {
                 has_explicit_type = true;
                 is_vif = true;
+                if (current.type == TokenType::TOKEN_INTERFACE) advance();
                 if (current.type == TokenType::TOKEN_IDENTIFIER || is_interface_type(current.text)) {
                     vif_iface = current.text;
                     advance();
+                    if (match(TokenType::TOKEN_HASH)) {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in virtual interface");
+                        int pdepth = 1;
+                        while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                            else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                            advance();
+                        }
+                    }
                     if (match(TokenType::TOKEN_DOT)) {
                         vif_mp = current.text;
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected modport name after '.'");

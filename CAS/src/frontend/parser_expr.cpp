@@ -743,6 +743,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 member = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
             }
+            if (match(TokenType::TOKEN_HASH)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in specialization");
+                int pdepth = 1;
+                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                    advance();
+                }
+            }
             while (match(TokenType::TOKEN_COLON_COLON)) {
                 name = name + "::" + member;
                 if (current.type == TokenType::TOKEN_NEW) {
@@ -751,6 +760,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 } else {
                     member = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '::'");
+                }
+                if (match(TokenType::TOKEN_HASH)) {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in specialization");
+                    int pdepth = 1;
+                    while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                        if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                        else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                        advance();
+                    }
                 }
             }
             if (member == "new") {
@@ -1045,7 +1063,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     with_expr = parse_expression();
                     expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
                 }
-                return std::make_unique<MethodCallNode>(name, sub_name, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                std::unique_ptr<ExpressionNode> call_res = std::make_unique<MethodCallNode>(name, sub_name, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                    if (match(TokenType::TOKEN_DOT)) {
+                        std::string sub_mem = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                        auto member_node = std::make_unique<MemberAccessNode>("", sub_mem);
+                        member_node->index_expr = std::move(call_res);
+                        call_res = std::move(member_node);
+                    } else if (match(TokenType::TOKEN_LBRACKET)) {
+                        auto msb = parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            auto lsb = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                            node->index_expr = std::move(call_res);
+                            call_res = std::move(node);
+                        } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                            auto width = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                            node->is_plus_colon = true;
+                            node->index_expr = std::move(call_res);
+                            call_res = std::move(node);
+                        } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                            auto width = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                            node->is_minus_colon = true;
+                            node->index_expr = std::move(call_res);
+                            call_res = std::move(node);
+                        } else {
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                            node->index_expr = std::move(call_res);
+                            call_res = std::move(node);
+                        }
+                    }
+                }
+                return call_res;
             } else if (match(TokenType::TOKEN_WITH)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
                 auto with_expr = parse_expression();
@@ -1232,7 +1288,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         with_expr = parse_expression();
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
                     }
-                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                    std::unique_ptr<ExpressionNode> call_res = std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                    while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                        if (match(TokenType::TOKEN_DOT)) {
+                            std::string sub_mem = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                            auto member_node = std::make_unique<MemberAccessNode>("", sub_mem);
+                            member_node->index_expr = std::move(call_res);
+                            call_res = std::move(member_node);
+                        } else if (match(TokenType::TOKEN_LBRACKET)) {
+                            auto msb = parse_expression();
+                            if (match(TokenType::TOKEN_COLON)) {
+                                auto lsb = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                                auto width = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                                node->is_plus_colon = true;
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                                auto width = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                                node->is_minus_colon = true;
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else {
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            }
+                        }
+                    }
+                    return call_res;
                 } else if (match(TokenType::TOKEN_WITH)) {
                     expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
                     auto with_expr = parse_expression();
@@ -1335,12 +1429,42 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return expand_let(let_decl, std::move(parsed.args), parsed.arg_names);
             }
             std::unique_ptr<ExpressionNode> fcall = std::make_unique<FunctionCallNode>(name, std::move(parsed.args), std::move(parsed.arg_names));
-            while (match(TokenType::TOKEN_DOT)) {
-                std::string mem = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
-                auto member_node = std::make_unique<MemberAccessNode>("", mem);
-                member_node->index_expr = std::move(fcall);
-                fcall = std::move(member_node);
+            while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                if (match(TokenType::TOKEN_DOT)) {
+                    std::string mem = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                    auto member_node = std::make_unique<MemberAccessNode>("", mem);
+                    member_node->index_expr = std::move(fcall);
+                    fcall = std::move(member_node);
+                } else if (match(TokenType::TOKEN_LBRACKET)) {
+                    auto msb = parse_expression();
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                        node->index_expr = std::move(fcall);
+                        fcall = std::move(node);
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        auto width = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                        node->is_plus_colon = true;
+                        node->index_expr = std::move(fcall);
+                        fcall = std::move(node);
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        auto width = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                        auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                        node->is_minus_colon = true;
+                        node->index_expr = std::move(fcall);
+                        fcall = std::move(node);
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                        auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                        node->index_expr = std::move(fcall);
+                        fcall = std::move(node);
+                    }
+                }
             }
             return fcall;
         }
@@ -1389,7 +1513,45 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         with_expr = parse_expression();
                         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
                     }
-                    return std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                    std::unique_ptr<ExpressionNode> call_res = std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
+                    while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                        if (match(TokenType::TOKEN_DOT)) {
+                            std::string sub_mem = current.text;
+                            expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                            auto member_node = std::make_unique<MemberAccessNode>("", sub_mem);
+                            member_node->index_expr = std::move(call_res);
+                            call_res = std::move(member_node);
+                        } else if (match(TokenType::TOKEN_LBRACKET)) {
+                            auto msb = parse_expression();
+                            if (match(TokenType::TOKEN_COLON)) {
+                                auto lsb = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                                auto width = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                                node->is_plus_colon = true;
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                                auto width = parse_expression();
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(width));
+                                node->is_minus_colon = true;
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            } else {
+                                expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                                auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                                node->index_expr = std::move(call_res);
+                                call_res = std::move(node);
+                            }
+                        }
+                    }
+                    return call_res;
                 } else if (match(TokenType::TOKEN_WITH)) {
                     std::string idx_str = "0";
                     if (auto num = dynamic_cast<NumberNode*>(msb.get())) idx_str = std::to_string(num->aval);
@@ -1709,6 +1871,40 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
 
     if (match(TokenType::TOKEN_DOLLAR)) {
         return std::make_unique<IdentifierNode>("__CAS_QUEUE_DOLLAR__");
+    }
+
+    if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
+        current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_INTEGER ||
+        current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_SHORTREAL ||
+        current.type == TokenType::TOKEN_STRING || current.type == TokenType::TOKEN_CHANDLE ||
+        (current.type == TokenType::TOKEN_IDENTIFIER &&
+         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+          current.text == "longint" || current.text == "real" || current.text == "shortreal" ||
+          current.text == "string" || current.text == "chandle"))) {
+        std::string dt_name = current.text;
+        advance();
+        while (match(TokenType::TOKEN_COLON_COLON) || match(TokenType::TOKEN_DOT)) {
+            dt_name += "." + current.text;
+            if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+        }
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            dt_name += "[";
+            parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in data type range");
+            dt_name += "]";
+        }
+        if (match(TokenType::TOKEN_APOSTROPHE)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in cast expression");
+            auto cexpr = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing cast expression");
+            auto node = std::make_unique<StaticCastExprNode>(32, std::move(cexpr));
+            node->target_type_name = dt_name;
+            return node;
+        }
+        return std::make_unique<IdentifierNode>(dt_name);
     }
 
     std::string loc = current.filename.empty() 

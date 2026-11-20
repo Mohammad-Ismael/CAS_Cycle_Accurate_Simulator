@@ -336,6 +336,7 @@ private:
     std::vector<CondStackEntry> cond_stack;
     int design_element_depth = 0;
     void skip_inactive_block();
+    bool evaluate_pp_condition();
 
     char peek() const;
     char peek_next() const;
