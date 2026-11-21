@@ -182,6 +182,10 @@ public:
     const TopologicalCombOrder& get_topological_order() const { return topological_order; }
     const std::vector<Net>& get_netlist() const { return netlist; }
     std::vector<Net>& get_netlist() { return netlist; }
+    const std::unordered_map<std::string, size_t>& get_net_map() const { return net_map; }
+    std::unordered_map<std::string, size_t>& get_net_map() { return net_map; }
+    StratifiedScheduler& get_scheduler() { return scheduler; }
+    const StratifiedScheduler& get_scheduler() const { return scheduler; }
     const std::vector<BoundProcess>& get_processes() const { return processes; }
     std::vector<BoundProcess>& get_processes() { return processes; }
     Evaluator& get_evaluator() { return evaluator; }

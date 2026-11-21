@@ -3,6 +3,7 @@
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/parser.hpp"
 #include "../../include/kernel/trace_buffer.hpp"
+#include "../../include/kernel/vpi_runtime.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -5992,6 +5993,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     }
 
     if (auto fn_call = dynamic_cast<FunctionCallNode*>(expr)) {
+        if (!fn_call->func_name.empty() && fn_call->func_name[0] == '$') {
+            VpiSystfImpl* systf = VpiRuntime::find_systf(fn_call->func_name);
+            if (systf && systf->data.calltf) {
+                int res = systf->data.calltf(systf->data.user_data);
+                return LogicVal::make_known(32, static_cast<uint64_t>(res));
+            }
+        }
         if (fn_call->func_name == "$time" || fn_call->func_name == "$realtime") {
             std::string eff_tu = "";
             if (current_class_def && !current_class_def->name.empty()) {
@@ -7239,61 +7247,149 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             std::string scoped_arr = scope.empty() ? arr_name : (scope + "." + arr_name);
 
             MemoryArray* target_mem = nullptr;
-            if (engine.memory_map.find(scoped_arr) != engine.memory_map.end()) {
-                target_mem = &engine.memory_map.at(scoped_arr);
-            } else if (!engine.active_scope_name.empty() &&
-                       engine.memory_map.find(engine.active_scope_name + "." + arr_name) != engine.memory_map.end()) {
-                target_mem = &engine.memory_map.at(engine.active_scope_name + "." + arr_name);
-            } else if (engine.memory_map.find(arr_name) != engine.memory_map.end()) {
-                target_mem = &engine.memory_map.at(arr_name);
+            DynamicArrayObject* target_dyn = nullptr;
+            LocalVar* target_local = nullptr;
+
+            if (context.has_active_frame()) {
+                LocalVar* local = context.lookup_local(arr_name);
+                if (local) {
+                    if (local->is_unpacked_array) target_local = local;
+                    else if (local->is_dynamic_array) target_dyn = &local->dyn_array_data;
+                }
+            }
+            if (!target_local && !target_dyn && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* local = it->local_frame.get_var(arr_name);
+                    if (local) {
+                        if (local->is_unpacked_array) { target_local = local; break; }
+                        else if (local->is_dynamic_array) { target_dyn = &local->dyn_array_data; break; }
+                    }
+                }
             }
 
-            if (target_mem) {
-                oa->size = static_cast<int>(target_mem->depth);
-                oa->elem_width = static_cast<int>(target_mem->word_width);
-                oa->source_mem = target_mem;
-                oa->int32_elements.resize(target_mem->depth);
-                oa->int64_elements.resize(target_mem->depth);
-                for (size_t j = 0; j < target_mem->depth; ++j) {
-                    int64_t sv_idx = target_mem->is_descending ? (target_mem->end_idx - static_cast<int64_t>(j)) : (target_mem->start_idx + static_cast<int64_t>(j));
-                    LogicVal w_val = target_mem->get_word(sv_idx);
-                    oa->int32_elements[j] = static_cast<int32_t>(w_val.aval);
-                    oa->int64_elements[j] = static_cast<int64_t>(w_val.aval);
+            if (!target_local && !target_dyn) {
+                if (engine.memory_map.find(scoped_arr) != engine.memory_map.end()) {
+                    target_mem = &engine.memory_map.at(scoped_arr);
+                } else if (!engine.active_scope_name.empty() &&
+                           engine.memory_map.find(engine.active_scope_name + "." + arr_name) != engine.memory_map.end()) {
+                    target_mem = &engine.memory_map.at(engine.active_scope_name + "." + arr_name);
+                } else if (engine.memory_map.find(arr_name) != engine.memory_map.end()) {
+                    target_mem = &engine.memory_map.at(arr_name);
                 }
-            } else {
-                DynamicArrayObject* target_dyn = nullptr;
-                if (context.has_active_frame()) {
-                    LocalVar* local = context.lookup_local(arr_name);
-                    if (local && local->is_dynamic_array) {
-                        target_dyn = &local->dyn_array_data;
-                    }
-                }
-                if (!target_dyn && current_bp && !current_bp->call_stack.empty()) {
-                    for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
-                        LocalVar* local = it->local_frame.get_var(arr_name);
-                        if (local && local->is_dynamic_array) {
-                            target_dyn = &local->dyn_array_data;
-                            break;
-                        }
-                    }
-                }
-                if (!target_dyn) {
-                    target_dyn = engine.get_dynamic_array(scope, arr_name);
-                }
+            }
+
+            if (!target_local && !target_dyn && !target_mem) {
+                target_dyn = engine.get_dynamic_array(scope, arr_name);
                 if (!target_dyn && !engine.active_scope_name.empty()) {
                     target_dyn = engine.get_dynamic_array(engine.active_scope_name, arr_name);
                 }
-                if (target_dyn) {
-                    oa->size = static_cast<int>(target_dyn->size());
-                    oa->elem_width = static_cast<int>(target_dyn->elem_width);
-                    oa->source_dyn = target_dyn;
-                    oa->int32_elements.resize(oa->size);
-                    oa->int64_elements.resize(oa->size);
-                    for (size_t j = 0; j < static_cast<size_t>(oa->size); ++j) {
-                        LogicVal elem = target_dyn->get_elem(static_cast<int64_t>(j));
-                        oa->int32_elements[j] = static_cast<int32_t>(elem.aval);
-                        oa->int64_elements[j] = static_cast<int64_t>(elem.aval);
+            }
+
+            oa->elem_width = pw;
+            oa->is_logic = (ptype == "logic" || ptype == "reg");
+            oa->is_2state = !oa->is_logic;
+            if (ptype == "byte") oa->elem_stride = 1;
+            else if (ptype == "shortint") oa->elem_stride = 2;
+            else if (ptype == "longint") oa->elem_stride = 8;
+            else if (ptype == "int" || ptype == "integer") oa->elem_stride = 4;
+            else if (oa->is_logic) {
+                size_t chunks = (pw + 31) / 32; if (chunks == 0) chunks = 1;
+                oa->elem_stride = chunks * sizeof(svLogicVecVal);
+            } else {
+                size_t chunks = (pw + 31) / 32; if (chunks == 0) chunks = 1;
+                oa->elem_stride = chunks * sizeof(uint32_t);
+            }
+
+            if (target_mem) {
+                oa->source_mem = target_mem;
+                if (!target_mem->dimensions.empty()) {
+                    size_t count = target_mem->unpacked_dims_count > 0 ? target_mem->unpacked_dims_count : target_mem->dimensions.size();
+                    for (size_t d_i = 0; d_i < count && d_i < target_mem->dimensions.size(); ++d_i) {
+                        const auto& d = target_mem->dimensions[d_i];
+                        oa->dims.push_back({
+                            static_cast<int>(d.left),
+                            static_cast<int>(d.right),
+                            static_cast<int>(d.low()),
+                            static_cast<int>(d.high()),
+                            static_cast<int>(d.increment()),
+                            static_cast<int>(d.size())
+                        });
                     }
+                } else {
+                    int l = target_mem->is_descending ? static_cast<int>(target_mem->end_idx) : static_cast<int>(target_mem->start_idx);
+                    int r = target_mem->is_descending ? static_cast<int>(target_mem->start_idx) : static_cast<int>(target_mem->end_idx);
+                    int sz = static_cast<int>(target_mem->depth);
+                    oa->dims.push_back({l, r, std::min(l, r), std::max(l, r), (l >= r ? -1 : 1), sz});
+                }
+                int sz = static_cast<int>(target_mem->depth);
+                oa->size = sz;
+                oa->buffer.resize(static_cast<size_t>(sz) * oa->elem_stride, 0);
+                for (size_t j = 0; j < target_mem->depth; ++j) {
+                    int64_t sv_idx = target_mem->is_descending ? (target_mem->end_idx - static_cast<int64_t>(j)) : (target_mem->start_idx + static_cast<int64_t>(j));
+                    LogicVal w_val = target_mem->get_word(sv_idx);
+                    void* ptr = oa->buffer.data() + j * oa->elem_stride;
+                    if (oa->is_logic) {
+                        svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
+                        lv->aval = static_cast<uint32_t>(w_val.aval);
+                        lv->bval = static_cast<uint32_t>(w_val.bval);
+                    } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(w_val.aval);
+                    else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(w_val.aval);
+                    else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = w_val.aval;
+                    else *reinterpret_cast<uint32_t*>(ptr) = static_cast<uint32_t>(w_val.aval);
+                }
+            } else if (target_local) {
+                oa->source_local = target_local;
+                if (!target_local->dimensions.empty()) {
+                    size_t count = target_local->unpacked_dims > 0 ? target_local->unpacked_dims : target_local->dimensions.size();
+                    for (size_t d_i = 0; d_i < count && d_i < target_local->dimensions.size(); ++d_i) {
+                        const auto& d = target_local->dimensions[d_i];
+                        oa->dims.push_back({
+                            static_cast<int>(d.left),
+                            static_cast<int>(d.right),
+                            static_cast<int>(d.low()),
+                            static_cast<int>(d.high()),
+                            static_cast<int>(d.increment()),
+                            static_cast<int>(d.size())
+                        });
+                    }
+                } else {
+                    int sz = static_cast<int>(target_local->unpacked_elements.size());
+                    int l = static_cast<int>(target_local->arr_start_idx);
+                    int r = static_cast<int>(target_local->arr_end_idx);
+                    oa->dims.push_back({l, r, std::min(l, r), std::max(l, r), (l >= r ? -1 : 1), sz});
+                }
+                int sz = static_cast<int>(target_local->unpacked_elements.size());
+                oa->size = sz;
+                oa->buffer.resize(static_cast<size_t>(sz) * oa->elem_stride, 0);
+                for (size_t j = 0; j < target_local->unpacked_elements.size(); ++j) {
+                    LogicVal w_val = target_local->unpacked_elements[j];
+                    void* ptr = oa->buffer.data() + j * oa->elem_stride;
+                    if (oa->is_logic) {
+                        svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
+                        lv->aval = static_cast<uint32_t>(w_val.aval);
+                        lv->bval = static_cast<uint32_t>(w_val.bval);
+                    } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(w_val.aval);
+                    else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(w_val.aval);
+                    else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = w_val.aval;
+                    else *reinterpret_cast<uint32_t*>(ptr) = static_cast<uint32_t>(w_val.aval);
+                }
+            } else if (target_dyn) {
+                oa->source_dyn = target_dyn;
+                int sz = static_cast<int>(target_dyn->size());
+                oa->dims.push_back({0, sz > 0 ? sz - 1 : 0, 0, sz > 0 ? sz - 1 : 0, 1, sz});
+                oa->size = sz;
+                oa->buffer.resize(static_cast<size_t>(sz) * oa->elem_stride, 0);
+                for (size_t j = 0; j < static_cast<size_t>(sz); ++j) {
+                    LogicVal elem = target_dyn->get_elem(static_cast<int64_t>(j));
+                    void* ptr = oa->buffer.data() + j * oa->elem_stride;
+                    if (oa->is_logic) {
+                        svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
+                        lv->aval = static_cast<uint32_t>(elem.aval);
+                        lv->bval = static_cast<uint32_t>(elem.bval);
+                    } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(elem.aval);
+                    else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(elem.aval);
+                    else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = elem.aval;
+                    else *reinterpret_cast<uint32_t*>(ptr) = static_cast<uint32_t>(elem.aval);
                 }
             }
 
@@ -7386,19 +7482,39 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
     LogicVal result = invoke_c_symbol(sym, dpi, c_args);
 
     // Write back any modified open array elements
+    auto extract_oa_val = [](const SvOpenArray* oa, size_t j) -> LogicVal {
+        if (!oa || oa->buffer.empty() || j * oa->elem_stride >= oa->buffer.size()) return LogicVal::make_known(oa ? oa->elem_width : 32, 0);
+        const uint8_t* ptr = oa->buffer.data() + j * oa->elem_stride;
+        if (oa->is_logic) {
+            const svLogicVecVal* lv = reinterpret_cast<const svLogicVecVal*>(ptr);
+            return LogicVal(oa->elem_width, lv->aval, lv->bval);
+        } else {
+            uint64_t v = 0;
+            if (oa->elem_stride == 1) v = *reinterpret_cast<const uint8_t*>(ptr);
+            else if (oa->elem_stride == 2) v = *reinterpret_cast<const uint16_t*>(ptr);
+            else if (oa->elem_stride == 8) v = *reinterpret_cast<const uint64_t*>(ptr);
+            else v = *reinterpret_cast<const uint32_t*>(ptr);
+            return LogicVal::make_known(oa->elem_width, v);
+        }
+    };
+
     for (const auto& rec : open_records) {
         if (rec.arg_idx < dpi->tf_ports.size() &&
-            (dpi->tf_ports[rec.arg_idx].direction == "output" || dpi->tf_ports[rec.arg_idx].direction == "inout")) {
+            (dpi->tf_ports[rec.arg_idx].direction == "output" || dpi->tf_ports[rec.arg_idx].direction == "inout" || dpi->tf_ports[rec.arg_idx].direction == "ref")) {
             if (rec.oa->source_mem) {
                 for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
                     int64_t sv_idx = rec.oa->source_mem->is_descending ? (rec.oa->source_mem->end_idx - static_cast<int64_t>(j)) : (rec.oa->source_mem->start_idx + static_cast<int64_t>(j));
-                    uint64_t val = (rec.oa->elem_width <= 32) ? static_cast<uint32_t>(rec.oa->int32_elements[j]) : static_cast<uint64_t>(rec.oa->int64_elements[j]);
-                    rec.oa->source_mem->set_word(sv_idx, LogicVal::make_known(rec.oa->elem_width, val));
+                    rec.oa->source_mem->set_word(sv_idx, extract_oa_val(rec.oa.get(), j));
+                }
+            } else if (rec.oa->source_local) {
+                for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
+                    if (j < rec.oa->source_local->unpacked_elements.size()) {
+                        rec.oa->source_local->unpacked_elements[j] = extract_oa_val(rec.oa.get(), j);
+                    }
                 }
             } else if (rec.oa->source_dyn) {
                 for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
-                    uint64_t val = (rec.oa->elem_width <= 32) ? static_cast<uint32_t>(rec.oa->int32_elements[j]) : static_cast<uint64_t>(rec.oa->int64_elements[j]);
-                    rec.oa->source_dyn->set_elem(static_cast<int64_t>(j), LogicVal::make_known(rec.oa->elem_width, val));
+                    rec.oa->source_dyn->set_elem(static_cast<int64_t>(j), extract_oa_val(rec.oa.get(), j));
                 }
             }
         }

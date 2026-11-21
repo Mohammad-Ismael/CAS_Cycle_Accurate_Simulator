@@ -2,6 +2,7 @@
 #include "../include/parser.hpp"
 #include "../include/engine.hpp"
 #include "../include/profiler/profiler.hpp"
+#include "../include/kernel/vpi_runtime.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -36,6 +37,7 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> source_files;
     std::vector<std::string> cli_plusargs;
     std::vector<std::string> sv_lib_paths;
+    std::vector<std::string> vpi_lib_paths;
     std::vector<std::string> c_source_files;
     std::vector<std::string> temporary_so_files;
 
@@ -94,6 +96,14 @@ int main(int argc, char* argv[]) {
                     sv_lib_paths.push_back(tok.substr(8));
                 } else if (tok.rfind("--sv_lib=", 0) == 0) {
                     sv_lib_paths.push_back(tok.substr(9));
+                } else if (tok == "-vpi" || tok == "--vpi" || tok == "-loadvpi") {
+                    if (lss >> tok) vpi_lib_paths.push_back(tok);
+                } else if (tok.rfind("-vpi=", 0) == 0) {
+                    vpi_lib_paths.push_back(tok.substr(5));
+                } else if (tok.rfind("--vpi=", 0) == 0) {
+                    vpi_lib_paths.push_back(tok.substr(6));
+                } else if (tok.rfind("-loadvpi=", 0) == 0) {
+                    vpi_lib_paths.push_back(tok.substr(9));
                 } else if (tok.rfind("-", 0) == 0 || tok.rfind("+", 0) == 0) {
                     // skip unknown compiler/linter flags (e.g. -CFLAGS, +define+, etc.)
                 } else {
@@ -260,6 +270,14 @@ int main(int argc, char* argv[]) {
             sv_lib_paths.push_back(argv[i] + 8);
         } else if (std::strncmp(argv[i], "--sv_lib=", 9) == 0) {
             sv_lib_paths.push_back(argv[i] + 9);
+        } else if ((std::strcmp(argv[i], "-vpi") == 0 || std::strcmp(argv[i], "--vpi") == 0 || std::strcmp(argv[i], "-loadvpi") == 0) && i + 1 < argc) {
+            vpi_lib_paths.push_back(argv[++i]);
+        } else if (std::strncmp(argv[i], "-vpi=", 5) == 0) {
+            vpi_lib_paths.push_back(argv[i] + 5);
+        } else if (std::strncmp(argv[i], "--vpi=", 6) == 0) {
+            vpi_lib_paths.push_back(argv[i] + 6);
+        } else if (std::strncmp(argv[i], "-loadvpi=", 9) == 0) {
+            vpi_lib_paths.push_back(argv[i] + 9);
         } else {
             std::string arg = argv[i];
             size_t dot = arg.find_last_of('.');
@@ -468,6 +486,10 @@ int main(int argc, char* argv[]) {
             std::cout << "[CAS] Parsing completed. Starting elaboration...\n" << std::flush;
         }
         engine.elaborate(all_modules, top_override, debug_ptr);
+        VpiRuntime::set_active_engine(&engine);
+        for (const auto& vpi_lib : vpi_lib_paths) {
+            VpiRuntime::load_vpi_library(vpi_lib);
+        }
         if (elab_only) {
             if (verbose) {
                 std::cout << debug_ss.str();

@@ -1,0 +1,15 @@
+{
+  "name": "v4_6_1_0_dpi_c_open_arrays",
+  "version": "v4.6.1.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.6.1, Annex I",
+  "description": "Direct Programming Interface (DPI-C) open arrays: multi-dimensional svOpenArrayHandle queries (svDimensions, svSize, svLeft, svRight, svLow, svHigh, svIncrement), elem pointers (svGetArrElemPtr1, svGetArrElemPtr2), and inout mutation writeback",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v4_6_1_0_open_arrays",
+  "extra_args": [
+    "-sv_lib", "c_model.so"
+  ]
+}

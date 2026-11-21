@@ -1,5 +1,60 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.6.1.0 (Phase 3B: DPI-C Open Arrays, Procedural/Expression Invocation, Core VPI Runtime, & Verilator t_dpi_* Suite)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 3B — IEEE 1800-2023 Annex I `svOpenArrayHandle` Multi-Dimensional Queries & Element Accessors, MemoryArray/LocalVar/DynArray Marshaling, Procedural & Expression DPI/VPI Calls, Core VPI Runtime (`vpi_user.h`, Dynamic `vlog_startup_routines` Loading, Simulation Callbacks), & Verilator `t_dpi_*` Integration  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 117 / 117 PASS (100.0% VCS Golden Parity) (+2 new DPI-C/VPI regression suites)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.77s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.82s)  
+**Verilator `test_regress` Compliance:** **2,102 / 2,804 PASS (75.0%)** (enforced >= 2,050 threshold)  
+- **Pure-SV Simulation (SIM):** **2,056 / 2,630 PASS (78.2%)**  
+- **Negative Compile-Error (CE):** **41 / 129 PASS (31.8%)**  
+- **DPI-C Integration (DPI):** **5 / 45 PASS (11.1%)**  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,665 tests + Verilator >= 2,050 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 3B Architectural, Kernel, & DPI-C/VPI Implementations
+
+1. **IEEE Std 1800-2023 Annex I Open Arrays (`CAS/include/dpi/svdpi.h`, `CAS/src/kernel/dpi_runtime.cpp`)**:
+   - Implemented full multidimensional open array query routines:
+     - `svDimensions(const svOpenArrayHandle h)`: Returns total open array dimension count.
+     - `svLeft(const svOpenArrayHandle h, int d)`, `svRight(...)`, `svLow(...)`, `svHigh(...)`, `svIncrement(...)`, `svSize(...)`, `svSizeOfArray(...)`.
+   - Implemented multidimensional and variadic element pointers and accessors:
+     - `svGetArrElemPtr()`, `svGetArrElemPtr1()`, `svGetArrElemPtr2()`, `svGetArrElemPtr3()`
+     - `svGetBitArrElem1()`, `svGetBitArrElem2()`, `svGetBitArrElem3()`, `svGetBitArrElem()`
+     - `svPutBitArrElem1()`, `svPutBitArrElem2()`, `svPutBitArrElem3()`, `svPutBitArrElem()`
+     - `svGetLogicArrElem1()`, `svGetLogicArrElem2()`, `svGetLogicArrElem3()`, `svGetLogicArrElem()`
+     - `svPutLogicArrElem1()`, `svPutLogicArrElem2()`, `svPutLogicArrElem3()`, `svPutLogicArrElem()`
+     - `svGetBitArrElemVecVal()`, `svPutBitArrElemVecVal()`, `svGetLogicArrElemVecVal()`, `svPutLogicArrElemVecVal()`.
+2. **DPI-C Open Array Data Marshaling & Writeback (`CAS/src/kernel/expr_evaluator.cpp`)**:
+   - Implemented automatic conversion and handle wrapping (`svOpenArrayHandle`) for `MemoryArray`, `LocalVar`, and `DynamicArrayObject` targets.
+   - Enforced dimension count reflection matching unpacked dimensions (`unpacked_dims_count` and `unpacked_dims`).
+   - Added automatic element mutation writeback for `inout`, `output`, and `ref` open array arguments.
+3. **Frontend Grammar Extensions (`CAS/src/frontend/parser_module.cpp`, `CAS/src/frontend/parser_function.cpp`)**:
+   - Added support for multi-dimensional open arrays in DPI imports (`arr[][]`).
+   - Extended DPI import/export port and return types to support `real`, `shortreal`, `string`, `reg`, `time`, `integer`, `chandle`, and optional `signed`/`unsigned` specifiers.
+   - Supported C identifier assignment in DPI exports (`export "DPI-C" c_ident = function/task sv_ident`).
+   - Extended `typedef` and struct member parsing to accept `chandle`, `shortreal`, `void`, and `string`.
+4. **IEEE Std 1800-2023 Core VPI Runtime (`CAS/include/dpi/vpi_user.h`, `CAS/include/kernel/vpi_runtime.hpp`, `CAS/src/kernel/vpi_runtime.cpp`)**:
+   - Implemented standard `vpi_user.h` header with macro guards preventing collisions with `svdpi.h`.
+   - Built complete runtime engine for dynamic VPI libraries loaded via CLI flags (`-vpi <lib>`, `--vpi <lib>`, `-loadvpi <lib>`):
+     - Automatically invokes `vlog_startup_routines` table upon elaboration.
+     - Registered custom system tasks/functions via `vpi_register_systf`.
+     - Supported simulation lifecycle callbacks (`cbStartOfSimulation`, `cbEndOfSimulation`, `cbAfterDelay`, `cbValueChange`) integrated into `Engine::simulate()` and `Scheduler::step()`.
+     - Provided handle lookup (`vpi_handle_by_name`, `vpi_handle`), iteration (`vpi_iterate`, `vpi_scan`), properties (`vpi_get`, `vpi_get_str`), values (`vpi_get_value`, `vpi_put_value`), time (`vpi_get_time`), and control (`vpi_control`, `vpi_printf`).
+5. **Milestone Regression Suites (`regression_testing/`)**:
+   - Added `v4_6_1_0_dpi_c_open_arrays`: validates 1D/2D open array queries, multidimensional element access, and inout mutation writeback.
+   - Added `v4_6_1_0_vpi_basic_callbacks`: validates `vlog_startup_routines`, custom `$vpi_check_status` system task registration, `cbStartOfSimulation`, and `cbValueChange` callbacks.
+   - Expanded milestone regressions to **117 / 117 PASS (100.0%)**.
+6. **Verilator DPI Suite Onboarding (`benchmarks/run_verilator_tests.py`)**:
+   - Integrated Verilator pure-C/SV `t_dpi_*` benchmark suite into the automated triage scorecard (`DPI-C Integration (DPI)`).
+   - Added on-the-fly compilation of companion C/C++ sources via `g++ -shared -fPIC -O2 -I/app/CAS/include/dpi`.
+
+---
+
 ## Version v4.6.0.0 (Phase 3A: IEEE 1800-2023 DPI-C ABI, svdpi.h, Dynamic Shared-Lib Loader, & Context Exports)
 
 **Release Date:** November 2026  

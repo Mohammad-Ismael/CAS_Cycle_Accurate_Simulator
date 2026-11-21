@@ -117,7 +117,9 @@ suites = [
     ("v4.4.0.0", "v4_4_0_0_full_sv_tests_negative_diagnostics_parity", ["design.sv", "testbench.sv"]),
     ("v4.6.0.0", "v4_6_0_0_dpi_c_scalars_vectors", ["design.sv", "testbench.sv"]),
     ("v4.6.0.0", "v4_6_0_0_dpi_c_strings_chandles", ["design.sv", "testbench.sv"]),
-    ("v4.6.0.0", "v4_6_0_0_dpi_c_context_export", ["design.sv", "testbench.sv"])
+    ("v4.6.0.0", "v4_6_0_0_dpi_c_context_export", ["design.sv", "testbench.sv"]),
+    ("v4.6.1.0", "v4_6_1_0_dpi_c_open_arrays", ["design.sv", "testbench.sv"]),
+    ("v4.6.1.0", "v4_6_1_0_vpi_basic_callbacks", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -179,6 +181,6 @@ print("-" * 80)
 passed_count = sum(1 for r in results if r[2] == "PASS")
 print(f"TOTAL: {len(suites)} | PASSED: {passed_count} | FAILED: {len(suites) - passed_count}")
 
-if not all_passed or passed_count != 115 or len(suites) != 115:
+if not all_passed or passed_count != 117 or len(suites) != 117:
     sys.exit(1)
 sys.exit(0)

@@ -4,6 +4,7 @@
 #include "../include/kernel/codegen.hpp"
 #include "../include/kernel/native_jit.hpp"
 #include "../include/kernel/llvm_jit.hpp"
+#include "../include/kernel/vpi_runtime.hpp"
 
 #include <algorithm>
 
@@ -1563,7 +1564,12 @@ void Engine::run(std::ostream* debug_out) {
         *debug_out << "--------------------------------------------------------\n";
     }
 
+    VpiRuntime::set_active_engine(this);
+    VpiRuntime::dispatch_start_of_simulation(this);
+
     scheduler.run_simulation();
+
+    VpiRuntime::dispatch_end_of_simulation(this);
 
     if (vcd_dumper.is_enabled()) {
         std::string dumped_file = vcd_dumper.get_filename();

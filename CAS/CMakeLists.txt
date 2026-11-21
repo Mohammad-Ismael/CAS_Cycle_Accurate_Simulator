@@ -57,6 +57,7 @@ add_executable(cas
     src/frontend/number_parser.cpp
     src/kernel/expr_evaluator.cpp
     src/kernel/dpi_runtime.cpp
+    src/kernel/vpi_runtime.cpp
     src/kernel/execution_context.cpp
     src/frontend/parser_function.cpp
     src/frontend/parser_task.cpp

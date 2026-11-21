@@ -15,6 +15,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import json
+import threading
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 BENCHMARKS_DIR = os.path.join(REPO_ROOT, "benchmarks")
@@ -233,7 +234,7 @@ def read_inputs_v(filename):
                 inputs[m_port.group(2)] = rng.strip()
         m_body = re.search(r'\bmodule\s+t\b.*?\bendmodule\b', content, re.DOTALL)
         if m_body:
-            for m_inp in re.finditer(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(\[[^\]]+\]\s*)?([A-Za-z0-9_]+)', m_body.group(0), re.MULTILINE):
+            for m_inp in re.finditer(r'^\s*input\s+(?:(?:logic|bit|reg|wire|signed|unsigned)\s+)*(\[[^\]]+\]\s*)?([A-Za-z0-9_]+)\s*;', m_body.group(0), re.MULTILINE):
                 rng = m_inp.group(1) or ""
                 inputs[m_inp.group(2)] = rng.strip()
     except Exception:
@@ -275,11 +276,16 @@ def load_all_tests(test_filter=None):
         cpp_harness = os.path.join(T_DIR, f"{tname}.cpp")
         has_cpp = os.path.exists(cpp_harness) or any('.cpp' in str(x) for x in t.v_other_filenames if isinstance(x, str)) or '--exe' in all_flags
         has_sc = '--sc' in all_flags or 'sc_time' in all_flags
-        is_dpi_vpi = (
-            tname.startswith('t_dpi_') or tname.startswith('t_vpi_') or tname.startswith('t_vpi')
-            or '--vpi' in all_flags or '--dpi-hdr-only' in all_flags
-            or bool(t.pli_filename)
-        )
+        is_dpi = tname.startswith('t_dpi_')
+        dpi_companion = None
+        if is_dpi:
+            for cand in [f"{tname}_c.cpp", f"{tname}_c.c", f"{tname}.cpp", f"{tname}.c"]:
+                cand_p = os.path.join(T_DIR, cand)
+                if os.path.exists(cand_p):
+                    dpi_companion = cand_p
+                    break
+
+        is_vpi_only = not is_dpi and (tname.startswith('t_vpi_') or tname.startswith('t_vpi') or '--vpi' in all_flags or bool(t.pli_filename))
         is_cli_flag_only = (
             any(f.startswith('--debug') or f in ('-V', '--version', '--help', '--gdbbt', '-E') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
             or '-E' in all_flags or '--pipe-filter' in all_flags
@@ -297,17 +303,19 @@ def load_all_tests(test_filter=None):
         if has_sc:
             skipped_counts['sc'] += 1
             continue
-        if is_dpi_vpi:
+        if is_vpi_only:
             skipped_counts['dpi_vpi'] += 1
             continue
-        if has_cpp:
+        if not is_dpi and has_cpp:
             skipped_counts['exe_cpp'] += 1
             continue
         if (t.has_lint and not t.has_compile and not t.has_execute) or '--lint-only' in all_flags or is_cli_flag_only or is_tool_internal or is_coverage:
             skipped_counts['lint_only'] += 1
             continue
 
-        if t.fails:
+        if is_dpi:
+            ttype = 'CE' if t.fails else 'DPI'
+        elif t.fails:
             ttype = 'CE'
         elif t.has_execute or t.has_compile:
             ttype = 'SIM'
@@ -327,6 +335,7 @@ def load_all_tests(test_filter=None):
             'parameters': t.parameters,
             'sim_time': getattr(t, 'sim_time', 15000) if getattr(t, 'sim_time', 15000) else 15000,
             'has_execute': t.has_execute,
+            'dpi_companion': dpi_companion,
         }
 
     if not test_filter:
@@ -517,6 +526,19 @@ def run_single_test(test_info):
         except Exception:
             pass
 
+    # Compile DPI companion C/C++ source if present
+    companion_so = None
+    if test_info.get("dpi_companion"):
+        companion_src = test_info["dpi_companion"]
+        companion_so = f"/tmp/{tname}_{os.getpid()}_{threading.get_ident()}.so"
+        comp_cmd = ["g++", "-shared", "-fPIC", "-O2", "-DCADENCE", "-DNEED_EXTERNS", "-I/app/CAS/include/dpi", companion_src, "-o", companion_so]
+        try:
+            subprocess.run(comp_cmd, capture_output=True, timeout=10)
+            if os.path.exists(companion_so):
+                cmd.extend(["-sv_lib", companion_so])
+        except Exception:
+            pass
+
     cmd.append(top_filename)
     cmd.extend(v_other_filenames)
 
@@ -555,6 +577,11 @@ def run_single_test(test_info):
         if top_wrapper_file and os.path.exists(top_wrapper_file):
             try:
                 os.remove(top_wrapper_file)
+            except OSError:
+                pass
+        if companion_so and os.path.exists(companion_so):
+            try:
+                os.remove(companion_so)
             except OSError:
                 pass
 
@@ -664,7 +691,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", "-t", action="append", help="Filter test names")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of tests to run")
-    parser.add_argument("--category", "-c", choices=["SIM", "CE"], help="Filter by category")
+    parser.add_argument("--category", "-c", choices=["SIM", "CE", "DPI"], help="Filter by category")
     parser.add_argument("--min-pass", type=int, default=0, help="Minimum number of passing tests required to exit with code 0")
     args, _ = parser.parse_known_args()
 
@@ -711,6 +738,7 @@ def main():
     scorecard = {
         "SIM": {"name": "Pure-SV Simulation (SIM)", "passed": 0, "total": 0},
         "CE": {"name": "Negative Compile-Error (CE)", "passed": 0, "total": 0},
+        "DPI": {"name": "DPI-C Integration (DPI)", "passed": 0, "total": 0},
     }
 
     failure_signatures = defaultdict(list)
@@ -733,7 +761,8 @@ def main():
     print("=" * 80)
     print(f"{'Category':<32} | {'Passed':<8} | {'Total':<8} | {'Pass Rate'}")
     print("-" * 80)
-    for cat in ["SIM", "CE"]:
+    for cat in ["SIM", "CE", "DPI"]:
+        if cat not in scorecard: continue
         sc = scorecard[cat]
         pct = (sc["passed"] / sc["total"] * 100) if sc["total"] else 0.0
         print(f"{sc['name']:<32} | {sc['passed']:<8} | {sc['total']:<8} | {pct:>6.1f}%")

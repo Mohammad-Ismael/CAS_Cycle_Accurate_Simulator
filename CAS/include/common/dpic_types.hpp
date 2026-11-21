@@ -20,14 +20,64 @@
 
 struct MemoryArray;
 struct DynamicArrayObject;
+struct LocalVar;
+struct LogicVal;
+
+struct SvOpenArrayDim {
+    int left = 0;
+    int right = 0;
+    int low = 0;
+    int high = 0;
+    int increment = 1;
+    int size = 0;
+};
 
 struct SvOpenArray {
     int size = 0;
     int elem_width = 32;
-    std::vector<int32_t> int32_elements;
-    std::vector<int64_t> int64_elements;
+    size_t elem_stride = 4;
+    bool is_2state = true;
+    bool is_logic = false;
+    std::vector<SvOpenArrayDim> dims;
+    std::vector<uint8_t> buffer;
+
+    // Backing references for writeback
     MemoryArray* source_mem = nullptr;
     DynamicArrayObject* source_dyn = nullptr;
+    LocalVar* source_local = nullptr;
+    std::vector<int64_t> source_indices;
+
+    void* get_elem_ptr(int indx1) {
+        if (dims.empty()) return nullptr;
+        int off = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
+        if (off < 0 || off >= dims[0].size) return nullptr;
+        size_t byte_off = static_cast<size_t>(off) * elem_stride;
+        if (byte_off + elem_stride > buffer.size()) return nullptr;
+        return buffer.data() + byte_off;
+    }
+
+    void* get_elem_ptr2(int indx1, int indx2) {
+        if (dims.size() < 2) return nullptr;
+        int off1 = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
+        int off2 = (dims[1].left >= dims[1].right) ? (dims[1].left - indx2) : (indx2 - dims[1].left);
+        if (off1 < 0 || off1 >= dims[0].size || off2 < 0 || off2 >= dims[1].size) return nullptr;
+        size_t linear = static_cast<size_t>(off1) * dims[1].size + off2;
+        size_t byte_off = linear * elem_stride;
+        if (byte_off + elem_stride > buffer.size()) return nullptr;
+        return buffer.data() + byte_off;
+    }
+
+    void* get_elem_ptr3(int indx1, int indx2, int indx3) {
+        if (dims.size() < 3) return nullptr;
+        int off1 = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
+        int off2 = (dims[1].left >= dims[1].right) ? (dims[1].left - indx2) : (indx2 - dims[1].left);
+        int off3 = (dims[2].left >= dims[2].right) ? (dims[2].left - indx3) : (indx3 - dims[2].left);
+        if (off1 < 0 || off1 >= dims[0].size || off2 < 0 || off2 >= dims[1].size || off3 < 0 || off3 >= dims[2].size) return nullptr;
+        size_t linear = (static_cast<size_t>(off1) * dims[1].size + off2) * dims[2].size + off3;
+        size_t byte_off = linear * elem_stride;
+        if (byte_off + elem_stride > buffer.size()) return nullptr;
+        return buffer.data() + byte_off;
+    }
 };
 
 struct SvScopeContext {

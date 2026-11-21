@@ -4,6 +4,7 @@
 #include "../../include/frontend/lexer.hpp"
 #include "../../include/kernel/trace_buffer.hpp"
 #include "../../include/kernel/simd_ops.hpp"
+#include "../../include/kernel/vpi_runtime.hpp"
 #include <iostream>
 #include <algorithm>
 
@@ -699,7 +700,11 @@ void StratifiedScheduler::init_scheduler() {
 
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id >= engine.netlist.size()) return;
+    VpiRuntime::dispatch_value_change(net_id, engine.netlist[net_id].value);
     size_t canon_nid = engine.get_canonical_net_id(net_id);
+    if (canon_nid != net_id && canon_nid < engine.netlist.size()) {
+        VpiRuntime::dispatch_value_change(canon_nid, engine.netlist[canon_nid].value);
+    }
     if (native_dispatch.is_active || llvm_dispatch.is_active) {
         if (net_id < native_nets_u64.size()) {
             native_nets_u64[net_id] = engine.netlist[net_id].value.aval;
@@ -5679,6 +5684,7 @@ void StratifiedScheduler::run_simulation() {
     AsyncTraceBuffer::instance().start();
     current_sim_time = 0;
     simulation_active = true;
+    VpiRuntime::dispatch_time_callbacks(0);
 
     rca_enqueued.assign(engine.resolved_continuous_assigns.size(), 1);
     dirty_rcas.clear();
@@ -5788,6 +5794,7 @@ void StratifiedScheduler::run_simulation() {
         }
         uint64_t slot_time = time_wheel.next_time();
         current_sim_time = slot_time;
+        VpiRuntime::dispatch_time_callbacks(slot_time);
         sim_step_count++;
         if (sim_step_count % 50000 == 0) {
             std::cout << "[CAS PROGRESS] Time: " << current_sim_time << " ns (" << sim_step_count << " steps)\n";

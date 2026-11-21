@@ -73,6 +73,14 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_width = 32;
             func->return_type_name = "shortreal";
             advance();
+        } else if (current.type == TokenType::TOKEN_CHANDLE || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "chandle")) {
+            func->return_width = 64;
+            func->return_type_name = "chandle";
+            advance();
+        } else if (current.type == TokenType::TOKEN_STRING || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string")) {
+            func->return_width = 64;
+            func->return_type_name = "string";
+            advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "string" || current.text == "void" || current.text == "byte" || current.text == "shortint" || current.text == "int" || current.text == "longint")) {
             if (current.text == "string") { func->return_width = 64; func->return_type_name = "string"; }
             else if (current.text == "void") { func->return_width = 0; func->return_type_name = "void"; }
@@ -291,21 +299,29 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
                 current.type == TokenType::TOKEN_REG   || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
-                current.type == TokenType::TOKEN_SHORTREAL) {
+                current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_CHANDLE ||
+                current.type == TokenType::TOKEN_STRING) {
                 has_explicit_type = true;
                 if (current.type == TokenType::TOKEN_INTEGER) { is_s = true; is_int = true; def_w = 32; }
                 else if (current.type == TokenType::TOKEN_REAL) { is_s = false; is_int = false; def_w = 64; arg_type_name = "real"; }
                 else if (current.type == TokenType::TOKEN_SHORTREAL) { is_s = false; is_int = false; def_w = 32; arg_type_name = "shortreal"; }
+                else if (current.type == TokenType::TOKEN_CHANDLE) { is_s = false; is_int = true; def_w = 64; arg_type_name = "chandle"; }
+                else if (current.type == TokenType::TOKEN_STRING) { is_s = false; is_int = true; def_w = 64; arg_type_name = "string"; }
                 else if (current.type == TokenType::TOKEN_BIT) { arg_type_name = "bit"; }
                 else if (current.type == TokenType::TOKEN_LOGIC) { arg_type_name = "logic"; }
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal")) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint" || current.text == "string" || current.text == "real" || current.text == "shortreal" || current.text == "chandle")) {
                 has_explicit_type = true;
                 if (current.text == "string") {
                     is_s = false;
                     is_int = true;
                     def_w = 64;
                     arg_type_name = "string";
+                } else if (current.text == "chandle") {
+                    is_s = false;
+                    is_int = true;
+                    def_w = 64;
+                    arg_type_name = "chandle";
                 } else if (current.text == "real") {
                     is_s = false;
                     is_int = false;

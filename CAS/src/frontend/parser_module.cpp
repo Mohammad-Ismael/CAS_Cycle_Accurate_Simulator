@@ -4767,6 +4767,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 current.type == TokenType::TOKEN_WIRE  || current.type == TokenType::TOKEN_INTEGER ||
                 current.type == TokenType::TOKEN_BIT   || current.type == TokenType::TOKEN_REAL ||
                 current.type == TokenType::TOKEN_SHORTREAL || current.type == TokenType::TOKEN_STRING ||
+                current.type == TokenType::TOKEN_CHANDLE ||
                 (current.type == TokenType::TOKEN_IDENTIFIER &&
                  (current.text == "int" || current.text == "byte" || current.text == "bit" ||
                   current.text == "shortint" || current.text == "longint" || current.text == "time" ||
@@ -5105,7 +5106,9 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
     if (current.type == TokenType::TOKEN_IDENTIFIER || current.type == TokenType::TOKEN_INTEGER ||
         current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT ||
         current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
-        current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_STRING ||
+        current.type == TokenType::TOKEN_REAL || current.type == TokenType::TOKEN_SHORTREAL ||
+        current.type == TokenType::TOKEN_STRING || current.type == TokenType::TOKEN_CHANDLE ||
+        current.type == TokenType::TOKEN_VOID ||
         current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED) {
         if (current.type != TokenType::TOKEN_STRUCT && current.type != TokenType::TOKEN_ENUM) {
             std::string base_t = current.text;
@@ -8199,14 +8202,42 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             ret_w = 64;
             ret_signed = true;
             advance();
-        } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
-            ret_type = current.text;
+        } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.text == "reg") {
+            ret_type = (current.text == "reg") ? "logic" : current.text;
             ret_w = 1;
+            ret_signed = false;
+            advance();
+        } else if (current.text == "time") {
+            ret_type = "time";
+            ret_w = 64;
+            ret_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_REAL || current.text == "real") {
+            ret_type = "real";
+            ret_w = 64;
+            ret_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_SHORTREAL || current.text == "shortreal") {
+            ret_type = "shortreal";
+            ret_w = 32;
+            ret_signed = false;
+            advance();
+        } else if (current.type == TokenType::TOKEN_STRING || current.text == "string") {
+            ret_type = "string";
+            ret_w = 64;
             ret_signed = false;
             advance();
         } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type != TokenType::TOKEN_LPAREN) {
             ret_type = current.text;
             ret_w = 32;
+            advance();
+        }
+
+        if (current.type == TokenType::TOKEN_SIGNED || current.text == "signed") {
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || current.text == "unsigned") {
+            ret_signed = false;
             advance();
         }
 
@@ -8294,14 +8325,42 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                 pw = 64;
                 psigned = true;
                 advance();
-            } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC) {
-                ptype = current.text;
+            } else if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || current.text == "reg") {
+                ptype = (current.text == "reg") ? "logic" : current.text;
                 pw = 1;
+                psigned = false;
+                advance();
+            } else if (current.text == "time") {
+                ptype = "time";
+                pw = 64;
+                psigned = false;
+                advance();
+            } else if (current.type == TokenType::TOKEN_REAL || current.text == "real") {
+                ptype = "real";
+                pw = 64;
+                psigned = false;
+                advance();
+            } else if (current.type == TokenType::TOKEN_SHORTREAL || current.text == "shortreal") {
+                ptype = "shortreal";
+                pw = 32;
+                psigned = false;
+                advance();
+            } else if (current.type == TokenType::TOKEN_STRING || current.text == "string") {
+                ptype = "string";
+                pw = 64;
                 psigned = false;
                 advance();
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
                 ptype = current.text;
                 pw = 32;
+                advance();
+            }
+
+            if (current.type == TokenType::TOKEN_SIGNED || current.text == "signed") {
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_UNSIGNED || current.text == "unsigned") {
+                psigned = false;
                 advance();
             }
 
@@ -8325,7 +8384,7 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             std::string pname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected port identifier in DPI import");
 
-            if (match(TokenType::TOKEN_LBRACKET)) {
+            while (match(TokenType::TOKEN_LBRACKET)) {
                 if (match(TokenType::TOKEN_RBRACKET)) {
                     is_open_array = true;
                 } else {
@@ -8391,7 +8450,12 @@ std::unique_ptr<DpiExportNode> Parser::parse_dpi_export() {
     } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
         first_ident = current.text;
         advance();
-        expect(TokenType::TOKEN_ASSIGN, "Expected '=' after C identifier in DPI export");
+        if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+            // consumed '='
+        } else {
+            throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
+                ": error: Expected '=' after C identifier in DPI export (found: '" + current.text + "')");
+        }
         if (current.type == TokenType::TOKEN_FUNCTION) {
             node->is_task = false;
         } else if (current.type == TokenType::TOKEN_TASK) {

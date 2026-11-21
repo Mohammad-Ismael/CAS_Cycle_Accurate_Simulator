@@ -3,6 +3,7 @@
 #include "../../include/kernel/logic_ops.hpp"
 #include "../../include/frontend/parser.hpp"
 #include "../../include/kernel/trace_buffer.hpp"
+#include "../../include/kernel/vpi_runtime.hpp"
 #include <iostream>
 #include <iomanip>
 #include <unordered_set>
@@ -2230,6 +2231,14 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     expr_eval.set_current_class_def(prev_cd);
                     return;
                 }
+            }
+        }
+
+        if (!tcall->task_name.empty() && tcall->task_name[0] == '$') {
+            VpiSystfImpl* systf = VpiRuntime::find_systf(tcall->task_name);
+            if (systf && systf->data.calltf) {
+                systf->data.calltf(systf->data.user_data);
+                return;
             }
         }
 
