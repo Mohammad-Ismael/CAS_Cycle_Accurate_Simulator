@@ -25,21 +25,18 @@ WORKLOADS = [
         "elf": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "hello_test", "hello_test.elf"),
         "vmem": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "hello_test", "hello_test.vmem"),
         "max_cycles": 200,
-        "max_insns": 60,
     },
     {
         "name": "pmp_smoke_test",
         "elf": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "pmp_smoke_test", "pmp_smoke_test.elf"),
         "vmem": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "pmp_smoke_test", "pmp_smoke_test.vmem"),
         "max_cycles": 150,
-        "max_insns": 50,
     },
     {
         "name": "dummy_instr_test",
         "elf": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "dummy_instr_test", "dummy_instr_test.elf"),
         "vmem": os.path.join(IBEX_DIR, "examples", "sw", "simple_system", "dummy_instr_test", "dummy_instr_test.vmem"),
         "max_cycles": 200,
-        "max_insns": 60,
     }
 ]
 
@@ -128,6 +125,9 @@ def parse_cas_trace(filepath):
             wdata = None
             if len(parts) >= 6:
                 reg_col = parts[-1].strip()
+                # Check for uninitialized / 'x' / 'z' in register writeback
+                if re.search(r"\b(x\d+)=0x[0-9a-fA-F]*[xXzZ]", reg_col):
+                    raise RuntimeError(f"Uninitialized 'x'/'z' detected in register writeback at PC=0x{pc:08x}: {reg_col}")
                 # Matches x<num>=0x<hex> (destination register write)
                 m = re.search(r"\b(x\d+)=0x([0-9a-fA-F]+)", reg_col)
                 if m:
@@ -237,7 +237,7 @@ def verify_workload(workload, defines, incdirs, src_files):
         print(f"[{name}] ERROR: No Spike commit events found in {spike_log}")
         return False, 0, 0
 
-    max_compare = min(len(cas_events), len(spike_events), workload.get("max_insns", 100))
+    max_compare = min(len(cas_events), len(spike_events))
     mismatches = 0
 
     for i in range(max_compare):

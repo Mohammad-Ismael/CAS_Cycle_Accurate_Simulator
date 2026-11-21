@@ -122,15 +122,21 @@ void Evaluator::write_slice(const NetSliceRef& ref, const LogicVal& val) {
         return;
     }
     target_net.set(cur);
+    if (target_id < engine.scheduler.native_nets_u64.size()) {
+        engine.scheduler.native_nets_u64[target_id] = cur.aval;
+    }
     if (target_id < engine.alias_members.size()) {
         for (size_t other_id : engine.alias_members[target_id]) {
             if (other_id != target_id && other_id < engine.netlist.size()) {
                 engine.netlist[other_id].set(cur);
+                if (other_id < engine.scheduler.native_nets_u64.size()) {
+                    engine.scheduler.native_nets_u64[other_id] = cur.aval;
+                }
             }
         }
     }
     if (target_net.value != old_v) {
-        engine.scheduler.notify_net_changed(target_id);
+        engine.scheduler.notify_net_changed(target_id, &old_v);
     }
 }
 
@@ -233,15 +239,21 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         if (!engine.netlist[target_id].has_procedural_assign) {
             LogicVal old_v = engine.netlist[target_id].value;
             engine.netlist[target_id].set(actual_val);
+            if (target_id < engine.scheduler.native_nets_u64.size()) {
+                engine.scheduler.native_nets_u64[target_id] = actual_val.aval;
+            }
             if (target_id < engine.alias_members.size()) {
                 for (size_t other_id : engine.alias_members[target_id]) {
                     if (other_id != target_id && other_id < engine.netlist.size()) {
                         engine.netlist[other_id].set(actual_val);
+                        if (other_id < engine.scheduler.native_nets_u64.size()) {
+                            engine.scheduler.native_nets_u64[other_id] = actual_val.aval;
+                        }
                     }
                 }
             }
             if (engine.netlist[target_id].value != old_v) {
-                engine.scheduler.notify_net_changed(target_id);
+                engine.scheduler.notify_net_changed(target_id, &old_v);
             }
         }
     }
@@ -266,15 +278,21 @@ void Evaluator::execute_fast_assignments(BoundProcess& bp) {
         } else {
             LogicVal old_v = engine.netlist[dst].value;
             engine.netlist[dst].set(casted);
+            if (dst < engine.scheduler.native_nets_u64.size()) {
+                engine.scheduler.native_nets_u64[dst] = casted.aval;
+            }
             if (dst < engine.alias_members.size()) {
                 for (size_t other_id : engine.alias_members[dst]) {
                     if (other_id != dst && other_id < engine.netlist.size()) {
                         engine.netlist[other_id].set(casted);
+                        if (other_id < engine.scheduler.native_nets_u64.size()) {
+                            engine.scheduler.native_nets_u64[other_id] = casted.aval;
+                        }
                     }
                 }
             }
             if (engine.netlist[dst].value != old_v) {
-                engine.scheduler.notify_net_changed(dst);
+                engine.scheduler.notify_net_changed(dst, &old_v);
             }
         }
     }
@@ -5515,7 +5533,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             }
                         }
                         if (engine.netlist[target_id].value != old_v) {
-                            engine.scheduler.notify_net_changed(target_id);
+                            engine.scheduler.notify_net_changed(target_id, &old_v);
                         }
                     }
                 }
@@ -5571,7 +5589,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                     }
                     if (engine.netlist[target_id].value != old_v) {
-                        engine.scheduler.notify_net_changed(target_id);
+                        engine.scheduler.notify_net_changed(target_id, &old_v);
                     }
                 }
                 return;
@@ -5782,7 +5800,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             }
                             if (engine.netlist[target_id].value != old_v) {
-                                engine.scheduler.notify_net_changed(target_id);
+                                engine.scheduler.notify_net_changed(target_id, &old_v);
                             }
                         }
                         shift += width;
@@ -7298,7 +7316,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     }
                                 }
                                 if (engine.netlist[target_id].value != old_v) {
-                                    engine.scheduler.notify_net_changed(target_id);
+                                    engine.scheduler.notify_net_changed(target_id, &old_v);
                                 }
                                 return;
                             }
@@ -7480,7 +7498,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     }
                                 }
                                 if (engine.netlist[target_id].value != old_v) {
-                                    engine.scheduler.notify_net_changed(target_id);
+                                    engine.scheduler.notify_net_changed(target_id, &old_v);
                                 }
                                 return;
                             }
@@ -7540,7 +7558,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     }
                                 }
                                 if (engine.netlist[target_id].value != old_v) {
-                                    engine.scheduler.notify_net_changed(target_id);
+                                    engine.scheduler.notify_net_changed(target_id, &old_v);
                                 }
                                 return;
                             }
@@ -7612,7 +7630,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     }
                                 }
                                 if (engine.netlist[target_id].value != old_v) {
-                                    engine.scheduler.notify_net_changed(target_id);
+                                    engine.scheduler.notify_net_changed(target_id, &old_v);
                                 }
                                 return;
                             }
@@ -7643,7 +7661,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             }
                             if (engine.netlist[target_id].value != old_v) {
-                                engine.scheduler.notify_net_changed(target_id);
+                                engine.scheduler.notify_net_changed(target_id, &old_v);
                             }
                         }
                     }

@@ -151,6 +151,8 @@ private:
     std::vector<uint32_t> dirty_comb_procs;
     std::vector<uint8_t> comb_proc_enqueued;
     uint32_t current_running_comb_proc = UINT32_MAX;
+    std::vector<std::pair<size_t, LogicVal>> comb_proc_target_saves;
+    void flush_comb_proc_target_saves();
 
     std::vector<uint32_t> dirty_slice_bindings;
     std::vector<uint8_t> slice_binding_enqueued;
@@ -192,7 +194,7 @@ public:
     void sync_all_native_nets();
     bool commit_native_clock_updates();
 
-    void notify_net_changed(size_t net_id);
+    void notify_net_changed(size_t net_id, const LogicVal* old_val = nullptr);
     void notify_mem_changed();
     void enqueue_rca(uint32_t rca_idx);
     void enqueue_comb_proc(uint32_t proc_id);

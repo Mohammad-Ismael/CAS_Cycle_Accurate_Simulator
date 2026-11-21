@@ -2168,8 +2168,8 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                     slice_w = msb - lsb + 1;
                     if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
                 }
-                return target_val.extract_slice(lsb, slice_w);
             }
+            return target_val.extract_slice(lsb, slice_w);
         }
     return LogicVal::make_x(1);
 }

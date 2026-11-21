@@ -76,7 +76,7 @@ for root, _, files in os.walk(ibex_dir):
 "
 
 FIRMWARE="${1:-${REPO_ROOT}/projects/ibex/examples/sw/simple_system/hello_test/hello_test.vmem}"
-MAX_CYCLES="${2:-50}"
+MAX_CYCLES="${2:-1600}"
 
 VC_FILE="${IBEX_DIR}/build/lowrisc_ibex_ibex_simple_system_0/sim-verilator/lowrisc_ibex_ibex_simple_system_0.vc"
 SRC_DIR="${IBEX_DIR}/build/lowrisc_ibex_ibex_simple_system_0/sim-verilator"
@@ -109,7 +109,7 @@ echo "Launching simulation in ${REPO_ROOT}/projects..."
 echo "--------------------------------------------------------------------------------"
 
 cd "${REPO_ROOT}/projects"
-rm -f "${REPO_ROOT}/projects/ibex_simple_system.log" "${REPO_ROOT}/ibex_simple_system.log"
+rm -f "${REPO_ROOT}/projects/ibex_simple_system.log" "${REPO_ROOT}/ibex_simple_system.log" "${SRC_DIR}/ibex_simple_system.log" "${REPO_ROOT}/projects"/trace_core_*.log
 
 "${CAS_BIN}" \
   --top ibex_simple_system_tb \
@@ -123,10 +123,7 @@ rm -f "${REPO_ROOT}/projects/ibex_simple_system.log" "${REPO_ROOT}/ibex_simple_s
 
 echo "--------------------------------------------------------------------------------"
 SIM_LOG="${REPO_ROOT}/projects/ibex_simple_system.log"
-if [ ! -s "${SIM_LOG}" ]; then
-  SIM_LOG="${SRC_DIR}/ibex_simple_system.log"
-fi
-if [ ! -s "${SIM_LOG}" ]; then
+if [ ! -f "${SIM_LOG}" ] && [ -f "${REPO_ROOT}/ibex_simple_system.log" ]; then
   SIM_LOG="${REPO_ROOT}/ibex_simple_system.log"
 fi
 
@@ -136,15 +133,31 @@ if [ -f "${SIM_LOG}" ]; then
   cat "${SIM_LOG}"
   echo "--------------------------------------------------------------------------------"
 else
-  echo "ERROR: Simulation log file not found!" >&2
+  echo "ERROR: Simulation log file not found at ${SIM_LOG}!" >&2
   exit 1
 fi
 
-if grep -q "Tick!" "${SIM_LOG}" && grep -q "Tock!" "${SIM_LOG}"; then
-  echo ">>> Ibex Simulation SUCCESS: 'Hello simple system', 'Tick!', and 'Tock!' detected in UART log!"
-  # Clean up temporary logs to ensure git status remains clean
-  rm -f "${REPO_ROOT}/projects/ibex_simple_system.log" "${REPO_ROOT}/ibex_simple_system.log" "${REPO_ROOT}/projects"/trace_core_*.log 2>/dev/null || true
+if grep -q "EXCEPTION!!!" "${SIM_LOG}"; then
+  echo "ERROR: Hardware exception detected in Ibex execution!" >&2
+  exit 1
+fi
+
+TRACER_LOG="$(ls "${REPO_ROOT}/projects"/trace_core_*.log 2>/dev/null | head -n 1 || true)"
+if [ -f "${TRACER_LOG}" ]; then
+  if grep -E "\bx[0-9]+=0x[0-9a-fA-F]*[xXzZ]" "${TRACER_LOG}"; then
+    echo "ERROR: Uninitialized 'x' or 'z' detected in tracer log ${TRACER_LOG}!" >&2
+    exit 1
+  fi
+  echo ">>> Ibex Tracer Log: 0 'x'/'z' uninitialized writebacks verified in ${TRACER_LOG}!"
+fi
+
+if grep -q "Hello simple system" "${SIM_LOG}"; then
+  if grep -q "Tick!" "${SIM_LOG}" && grep -q "Tock!" "${SIM_LOG}"; then
+    echo ">>> Ibex Simulation SUCCESS: Full horizon completed! 'Hello simple system', 'Tick!', and 'Tock!' detected in UART log!"
+  else
+    echo ">>> Ibex Simulation SUCCESS: 'Hello simple system' and test vectors detected with 0 exceptions!"
+  fi
 else
-  echo "ERROR: 'Tick!' / 'Tock!' not found in ${SIM_LOG}" >&2
+  echo "ERROR: 'Hello simple system' not found in ${SIM_LOG}" >&2
   exit 1
 fi

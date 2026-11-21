@@ -5,6 +5,7 @@
 #include "../../include/kernel/trace_buffer.hpp"
 #include "../../include/kernel/simd_ops.hpp"
 #include "../../include/kernel/vpi_runtime.hpp"
+#include <set>
 #include <iostream>
 #include <algorithm>
 
@@ -703,15 +704,21 @@ void StratifiedScheduler::init_scheduler() {
             sequential_processes_info.push_back(std::move(spi));
         }
     }
-    std::cout << "[INIT_SCHEDULER] slice_bindings=" << engine.slice_bindings.size()
-              << " memory_bindings=" << engine.memory_bindings.size()
-              << " memory_continuous_assigns=" << engine.memory_continuous_assigns.size()
-              << " resolved_continuous_assigns=" << engine.resolved_continuous_assigns.size()
-              << " processes=" << engine.processes.size() << std::endl;
 }
 
-void StratifiedScheduler::notify_net_changed(size_t net_id) {
+void StratifiedScheduler::notify_net_changed(size_t net_id, const LogicVal* old_val) {
     if (net_id >= engine.netlist.size()) return;
+    if (current_running_comb_proc != UINT32_MAX) {
+        for (const auto& entry : comb_proc_target_saves) {
+            if (entry.first == net_id) return;
+        }
+        if (old_val != nullptr) {
+            comb_proc_target_saves.emplace_back(net_id, *old_val);
+        } else {
+            comb_proc_target_saves.emplace_back(net_id, LogicVal());
+        }
+        return;
+    }
     if (VpiRuntime::has_value_change_callbacks()) {
         VpiRuntime::dispatch_value_change(net_id, engine.netlist[net_id].value);
         size_t canon_nid = engine.get_canonical_net_id(net_id);
@@ -768,6 +775,19 @@ void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id < engine.fanout.net_to_mca.size() && net_id != canon_nid) {
         for (uint32_t m_idx : engine.fanout.net_to_mca[net_id]) {
             enqueue_mca(m_idx);
+        }
+    }
+}
+
+void StratifiedScheduler::flush_comb_proc_target_saves() {
+    if (comb_proc_target_saves.empty()) return;
+    std::vector<std::pair<size_t, LogicVal>> pending;
+    pending.swap(comb_proc_target_saves);
+    current_running_comb_proc = UINT32_MAX;
+    for (const auto& entry : pending) {
+        size_t tid = entry.first;
+        if (entry.second.width == 0 || engine.netlist[tid].value != entry.second) {
+            notify_net_changed(tid);
         }
     }
 }
@@ -2846,6 +2866,7 @@ void StratifiedScheduler::propagate_comb() {
                         engine.evaluator.execute_statement(stmt.get(), bp);
                     }
                 }
+                flush_comb_proc_target_saves();
                 current_running_comb_proc = UINT32_MAX;
             }
         }
