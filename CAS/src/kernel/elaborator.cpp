@@ -2572,8 +2572,13 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
             dot_pos = iname.rfind('.', dot_pos - 1);
         }
-        if (ident->name.find('.') == std::string::npos) {
+        if (ident->name.find('.') == std::string::npos && ident->name.find("::") == std::string::npos) {
             std::string full_name = scope.empty() ? ident->name : (scope + "." + ident->name);
+            if (result.param_map.count(full_name) || result.param_map.count(ident->name) ||
+                result.param_val_map.count(full_name) || result.param_val_map.count(ident->name) ||
+                result.enum_constant_map.count(full_name) || result.enum_constant_map.count(ident->name)) {
+                throw std::runtime_error("Identifier '" + ident->name + "' is a parameter/enum, not a net reference");
+            }
             NetKind nk = NetKind::WIRE;
             if (current_module) {
                 if (current_module->default_nettype == "tri1") nk = NetKind::TRI1;
@@ -6639,6 +6644,13 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                     auto rhs_ptr = new_ca->rhs.get();
                     result.generated_continuous_assigns.push_back(std::move(new_ca));
                     result.continuous_assigns.push_back({scope, {child_net_id, 0, result.netlist[child_net_id].width}, rhs_ptr});
+                    try {
+                        LogicVal init_val = eval_const_logic_val(conn.expr.get(), scope);
+                        if (init_val.width != result.netlist[child_net_id].width) {
+                            init_val = LogicOps::cast_width(init_val, result.netlist[child_net_id].width, result.netlist[child_net_id].is_signed);
+                        }
+                        result.netlist[child_net_id].set(init_val);
+                    } catch (...) {}
                 }
             } else {
                 if (dir != "inout") {

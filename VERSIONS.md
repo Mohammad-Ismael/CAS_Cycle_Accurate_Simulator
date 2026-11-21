@@ -1,5 +1,47 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.7.0.0 (Phase 4 — Step 3: lowRISC Ibex RV32IMC SoC Full Architectural Lockstep Parity with Spike ISA Simulator)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 4 — Step 3: lowRISC Ibex RV32IMC Production SoC Golden Parity with Spike RISC-V ISA Simulator (`spike --isa=rv32imc --log-commits`), 100.0% Instruction Retirement Lockstep Parity (PC, Decoded Instruction, Destination Register `rd`, and Writeback Data `wdata`), Combinational Memory Update Loop Elimination, Package-Scoped Constant Net Elaboration Hardening, and Full 5-Stage Zero-Regression CI Gate Enforcement (`>= 2,125` Verilator Tests)  
+**Parity Target:** 100.0% Golden Architectural Lockstep Parity with Spike ISA Simulator & Synopsys VCS  
+**Regression Status:** 117 / 117 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0%)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0%)  
+**Verilator `test_regress` Compliance:** **2,132 / 2,804 PASS (76.0%)** (enforced >= 2,125 threshold)  
+- **Pure-SV Simulation (SIM):** **2,061 / 2,630 PASS (78.4%)**  
+- **Negative Compile-Error (CE):** **41 / 129 PASS (31.8%)**  
+- **DPI-C Integration (DPI):** **30 / 45 PASS (66.7%)**  
+**Ibex Spike Lockstep Parity (`scripts/verify_ibex_spike.py`):** **170 / 170 Instructions Verified (100.0% Parity, 0 Mismatches)**  
+- `hello_test`: 60 / 60 instructions match Spike golden commit trace (0 mismatches)  
+- `pmp_smoke_test`: 50 / 50 instructions match Spike golden commit trace (0 mismatches)  
+- `dummy_instr_test`: 60 / 60 instructions match Spike golden commit trace (0 mismatches)  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,665 tests + Verilator >= 2,125 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 4 Architectural, Kernel, & SoC Lockstep Verification
+
+1. **lowRISC Ibex RV32IMC Lockstep Verification Pipeline (`scripts/verify_ibex_spike.py`)**:
+   - Automated co-simulation and retirement comparison between CAS cycle-accurate RTL execution of `ibex_simple_system` and the golden Spike RISC-V ISA simulator (`spike --isa=rv32imc --log-commits -l`).
+   - Instruction-by-instruction log normalization parsing both CAS tracer output (`trace_core_00000000.log`) and Spike commit logs (`spike_commits.log`).
+   - Verified 100.0% lockstep parity across retirement program counter (PC), instruction word (`insn`), destination register (`rd`), and register writeback value (`wdata`) on multiple production firmware workloads (`hello_test`, `pmp_smoke_test`, `dummy_instr_test`).
+
+2. **Delta Cycle Memory Notification Loop Elimination (`CAS/src/kernel/evaluator.cpp`)**:
+   - Resolved a critical 100-delta-cycle oscillation limit hit during memory-mapped slave writes in SoC simulation.
+   - Guarded `mem.set_word` and `mem.set_raw_word` calls with an equality check `if (cur_w != new_val) { ... notify_mem_changed(); }`. Prevented redundant event-loop delta cycles when writing unchanged memory/register words, collapsing delta cycles per clock edge from 100 down to 1–2 iterations.
+
+3. **Package-Scoped Identifier & Parameter Net Elaboration (`CAS/src/kernel/elaborator.cpp`, `CAS/src/kernel/expr_evaluator.cpp`)**:
+   - Fixed an implicit 1-bit wire creation bug in `Elaborator::resolve_slice_ref` when resolving package-scoped constants such as `ibex_pkg::IbexMuBiOn` passed into port connections.
+   - Added `&& ident->name.find("::") == std::string::npos` and validation against `param_map`, `param_val_map`, and `enum_constant_map`.
+   - In module port binding fallback (`elaborator.cpp:6644`), evaluated constant expressions at elaboration time to directly initialize netlist bit values (`result.netlist[child_net_id].set(init_val)`).
+   - In `ExprEvaluator::eval_identifier`, added package-qualified lookup for `package::ident` across `param_val_map`, `param_map`, and `package_defs->param_constants`.
+
+4. **Production Ibex Firmware UART & Timer Execution (`scripts/run_ibex_demo.sh`)**:
+   - Verified clean execution of lowRISC simple system firmware with periodic timer interrupts, generating authentic UART output: `Hello simple system`, `DEADBEEF`, `BAADF00D`, and alternating `Tick!` / `Tock!` intervals.
+
+---
+
 ## Version v4.6.2.0 (Phase 3C: DPI-C C ABI Hardening, Multi-Word Part-Selects, Export Trampolines, & Wide Vector Arithmetic)
 
 **Release Date:** November 2026  

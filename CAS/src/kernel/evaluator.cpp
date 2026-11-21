@@ -5349,8 +5349,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     engine.scheduler.queue_nba_mem(scoped_mem, addr, new_word);
                                 }
                             } else {
-                                mem.set_word(addr, new_word);
-                                engine.scheduler.notify_mem_changed();
+                                LogicVal cur_w = mem.get_word(addr);
+                                if (cur_w != new_word) {
+                                    mem.set_word(addr, new_word);
+                                    engine.scheduler.notify_mem_changed();
+                                }
                             }
                             return;
                         }
@@ -7039,17 +7042,20 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     mem.set_raw_word(linear_addr + k, src_elems[k]);
                                 }
                             } else {
+                                LogicVal new_val = rhs_val;
                                 if (assign->op != "=") {
                                     LogicVal cur_w = mem.get_raw_word(linear_addr);
                                     std::string bop = assign->op;
                                     if (!bop.empty() && bop.back() == '=') bop.pop_back();
-                                    mem.set_raw_word(linear_addr, expr_eval.eval_binary_op(bop, cur_w, rhs_val));
-                                } else {
-                                    mem.set_raw_word(linear_addr, rhs_val);
+                                    new_val = expr_eval.eval_binary_op(bop, cur_w, rhs_val);
+                                }
+                                LogicVal cur_w = mem.get_raw_word(linear_addr);
+                                if (cur_w != new_val) {
+                                    mem.set_raw_word(linear_addr, new_val);
+                                    engine.scheduler.notify_mem_changed();
                                 }
                             }
                         }
-                        engine.scheduler.notify_mem_changed();
                         return;
                     } else {
                         std::vector<LogicVal> elems;

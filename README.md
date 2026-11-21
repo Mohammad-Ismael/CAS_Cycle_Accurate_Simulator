@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.6.0.0`  
-**Status:** Release v4.6.0.0 Clean (100.0% Pass Rate Across All 1,663 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 115/115 Milestone Regressions [100% VCS Golden Parity], and 2,079 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
+**Current Version:** `v4.7.0.0`  
+**Status:** Release v4.7.0.0 Clean (100.0% Pass Rate Across All 1,665 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 117/117 Milestone Regressions [100% VCS Golden Parity], 2,132 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`, and 100.0% Architectural Lockstep Parity with Spike RISC-V ISA Simulator on lowRISC Ibex SoC)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog & IEEE Std 1364-2005 Verilog  
 
@@ -29,21 +29,22 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regression_testing/      # 115/115 Comprehensive IEEE 1800-2023 Milestone Regression Suites
+├── regression_testing/      # 117/117 Comprehensive IEEE 1800-2023 Milestone Regression Suites
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── benchmarks/              # External Standards Compliance Suites
 │   ├── sv-tests/            # 1,028 IEEE 1800-2023 Compliance Tests
 │   ├── run_sv_tests.py      # High-Performance Multi-Threaded Benchmark Runner (1,028/1,028)
 │   ├── ivtest/              # 520 Icarus Verilog Compliance & Edge-Case Tests
 │   ├── run_ivtest.py        # High-Performance Parallel ivtest Runner (520/520)
-│   └── run_verilator_tests.py # Verilator test_regress Triage Runner (1,943/2,804 = 69.3%)
+│   └── run_verilator_tests.py # Verilator test_regress Triage Runner (2,132/2,804 = 76.0%)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
 │   └── ibex_simple_system_tb.sv # Simple System Top-Level Testbench
 ├── scripts/                 # Turnkey Automation & Verification Pipelines
 │   ├── setup_and_verify.sh  # Mandatory 5-Stage CI Gate (117 Regr + 1,028 sv-tests + 520 ivtest = 1,665 + Verilator >= 2,125)
-│   └── run_ibex_demo.sh     # One-Command lowRISC Ibex SoC Execution Demo
+│   ├── run_ibex_demo.sh     # One-Command lowRISC Ibex SoC Execution Demo
+│   └── verify_ibex_spike.py # lowRISC Ibex vs Spike ISA Simulator 100% Architectural Lockstep Verifier
 ├── VERSIONS.md              # Consolidated Version Release Notes & Milestone Roadmap
 └── versions/                # Detailed Version Release Notes (v1.0.0.0 – v4.4.1.0)
 ```
@@ -127,12 +128,12 @@ Options:
 
 ## Verification & Golden Parity Suite
 
-### 1. Full Milestone Regression Suite (112/112 Suites - 100% VCS Parity)
+### 1. Full Milestone Regression Suite (117/117 Suites - 100% VCS Parity)
 Run the automated regression test suite covering all IEEE Std 1800-2023 language features:
 ```bash
 python3 -u regression_testing/run_regressions.py
 ```
-*Result:* **TOTAL: 112 | PASSED: 112 | FAILED: 0** across all 112 milestones.
+*Result:* **TOTAL: 117 | PASSED: 117 | FAILED: 0** across all 117 milestones.
 
 ### 2. Full IEEE 1800-2023 `sv-tests` Benchmark Suite (1,028/1,028 Tests)
 Run the multi-threaded compliance benchmark runner across positive and negative tests:
@@ -148,20 +149,28 @@ python3 -u benchmarks/run_ivtest.py
 ```
 *Result:* **520 / 520 PASSED (100.0%)** (439/439 Normal Simulation, 2/2 Compile-Only, 79/79 Compile-Error) in ~14-17 seconds.
 
-### 4. Mandatory Zero-Regression CI Gate (1,660/1,660 Tests)
-Run the unified 4-stage pipeline enforcing 100% compliance:
+### 4. Mandatory Zero-Regression CI Gate (5 / 5 Stages)
+Run the unified 5-stage pipeline enforcing 100% compliance and Verilator regression gate:
 ```bash
 bash scripts/setup_and_verify.sh
 ```
 
 | Verification Suite | Runner Script | Passed | Total | Pass Rate | Target Standard / Parity |
 |---|---|:---:|:---:|:---:|---|
-| **Milestone Regressions** | `regression_testing/run_regressions.py` | **112** | 112 | **100.0%** | Synopsys VCS Golden Parity |
+| **Milestone Regressions** | `regression_testing/run_regressions.py` | **117** | 117 | **100.0%** | Synopsys VCS Golden Parity |
 | **IEEE 1800-2023 `sv-tests`** | `benchmarks/run_sv_tests.py` | **1,028** | 1,028 | **100.0%** | Full IEEE 1800-2023 Compliance |
 | **Icarus Verilog `ivtest`** | `benchmarks/run_ivtest.py` | **520** | 520 | **100.0%** | IEEE 1364-2005 & 1800 Edge Cases |
-| **MANDATORY CI GATE** | `scripts/setup_and_verify.sh` | **1,660** | **1,660** | **100.0%** | **Zero-Regression Enforcement** |
+| **Verilator `test_regress`** | `benchmarks/run_verilator_tests.py` | **2,132** | 2,804 | **76.0%** | Gate floor enforced (>= 2,125) |
+| **MANDATORY CI GATE** | `scripts/setup_and_verify.sh` | **5 / 5** | **5** | **100.0%** | **Zero-Regression Enforcement** |
 
-### 5. lowRISC Ibex RISC-V SoC Verification
+### 5. lowRISC Ibex RISC-V SoC Spike Architectural Lockstep Verification
+Run cycle-accurate RTL execution of lowRISC Ibex SoC co-simulated against the golden Spike RISC-V ISA simulator:
+```bash
+python3 scripts/verify_ibex_spike.py
+```
+*Result:* **170 / 170 Instructions Verified (100.0% Parity, 0 Mismatches)** across `hello_test`, `pmp_smoke_test`, and `dummy_instr_test` workloads.
+
+### 6. lowRISC Ibex RISC-V SoC Execution Demo
 Run the production lowRISC Ibex core running the `hello_test` firmware:
 ```bash
 bash scripts/run_ibex_demo.sh

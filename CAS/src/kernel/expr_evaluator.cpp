@@ -1114,6 +1114,23 @@ LogicVal ExprEvaluator::eval_identifier(IdentifierNode* ident, const std::string
                 }
             }
         }
+        auto colon_pos = ident->name.find("::");
+        if (colon_pos != std::string::npos) {
+            std::string p_name = ident->name.substr(0, colon_pos);
+            std::string it_name = ident->name.substr(colon_pos + 2);
+            if (engine.param_val_map.count(ident->name)) {
+                return engine.param_val_map.at(ident->name);
+            }
+            if (engine.param_map.count(ident->name)) {
+                return LogicVal::make_known(32, engine.param_map.at(ident->name));
+            }
+            auto pit = engine.package_defs.find(p_name);
+            if (pit != engine.package_defs.end()) {
+                if (pit->second->param_constants.count(it_name)) {
+                    return LogicVal::make_known(32, pit->second->param_constants.at(it_name));
+                }
+            }
+        }
         if (engine.param_val_map.find(ident->name) != engine.param_val_map.end()) {
             return engine.param_val_map.at(ident->name);
         }
