@@ -160,12 +160,22 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
                 }
                 is_int = true;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text))) {
                 has_explicit_type = true;
                 arg_type_name = current.text;
                 is_int = false;
                 def_w = 64;
                 advance();
+                if (match(TokenType::TOKEN_HASH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        int depth = 1;
+                        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_LPAREN) depth++;
+                            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+                            advance();
+                        }
+                    }
+                }
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
                 has_explicit_type = true;
                 arg_type_name = current.text;
@@ -354,7 +364,17 @@ std::unique_ptr<TaskNode> Parser::parse_task(bool is_pure, bool is_extern) {
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
             else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT) {
+                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT ||
+                current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REAL ||
+                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                 (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                  current.text == "longint" || current.text == "time" || current.text == "realtime" ||
+                  current.text == "string" || current.text == "shortreal"))) {
+                if (current.type == TokenType::TOKEN_INTEGER ||
+                    (current.type == TokenType::TOKEN_IDENTIFIER &&
+                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                    is_s = true;
+                }
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;

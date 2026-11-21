@@ -300,6 +300,31 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 args = std::move(parsed.args);
                 arg_names = std::move(parsed.arg_names);
             }
+            if (match(TokenType::TOKEN_DOT)) {
+                std::string chained = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                while (true) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        auto parsed_sub = parse_call_argument_list();
+                    } else if (match(TokenType::TOKEN_LBRACKET)) {
+                        parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
+                    }
+                    if (match(TokenType::TOKEN_DOT)) {
+                        chained += "." + current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                        continue;
+                    }
+                    break;
+                }
+                if (match(TokenType::TOKEN_EQUAL)) {
+                    auto rhs = parse_expression();
+                    expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                    return std::make_unique<BlockingAssignNode>(full_name + "." + chained, std::move(rhs));
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after statement");
+                return std::make_unique<TaskCallNode>(task_name + "." + chained, std::move(args), scope_name, std::move(arg_names));
+            }
             expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after subroutine call");
             return std::make_unique<TaskCallNode>(task_name, std::move(args), scope_name, std::move(arg_names));
         } else if (nxt == TokenType::TOKEN_EQUAL || nxt == TokenType::TOKEN_ASSIGN) {
@@ -353,7 +378,16 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
         maybe_cls_ident += "::" + peek_token_n(2).text;
     }
-    bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_class(maybe_cls_ident)));
+    bool is_type_param = false;
+    if (current_parsing_class && current.type == TokenType::TOKEN_IDENTIFIER) {
+        for (const auto& p : current_parsing_class->parameters) {
+            if (p.name == current.text) {
+                is_type_param = true;
+                break;
+            }
+        }
+    }
+    bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text) || is_class(maybe_cls_ident) || is_known_class(maybe_cls_ident) || is_type_param));
     bool is_udt_decl = false;
     if (current.type == TokenType::TOKEN_IDENTIFIER && current.text != "var" && !is_type_identifier(current.text) &&
         !is_covergroup(current.text) && !is_interface_type(current.text)) {
@@ -460,6 +494,29 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             std::string vname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
             auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, struct_node->total_width, struct_node->is_signed, anon_type);
+            while (match(TokenType::TOKEN_LBRACKET)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {
+                    var_stmt->is_queue = true;
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                } else if (match(TokenType::TOKEN_RBRACKET)) {
+                    var_stmt->is_dynamic_array = true;
+                } else {
+                    var_stmt->is_unpacked_array = true;
+                    auto l = parse_expression();
+                    std::unique_ptr<ExpressionNode> r = nullptr;
+                    bool is_single = true;
+                    if (match(TokenType::TOKEN_COLON)) {
+                        r = parse_expression();
+                        is_single = false;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                    AstDimension ad;
+                    ad.left_expr = std::move(l);
+                    ad.right_expr = std::move(r);
+                    ad.is_single = is_single;
+                    var_stmt->unpacked_dimensions.push_back(std::move(ad));
+                }
+            }
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 var_stmt->init_expr = parse_expression();
             }
@@ -583,7 +640,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             std::string assoc_key_type = "";
             uint32_t assoc_key_width = 32;
             std::vector<AstDimension> unpacked_dims;
-            while (match(TokenType::TOKEN_LBRACKET)) {
+            while (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_REP_CONSEC) {
+                if (match(TokenType::TOKEN_REP_CONSEC)) {
+                    is_assoc = true;
+                    assoc_key_type = "*";
+                    assoc_key_width = 64;
+                    match(TokenType::TOKEN_RBRACKET);
+                    continue;
+                }
+                advance(); // consume '['
                 if (match(TokenType::TOKEN_DOLLAR)) {
                     is_q = true;
                     if (match(TokenType::TOKEN_COLON)) {
@@ -611,12 +676,6 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     ad.is_single = is_single;
                     unpacked_dims.push_back(std::move(ad));
                 }
-            }
-            if (match(TokenType::TOKEN_REP_CONSEC)) {
-                is_assoc = true;
-                assoc_key_type = "*";
-                assoc_key_width = 64;
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
             }
             std::unique_ptr<ExpressionNode> init_expr = nullptr;
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
@@ -858,7 +917,15 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             std::string assoc_key_type = "";
             uint32_t assoc_key_width = 32;
             std::vector<AstDimension> unpacked_dims;
-            while (match(TokenType::TOKEN_LBRACKET)) {
+            while (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_REP_CONSEC) {
+                if (match(TokenType::TOKEN_REP_CONSEC)) {
+                    is_assoc = true;
+                    assoc_key_type = "*";
+                    assoc_key_width = 64;
+                    match(TokenType::TOKEN_RBRACKET);
+                    continue;
+                }
+                advance(); // consume '['
                 if (match(TokenType::TOKEN_DOLLAR)) {
                     is_q = true;
                     if (match(TokenType::TOKEN_COLON)) {
@@ -889,12 +956,6 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     ad.is_single = is_single;
                     unpacked_dims.push_back(std::move(ad));
                 }
-            }
-            if (match(TokenType::TOKEN_REP_CONSEC)) {
-                is_assoc = true;
-                assoc_key_type = "*";
-                assoc_key_width = 64;
-                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
             }
             std::unique_ptr<ExpressionNode> init_expr = nullptr;
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
@@ -940,6 +1001,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             register_local_decl_var(vname, width, is_signed_var, tname, std::move(d_msb), std::move(d_lsb));
             vstmts.push_back(std::move(vnode));
             if (match(TokenType::TOKEN_COMMA)) {
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") {
+                    advance();
+                }
                 if (current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_LOGIC ||
                     current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REG ||
                     (current.type == TokenType::TOKEN_IDENTIFIER &&
@@ -1327,186 +1391,199 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
     // 5. For Loop
     if (match(TokenType::TOKEN_FOR)) {
         expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'for'");
-        auto init_stmt = parse_statement();
-        auto cond_expr = parse_expression();
+
+        auto parse_for_single_assign = [&]() -> std::unique_ptr<StatementNode> {
+            std::unique_ptr<StatementNode> cur_assign = nullptr;
+            if (current.type == TokenType::TOKEN_PLUS_PLUS || current.type == TokenType::TOKEN_MINUS_MINUS) {
+                std::string inc_op = current.text;
+                advance();
+                std::string target = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step/init");
+                auto lhs_id = std::make_unique<IdentifierNode>(target);
+                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                auto op_expr = (inc_op == "++")
+                    ? std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one))
+                    : std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+                cur_assign = std::make_unique<BlockingAssignNode>(target, std::move(op_expr));
+            } else if (match(TokenType::TOKEN_LBRACE)) {
+                std::vector<std::string> targets;
+                std::vector<std::unique_ptr<ExpressionNode>> target_exprs;
+                while (true) {
+                    std::string t = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in concatenation target list");
+                    while (match(TokenType::TOKEN_DOT)) {
+                        t += "." + current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in concatenation target");
+                    }
+                    std::unique_ptr<ExpressionNode> target_expr = nullptr;
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        auto idx_expr = parse_expression();
+                        if (match(TokenType::TOKEN_PLUS_COLON)) {
+                            auto w_expr = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                            auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
+                            inode->is_plus_colon = true;
+                            target_expr = std::move(inode);
+                        } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                            auto w_expr = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                            auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
+                            inode->is_minus_colon = true;
+                            target_expr = std::move(inode);
+                        } else if (match(TokenType::TOKEN_COLON)) {
+                            auto lsb_expr = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                            auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(lsb_expr));
+                            inode->is_part_select = true;
+                            target_expr = std::move(inode);
+                        } else {
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
+                            target_expr = std::make_unique<IndexSelectNode>(t, std::move(idx_expr));
+                        }
+                    } else {
+                        target_expr = std::make_unique<IdentifierNode>(t);
+                    }
+                    targets.push_back(t);
+                    target_exprs.push_back(std::move(target_expr));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation target list");
+                std::string op_str = "";
+                if (match(TokenType::TOKEN_PLUS_EQUAL)) op_str = "+";
+                else if (match(TokenType::TOKEN_MINUS_EQUAL)) op_str = "-";
+                else if (match(TokenType::TOKEN_STAR_EQUAL)) op_str = "*";
+                else if (match(TokenType::TOKEN_SLASH_EQUAL)) op_str = "/";
+                else if (match(TokenType::TOKEN_PERCENT_EQUAL)) op_str = "%";
+                else if (match(TokenType::TOKEN_AND_EQUAL)) op_str = "&";
+                else if (match(TokenType::TOKEN_OR_EQUAL)) op_str = "|";
+                else if (match(TokenType::TOKEN_XOR_EQUAL)) op_str = "^";
+                else if (match(TokenType::TOKEN_SHL_EQUAL)) op_str = "<<";
+                else if (match(TokenType::TOKEN_SHR_EQUAL)) op_str = ">>";
+                else if (match(TokenType::TOKEN_ASHR_EQUAL)) op_str = ">>>";
+                else if (match(TokenType::TOKEN_ASHL_EQUAL)) op_str = "<<<";
+                else {
+                    expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation blocking assignment");
+                }
+                auto rhs = parse_expression();
+                if (!op_str.empty()) {
+                    std::vector<std::unique_ptr<ExpressionNode>> lhs_elems;
+                    for (const auto& te : target_exprs) {
+                        lhs_elems.push_back(te->clone());
+                    }
+                    auto lhs_cat = std::make_unique<ConcatNode>(std::move(lhs_elems));
+                    auto bnode = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
+                    bnode->is_compound_assign = true;
+                    rhs = std::move(bnode);
+                }
+                auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), 0);
+                node->lhs_target_exprs = std::move(target_exprs);
+                cur_assign = std::move(node);
+            } else {
+                std::string target = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in for loop");
+                while (match(TokenType::TOKEN_DOT)) {
+                    target += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                }
+                std::unique_ptr<ExpressionNode> target_idx = nullptr;
+                if (match(TokenType::TOKEN_LBRACKET)) {
+                    target_idx = parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
+                }
+                if (match(TokenType::TOKEN_PLUS_PLUS)) {
+                    std::unique_ptr<ExpressionNode> lhs_id = target_idx ? std::unique_ptr<ExpressionNode>(std::make_unique<IndexSelectNode>(target, target_idx->clone())) : std::unique_ptr<ExpressionNode>(std::make_unique<IdentifierNode>(target));
+                    auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                    auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
+                    cur_assign = std::make_unique<BlockingAssignNode>(target, std::move(add), std::move(target_idx));
+                } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
+                    std::unique_ptr<ExpressionNode> lhs_id = target_idx ? std::unique_ptr<ExpressionNode>(std::make_unique<IndexSelectNode>(target, target_idx->clone())) : std::unique_ptr<ExpressionNode>(std::make_unique<IdentifierNode>(target));
+                    auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
+                    auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
+                    cur_assign = std::make_unique<BlockingAssignNode>(target, std::move(sub), std::move(target_idx));
+                } else {
+                    std::string comp_op = "";
+                    if (match(TokenType::TOKEN_PLUS_EQUAL)) comp_op = "+";
+                    else if (match(TokenType::TOKEN_MINUS_EQUAL)) comp_op = "-";
+                    else if (match(TokenType::TOKEN_STAR_EQUAL)) comp_op = "*";
+                    else if (match(TokenType::TOKEN_SLASH_EQUAL)) comp_op = "/";
+                    else if (match(TokenType::TOKEN_PERCENT_EQUAL)) comp_op = "%";
+                    else if (match(TokenType::TOKEN_AND_EQUAL)) comp_op = "&";
+                    else if (match(TokenType::TOKEN_OR_EQUAL)) comp_op = "|";
+                    else if (match(TokenType::TOKEN_XOR_EQUAL)) comp_op = "^";
+                    else if (match(TokenType::TOKEN_SHL_EQUAL)) comp_op = "<<";
+                    else if (match(TokenType::TOKEN_SHR_EQUAL)) comp_op = ">>";
+                    else if (match(TokenType::TOKEN_ASHL_EQUAL)) comp_op = "<<<";
+                    else if (match(TokenType::TOKEN_ASHR_EQUAL)) comp_op = ">>>";
+                    else {
+                        expect(TokenType::TOKEN_EQUAL, "Expected '=' in for assignment");
+                    }
+                    auto rhs = parse_expression();
+                    if (!comp_op.empty()) {
+                        std::unique_ptr<ExpressionNode> lhs_id = target_idx ? std::unique_ptr<ExpressionNode>(std::make_unique<IndexSelectNode>(target, target_idx->clone())) : std::unique_ptr<ExpressionNode>(std::make_unique<IdentifierNode>(target));
+                        auto op = std::make_unique<BinaryOpNode>(comp_op, std::move(lhs_id), std::move(rhs));
+                        op->is_compound_assign = true;
+                        rhs = std::move(op);
+                    }
+                    cur_assign = std::make_unique<BlockingAssignNode>(target, std::move(rhs), std::move(target_idx));
+                }
+            }
+            return cur_assign;
+        };
+
+        std::unique_ptr<StatementNode> init_stmt = nullptr;
+        if (current.type == TokenType::TOKEN_SEMICOLON) {
+            advance();
+        } else {
+            bool is_var_decl = ((current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") ||
+                               current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_LOGIC ||
+                               current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_WIRE ||
+                               current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_SHORTREAL ||
+                               current.type == TokenType::TOKEN_REAL ||
+                               (current.type == TokenType::TOKEN_IDENTIFIER &&
+                                (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                                 current.text == "longint" || current.text == "string" || current.text == "chandle" ||
+                                 is_typedef(current.text) || is_simple_typedef(current.text))));
+            if (is_var_decl) {
+                init_stmt = parse_statement();
+            } else {
+                std::vector<std::unique_ptr<StatementNode>> init_stmts;
+                while (current.type != TokenType::TOKEN_SEMICOLON && current.type != TokenType::TOKEN_EOF) {
+                    auto cur_init = parse_for_single_assign();
+                    if (cur_init) init_stmts.push_back(std::move(cur_init));
+                    if (match(TokenType::TOKEN_COMMA)) continue;
+                    break;
+                }
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for initialization");
+                if (init_stmts.size() == 1) {
+                    init_stmt = std::move(init_stmts[0]);
+                } else if (!init_stmts.empty()) {
+                    auto blk = std::make_unique<BlockStatementNode>();
+                    blk->statements = std::move(init_stmts);
+                    init_stmt = std::move(blk);
+                }
+            }
+        }
+        std::unique_ptr<ExpressionNode> cond_expr = nullptr;
+        if (current.type != TokenType::TOKEN_SEMICOLON) {
+            cond_expr = parse_expression();
+        }
         expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after for condition");
         
+        std::vector<std::unique_ptr<StatementNode>> step_stmts;
+        while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
+            auto cur_step = parse_for_single_assign();
+            if (cur_step) step_stmts.push_back(std::move(cur_step));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
         std::unique_ptr<StatementNode> step_stmt = nullptr;
-        if (current.type == TokenType::TOKEN_PLUS_PLUS || current.type == TokenType::TOKEN_MINUS_MINUS) {
-            std::string inc_op = current.text;
-            advance();
-            std::string target = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
-            auto lhs_id = std::make_unique<IdentifierNode>(target);
-            auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-            auto op_expr = (inc_op == "++")
-                ? std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one))
-                : std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
-            step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op_expr));
-        } else if (match(TokenType::TOKEN_LBRACE)) {
-            std::vector<std::string> targets;
-            std::vector<std::unique_ptr<ExpressionNode>> target_exprs;
-            while (true) {
-                std::string t = current.text;
-                expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier in concatenation target list");
-                while (match(TokenType::TOKEN_DOT)) {
-                    t += "." + current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in concatenation target");
-                }
-                std::unique_ptr<ExpressionNode> target_expr = nullptr;
-                if (match(TokenType::TOKEN_LBRACKET)) {
-                    auto idx_expr = parse_expression();
-                    if (match(TokenType::TOKEN_PLUS_COLON)) {
-                        auto w_expr = parse_expression();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
-                        auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
-                        inode->is_plus_colon = true;
-                        target_expr = std::move(inode);
-                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
-                        auto w_expr = parse_expression();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
-                        auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(w_expr));
-                        inode->is_minus_colon = true;
-                        target_expr = std::move(inode);
-                    } else if (match(TokenType::TOKEN_COLON)) {
-                        auto lsb_expr = parse_expression();
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
-                        auto inode = std::make_unique<IndexSelectNode>(t, std::move(idx_expr), std::move(lsb_expr));
-                        inode->is_part_select = true;
-                        target_expr = std::move(inode);
-                    } else {
-                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in assign target");
-                        target_expr = std::make_unique<IndexSelectNode>(t, std::move(idx_expr));
-                    }
-                } else {
-                    target_expr = std::make_unique<IdentifierNode>(t);
-                }
-                targets.push_back(t);
-                target_exprs.push_back(std::move(target_expr));
-                if (match(TokenType::TOKEN_COMMA)) continue;
-                break;
-            }
-            expect(TokenType::TOKEN_RBRACE, "Expected '}' closing concatenation target list");
-            std::string op_str = "";
-            if (match(TokenType::TOKEN_PLUS_EQUAL)) op_str = "+";
-            else if (match(TokenType::TOKEN_MINUS_EQUAL)) op_str = "-";
-            else if (match(TokenType::TOKEN_STAR_EQUAL)) op_str = "*";
-            else if (match(TokenType::TOKEN_SLASH_EQUAL)) op_str = "/";
-            else if (match(TokenType::TOKEN_PERCENT_EQUAL)) op_str = "%";
-            else if (match(TokenType::TOKEN_AND_EQUAL)) op_str = "&";
-            else if (match(TokenType::TOKEN_OR_EQUAL)) op_str = "|";
-            else if (match(TokenType::TOKEN_XOR_EQUAL)) op_str = "^";
-            else if (match(TokenType::TOKEN_SHL_EQUAL)) op_str = "<<";
-            else if (match(TokenType::TOKEN_SHR_EQUAL)) op_str = ">>";
-            else if (match(TokenType::TOKEN_ASHR_EQUAL)) op_str = ">>>";
-            else if (match(TokenType::TOKEN_ASHL_EQUAL)) op_str = "<<<";
-            else {
-                expect(TokenType::TOKEN_EQUAL, "Expected '=' in concatenation blocking assignment");
-            }
-            auto rhs = parse_expression();
-            if (!op_str.empty()) {
-                std::vector<std::unique_ptr<ExpressionNode>> lhs_elems;
-                for (const auto& te : target_exprs) {
-                    lhs_elems.push_back(te->clone());
-                }
-                auto lhs_cat = std::make_unique<ConcatNode>(std::move(lhs_elems));
-                auto bnode = std::make_unique<BinaryOpNode>(op_str, std::move(lhs_cat), std::move(rhs));
-                bnode->is_compound_assign = true;
-                rhs = std::move(bnode);
-            }
-            auto node = std::make_unique<BlockingAssignNode>(targets, std::move(rhs), 0);
-            node->lhs_target_exprs = std::move(target_exprs);
-            step_stmt = std::move(node);
-        } else {
-            std::string target = current.text;
-            expect(TokenType::TOKEN_IDENTIFIER, "Expected loop variable in for step");
-            if (match(TokenType::TOKEN_PLUS_PLUS)) {
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-                auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(one));
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
-            } else if (match(TokenType::TOKEN_MINUS_MINUS)) {
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto one = std::make_unique<NumberNode>(1ULL, 32, false, true);
-                auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(one));
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
-            } else if (match(TokenType::TOKEN_PLUS_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto add = std::make_unique<BinaryOpNode>("+", std::move(lhs_id), std::move(step_rhs));
-                add->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(add));
-            } else if (match(TokenType::TOKEN_MINUS_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto sub = std::make_unique<BinaryOpNode>("-", std::move(lhs_id), std::move(step_rhs));
-                sub->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(sub));
-            } else if (match(TokenType::TOKEN_STAR_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto mul = std::make_unique<BinaryOpNode>("*", std::move(lhs_id), std::move(step_rhs));
-                mul->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(mul));
-            } else if (match(TokenType::TOKEN_SLASH_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("/", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_PERCENT_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("%", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_AND_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("&", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_OR_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("|", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_XOR_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("^", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_SHL_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("<<", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_SHR_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>(">>", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_ASHL_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>("<<<", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else if (match(TokenType::TOKEN_ASHR_EQUAL)) {
-                auto step_rhs = parse_expression();
-                auto lhs_id = std::make_unique<IdentifierNode>(target);
-                auto op = std::make_unique<BinaryOpNode>(">>>", std::move(lhs_id), std::move(step_rhs));
-                op->is_compound_assign = true;
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(op));
-            } else {
-                expect(TokenType::TOKEN_EQUAL, "Expected '=' in for step");
-                auto step_rhs = parse_expression();
-                step_stmt = std::make_unique<BlockingAssignNode>(target, std::move(step_rhs));
-            }
+        if (step_stmts.size() == 1) {
+            step_stmt = std::move(step_stmts[0]);
+        } else if (step_stmts.size() > 1) {
+            auto blk = std::make_unique<BlockStatementNode>();
+            blk->statements = std::move(step_stmts);
+            step_stmt = std::move(blk);
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing for header");
 
@@ -2552,18 +2629,32 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
             while (match(TokenType::TOKEN_LBRACKET)) {
                 auto extra_idx = parse_expression();
+                if (match(TokenType::TOKEN_COLON) || match(TokenType::TOKEN_PLUS_COLON) || match(TokenType::TOKEN_MINUS_COLON)) {
+                    parse_expression();
+                }
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
                 extra_indices.push_back(std::move(extra_idx));
             }
 
             std::string post_member_name = "";
-            if (match(TokenType::TOKEN_DOT)) {
-                post_member_name = current.text;
+            while (match(TokenType::TOKEN_DOT)) {
+                std::string m = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
-                while (match(TokenType::TOKEN_DOT)) {
-                    post_member_name += "." + current.text;
-                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                if (!post_member_name.empty()) post_member_name += ".";
+                post_member_name += m;
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    post_member_name += "[";
+                    auto sub_e = parse_expression();
+                    if (auto num = dynamic_cast<NumberNode*>(sub_e.get())) {
+                        post_member_name += std::to_string(num->aval);
+                    } else if (auto id = dynamic_cast<IdentifierNode*>(sub_e.get())) {
+                        post_member_name += id->name;
+                    }
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index in member select");
+                    post_member_name += "]";
                 }
+            }
+            if (!post_member_name.empty()) {
                 std::unique_ptr<ExpressionNode> mem_msb = nullptr;
                 std::unique_ptr<ExpressionNode> mem_lsb = nullptr;
                 bool has_mem_sel = false;
@@ -2596,12 +2687,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     return node;
                 }
                 if (match(TokenType::TOKEN_LE)) {
-            if (in_final_procedure) {
-                throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
-            }
-                if (in_final_procedure) {
-                    throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
-                }
+                    if (in_final_procedure) {
+                        throw std::runtime_error("Nonblocking assignment '<=' is illegal in a final procedure per IEEE 1800-2023 section 9.2.3");
+                    }
                     uint64_t intra_delay = 0;
                     bool has_intra_ev = false;
                     EdgeType intra_edge = EdgeType::LEVEL;
@@ -2888,6 +2976,31 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             auto parsed = parse_call_argument_list();
             task_args = std::move(parsed.args);
             task_arg_names = std::move(parsed.arg_names);
+        }
+        if (match(TokenType::TOKEN_DOT)) {
+            std::string chained = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+            while (true) {
+                if (match(TokenType::TOKEN_LPAREN)) {
+                    auto parsed_sub = parse_call_argument_list();
+                } else if (match(TokenType::TOKEN_LBRACKET)) {
+                    parse_expression();
+                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in index select");
+                }
+                if (match(TokenType::TOKEN_DOT)) {
+                    chained += "." + current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
+                    continue;
+                }
+                break;
+            }
+            if (match(TokenType::TOKEN_EQUAL)) {
+                auto rhs = parse_expression();
+                expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after assignment");
+                return std::make_unique<BlockingAssignNode>(ident + "." + chained, std::move(rhs));
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after statement");
+            return std::make_unique<TaskCallNode>(ident + "." + chained, std::move(task_args));
         }
         std::unique_ptr<ExpressionNode> with_expr = nullptr;
         if (match(TokenType::TOKEN_WITH)) {

@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.5.0.0`  
-**Status:** Release v4.5.0.0 Clean (100.0% Pass Rate Across All 1,660 Verification Tests: 520/520 Icarus Verilog `ivtest` Suite [439/439 Normal Sim, 2/2 CO, 79/79 CE], 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 112/112 Milestone Regressions [100% VCS Golden Parity], and Mandatory 4-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
+**Current Version:** `v4.5.8.0`  
+**Status:** Release v4.5.8.0 Clean (100.0% Pass Rate Across All 1,660 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 112/112 Milestone Regressions [100% VCS Golden Parity], and 2,078 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog & IEEE Std 1364-2005 Verilog  
 

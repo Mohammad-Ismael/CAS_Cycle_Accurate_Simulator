@@ -359,6 +359,7 @@ public:
             }
         }
         if (simple_typedef_map.find(name) != simple_typedef_map.end()) return true;
+        if (global_simple_typedefs.find(name) != global_simple_typedefs.end()) return true;
         for (const auto& pkg_name : global_wildcard_imports) {
             auto pit = global_packages.find(pkg_name);
             if (pit != global_packages.end()) {
@@ -437,6 +438,11 @@ public:
         auto it = simple_typedef_map.find(name);
         if (it != simple_typedef_map.end()) {
             out = it->second;
+            return true;
+        }
+        auto gsit = global_simple_typedefs.find(name);
+        if (gsit != global_simple_typedefs.end()) {
+            out = {name, "logic", gsit->second, false};
             return true;
         }
         for (const auto& pkg_name : global_wildcard_imports) {
@@ -722,12 +728,14 @@ public:
     bool is_assoc_key_token(const Token& tok) const {
         if (tok.type == TokenType::TOKEN_LOGIC || tok.type == TokenType::TOKEN_REG ||
             tok.type == TokenType::TOKEN_WIRE || tok.type == TokenType::TOKEN_INTEGER ||
-            tok.type == TokenType::TOKEN_STAR || tok.type == TokenType::TOKEN_BIT) {
+            tok.type == TokenType::TOKEN_STAR || tok.type == TokenType::TOKEN_BIT ||
+            tok.type == TokenType::TOKEN_UNSIGNED || tok.type == TokenType::TOKEN_SIGNED) {
             return true;
         }
         if (tok.type == TokenType::TOKEN_IDENTIFIER) {
             if (tok.text == "string" || tok.text == "int" || tok.text == "byte" ||
-                tok.text == "shortint" || tok.text == "longint" || tok.text == "bit") {
+                tok.text == "shortint" || tok.text == "longint" || tok.text == "bit" ||
+                tok.text == "unsigned" || tok.text == "signed") {
                 return true;
             }
             if (is_type_identifier(tok.text)) {

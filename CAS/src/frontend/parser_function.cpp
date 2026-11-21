@@ -129,6 +129,15 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             func->return_signed = false;
             advance();
         }
+        if (match(TokenType::TOKEN_HASH)) {
+            expect(TokenType::TOKEN_LPAREN, "Expected '(' in parameter specialization");
+            int pdepth = 1;
+            while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                advance();
+            }
+        }
         if (match(TokenType::TOKEN_SIGNED)) {
             func->return_signed = true;
         } else if (match(TokenType::TOKEN_UNSIGNED)) {
@@ -158,6 +167,15 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
         } else {
             func->name = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected function name");
+            if (match(TokenType::TOKEN_HASH)) {
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' in parameter specialization");
+                int pdepth = 1;
+                while (pdepth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) pdepth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) pdepth--;
+                    advance();
+                }
+            }
             if (match(TokenType::TOKEN_COLON_COLON)) {
                 std::string class_name = func->name;
                 std::string method_name = "";
@@ -345,13 +363,23 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                     is_int = true;
                 }
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && is_class(current.text)) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text))) {
                 has_explicit_type = true;
                 arg_type_name = current.text;
                 def_w = 64;
                 is_s = false;
                 is_int = false;
                 advance();
+                if (match(TokenType::TOKEN_HASH)) {
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        int depth = 1;
+                        while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                            if (current.type == TokenType::TOKEN_LPAREN) depth++;
+                            else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+                            advance();
+                        }
+                    }
+                }
             } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
                 bool is_valid_type = is_type_identifier(current.text) || is_interface_type(current.text) || is_covergroup(current.text);
                 if (!is_valid_type && current_parsing_module) {
@@ -561,7 +589,17 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;
             else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") { is_s = false; advance(); }
             if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE ||
-                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT) {
+                current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_BIT ||
+                current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_REAL ||
+                (current.type == TokenType::TOKEN_IDENTIFIER &&
+                 (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                  current.text == "longint" || current.text == "time" || current.text == "realtime" ||
+                  current.text == "string" || current.text == "shortreal"))) {
+                if (current.type == TokenType::TOKEN_INTEGER ||
+                    (current.type == TokenType::TOKEN_IDENTIFIER &&
+                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || current.text == "longint"))) {
+                    is_s = true;
+                }
                 advance();
             }
             if (match(TokenType::TOKEN_SIGNED)) is_s = true;

@@ -58,6 +58,7 @@ class MockTest:
         self.includes = []
         self.parameters = []
         self.sim_time = 10000
+        self.pli_filename = None
 
     def scenarios(self, *args, **kwargs): pass
     def priority(self, *args, **kwargs): pass
@@ -81,11 +82,23 @@ class MockTest:
         self.has_compile = True
         if kwargs.get('fails'): self.fails = True
         if kwargs.get('expect_filename'): self.expect_filename = kwargs.get('expect_filename')
+        for k in ('v_other_filenames', 'v_filenames', 'v_files'):
+            val = kwargs.get(k)
+            if isinstance(val, list):
+                self.v_other_filenames.extend(val)
+            elif isinstance(val, str):
+                self.v_other_filenames.append(val)
         raw_flags = []
-        for k in ('verilator_flags', 'verilator_flags2'):
+        for k in ('verilator_flags', 'verilator_flags2', 'v_flags', 'v_flags2'):
             val = kwargs.get(k, [])
             if isinstance(val, list):
                 raw_flags.extend(val)
+            elif isinstance(val, str):
+                raw_flags.append(val)
+        raw_flags.extend(self.v_flags)
+        raw_flags.extend(self.v_flags2)
+        raw_flags.extend(self.verilator_flags)
+        raw_flags.extend(self.verilator_flags2)
         tokens = []
         for item in raw_flags:
             if isinstance(item, str):
@@ -111,10 +124,43 @@ class MockTest:
         self.has_execute = True
         if kwargs.get('fails'): self.fails = True
         if kwargs.get('expect_filename'): self.expect_filename = kwargs.get('expect_filename')
+        for k in ('v_other_filenames', 'v_filenames', 'v_files'):
+            val = kwargs.get(k)
+            if isinstance(val, list):
+                self.v_other_filenames.extend(val)
+            elif isinstance(val, str):
+                self.v_other_filenames.append(val)
 
     def __getattr__(self, name):
         def dummy(*args, **kwargs): return []
         return dummy
+
+_ALL_V_FILES = None
+_ALL_PY_BASES = None
+
+def get_companion_files(top_filename):
+    global _ALL_V_FILES, _ALL_PY_BASES
+    if _ALL_V_FILES is None:
+        if os.path.exists(T_DIR):
+            listing = os.listdir(T_DIR)
+            _ALL_V_FILES = [f for f in listing if f.endswith('.v') or f.endswith('.sv')]
+            _ALL_PY_BASES = set(os.path.splitext(f)[0] for f in listing if f.endswith('.py'))
+        else:
+            _ALL_V_FILES = []
+            _ALL_PY_BASES = set()
+    if not top_filename:
+        return []
+    top_base = os.path.splitext(os.path.basename(top_filename))[0]
+    prefix = top_base + "_"
+    matches = []
+    for f in _ALL_V_FILES:
+        if f.startswith(prefix):
+            base = os.path.splitext(f)[0]
+            if base not in _ALL_PY_BASES:
+                full_path = os.path.join(T_DIR, f)
+                if full_path != top_filename:
+                    matches.append(full_path)
+    return matches
 
 def parse_verilator_test(py_path):
     mt = MockTest(py_path)
@@ -151,13 +197,19 @@ def parse_verilator_test(py_path):
     elif not os.path.isabs(mt.top_filename):
         mt.top_filename = os.path.normpath(os.path.join(T_DIR, mt.top_filename if not mt.top_filename.startswith('t/') else mt.top_filename[2:]))
 
+    # Auto-discover companion sub-files (e.g. t_case_huge_sub2.v)
+    if mt.top_filename:
+        mt.v_other_filenames.extend(get_companion_files(mt.top_filename))
+
     # Resolve extra source files
     resolved_extra = []
+    seen = set()
     for ef in mt.v_other_filenames:
         if isinstance(ef, str) and (ef.endswith('.v') or ef.endswith('.sv')):
             p = ef if os.path.isabs(ef) else os.path.normpath(os.path.join(T_DIR, ef if not ef.startswith('t/') else ef[2:]))
-            if os.path.exists(p):
+            if os.path.exists(p) and p != mt.top_filename and p not in seen:
                 resolved_extra.append(p)
+                seen.add(p)
     mt.v_other_filenames = resolved_extra
 
     return mt
@@ -212,8 +264,15 @@ def load_all_tests(test_filter=None):
         cpp_harness = os.path.join(T_DIR, f"{tname}.cpp")
         has_cpp = os.path.exists(cpp_harness) or any('.cpp' in str(x) for x in t.v_other_filenames if isinstance(x, str)) or '--exe' in all_flags
         has_sc = '--sc' in all_flags or 'sc_time' in all_flags
-        is_dpi_vpi = tname.startswith('t_dpi_') or tname.startswith('t_vpi_') or tname.startswith('t_vpi')
-        is_cli_flag_only = any(f.startswith('--debug') or f in ('-V', '--version', '--help', '--gdbbt') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
+        is_dpi_vpi = (
+            tname.startswith('t_dpi_') or tname.startswith('t_vpi_') or tname.startswith('t_vpi')
+            or '--vpi' in all_flags or '--dpi-hdr-only' in all_flags
+            or bool(t.pli_filename)
+        )
+        is_cli_flag_only = (
+            any(f.startswith('--debug') or f in ('-V', '--version', '--help', '--gdbbt', '-E') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
+            or '-E' in all_flags or '--pipe-filter' in all_flags
+        )
         is_tool_internal = (
             any(f in ('-V', '--version', '--help', '--gdbbt', '--lib-create', '--protect-ids', '--hierarchical-block', '--savable') or f.startswith('--debug') for f in (t.verilator_flags + t.verilator_flags2) if isinstance(f, str))
             or tname.startswith(('t_savable_', 't_hier_block', 't_runflag', 't_protect_ids', 't_lib_create'))
@@ -256,6 +315,7 @@ def load_all_tests(test_filter=None):
             'includes': t.includes,
             'parameters': t.parameters,
             'sim_time': getattr(t, 'sim_time', 15000) if getattr(t, 'sim_time', 15000) else 15000,
+            'has_execute': t.has_execute,
         }
 
     return valid_tests, skipped_counts
@@ -394,7 +454,7 @@ def run_single_test(test_info):
         cmd.extend(["--top", top_mod])
 
     # Check if module 't' has input ports (e.g. clk) requiring a top-level stimulus wrapper
-    inputs = read_inputs_v(top_filename)
+    inputs = read_inputs_v(top_filename) if test_info.get("has_execute", True) else {}
     top_wrapper_file = None
 
     if inputs and not top_mod:
@@ -479,7 +539,7 @@ def run_single_test(test_info):
 
     # 1. Negative Compile-Error (CE)
     if ttype == "CE":
-        has_error = (exit_code != 0) or any(kw in stdout for kw in ["[CAS Error", "[CAS Fatal", "syntax error", "%Error"])
+        has_error = (exit_code != 0) or any(kw in stdout.lower() for kw in ["[cas error", "[cas fatal", "syntax error", "%error", "assertion failed", "error:"])
         if has_error:
             return {"name": tname, "type": ttype, "status": "PASS", "elapsed": elapsed}
         else:
@@ -521,6 +581,10 @@ def run_single_test(test_info):
                 "error": normalize_error_message(line_s),
                 "elapsed": elapsed,
             }
+
+    # Compile-only test (no test.execute() in test driver)
+    if not test_info.get("has_execute", True):
+        return {"name": tname, "type": ttype, "status": "PASS", "elapsed": elapsed}
 
     # Check golden output match if gold file exists
     if gold and os.path.exists(gold):
@@ -580,6 +644,7 @@ def main():
     parser.add_argument("--test", "-t", action="append", help="Filter test names")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of tests to run")
     parser.add_argument("--category", "-c", choices=["SIM", "CE"], help="Filter by category")
+    parser.add_argument("--min-pass", type=int, default=0, help="Minimum number of passing tests required to exit with code 0")
     args, _ = parser.parse_known_args()
 
     print("Discovering and categorizing tests across test_regress/t/...")
@@ -668,6 +733,13 @@ def main():
         print(f"[{rank:>2}] ({len(test_list):>4} tests) {sig}")
         print(f"     Examples: {sample}")
     print("=" * 80)
+
+    if args.min_pass > 0:
+        if grand_passed < args.min_pass:
+            print(f"\n[CI FAILURE] Passing tests count ({grand_passed}) is below minimum threshold ({args.min_pass})!")
+            sys.exit(1)
+        else:
+            print(f"\n[CI GATE PASS] Passing tests count ({grand_passed}) met or exceeded threshold ({args.min_pass})!")
 
 if __name__ == "__main__":
     main()

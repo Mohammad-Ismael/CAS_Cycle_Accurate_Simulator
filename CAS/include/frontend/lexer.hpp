@@ -397,6 +397,12 @@ public:
 
     explicit Lexer(const std::string& filename, const std::string& source, 
                    const std::string& base_dir = ".", std::ostream* debug_stream = nullptr);
-    Token next_token();
+    TokenType last_token_type = TokenType::TOKEN_EOF;
+    Token next_token_internal();
+    Token next_token() {
+        Token tok = next_token_internal();
+        last_token_type = tok.type;
+        return tok;
+    }
     std::string get_current_location() const;
 };

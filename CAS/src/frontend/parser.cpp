@@ -74,6 +74,10 @@ void Parser::expect(TokenType t, const std::string& err) {
 }
 
 void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
+    if (match(TokenType::TOKEN_UNSIGNED) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") ||
+        match(TokenType::TOKEN_SIGNED) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
+    }
     if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG ||
         current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_BIT ||
         (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "bit")) {
@@ -128,7 +132,13 @@ void Parser::parse_assoc_key_type(std::string& key_type, uint32_t& key_width) {
         }
         advance();
     } else {
-        throw std::runtime_error("Unknown associative array index type: " + current.text);
+        key_type = current.text;
+        key_width = 32;
+        advance();
+    }
+    if (match(TokenType::TOKEN_UNSIGNED) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned") ||
+        match(TokenType::TOKEN_SIGNED) || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+        if (current.type == TokenType::TOKEN_IDENTIFIER) advance();
     }
 }
 

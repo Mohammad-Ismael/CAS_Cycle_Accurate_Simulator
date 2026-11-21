@@ -774,7 +774,37 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         advance();
                     }
                 }
-                return std::make_unique<StaticMethodCallNode>(name, member, std::move(parsed.args), std::move(parsed.arg_names));
+                std::unique_ptr<ExpressionNode> scall = std::make_unique<StaticMethodCallNode>(name, member, std::move(parsed.args), std::move(parsed.arg_names));
+                while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
+                    if (match(TokenType::TOKEN_DOT)) {
+                        std::string mem = current.text;
+                        expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
+                        if (match(TokenType::TOKEN_LPAREN)) {
+                            auto m_args = parse_call_argument_list();
+                            auto mcall = std::make_unique<MethodCallNode>("", mem, std::move(m_args.args), nullptr, m_args.arg_names, std::move(scall));
+                            scall = std::move(mcall);
+                        } else {
+                            auto member_node = std::make_unique<MemberAccessNode>("", mem);
+                            member_node->index_expr = std::move(scall);
+                            scall = std::move(member_node);
+                        }
+                    } else if (match(TokenType::TOKEN_LBRACKET)) {
+                        auto msb = parse_expression();
+                        if (match(TokenType::TOKEN_COLON)) {
+                            auto lsb = parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing part-select range");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb), std::move(lsb));
+                            node->index_expr = std::move(scall);
+                            scall = std::move(node);
+                        } else {
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
+                            auto node = std::make_unique<IndexSelectNode>("", std::move(msb));
+                            node->index_expr = std::move(scall);
+                            scall = std::move(node);
+                        }
+                    }
+                }
+                return scall;
             }
             const LetDeclNode* let_decl = find_visible_let(name + "::" + member);
             if (let_decl && let_decl->ports.empty()) {
@@ -835,12 +865,12 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 return std::make_unique<StaticCastExprNode>(CastKind::TYPE, 0, full_tname, std::move(cast_expr));
             }
             if (global_packages.find(name) != global_packages.end()) {
-                if (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_DOT) {
+                if (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LPAREN) {
                     name = name + "::" + member;
                 } else {
                     return std::make_unique<IdentifierNode>(name + "::" + member);
                 }
-            } else if (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_DOT) {
+            } else if (current.type == TokenType::TOKEN_LBRACKET || current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LPAREN) {
                 name = name + "::" + member;
             } else {
                 return std::make_unique<StaticMemberAccessNode>(name, member);
@@ -995,9 +1025,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 auto parsed = parse_call_argument_list();
                 std::unique_ptr<ExpressionNode> with_expr = nullptr;
                 if (match(TokenType::TOKEN_WITH)) {
-                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
-                    with_expr = parse_expression();
-                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    if (current.type == TokenType::TOKEN_LBRACE) {
+                        parse_inline_constraint_block();
+                    } else {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                        with_expr = parse_expression();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    }
                 }
                 std::unique_ptr<ExpressionNode> call_res = std::make_unique<MethodCallNode>(name, sub_name, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
                 while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
@@ -1039,9 +1073,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 }
                 return call_res;
             } else if (match(TokenType::TOKEN_WITH)) {
-                expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
-                auto with_expr = parse_expression();
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                std::unique_ptr<ExpressionNode> with_expr = nullptr;
+                if (current.type == TokenType::TOKEN_LBRACE) {
+                    parse_inline_constraint_block();
+                } else {
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                    with_expr = parse_expression();
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                }
                 return std::make_unique<MethodCallNode>(name, sub_name, std::vector<std::unique_ptr<ExpressionNode>>(), std::move(with_expr));
             } else if (match(TokenType::TOKEN_LBRACKET)) {
                 auto msb = parse_expression();
@@ -1367,9 +1406,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     auto parsed = parse_call_argument_list();
                     std::unique_ptr<ExpressionNode> with_expr = nullptr;
                     if (match(TokenType::TOKEN_WITH)) {
-                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
-                        with_expr = parse_expression();
-                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                        if (current.type == TokenType::TOKEN_LBRACE) {
+                            parse_inline_constraint_block();
+                        } else {
+                            expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                            with_expr = parse_expression();
+                            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                        }
                     }
                     std::unique_ptr<ExpressionNode> call_res = std::make_unique<MethodCallNode>(path, mem, std::move(parsed.args), std::move(with_expr), std::move(parsed.arg_names));
                     while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_LBRACKET) {
@@ -1411,9 +1454,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     }
                     return call_res;
                 } else if (match(TokenType::TOKEN_WITH)) {
-                    expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
-                    auto with_expr = parse_expression();
-                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    std::unique_ptr<ExpressionNode> with_expr = nullptr;
+                    if (current.type == TokenType::TOKEN_LBRACE) {
+                        parse_inline_constraint_block();
+                    } else {
+                        expect(TokenType::TOKEN_LPAREN, "Expected '(' after 'with'");
+                        with_expr = parse_expression();
+                        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing with expression");
+                    }
                     return std::make_unique<MethodCallNode>(path, mem, std::vector<std::unique_ptr<ExpressionNode>>(), std::move(with_expr));
                 }
                 if (match(TokenType::TOKEN_LBRACKET)) {
@@ -1569,9 +1617,15 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                 if (match(TokenType::TOKEN_DOT)) {
                     std::string mem = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected member name after '.'");
-                    auto member_node = std::make_unique<MemberAccessNode>("", mem);
-                    member_node->index_expr = std::move(fcall);
-                    fcall = std::move(member_node);
+                    if (match(TokenType::TOKEN_LPAREN)) {
+                        auto m_args = parse_call_argument_list();
+                        auto mcall = std::make_unique<MethodCallNode>("", mem, std::move(m_args.args), nullptr, m_args.arg_names, std::move(fcall));
+                        fcall = std::move(mcall);
+                    } else {
+                        auto member_node = std::make_unique<MemberAccessNode>("", mem);
+                        member_node->index_expr = std::move(fcall);
+                        fcall = std::move(member_node);
+                    }
                 } else if (match(TokenType::TOKEN_LBRACKET)) {
                     auto msb = parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
@@ -1990,6 +2044,13 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized match expression");
             return std::make_unique<SequenceMatchItemNode>(std::move(expr), std::move(assigns));
         }
+        if (current.type == TokenType::TOKEN_OVERLAP_IMP || current.type == TokenType::TOKEN_NON_OVERLAP_IMP) {
+            std::string imp_op = current.text;
+            advance();
+            auto rhs = parse_expression();
+            expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized property expression");
+            return std::make_unique<BinaryOpNode>(imp_op, std::move(expr), std::move(rhs));
+        }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized expression");
         if (match(TokenType::TOKEN_APOSTROPHE)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
@@ -2155,6 +2216,10 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             return node;
         }
         return std::make_unique<IdentifierNode>(dt_name);
+    }
+
+    if (match(TokenType::TOKEN_1STEP)) {
+        return std::make_unique<NumberNode>(1ULL, 64, false, true);
     }
 
     std::string loc = current.filename.empty() 
@@ -2398,11 +2463,25 @@ std::unique_ptr<ExpressionNode> Parser::parse_bitwise_and() {
 std::unique_ptr<ExpressionNode> Parser::parse_bitwise_xor() {
     auto lhs = parse_bitwise_and();
 
-    while (current.type == TokenType::TOKEN_XOR) {
-        std::string op = current.text;
-        advance();
-        auto rhs = parse_bitwise_and();
-        lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+    while (true) {
+        if (current.type == TokenType::TOKEN_XOR && peek_token().type == TokenType::TOKEN_TILDE) {
+            advance(); // consume '^'
+            advance(); // consume '~'
+            auto rhs = parse_bitwise_and();
+            lhs = std::make_unique<BinaryOpNode>("^~", std::move(lhs), std::move(rhs));
+        } else if (current.type == TokenType::TOKEN_TILDE && peek_token().type == TokenType::TOKEN_XOR) {
+            advance(); // consume '~'
+            advance(); // consume '^'
+            auto rhs = parse_bitwise_and();
+            lhs = std::make_unique<BinaryOpNode>("~^", std::move(lhs), std::move(rhs));
+        } else if (current.type == TokenType::TOKEN_XOR) {
+            std::string op = current.text;
+            advance();
+            auto rhs = parse_bitwise_and();
+            lhs = std::make_unique<BinaryOpNode>(op, std::move(lhs), std::move(rhs));
+        } else {
+            break;
+        }
     }
     return lhs;
 }
@@ -2613,6 +2692,20 @@ std::unique_ptr<ExpressionNode> Parser::parse_sequence_element() {
             expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.' in clock");
         }
         expect(TokenType::TOKEN_RPAREN, "Expected ')' closing clock");
+    }
+    if (current.type == TokenType::TOKEN_ALWAYS ||
+        (current.type == TokenType::TOKEN_IDENTIFIER &&
+         (current.text == "s_always" || current.text == "eventually" || current.text == "s_eventually"))) {
+        advance();
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            parse_expression();
+            if (match(TokenType::TOKEN_COLON)) {
+                if (match(TokenType::TOKEN_DOLLAR)) {}
+                else parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing temporal operator range");
+        }
+        return parse_sequence_expression();
     }
     auto expr = parse_expression();
     if (current.type == TokenType::TOKEN_REP_CONSEC ||

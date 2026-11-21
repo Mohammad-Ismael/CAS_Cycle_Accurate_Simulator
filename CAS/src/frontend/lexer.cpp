@@ -183,6 +183,22 @@ void Lexer::handle_timescale() {
         throw std::runtime_error("Invalid `timescale directive: requires unit and precision per IEEE 1800-2023 22.7");
     }
 
+    auto expand_macro_str = [](std::string& s) {
+        if (!s.empty() && s[0] == '`') {
+            std::string key = s.substr(1);
+            if (global_defines.count(key)) {
+                s = global_defines[key];
+            }
+        }
+        std::string cleaned;
+        for (char c : s) {
+            if (c != '"' && c != '\'' && !std::isspace((unsigned char)c)) cleaned.push_back(c);
+        }
+        s = cleaned;
+    };
+    expand_macro_str(unit_str);
+    expand_macro_str(prec_str);
+
     auto validate_time_spec = [](const std::string& str) {
         size_t idx = 0;
         while (idx < str.size() && std::isdigit((unsigned char)str[idx])) idx++;
@@ -668,8 +684,13 @@ void Lexer::skip_whitespace_and_comments() {
                        directive == "accelerate" || directive == "noaccelerate" ||
                        directive == "expand_vectornets" || directive == "noexpand_vectornets" ||
                        directive == "verilog" || directive == "protect" || directive == "endprotect" ||
-                       directive == "uselib") {
-                while (peek() != '\n' && peek() != '\0') advance();
+                       directive == "uselib" || directive == "verilator_config") {
+                if (directive == "verilator_config") {
+                    // Skip everything until EOF in verilator_config mode
+                    while (advance() != '\0') {}
+                } else {
+                    while (peek() != '\n' && peek() != '\0') advance();
+                }
             } else if (directive == "__FILE__") {
                 if (is_active) {
                     std::string f = cur.filename;
@@ -930,7 +951,7 @@ void Lexer::skip_whitespace_and_comments() {
     }
 }
 
-Token Lexer::next_token() {
+Token Lexer::next_token_internal() {
     skip_whitespace_and_comments();
     if (file_stack.empty()) return {TokenType::TOKEN_EOF, "", 0, 0, "", 0, 0};
 
@@ -1347,20 +1368,22 @@ Token Lexer::next_token() {
                 if (cur + ap_ws < src.size()) next_c = src[cur + ap_ws];
             }
             bool is_sized_base = false;
-            if (next_c == 'b' || next_c == 'B' || next_c == 'o' || next_c == 'O' ||
-                next_c == 'd' || next_c == 'D' || next_c == 'h' || next_c == 'H') {
-                is_sized_base = true;
-            } else if (next_c == 's' || next_c == 'S') {
-                char after_s = '\0';
-                if (!file_stack.empty()) {
-                    size_t cur = file_stack.back().cursor + ws_ahead + ap_ws + 1;
-                    const auto& src = file_stack.back().src;
-                    while (cur < src.size() && (src[cur] == ' ' || src[cur] == '\t')) cur++;
-                    if (cur < src.size()) after_s = src[cur];
-                }
-                if (after_s == 'b' || after_s == 'B' || after_s == 'o' || after_s == 'O' ||
-                    after_s == 'd' || after_s == 'D' || after_s == 'h' || after_s == 'H') {
+            if (last_token_type != TokenType::TOKEN_HASH) {
+                if (next_c == 'b' || next_c == 'B' || next_c == 'o' || next_c == 'O' ||
+                    next_c == 'd' || next_c == 'D' || next_c == 'h' || next_c == 'H') {
                     is_sized_base = true;
+                } else if (next_c == 's' || next_c == 'S') {
+                    char after_s = '\0';
+                    if (!file_stack.empty()) {
+                        size_t cur = file_stack.back().cursor + ws_ahead + ap_ws + 1;
+                        const auto& src = file_stack.back().src;
+                        while (cur < src.size() && (src[cur] == ' ' || src[cur] == '\t')) cur++;
+                        if (cur < src.size()) after_s = src[cur];
+                    }
+                    if (after_s == 'b' || after_s == 'B' || after_s == 'o' || after_s == 'O' ||
+                        after_s == 'd' || after_s == 'D' || after_s == 'h' || after_s == 'H') {
+                        is_sized_base = true;
+                    }
                 }
             }
 

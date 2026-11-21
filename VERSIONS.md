@@ -1,5 +1,49 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.5.8.0 (Phase 2H: Verilator CI Gate Threshold Integration & Frontend Stabilization)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 2H — Verilator `test_regress` Suite Compliance Push (>= 2,050 Tests) & Integration into 5-Stage CI Gate  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 112 / 112 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.77s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.82s)  
+**Verilator `test_regress` Compliance:** **2,078 / 2,755 PASS (75.4% in 118.17s, up from 1,943 / 2,804 = 69.3%) (+135 tests passing)**  
+- **Pure-SV Simulation (SIM):** **2,040 / 2,630 PASS (77.6%)**, up from 1,895 / 2,672 (70.9%) (+145 passing SIM tests)  
+- **Negative Compile-Error (CE):** **38 / 125 PASS (30.4%)**  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,660 tests + Verilator >= 2,050 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 2H Architectural, Kernel, & Frontend Parser Implementations
+
+1. **Compilation-Unit Typedefs in Parser & Runtime Evaluator (`parser_module.cpp`, `parser.cpp`, `expr_evaluator.cpp`)**:
+   - Registered global simple, enum, and struct typedefs in `Parser::parse_all()` so file-level and package-level type definitions are visible during expression parsing, static casting (`Word'(i)`), and variable declarations.
+2. **Severity Tasks in Generate Items (`parser_module.cpp`)**:
+   - Supported `$info`, `$warning`, `$error`, and `$fatal` tasks inside `generate` blocks and generate regions by wrapping them into `INITIAL` process blocks per IEEE 1800-2023 §20.10.
+3. **Chained Multi-Level Member & Index Assignments in LHS (`parser_stmt.cpp`, `evaluator.cpp`)**:
+   - Generalized LHS assignment parsing to iteratively parse deep chained member and indexed accesses (`cfgs[i].subs[j].ec = ...`).
+4. **Chained Subroutine Calls and Method Invocations in Statements & Expressions (`parser_stmt.cpp`, `parser_expr.cpp`)**:
+   - Handled chained member accesses and function calls (`uvm_root::get_inst().x`) after scoped subroutines and static member accesses.
+5. **Gate Primitive Multi-Instance Declarations & Multi-Output `buf`/`not` (`parser_module.cpp`)**:
+   - Implemented comma-separated gate instantiation lists (`buf BF0 (out0, in), BF1 (out1, in);`) and multi-output buffer/inverter primitives (`buf (out0, out1, in);`).
+6. **Port Initializers in Module Declarations (`parser_module.cpp`)**:
+   - Implemented default expression initializers on module port declarations (`output reg [3:0] tied_also = 4'b1010;`) per IEEE 1800-2023 §23.2.2.
+7. **Module Port Header `ref` and `var` Keywords (`parser_module.cpp`)**:
+   - Added full support for `ref` port direction and `var` keyword prefix in ANSI and non-ANSI module port headers (`input var logic arrbkw[1:0]`).
+8. **Parameter Dynamic Arrays, Queues, & Associative Array Indexing (`parser_module.cpp`)**:
+   - Enabled dynamic array (`parameter int D[] = '{...}`), queue (`parameter int Q[$] = ...`), and associative array parameter syntax across compilation unit, module header, and module body scopes.
+9. **Class Dynamic Array Handles (`parser_module.cpp`)**:
+   - Supported dynamic arrays of parameterized class instances (`Cls #(int) cs[];`).
+10. **Global and Default Clocking Blocks (`parser_module.cpp`)**:
+    - Supported `global clocking @(...)` without explicit clocking identifier per IEEE 1800-2023 §14.14.
+11. **Direct `default disable iff` & `restrict property` Constructs (`parser_module.cpp`)**:
+    - Parsed `default disable iff <expr>;` and `restrict property (@(...) ...);` across module items and generate regions.
+12. **Full 5-Stage Zero-Regression CI Gate Enforcement (`scripts/setup_and_verify.sh`)**:
+    - Integrated Verilator `test_regress` suite as Stage 5 with enforced minimum threshold `--min-pass 2050` alongside the 1,660 existing milestone, sv-tests, and ivtest tests.
+
+---
+
 ## Version v4.5.7.0 (Phase 2G: Parser Clusters 7–15 & Specialized Typedef Elaboration Resolved)
 
 **Release Date:** November 2026  

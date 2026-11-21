@@ -34,7 +34,16 @@ ParsedNumber NumberParser::parse_simple_decimal(const std::string& num_str) {
     for (char c : num_str) {
         if (c != '_') clean.push_back(c);
     }
-    res.aval = clean.empty() ? 0 : std::stoull(clean);
+    try {
+        res.aval = clean.empty() ? 0 : std::stoull(clean);
+    } catch (...) {
+        res.aval = 0;
+        for (char c : clean) {
+            if (std::isdigit((unsigned char)c)) {
+                res.aval = res.aval * 10 + (c - '0');
+            }
+        }
+    }
     res.bval = 0;
     res.is_signed = true;
     return res;
@@ -153,7 +162,33 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
             for (char c : digits) {
                 if (c != '_') clean.push_back(c);
             }
-            res.aval = clean.empty() ? 0 : std::stoull(clean);
+            if (width > 64 || clean.size() > 18) {
+                std::vector<uint64_t> words = {0};
+                for (char c : clean) {
+                    if (std::isdigit((unsigned char)c)) {
+                        uint64_t carry = c - '0';
+                        for (size_t i = 0; i < words.size(); ++i) {
+                            __uint128_t prod = static_cast<__uint128_t>(words[i]) * 10 + carry;
+                            words[i] = static_cast<uint64_t>(prod);
+                            carry = static_cast<uint64_t>(prod >> 64);
+                        }
+                        if (carry > 0) words.push_back(carry);
+                    }
+                }
+                res.aval = words.empty() ? 0 : words[0];
+                size_t nwords = (width + 63) / 64;
+                if (nwords < words.size()) nwords = words.size();
+                words.resize(nwords, 0ULL);
+                res.wide_aval = words;
+                res.wide_bval.assign(nwords, 0ULL);
+                if (words.size() * 64 > width) res.width = static_cast<uint32_t>(words.size() * 64);
+            } else {
+                try {
+                    res.aval = clean.empty() ? 0 : std::stoull(clean);
+                } catch (...) {
+                    res.aval = 0;
+                }
+            }
         }
     }
 

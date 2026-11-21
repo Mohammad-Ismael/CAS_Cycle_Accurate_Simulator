@@ -902,6 +902,14 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval % (int64_t)r.aval), true);
                         return LogicVal::make_known(l.width, l.aval % r.aval, false);
                     }
+                    if (bin->op == "==") return LogicVal::make_known(1, (l.aval == r.aval && l.bval == 0 && r.bval == 0) ? 1 : 0);
+                    if (bin->op == "!=") return LogicVal::make_known(1, (l.aval != r.aval || l.bval != 0 || r.bval != 0) ? 1 : 0);
+                    if (bin->op == "<") return LogicVal::make_known(1, (expr_signed ? (l.to_signed() < r.to_signed()) : (l.aval < r.aval)) ? 1 : 0);
+                    if (bin->op == "<=") return LogicVal::make_known(1, (expr_signed ? (l.to_signed() <= r.to_signed()) : (l.aval <= r.aval)) ? 1 : 0);
+                    if (bin->op == ">") return LogicVal::make_known(1, (expr_signed ? (l.to_signed() > r.to_signed()) : (l.aval > r.aval)) ? 1 : 0);
+                    if (bin->op == ">=") return LogicVal::make_known(1, (expr_signed ? (l.to_signed() >= r.to_signed()) : (l.aval >= r.aval)) ? 1 : 0);
+                    if (bin->op == "&&") return LogicVal::make_known(1, (l.to_bool() && r.to_bool()) ? 1 : 0);
+                    if (bin->op == "||") return LogicVal::make_known(1, (l.to_bool() || r.to_bool()) ? 1 : 0);
                     if (bin->op == "&") return LogicOps::bitwise_and(l, r);
                     if (bin->op == "|") return LogicOps::bitwise_or(l, r);
                     if (bin->op == "^") return LogicOps::bitwise_xor(l, r);
@@ -1029,6 +1037,15 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         if (returned) break;
                     }
                     return;
+                }
+                if (auto sev = dynamic_cast<SeverityTaskStatementNode*>(s)) {
+                    if (sev->level == SeverityLevel::FATAL || sev->level == SeverityLevel::ERROR) {
+                        throw std::runtime_error("Elaboration error in constant function: $fatal/$error called");
+                    }
+                    return;
+                }
+                if (auto fin = dynamic_cast<FinishStatementNode*>(s)) {
+                    throw std::runtime_error("Elaboration error in constant function: $finish called");
                 }
             };
             for (auto& st : target_fn->get_body()) {
@@ -3913,11 +3930,11 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.struct_types[scope + "." + td->type_name] = st;
         }
         if (!td->base_type.empty()) {
-            if (td->is_unpacked_array && !td->is_dynamic_array) {
+            if (td->is_unpacked_array) {
                 UnpackedArrayTypeInfo uinfo;
                 uinfo.name = td->type_name;
-                uinfo.elem_type = td->elem_type;
-                uinfo.elem_width = td->elem_width;
+                uinfo.elem_type = td->elem_type.empty() ? td->base_type : td->elem_type;
+                uinfo.elem_width = td->elem_width ? td->elem_width : (td->width ? td->width : 1);
                 uinfo.elem_signed = td->elem_signed;
                 uinfo.array_size = td->array_size;
                 uinfo.start_idx = td->arr_start_idx;
@@ -3932,6 +3949,15 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sinfo.is_signed = td->is_signed;
                 result.simple_types[td->type_name] = sinfo;
                 result.simple_types[scope + "." + td->type_name] = sinfo;
+            } else {
+                UnpackedArrayTypeInfo uinfo;
+                uinfo.name = td->type_name;
+                uinfo.elem_type = td->elem_type.empty() ? td->base_type : td->elem_type;
+                uinfo.elem_width = td->elem_width ? td->elem_width : (td->width ? td->width : 1);
+                uinfo.elem_signed = td->elem_signed;
+                uinfo.array_size = 0;
+                result.unpacked_array_types[td->type_name] = uinfo;
+                result.unpacked_array_types[scope + "." + td->type_name] = uinfo;
             }
         }
     }
@@ -7256,11 +7282,48 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
         // Base class for normal classes
         if (!cls->base_class_name.empty()) {
-            auto it = result.class_defs.find(cls->base_class_name);
-            if (it == result.class_defs.end()) {
-                throw std::runtime_error("Class '" + cls->name + "' extends unknown base class '" + cls->base_class_name + "'");
+            std::string actual_base_name = cls->base_class_name;
+            for (const auto& m : modules) {
+                auto it_td = m->simple_typedefs.find(actual_base_name);
+                if (it_td != m->simple_typedefs.end()) {
+                    actual_base_name = it_td->second.base_type;
+                    break;
+                }
             }
-            cls->base_class = const_cast<ClassNode*>(it->second);
+            if (actual_base_name == cls->base_class_name) {
+                for (const auto& kv_pkg : Parser::global_packages) {
+                    auto it_td = kv_pkg.second->simple_typedefs.find(actual_base_name);
+                    if (it_td != kv_pkg.second->simple_typedefs.end()) {
+                        actual_base_name = it_td->second.base_type;
+                        break;
+                    }
+                }
+            }
+            auto it = result.class_defs.find(actual_base_name);
+            if (it == result.class_defs.end()) {
+                // Check if actual_base_name is a type parameter of cls
+                bool is_type_param = false;
+                for (const auto& tp : cls->parameters) {
+                    if (tp.name == actual_base_name) {
+                        is_type_param = true;
+                        if (tp.default_expr) {
+                            if (auto id_expr = dynamic_cast<IdentifierNode*>(tp.default_expr.get())) {
+                                std::string def_t = id_expr->name;
+                                auto it_def = result.class_defs.find(def_t);
+                                if (it_def != result.class_defs.end()) {
+                                    cls->base_class = const_cast<ClassNode*>(it_def->second);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (!is_type_param && !cls->base_class) {
+                    throw std::runtime_error("Class '" + cls->name + "' extends unknown base class '" + cls->base_class_name + "'");
+                }
+            } else {
+                cls->base_class = const_cast<ClassNode*>(it->second);
+            }
             if (cls->base_class->is_interface_class) {
                 throw std::runtime_error("[CAS-DTINPCIL] Class '" + cls->name + "' cannot extend interface class '" + cls->base_class_name + "' per IEEE 1800-2023 section 8.26 (use 'implements')");
             }
@@ -8171,8 +8234,8 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     }
                 }
                 if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(s)) {
-                    if (nba->intra_delay > 0 || nba->has_intra_event) {
-                        throw std::runtime_error("[CAS-STC] Intra-assignment timing control is illegal inside always_comb / always_latch / always_ff per IEEE 1800-2023 §9.2.2");
+                    if (!bp.proc->is_always_ff && (nba->intra_delay > 0 || nba->has_intra_event)) {
+                        throw std::runtime_error("[CAS-STC] Intra-assignment timing control is illegal inside always_comb / always_latch per IEEE 1800-2023 §9.2.2");
                     }
                 }
                 if (auto blk = dynamic_cast<const BlockStatementNode*>(s)) {

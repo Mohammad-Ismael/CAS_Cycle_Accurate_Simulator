@@ -694,6 +694,8 @@ LogicVal ExprEvaluator::eval_binary_op(const std::string& op, const LogicVal& l,
         if (op == "&") return LogicOps::bitwise_and(l, r);
         if (op == "|") return LogicOps::bitwise_or(l, r);
         if (op == "^") return LogicOps::bitwise_xor(l, r);
+    if (op == "^~" || op == "~^") return LogicOps::bitwise_not(LogicOps::bitwise_xor(l, r));
+        if (op == "^~" || op == "~^") return LogicOps::bitwise_not(LogicOps::bitwise_xor(l, r));
         if (op == "<<" || op == "<<<") return LogicOps::shift_left(l, r);
         if (op == ">>") return LogicOps::shift_right(l, r);
         if (op == ">>>") return LogicOps::arith_shift_right(l, r, l.is_signed);
@@ -726,6 +728,7 @@ LogicVal ExprEvaluator::eval_binary_op(const std::string& op, const LogicVal& l,
     if (op == "&") return LogicOps::bitwise_and(l, r);
     if (op == "|") return LogicOps::bitwise_or(l, r);
     if (op == "^") return LogicOps::bitwise_xor(l, r);
+    if (op == "^~" || op == "~^") return LogicOps::bitwise_not(LogicOps::bitwise_xor(l, r));
     if (op == "<<" || op == "<<<") return LogicOps::shift_left(l, r);
     if (op == ">>") return LogicOps::shift_right(l, r);
     if (op == ">>>") return LogicOps::arith_shift_right(l, r, l.is_signed);
@@ -2427,6 +2430,11 @@ LogicVal ExprEvaluator::eval_binary_op_node(BinaryOpNode* bin, const std::string
                 uint32_t max_w = std::max(l.width, r.width);
                 return LogicVal::from_u64_2state(a ^ b, max_w);
             }
+            if (bin->op == "^~" || bin->op == "~^") {
+                uint32_t max_w = std::max(l.width, r.width);
+                uint64_t mask = (max_w >= 64) ? ~0ULL : ((1ULL << max_w) - 1);
+                return LogicVal::from_u64_2state((~(a ^ b)) & mask, max_w);
+            }
             if (bin->op == "<<" || bin->op == "<<<") {
                 uint64_t res = (b >= l.width) ? 0ULL : (a << b);
                 return LogicVal::from_u64_2state(res, l.width, l_signed);
@@ -2559,6 +2567,7 @@ LogicVal ExprEvaluator::eval_binary_op_node(BinaryOpNode* bin, const std::string
         if (bin->op == "&")   return LogicOps::bitwise_and(l, r);
         if (bin->op == "|")   return LogicOps::bitwise_or(l, r);
         if (bin->op == "^")   return LogicOps::bitwise_xor(l, r);
+        if (bin->op == "^~" || bin->op == "~^") return LogicOps::bitwise_not(LogicOps::bitwise_xor(l, r));
         if (bin->op == "<<" || bin->op == "<<<")  return LogicOps::shift_left(l, r);
         if (bin->op == ">>")  return LogicOps::shift_right(l, r);
         if (bin->op == ">>>") return LogicOps::arith_shift_right(l, r, l_signed);
@@ -3060,12 +3069,18 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         return LogicVal::make_x(32);
     }
 
-    if (dynamic_cast<SequenceRepetitionNode*>(expr)) {
-        throw std::runtime_error("[CAS-DTINPCIL] SVA sequence repetition operator used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
+    if (auto rep = dynamic_cast<SequenceRepetitionNode*>(expr)) {
+        return eval(rep->expr.get(), scope);
     }
 
-    if (dynamic_cast<SequenceConcatNode*>(expr)) {
-        throw std::runtime_error("[CAS-DTINPCIL] SVA sequence concatenation used outside sequence/property context per IEEE 1800-2023 section 16.9.2");
+    if (auto scat = dynamic_cast<SequenceConcatNode*>(expr)) {
+        for (const auto& item : scat->elements) {
+            if (item.expr) {
+                LogicVal v = eval(item.expr.get(), scope);
+                if (v.is_unknown() || !v.is_true()) return LogicVal::make_known(1, 0);
+            }
+        }
+        return LogicVal::make_known(1, 1);
     }
 
     if (auto match_node = dynamic_cast<SequenceMatchItemNode*>(expr)) {
@@ -3928,9 +3943,29 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
             }
+            if (!si && Parser::global_simple_typedefs.count(target_type)) {
+                static thread_local SimpleTypeInfo tmp_si;
+                tmp_si = {target_type, "logic", Parser::global_simple_typedefs.at(target_type), false};
+                si = &tmp_si;
+            }
 
             if (target_type == "string") {
                 return LogicVal::make_string(val.to_ascii_string());
+            }
+            if (target_type == "time" || target_type == "realtime" || target_type == "longint") {
+                return LogicOps::cast_width(val, 64, target_type == "longint");
+            }
+            if (target_type == "integer" || target_type == "int") {
+                return LogicOps::cast_width(val, 32, true);
+            }
+            if (target_type == "shortint") {
+                return LogicOps::cast_width(val, 16, true);
+            }
+            if (target_type == "byte") {
+                return LogicOps::cast_width(val, 8, true);
+            }
+            if (target_type == "bit" || target_type == "logic" || target_type == "reg") {
+                return LogicOps::cast_width(val, 1, false);
             }
 
             std::string scoped_cls = scope.empty() ? target_type : (scope + "." + target_type);

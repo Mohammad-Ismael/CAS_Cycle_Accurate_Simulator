@@ -250,6 +250,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                 while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_RBRACKET)) continue;
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        if (match(TokenType::TOKEN_COLON)) parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue parameter dimension");
+                        continue;
+                    }
+                    if (current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || current.text == "string"))) {
+                        advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array parameter dimension");
+                        continue;
+                    }
                     parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         parse_expression();
@@ -273,7 +287,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
 
         if (current.type == TokenType::TOKEN_TYPEDEF) {
             auto td = parse_typedef();
-            if (td) global_typedefs.push_back(std::move(td));
+            if (td) {
+                if (td->struct_type) {
+                    global_struct_typedefs[td->type_name] = td->struct_type;
+                }
+                if (td->enum_type) {
+                    global_enum_typedefs[td->type_name] = td->enum_type;
+                }
+                if (td->width > 0) {
+                    global_simple_typedefs[td->type_name] = td->width;
+                }
+                global_typedefs.push_back(std::move(td));
+            }
             continue;
         }
 
@@ -986,6 +1011,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                 while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_RBRACKET)) continue;
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        if (match(TokenType::TOKEN_COLON)) parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue parameter dimension");
+                        continue;
+                    }
+                    if (current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || current.text == "string"))) {
+                        advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array parameter dimension");
+                        continue;
+                    }
                     parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         parse_expression();
@@ -1020,6 +1059,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 if (current.type == TokenType::TOKEN_INPUT) { dir = "input"; advance(); }
                 else if (current.type == TokenType::TOKEN_OUTPUT) { dir = "output"; advance(); }
                 else if (current.type == TokenType::TOKEN_INOUT) { dir = "inout"; advance(); }
+                else if (current.type == TokenType::TOKEN_REF || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "ref")) { dir = "ref"; advance(); }
+                bool is_var_port = false;
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") {
+                    is_var_port = true;
+                    advance();
+                }
                 else if (current.type == TokenType::TOKEN_INTERFACE) {
                     advance();
                     std::string mp_name = "";
@@ -1156,7 +1201,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
                     } else if (next_tok.type == TokenType::TOKEN_IDENTIFIER ||
                                (next_tok.type == TokenType::TOKEN_LBRACKET && is_type_identifier(current.text))) {
-                        if (current.text != "input" && current.text != "output" && current.text != "inout" &&
+                        if (current.text != "input" && current.text != "output" && current.text != "inout" && current.text != "ref" && current.text != "var" &&
                             current.text != "int" && current.text != "byte" && current.text != "shortint" && current.text != "longint") {
                             port_user_type = current.text;
                             auto enum_info = get_enum_typedef(current.text);
@@ -1176,7 +1221,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                        port_user_type == "mailbox");
                 bool is_string_port = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string") ||
                                       port_user_type == "string";
-                NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
+                NetKind port_kind = (dir == "ref" || is_var_port) ? NetKind::VAR : NetKind::WIRE;
                 if (!port_user_type.empty()) {
                     if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                         port_kind = NetKind::VAR;
@@ -1389,6 +1434,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             break;
                         }
                         if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
+                            (current.type == TokenType::TOKEN_REF || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "ref" || current.text == "var"))) ||
                             current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_WIRE || 
                             current.type == TokenType::TOKEN_WAND || current.type == TokenType::TOKEN_WOR || current.type == TokenType::TOKEN_TRI ||
                             current.type == TokenType::TOKEN_REG || current.type == TokenType::TOKEN_INTEGER || current.type == TokenType::TOKEN_SIGNED ||
@@ -1721,8 +1767,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
 
             bool is_def_cb = false;
-            if (current.type == TokenType::TOKEN_DEFAULT && peek_token().type == TokenType::TOKEN_CLOCKING) {
-                advance(); // consume 'default'
+            bool is_global_cb = false;
+            if ((current.type == TokenType::TOKEN_DEFAULT || (current.type == TokenType::TOKEN_IDENTIFIER && (current.text == "default" || current.text == "global"))) &&
+                (peek_token().type == TokenType::TOKEN_CLOCKING || (peek_token().type == TokenType::TOKEN_IDENTIFIER && peek_token().text == "clocking"))) {
+                if (current.text == "global") is_global_cb = true;
+                advance(); // consume 'default' or 'global'
                 advance(); // consume 'clocking'
                 if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_SEMICOLON) {
                     std::string cb_name = current.text;
@@ -1734,14 +1783,14 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 }
                 is_def_cb = true;
             }
-            if (current.type == TokenType::TOKEN_CLOCKING || is_def_cb) {
-                if (!is_def_cb) advance();
+            if (current.type == TokenType::TOKEN_CLOCKING || is_def_cb || is_global_cb) {
+                if (!is_def_cb && !is_global_cb) advance();
                 std::string cb_name = "";
                 if (current.type == TokenType::TOKEN_IDENTIFIER) {
                     cb_name = current.text;
                     advance();
-                } else if (is_def_cb) {
-                    cb_name = "__default_cb";
+                } else if (is_def_cb || is_global_cb) {
+                    cb_name = is_global_cb ? "__global_cb" : "__default_cb";
                 } else {
                     throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + 
                         ": error: Expected clocking identifier");
@@ -1938,6 +1987,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                     while (match(TokenType::TOKEN_LBRACKET)) {
+                        if (match(TokenType::TOKEN_RBRACKET)) continue;
+                        if (match(TokenType::TOKEN_DOLLAR)) {
+                            if (match(TokenType::TOKEN_COLON)) parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue parameter dimension");
+                            continue;
+                        }
+                        if (current.type == TokenType::TOKEN_INTEGER ||
+                            (current.type == TokenType::TOKEN_IDENTIFIER &&
+                             (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                              current.text == "longint" || current.text == "string"))) {
+                            advance();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array parameter dimension");
+                            continue;
+                        }
                         parse_expression();
                         if (match(TokenType::TOKEN_COLON)) {
                             parse_expression();
@@ -1964,9 +2027,15 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT) {
+            if (current.type == TokenType::TOKEN_INPUT || current.type == TokenType::TOKEN_OUTPUT || current.type == TokenType::TOKEN_INOUT ||
+                (current.type == TokenType::TOKEN_REF || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "ref"))) {
                 std::string dir = current.text;
                 advance();
+                bool is_var_port = false;
+                if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "var") {
+                    is_var_port = true;
+                    advance();
+                }
                 bool is_signed_port = false;
                 bool is_int_port = false;
                 std::string int_port_type = "";
@@ -1987,7 +2056,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
                     } else if (next_tok.type == TokenType::TOKEN_IDENTIFIER ||
                                (next_tok.type == TokenType::TOKEN_LBRACKET && is_type_identifier(current.text))) {
-                        if (current.text != "input" && current.text != "output" && current.text != "inout" &&
+                        if (current.text != "input" && current.text != "output" && current.text != "inout" && current.text != "ref" && current.text != "var" &&
                             current.text != "int" && current.text != "byte" && current.text != "shortint" && current.text != "longint") {
                             port_user_type = current.text;
                             auto enum_info = get_enum_typedef(current.text);
@@ -2007,7 +2076,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                                        port_user_type == "mailbox");
                 bool is_string_port = (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "string") ||
                                       port_user_type == "string";
-                NetKind port_kind = (dir == "input" || dir == "inout") ? NetKind::WIRE : NetKind::WIRE;
+                NetKind port_kind = (dir == "ref" || is_var_port) ? NetKind::VAR : NetKind::WIRE;
                 if (!port_user_type.empty()) {
                     if (is_class(port_user_type) || is_chandle_port || is_semaphore_port || is_mailbox_port || is_string_port) {
                         port_kind = NetKind::VAR;
@@ -2211,6 +2280,24 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         }
                         mod->ports.push_back(std::move(port_decl));
                     }
+                    if (match(TokenType::TOKEN_EQUAL)) {
+                        auto init_expr = parse_expression();
+                        for (auto& p : mod->ports) {
+                            if (p.name == pname) {
+                                p.default_value = init_expr->clone();
+                                break;
+                            }
+                        }
+                        if (port_kind == NetKind::VAR || dir == "output" || dir == "reg") {
+                            auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                            init_proc->is_decl_init = true;
+                            init_proc->body.push_back(std::make_unique<BlockingAssignNode>(pname, init_expr->clone()));
+                            mod->processes.push_back(std::move(init_proc));
+                        } else {
+                            auto ca = std::make_unique<ContinuousAssignNode>(pname, init_expr->clone());
+                            mod->continuous_assigns.push_back(std::move(ca));
+                        }
+                    }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
@@ -2265,6 +2352,20 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     mod->covergroup_map[cg_name] = scg.get();
                     mod->covergroups.push_back(scg);
                 }
+                continue;
+            }
+
+            if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "restrict") {
+                advance();
+                if (match(TokenType::TOKEN_PROPERTY)) {}
+                expect(TokenType::TOKEN_LPAREN, "Expected '(' after restrict property");
+                int depth = 1;
+                while (depth > 0 && current.type != TokenType::TOKEN_EOF) {
+                    if (current.type == TokenType::TOKEN_LPAREN) depth++;
+                    else if (current.type == TokenType::TOKEN_RPAREN) depth--;
+                    advance();
+                }
+                match(TokenType::TOKEN_SEMICOLON);
                 continue;
             }
 
@@ -2408,8 +2509,18 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected class handle identifier");
                     std::vector<AstDimension> unpacked_dims;
                     bool is_arr = false;
+                    bool is_dyn = false;
                     while (match(TokenType::TOKEN_LBRACKET)) {
                         is_arr = true;
+                        if (match(TokenType::TOKEN_RBRACKET)) {
+                            is_dyn = true;
+                            continue;
+                        }
+                        if (match(TokenType::TOKEN_DOLLAR)) {
+                            if (match(TokenType::TOKEN_COLON)) parse_expression();
+                            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue dimension");
+                            continue;
+                        }
                         auto l = parse_expression();
                         std::unique_ptr<ExpressionNode> r = nullptr;
                         bool is_single = true;
@@ -2434,6 +2545,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     sig.class_type_name = class_type;
                     sig.type_name = class_type;
                     sig.is_array = is_arr;
+                    sig.is_dynamic_array = is_dyn;
                     sig.unpacked_dimensions = std::move(unpacked_dims);
                     mod->signals.push_back(std::move(sig));
                     if (match(TokenType::TOKEN_COMMA)) continue;
@@ -2904,10 +3016,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 auto msb = std::make_unique<NumberNode>(width > 0 ? width - 1 : 0, 32);
                 auto lsb = std::make_unique<NumberNode>(0, 32);
 
+                NetKind udt_kind = enum_info ? NetKind::VAR : NetKind::WIRE;
                 while (true) {
                     std::string signame = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
-                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, NetKind::WIRE);
+                    PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, udt_kind);
                     sig.type_name = type_name;
                     sig.packed_dimensions = packed_dims;
                     if (uarr_info) {
@@ -3286,9 +3399,7 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
                     }
                     if (!is_explicit_net && !udt_type_name.empty()) {
-                        if (is_class(udt_type_name) || is_chandle_mod || is_semaphore_mod || is_mailbox_mod || is_ident_string_sig) {
-                            sig_kind = NetKind::VAR;
-                        }
+                        sig_kind = NetKind::VAR;
                     }
                     PortNode sig(signame, "internal", msb ? msb->clone() : nullptr, lsb ? lsb->clone() : nullptr, is_signed_sig, sig_kind);
                     sig.packed_dimensions = packed_dims;
@@ -3810,28 +3921,53 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     }
                 }
 
-                std::string inst_name = "";
-                if (current.type == TokenType::TOKEN_IDENTIFIER) {
-                    inst_name = current.text;
-                    advance();
-                } else {
-                    inst_name = "gate_" + std::to_string(mod->gates.size());
-                }
-
-                expect(TokenType::TOKEN_LPAREN, "Expected '(' in gate instance");
-                auto out_expr = parse_expression();
-                expect(TokenType::TOKEN_COMMA, "Expected ',' after gate output");
-                std::vector<std::unique_ptr<ExpressionNode>> in_exprs;
                 while (true) {
-                    in_exprs.push_back(parse_expression());
+                    std::string inst_name = "";
+                    if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                        inst_name = current.text;
+                        advance();
+                    } else {
+                        inst_name = "gate_" + std::to_string(mod->gates.size());
+                    }
+
+                    if (match(TokenType::TOKEN_LBRACKET)) {
+                        while (current.type != TokenType::TOKEN_RBRACKET && current.type != TokenType::TOKEN_EOF) advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in gate instance array range");
+                    }
+
+                    expect(TokenType::TOKEN_LPAREN, "Expected '(' in gate instance");
+                    std::vector<std::unique_ptr<ExpressionNode>> all_exprs;
+                    while (true) {
+                        all_exprs.push_back(parse_expression());
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
+                    expect(TokenType::TOKEN_RPAREN, "Expected ')' closing gate instance");
+
+                    if (gt == GateType::BUF || gt == GateType::NOT) {
+                        if (all_exprs.size() >= 2) {
+                            auto in_expr = std::move(all_exprs.back());
+                            all_exprs.pop_back();
+                            for (size_t gi = 0; gi < all_exprs.size(); ++gi) {
+                                std::vector<std::unique_ptr<ExpressionNode>> ins;
+                                ins.push_back(in_expr->clone());
+                                std::string g_name = (all_exprs.size() == 1) ? inst_name : (inst_name + "_" + std::to_string(gi));
+                                auto gate = std::make_unique<GatePrimitiveNode>(gt, std::move(all_exprs[gi]), std::move(ins), g_name, udp_type);
+                                mod->gates.push_back(std::move(gate));
+                            }
+                        }
+                    } else {
+                        if (!all_exprs.empty()) {
+                            auto out_expr = std::move(all_exprs.front());
+                            all_exprs.erase(all_exprs.begin());
+                            auto gate = std::make_unique<GatePrimitiveNode>(gt, std::move(out_expr), std::move(all_exprs), inst_name, udp_type);
+                            mod->gates.push_back(std::move(gate));
+                        }
+                    }
                     if (match(TokenType::TOKEN_COMMA)) continue;
                     break;
                 }
-                expect(TokenType::TOKEN_RPAREN, "Expected ')' closing gate instance");
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after gate instance");
-
-                auto gate = std::make_unique<GatePrimitiveNode>(gt, std::move(out_expr), std::move(in_exprs), inst_name, udp_type);
-                mod->gates.push_back(std::move(gate));
                 continue;
             }
 
@@ -5941,6 +6077,20 @@ std::unique_ptr<ClassNode> Parser::parse_class(bool is_interface_class, bool is_
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                 while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_RBRACKET)) continue;
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        if (match(TokenType::TOKEN_COLON)) parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue parameter dimension");
+                        continue;
+                    }
+                    if (current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || current.text == "string"))) {
+                        advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array parameter dimension");
+                        continue;
+                    }
                     parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         parse_expression();
@@ -8370,6 +8520,20 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                 std::string pname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                 while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_RBRACKET)) continue;
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        if (match(TokenType::TOKEN_COLON)) parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in queue parameter dimension");
+                        continue;
+                    }
+                    if (current.type == TokenType::TOKEN_INTEGER ||
+                        (current.type == TokenType::TOKEN_IDENTIFIER &&
+                         (current.text == "int" || current.text == "byte" || current.text == "shortint" ||
+                          current.text == "longint" || current.text == "string"))) {
+                        advance();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array parameter dimension");
+                        continue;
+                    }
                     parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         parse_expression();
