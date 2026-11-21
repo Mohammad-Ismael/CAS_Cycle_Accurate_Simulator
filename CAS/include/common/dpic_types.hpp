@@ -5,15 +5,18 @@
 #include <iostream>
 #include <stdexcept>
 #include <cstdint>
+#include <memory>
 
 #ifndef _WIN32
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <dlfcn.h>
 #else
 #include <windows.h>
 #endif
 
-typedef void* svScope;
-typedef void* svOpenArrayHandle;
+#include "../dpi/svdpi.h"
 
 struct MemoryArray;
 struct DynamicArrayObject;
@@ -30,11 +33,13 @@ struct SvOpenArray {
 struct SvScopeContext {
     std::string scope_name;
     void* user_data = nullptr;
+    std::unordered_map<void*, void*> user_data_map;
 };
 
 class DpiRegistry {
 private:
-    void* handle = nullptr;
+    std::vector<void*> handles;
+    std::vector<std::string> user_libraries;
     std::unordered_map<std::string, void*> symbol_cache;
     bool attempted_load = false;
 
@@ -44,6 +49,14 @@ private:
 
 public:
     DpiRegistry() = default;
+
+    void add_library(const std::string& path) {
+        user_libraries.push_back(path);
+    }
+
+    const std::vector<std::string>& get_libraries() const {
+        return user_libraries;
+    }
 
     static SvScopeContext* get_or_create_scope(const std::string& name) {
         auto it = scope_contexts.find(name);
@@ -82,20 +95,49 @@ public:
     static void* get_active_engine() {
         return active_engine_ptr;
     }
+
     ~DpiRegistry() {
-        if (handle) {
+        for (void* h : handles) {
+            if (h) {
 #ifndef _WIN32
-            dlclose(handle);
+                dlclose(h);
 #else
-            FreeLibrary(static_cast<HMODULE>(handle));
+                FreeLibrary(static_cast<HMODULE>(h));
 #endif
-            handle = nullptr;
+            }
         }
+        handles.clear();
+    }
+
+    bool load_library_file(const std::string& path) {
+#ifndef _WIN32
+        void* h = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        if (!h) {
+            h = dlopen(path.c_str(), RTLD_LAZY | RTLD_GLOBAL);
+        }
+        if (h) {
+            handles.push_back(h);
+            return true;
+        }
+#else
+        HMODULE h = LoadLibraryA(path.c_str());
+        if (h) {
+            handles.push_back(static_cast<void*>(h));
+            return true;
+        }
+#endif
+        return false;
     }
 
     bool ensure_loaded(const std::vector<std::string>& search_paths = {}) {
-        if (handle) return true;
+        if (!handles.empty()) return true;
 
+        // 1. Load any explicit user-specified libraries
+        for (const auto& ulib : user_libraries) {
+            load_library_file(ulib);
+        }
+
+        // 2. Search default candidate libraries
         std::vector<std::string> candidates = {
             "./c_model.so",
             "c_model.so",
@@ -111,43 +153,42 @@ public:
         }
 
         for (const auto& path : candidates) {
-#ifndef _WIN32
-            void* h = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
-            if (h) {
-                handle = h;
-                return true;
-            }
-#else
-            HMODULE h = LoadLibraryA(path.c_str());
-            if (h) {
-                handle = static_cast<void*>(h);
-                return true;
-            }
-#endif
+            load_library_file(path);
         }
-        return false;
+        return !handles.empty();
     }
 
     void* get_symbol(const std::string& symbol_name, const std::vector<std::string>& search_paths = {}) {
         auto it = symbol_cache.find(symbol_name);
         if (it != symbol_cache.end()) return it->second;
 
-        if (!handle) {
-            ensure_loaded(search_paths);
-        }
-        if (!handle) {
-            return nullptr;
+        ensure_loaded(search_paths);
+
+        // Search open handles
+        for (void* h : handles) {
+            if (!h) continue;
+            void* sym = nullptr;
+#ifndef _WIN32
+            sym = dlsym(h, symbol_name.c_str());
+#else
+            sym = reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(h), symbol_name.c_str()));
+#endif
+            if (sym) {
+                symbol_cache[symbol_name] = sym;
+                return sym;
+            }
         }
 
-        void* sym = nullptr;
+        // Also check executable's global symbol table (RTLD_DEFAULT)
 #ifndef _WIN32
-        sym = dlsym(handle, symbol_name.c_str());
-#else
-        sym = reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), symbol_name.c_str()));
-#endif
-        if (sym) {
-            symbol_cache[symbol_name] = sym;
+#ifdef RTLD_DEFAULT
+        void* def_sym = dlsym(RTLD_DEFAULT, symbol_name.c_str());
+        if (def_sym) {
+            symbol_cache[symbol_name] = def_sym;
+            return def_sym;
         }
-        return sym;
+#endif
+#endif
+        return nullptr;
     }
 };

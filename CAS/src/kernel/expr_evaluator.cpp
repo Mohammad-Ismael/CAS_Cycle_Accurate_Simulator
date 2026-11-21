@@ -7074,10 +7074,36 @@ static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector
             case 4: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
             case 5: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
             case 6: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 7: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6]); break;
+            case 8: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7]); break;
+            case 9: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8]); break;
+            case 10: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9]); break;
+            case 11: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10]); break;
+            case 12: reinterpret_cast<void(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10], c_args[11]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
         return LogicVal(0, 0, 0);
+    }
+
+    if (dpi->return_type == "string") {
+        const char* ret_s = nullptr;
+        switch (c_args.size()) {
+            case 0: ret_s = reinterpret_cast<const char*(*)()>(sym)(); break;
+            case 1: ret_s = reinterpret_cast<const char*(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 7: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6]); break;
+            case 8: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7]); break;
+            case 9: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8]); break;
+            case 10: ret_s = reinterpret_cast<const char*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9]); break;
+            default:
+                throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
+        }
+        return LogicVal::make_string(ret_s ? ret_s : "");
     }
 
     if (dpi->return_type == "chandle") {
@@ -7090,6 +7116,10 @@ static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector
             case 4: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
             case 5: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
             case 6: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 7: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6]); break;
+            case 8: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7]); break;
+            case 9: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8]); break;
+            case 10: ret_ptr = reinterpret_cast<void*(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
@@ -7106,6 +7136,12 @@ static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector
             case 4: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
             case 5: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
             case 6: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 7: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6]); break;
+            case 8: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7]); break;
+            case 9: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8]); break;
+            case 10: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9]); break;
+            case 11: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10]); break;
+            case 12: ret_val = reinterpret_cast<uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10], c_args[11]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
@@ -7120,6 +7156,12 @@ static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector
             case 4: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
             case 5: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
             case 6: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            case 7: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6]); break;
+            case 8: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7]); break;
+            case 9: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8]); break;
+            case 10: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9]); break;
+            case 11: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10]); break;
+            case 12: ret_val = reinterpret_cast<int(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5], c_args[6], c_args[7], c_args[8], c_args[9], c_args[10], c_args[11]); break;
             default:
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
@@ -7164,9 +7206,30 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
         std::unique_ptr<SvOpenArray> oa;
     };
     std::vector<OpenArrayRecord> open_records;
+    std::vector<std::string> string_storage;
+
+    struct OutArgRecord {
+        size_t arg_idx;
+        ExpressionNode* expr = nullptr;
+        std::string type_name;
+        uint32_t width = 32;
+        bool is_signed = true;
+        int64_t val64 = 0;
+        void* ptr_val = nullptr;
+        std::vector<svBitVecVal> bit_vec;
+        std::vector<svLogicVecVal> logic_vec;
+        bool is_vector = false;
+        bool is_logic_vec = false;
+    };
+    std::vector<std::shared_ptr<OutArgRecord>> out_records;
 
     for (size_t i = 0; i < args.size(); ++i) {
         bool is_open = (i < dpi->tf_ports.size() && dpi->tf_ports[i].is_open_array);
+        std::string pdir = (i < dpi->tf_ports.size()) ? dpi->tf_ports[i].direction : "input";
+        std::string ptype = (i < dpi->tf_ports.size()) ? dpi->tf_ports[i].type_name : "int";
+        uint32_t pw = (i < dpi->tf_ports.size() && dpi->tf_ports[i].width > 0) ? dpi->tf_ports[i].width : 32;
+        bool psigned = (i < dpi->tf_ports.size()) ? dpi->tf_ports[i].is_signed : true;
+
         if (is_open) {
             std::string arr_name = "";
             if (auto id = dynamic_cast<IdentifierNode*>(args[i].get())) {
@@ -7236,19 +7299,93 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
 
             c_args.push_back(reinterpret_cast<uint64_t>(oa.get()));
             open_records.push_back(OpenArrayRecord{i, std::move(oa)});
-        } else {
+            continue;
+        }
+
+        if (ptype == "string") {
             LogicVal v = eval(args[i].get(), scope);
-            if (v.is_real) {
-                c_args.push_back(static_cast<uint64_t>(v.real_val));
+            std::string s = v.is_string ? v.str_val : "";
+            string_storage.push_back(s);
+            c_args.push_back(reinterpret_cast<uint64_t>(string_storage.back().c_str()));
+            continue;
+        }
+
+        bool is_out_dir = (pdir == "output" || pdir == "inout" || pdir == "ref");
+        bool is_vector = (pw > 1 && (ptype == "bit" || ptype == "logic" || ptype == "reg"));
+
+        if (is_vector) {
+            auto out_rec = std::make_shared<OutArgRecord>();
+            out_rec->arg_idx = i;
+            out_rec->expr = args[i].get();
+            out_rec->type_name = ptype;
+            out_rec->width = pw;
+            out_rec->is_signed = psigned;
+            out_rec->is_vector = true;
+            out_rec->is_logic_vec = (ptype == "logic" || ptype == "reg");
+
+            size_t chunks = (pw + 31) / 32;
+            LogicVal init_val = (pdir != "output") ? eval(args[i].get(), scope) : LogicVal(pw, 0, 0);
+
+            if (out_rec->is_logic_vec) {
+                out_rec->logic_vec.resize(chunks);
+                for (size_t c = 0; c < chunks; ++c) {
+                    if (c == 0) {
+                        out_rec->logic_vec[0].aval = static_cast<uint32_t>(init_val.aval);
+                        out_rec->logic_vec[0].bval = static_cast<uint32_t>(init_val.bval);
+                    } else if (c == 1) {
+                        out_rec->logic_vec[1].aval = static_cast<uint32_t>(init_val.aval >> 32);
+                        out_rec->logic_vec[1].bval = static_cast<uint32_t>(init_val.bval >> 32);
+                    }
+                }
+                c_args.push_back(reinterpret_cast<uint64_t>(out_rec->logic_vec.data()));
             } else {
-                c_args.push_back(v.aval);
+                out_rec->bit_vec.resize(chunks, 0);
+                for (size_t c = 0; c < chunks; ++c) {
+                    if (c == 0) out_rec->bit_vec[0] = static_cast<uint32_t>(init_val.aval);
+                    else if (c == 1) out_rec->bit_vec[1] = static_cast<uint32_t>(init_val.aval >> 32);
+                }
+                c_args.push_back(reinterpret_cast<uint64_t>(out_rec->bit_vec.data()));
             }
+
+            if (is_out_dir) {
+                out_records.push_back(out_rec);
+            }
+            continue;
+        }
+
+        if (is_out_dir) {
+            auto out_rec = std::make_shared<OutArgRecord>();
+            out_rec->arg_idx = i;
+            out_rec->expr = args[i].get();
+            out_rec->type_name = ptype;
+            out_rec->width = pw;
+            out_rec->is_signed = psigned;
+            if (pdir == "inout" || pdir == "ref") {
+                LogicVal v = eval(args[i].get(), scope);
+                out_rec->val64 = v.to_signed();
+                out_rec->ptr_val = reinterpret_cast<void*>(static_cast<uintptr_t>(v.aval));
+            }
+            if (ptype == "chandle") {
+                c_args.push_back(reinterpret_cast<uint64_t>(&out_rec->ptr_val));
+            } else {
+                c_args.push_back(reinterpret_cast<uint64_t>(&out_rec->val64));
+            }
+            out_records.push_back(out_rec);
+            continue;
+        }
+
+        // Default: input scalar
+        LogicVal v = eval(args[i].get(), scope);
+        if (v.is_real) {
+            c_args.push_back(static_cast<uint64_t>(v.real_val));
+        } else {
+            c_args.push_back(v.aval);
         }
     }
 
     LogicVal result = invoke_c_symbol(sym, dpi, c_args);
 
-    // Write back any modified open array elements for output or inout ports
+    // Write back any modified open array elements
     for (const auto& rec : open_records) {
         if (rec.arg_idx < dpi->tf_ports.size() &&
             (dpi->tf_ports[rec.arg_idx].direction == "output" || dpi->tf_ports[rec.arg_idx].direction == "inout")) {
@@ -7262,6 +7399,66 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
                     uint64_t val = (rec.oa->elem_width <= 32) ? static_cast<uint32_t>(rec.oa->int32_elements[j]) : static_cast<uint64_t>(rec.oa->int64_elements[j]);
                     rec.oa->source_dyn->set_elem(static_cast<int64_t>(j), LogicVal::make_known(rec.oa->elem_width, val));
+                }
+            }
+        }
+    }
+
+    // Write back scalar and vector output/inout arguments to caller
+    for (const auto& rec : out_records) {
+        if (!rec->expr) continue;
+        LogicVal out_val;
+        if (rec->is_vector) {
+            if (rec->is_logic_vec) {
+                uint64_t a = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].aval;
+                uint64_t b = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].bval;
+                if (rec->logic_vec.size() > 1) {
+                    a |= (static_cast<uint64_t>(rec->logic_vec[1].aval) << 32);
+                    b |= (static_cast<uint64_t>(rec->logic_vec[1].bval) << 32);
+                }
+                out_val = LogicVal(rec->width, a, b);
+            } else {
+                uint64_t a = rec->bit_vec.empty() ? 0 : rec->bit_vec[0];
+                if (rec->bit_vec.size() > 1) {
+                    a |= (static_cast<uint64_t>(rec->bit_vec[1]) << 32);
+                }
+                out_val = LogicVal::make_known(rec->width, a);
+            }
+        } else if (rec->type_name == "chandle") {
+            out_val = LogicVal::make_known(64, reinterpret_cast<uintptr_t>(rec->ptr_val));
+        } else {
+            uint64_t m = (rec->width >= 64 || rec->width == 0) ? ~0ULL : ((1ULL << rec->width) - 1ULL);
+            uint32_t eff_w = rec->width > 0 ? rec->width : 32;
+            out_val = LogicVal::make_known(eff_w, static_cast<uint64_t>(rec->val64) & m);
+        }
+
+        if (auto id = dynamic_cast<IdentifierNode*>(rec->expr)) {
+            std::string var_name = id->name;
+            bool written = false;
+            if (context.has_active_frame()) {
+                LocalVar* loc = context.lookup_local(var_name);
+                if (loc) {
+                    loc->value = LogicOps::cast_width(out_val, loc->width, loc->is_signed);
+                    written = true;
+                }
+            }
+            if (!written && current_bp && !current_bp->call_stack.empty()) {
+                for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
+                    LocalVar* loc = it->local_frame.get_var(var_name);
+                    if (loc) {
+                        loc->value = LogicOps::cast_width(out_val, loc->width, loc->is_signed);
+                        written = true;
+                        break;
+                    }
+                }
+            }
+            if (!written) {
+                std::string scoped = scope.empty() ? var_name : (scope + "." + var_name);
+                size_t net_id = (size_t)-1;
+                if (engine.net_map.count(scoped)) net_id = engine.net_map.at(scoped);
+                else if (engine.net_map.count(var_name)) net_id = engine.net_map.at(var_name);
+                if (net_id != (size_t)-1) {
+                    engine.netlist[net_id].set(LogicOps::cast_width(out_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed));
                 }
             }
         }

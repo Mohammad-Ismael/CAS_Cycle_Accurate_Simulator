@@ -22,12 +22,12 @@ if [ ! -f "${REPO_ROOT}/CAS/build/cas" ]; then
 fi
 echo ">>> CAS Kernel & CLI built successfully: ${REPO_ROOT}/CAS/build/cas"
 
-# Stage 2: Milestone Regressions (112 / 112)
+# Stage 2: Milestone Regressions (115 / 115)
 echo ""
-echo "[STAGE 2/5] Running Full Milestone Regression Suite (112 suites)..."
+echo "[STAGE 2/5] Running Full Milestone Regression Suite (115 suites)..."
 echo "--------------------------------------------------------------------------------"
 python3 -u "${REPO_ROOT}/regression_testing/run_regressions.py"
-echo ">>> Full Milestone Regressions PASSED (112 / 112 = 100.0%)"
+echo ">>> Full Milestone Regressions PASSED (115 / 115 = 100.0%)"
 
 # Stage 3: IEEE 1800-2023 sv-tests Compliance Benchmark (1,028 / 1,028)
 echo ""
@@ -67,7 +67,7 @@ echo "==========================================================================
 echo " CAS SETUP & VERIFICATION: ZERO-REGRESSION CI GATE SUMMARY"
 echo "================================================================================"
 echo " Stage 1: Build CAS (Release)               — PASSED"
-echo " Stage 2: Milestone Regressions: 112 / 112 (100.0%)"
+echo " Stage 2: Milestone Regressions: 115 / 115 (100.0%)"
 echo " Stage 3: sv-tests:              1,028 / 1,028 (100.0%)"
 echo " Stage 4: ivtest:                520 / 520 (100.0%)"
 echo " Stage 5: Verilator test_regress: >= 2,050 tests (ENFORCED)"

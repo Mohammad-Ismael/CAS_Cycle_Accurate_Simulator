@@ -887,6 +887,12 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             mod->dpi_import_map[gdpi->sv_name] = gdpi.get();
         }
 
+        for (const auto& gexp : global_dpi_exports) {
+            mod->dpi_exports.push_back(gexp);
+            mod->dpi_export_map[gexp->c_name] = gexp.get();
+            mod->dpi_export_map[gexp->sv_name] = gexp.get();
+        }
+
         if (match(TokenType::TOKEN_HASH)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' after '#' in module header");
             while (current.type != TokenType::TOKEN_RPAREN && current.type != TokenType::TOKEN_EOF) {
@@ -8332,6 +8338,7 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
 
             PortNode port(pname, pdir, nullptr, nullptr, psigned, NetKind::WIRE);
             port.type_name = ptype;
+            port.width = pw;
             if (ptype == "chandle") {
                 port.is_chandle = true;
             }

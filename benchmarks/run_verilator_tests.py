@@ -14,6 +14,7 @@ import types
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+import json
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 BENCHMARKS_DIR = os.path.join(REPO_ROOT, "benchmarks")
@@ -23,7 +24,7 @@ T_DIR = os.path.join(TEST_REGRESS_DIR, "t")
 CAS_BIN = os.path.join(REPO_ROOT, "CAS", "build", "cas")
 
 TIMEOUT_SEC = 5
-MAX_WORKERS = 8
+MAX_WORKERS = int(os.environ.get("CAS_WORKERS", 4))
 
 # Inject mock vltest_bootstrap so importing it inside t_*.py is a harmless no-op
 sys.modules['vltest_bootstrap'] = types.ModuleType('vltest_bootstrap')
@@ -239,7 +240,17 @@ def read_inputs_v(filename):
         pass
     return inputs
 
+CACHE_FILE = os.path.join(BENCHMARKS_DIR, "verilator_tests_cache.json")
+
 def load_all_tests(test_filter=None):
+    if not test_filter and os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data['valid_tests'], data['skipped_counts']
+        except Exception:
+            pass
+
     py_files = sorted(glob.glob(os.path.join(T_DIR, 't_*.py')))
     if test_filter:
         py_files = [
@@ -317,6 +328,16 @@ def load_all_tests(test_filter=None):
             'sim_time': getattr(t, 'sim_time', 15000) if getattr(t, 'sim_time', 15000) else 15000,
             'has_execute': t.has_execute,
         }
+
+    if not test_filter:
+        try:
+            tmp_cache = CACHE_FILE + ".tmp"
+            with open(tmp_cache, 'w', encoding='utf-8') as f:
+                json.dump({'valid_tests': valid_tests, 'skipped_counts': skipped_counts}, f)
+                f.flush()
+            os.replace(tmp_cache, CACHE_FILE)
+        except Exception:
+            pass
 
     return valid_tests, skipped_counts
 

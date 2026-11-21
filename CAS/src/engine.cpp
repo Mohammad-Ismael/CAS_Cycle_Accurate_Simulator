@@ -1401,119 +1401,22 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
     }
 
     if (tn) {
+        std::string frame_name = (scope.empty() ? "" : (scope + ".")) + tn->name + "__call";
+        evaluator.get_expr_eval().get_context().push_frame(frame_name);
+        for (size_t i = 0; i < tn->ports.size() && i < args.size(); ++i) {
+            evaluator.get_expr_eval().get_context().declare_local(tn->ports[i].name, tn->ports[i].width, tn->ports[i].is_signed, tn->ports[i].type_name);
+            evaluator.get_expr_eval().get_context().set_local_value(tn->ports[i].name, args[i]);
+        }
         BoundProcess bp{scope.empty() ? tn->scope : scope, nullptr, 0, false};
         for (auto& s : tn->body) {
             evaluator.execute_statement(s.get(), bp);
             if (!scheduler.is_active()) break;
         }
+        evaluator.get_expr_eval().get_context().pop_frame();
         return LogicVal(0, 0, 0);
     }
 
     throw std::runtime_error("[DPI-FNF] Exported routine '" + c_name + "' (SV target: '" + sv_name + "') not found in scope '" + scope + "'");
-}
-
-extern "C" {
-svScope svGetScope(void) {
-    return DpiRegistry::get_active_scope();
-}
-
-svScope svSetScope(const svScope scope) {
-    return DpiRegistry::set_active_scope(scope);
-}
-
-void sv_write_reg(int addr, int data) {
-    Engine* eng = static_cast<Engine*>(DpiRegistry::get_active_engine());
-    if (!eng) {
-        throw std::runtime_error("[CAS-DPI-ERR] sv_write_reg called without active simulation engine context");
-    }
-    eng->dispatch_dpi_export("sv_write_reg", {LogicVal(32, static_cast<uint32_t>(addr)), LogicVal(32, static_cast<uint32_t>(data))});
-}
-
-int sv_read_reg(int addr) {
-    Engine* eng = static_cast<Engine*>(DpiRegistry::get_active_engine());
-    if (!eng) {
-        throw std::runtime_error("[CAS-DPI-ERR] sv_read_reg called without active simulation engine context");
-    }
-    LogicVal res = eng->dispatch_dpi_export("sv_read_reg", {LogicVal(32, static_cast<uint32_t>(addr))});
-    return static_cast<int>(static_cast<int32_t>(res.aval));
-}
-
-// IEEE Std 1800-2023 Annex I.9 DPI-C Open Array Inquiry & Access APIs
-int svDimensions(const void* h) {
-    if (!h) return 0;
-    return 1;
-}
-
-int svLeft(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    return 0;
-}
-
-int svRight(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
-    return arr->size > 0 ? arr->size - 1 : 0;
-}
-
-int svLow(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    return 0;
-}
-
-int svHigh(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
-    return arr->size > 0 ? arr->size - 1 : 0;
-}
-
-int svIncrement(const void* h, int d) {
-    return 1;
-}
-
-int svLength(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
-    return arr->size;
-}
-
-int svSize(const void* h, int d) {
-    if (!h || d != 1) return 0;
-    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
-    return arr->size;
-}
-
-int svSizeOfArray(const void* h) {
-    if (!h) return 0;
-    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(h);
-    return arr->size;
-}
-
-void* svGetArrElemPtr1(const void* h, int indx) {
-    if (!h) return nullptr;
-    SvOpenArray* arr = const_cast<SvOpenArray*>(reinterpret_cast<const SvOpenArray*>(h));
-    if (indx < 0 || indx >= arr->size) return nullptr;
-    if (arr->elem_width <= 32) {
-        return static_cast<void*>(&(arr->int32_elements[indx]));
-    } else {
-        return static_cast<void*>(&(arr->int64_elements[indx]));
-    }
-}
-
-void* svGetArrElemPtr2(const void* h, int indx1, int /*indx2*/) {
-    return svGetArrElemPtr1(h, indx1);
-}
-
-void* svGetArrElemPtr3(const void* h, int indx1, int /*indx2*/, int /*indx3*/) {
-    return svGetArrElemPtr1(h, indx1);
-}
-
-void* svGetArrElemPtr(const void* h, int indx1, ...) {
-    return svGetArrElemPtr1(h, indx1);
-}
-
-void* svGetArrayPtr(const void* h) {
-    return svGetArrElemPtr1(h, 0);
-}
 }
 
 void Engine::elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

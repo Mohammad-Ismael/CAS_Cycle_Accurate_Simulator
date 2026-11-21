@@ -1,0 +1,12 @@
+{
+  "name": "v4_6_0_0_dpi_c_context_export",
+  "version": "v4.6.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.3, §35.6, §35.7",
+  "description": "Direct Programming Interface (DPI-C): context routines, svScope resolution, user data storage/retrieval, and export function callbacks",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v4_6_0_0_context_export"
+}

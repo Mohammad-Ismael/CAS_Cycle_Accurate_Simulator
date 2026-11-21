@@ -1,5 +1,52 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.6.0.0 (Phase 3A: IEEE 1800-2023 DPI-C ABI, svdpi.h, Dynamic Shared-Lib Loader, & Context Exports)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 3A — IEEE 1800-2023 Annex I `svdpi.h` Specification Compliance, Dynamic C/C++ Shared-Library Loader, Vector/Scalar/String/Chandle Marshaling, Context Execution, & Export Callback Engine  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 115 / 115 PASS (100.0% VCS Golden Parity) (+3 new DPI-C regression suites)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0% in 11.77s)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0% in 14.82s)  
+**Verilator `test_regress` Compliance:** **2,079 / 2,755 PASS (75.5%)** (enforced >= 2,050 threshold)  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,663 tests + Verilator >= 2,050 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 3A Architectural, Kernel, & DPI-C Implementations
+
+1. **IEEE Std 1800-2023 Annex I Header (`CAS/include/dpi/svdpi.h`)**:
+   - Implemented verbatim standard Annex I header providing all scalar types (`svScalar`, `svBit`, `svLogic`), packed vector canonical representations (`svBitVecVal`, `svLogicVecVal`), open array handles (`svOpenArrayHandle`), scope handles (`svScope`), user data cookies, and function declarations.
+2. **Dynamic C/C++ Shared-Library Loader (`CAS/include/common/dpic_types.hpp`, `CAS/src/main.cpp`)**:
+   - Added support for CLI flags `-sv_lib <path>`, `--sv_lib <path>`, `-sv_lib=<path>`, `--sv_lib=<path>` to load precompiled shared objects (`.so`) into `DpiRegistry`.
+   - Implemented on-the-fly compilation of `.c` and `.cpp` source files passed on the command line via `g++ -shared -fPIC -O2 -I/app/CAS/include/dpi ...` into `/tmp/cas_dpi_<pid>_<idx>.so` and automatic registration.
+   - Enhanced `DpiRegistry` with multi-library handle management (`std::vector<void*> handles`), explicit library registration (`add_library`), and symbol resolution across all loaded dynamic libraries and host executable symbols (`RTLD_DEFAULT`).
+3. **IEEE 1800-2023 Canonical Vector & Scalar Marshaling (`CAS/src/kernel/expr_evaluator.cpp`)**:
+   - Marshaled scalar arguments (`byte`, `shortint`, `int`, `longint`, `real`, `shortreal`) by value for `input` and by reference/pointer for `output`, `inout`, and `ref`.
+   - Marshaled 2-state and 4-state packed vectors as `svBitVecVal*` and `svLogicVecVal*` array chunks (`uint32_t` words) with proper bit-masking and automatic write-back to caller netlist nets and local variable frames upon return.
+   - Handled `string` arguments as `const char*` and return values as `const char*` converted to SystemVerilog string representations.
+   - Handled opaque `chandle` pointers (`void*`) with full pass-through, pointer retention, and write-back.
+   - Extended `invoke_c_symbol` to support up to 12 arguments with varying integer, pointer, and double types.
+4. **Context Execution, Scope Tracking, & Runtime Utilities (`CAS/include/kernel/dpi_runtime.hpp`, `CAS/src/kernel/dpi_runtime.cpp`)**:
+   - Implemented IEEE 1800-2023 DPI-C utility routines:
+     - `svGetScope()`, `svSetScope(svScope)`
+     - `svGetNameFromScope(svScope)`, `svGetScopeFromName(const char*)`
+     - `svPutUserData(svScope, void*, void*)`, `svGetUserData(svScope, void*)`
+     - `svGetBitselBit()`, `svPutBitselBit()`, `svGetBitselLogic()`, `svPutBitselLogic()`
+     - `svGetPartselBit()`, `svPutPartselBit()`, `svGetPartselLogic()`, `svPutPartselLogic()`
+     - `svGetTime()`, `svGetTimeUnit()`, `svGetTimePrecision()`
+     - Open array dimensionality and indexing helpers (`svLeft`, `svRight`, `svLow`, `svHigh`, `svIncrement`, `svSize`, `svDimensions`).
+5. **DPI-C Export Callback Engine (`CAS/src/engine.cpp`, `CAS/src/kernel/dpi_runtime.cpp`)**:
+   - Implemented export dispatcher `cas_dispatch_dpi_export(const char* func_name, void* ret_val, void** args)` allowing external C/C++ code to invoke SystemVerilog tasks and functions exported with `export "DPI-C"`.
+   - Handled module-level task activation stack frames, argument port binding, and return value transfer.
+6. **Milestone Regression Suites (`regression_testing/`)**:
+   - Added `v4_6_0_0_dpi_c_scalars_vectors`: validates scalar types (`byte`, `shortint`, `int`, `longint`), 2-state/4-state vectors (`bit [63:0]`, `logic [31:0]`), and `input`/`output`/`inout` marshaling.
+   - Added `v4_6_0_0_dpi_c_strings_chandles`: validates opaque `chandle` allocation/deallocation and string pass-through/return.
+   - Added `v4_6_0_0_dpi_c_context_export`: validates `context` routines, `svScope`, `svPutUserData`/`svGetUserData`, `svGetTime`, and `export "DPI-C"` callbacks.
+   - Expanded milestone regressions to **115 / 115 PASS (100.0%)**.
+
+---
+
 ## Version v4.5.8.0 (Phase 2H: Verilator CI Gate Threshold Integration & Frontend Stabilization)
 
 **Release Date:** November 2026  

@@ -114,7 +114,10 @@ suites = [
     ("v4.3.3.0", "v4_3_3_0_generic_sv_tests_parity", ["design.sv", "testbench.sv"]),
     ("v4.3.4.0", "v4_3_4_0_constraints_case_inside_and_class_elaboration", ["design.sv", "testbench.sv"]),
     ("v4.3.5.0", "v4_3_5_0_full_positive_elaboration_parity", ["design.sv", "testbench.sv"]),
-    ("v4.4.0.0", "v4_4_0_0_full_sv_tests_negative_diagnostics_parity", ["design.sv", "testbench.sv"])
+    ("v4.4.0.0", "v4_4_0_0_full_sv_tests_negative_diagnostics_parity", ["design.sv", "testbench.sv"]),
+    ("v4.6.0.0", "v4_6_0_0_dpi_c_scalars_vectors", ["design.sv", "testbench.sv"]),
+    ("v4.6.0.0", "v4_6_0_0_dpi_c_strings_chandles", ["design.sv", "testbench.sv"]),
+    ("v4.6.0.0", "v4_6_0_0_dpi_c_context_export", ["design.sv", "testbench.sv"])
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -134,7 +137,8 @@ for ver, s_dir, files in suites:
     dir_path = os.path.join(script_dir, s_dir)
     c_source = os.path.join(dir_path, "c_model.c")
     if os.path.exists(c_source):
-        subprocess.run(["gcc", "-fPIC", "-shared", "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
+        dpi_inc = os.path.join(repo_root, "CAS", "include", "dpi")
+        subprocess.run(["gcc", "-fPIC", "-shared", "-I" + dpi_inc, "c_model.c", "-o", "c_model.so"], cwd=dir_path, check=True)
     top_arg = []
     extra_args = []
     meta_path = os.path.join(dir_path, "project.json")
@@ -175,6 +179,6 @@ print("-" * 80)
 passed_count = sum(1 for r in results if r[2] == "PASS")
 print(f"TOTAL: {len(suites)} | PASSED: {passed_count} | FAILED: {len(suites) - passed_count}")
 
-if not all_passed or passed_count != 112 or len(suites) != 112:
+if not all_passed or passed_count != 115 or len(suites) != 115:
     sys.exit(1)
 sys.exit(0)

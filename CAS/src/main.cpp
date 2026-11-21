@@ -6,6 +6,11 @@
 #include <sstream>
 #include <iostream>
 #include <cstring>
+#include <cstdlib>
+#include <cstdio>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 int main(int argc, char* argv[]) {
     std::cout << std::unitbuf;
@@ -30,6 +35,9 @@ int main(int argc, char* argv[]) {
     std::string timescale_unit = "1ns";
     std::vector<std::string> source_files;
     std::vector<std::string> cli_plusargs;
+    std::vector<std::string> sv_lib_paths;
+    std::vector<std::string> c_source_files;
+    std::vector<std::string> temporary_so_files;
 
     std::function<void(const std::string&, const std::string&)> process_filelist;
     process_filelist = [&](const std::string& fl_path, const std::string& base_fl_dir) {
@@ -80,6 +88,12 @@ int main(int argc, char* argv[]) {
                     cli_plusargs.push_back(tok);
                 } else if (tok == "-top" || tok == "--top") {
                     if (lss >> tok) top_override = tok;
+                } else if (tok == "-sv_lib" || tok == "--sv_lib") {
+                    if (lss >> tok) sv_lib_paths.push_back(tok);
+                } else if (tok.rfind("-sv_lib=", 0) == 0) {
+                    sv_lib_paths.push_back(tok.substr(8));
+                } else if (tok.rfind("--sv_lib=", 0) == 0) {
+                    sv_lib_paths.push_back(tok.substr(9));
                 } else if (tok.rfind("-", 0) == 0 || tok.rfind("+", 0) == 0) {
                     // skip unknown compiler/linter flags (e.g. -CFLAGS, +define+, etc.)
                 } else {
@@ -88,7 +102,15 @@ int main(int argc, char* argv[]) {
                     if (!cur_fl_dir.empty() && fpath.front() != '/' && fpath.find(':') == std::string::npos) {
                         fpath = cur_fl_dir + "/" + fpath;
                     }
-                    source_files.push_back(fpath);
+                    size_t dot = fpath.find_last_of('.');
+                    std::string ext = (dot != std::string::npos) ? fpath.substr(dot) : "";
+                    if (ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx") {
+                        c_source_files.push_back(fpath);
+                    } else if (ext == ".so" || ext == ".dll") {
+                        sv_lib_paths.push_back(fpath);
+                    } else {
+                        source_files.push_back(fpath);
+                    }
                 }
             }
         }
@@ -232,8 +254,23 @@ int main(int argc, char* argv[]) {
             Lexer::add_include_dir(argv[i] + 2);
         } else if ((std::strcmp(argv[i], "-f") == 0 || std::strcmp(argv[i], "-F") == 0) && i + 1 < argc) {
             process_filelist(argv[++i], ".");
+        } else if ((std::strcmp(argv[i], "-sv_lib") == 0 || std::strcmp(argv[i], "--sv_lib") == 0) && i + 1 < argc) {
+            sv_lib_paths.push_back(argv[++i]);
+        } else if (std::strncmp(argv[i], "-sv_lib=", 8) == 0) {
+            sv_lib_paths.push_back(argv[i] + 8);
+        } else if (std::strncmp(argv[i], "--sv_lib=", 9) == 0) {
+            sv_lib_paths.push_back(argv[i] + 9);
         } else {
-            source_files.push_back(argv[i]);
+            std::string arg = argv[i];
+            size_t dot = arg.find_last_of('.');
+            std::string ext = (dot != std::string::npos) ? arg.substr(dot) : "";
+            if (ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx") {
+                c_source_files.push_back(arg);
+            } else if (ext == ".so" || ext == ".dll") {
+                sv_lib_paths.push_back(arg);
+            } else {
+                source_files.push_back(argv[i]);
+            }
         }
     }
 
@@ -368,7 +405,41 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        struct TempCleaner {
+            std::vector<std::string>& files;
+            ~TempCleaner() {
+                for (const auto& f : files) {
+                    std::remove(f.c_str());
+                }
+            }
+        } temp_cleaner{temporary_so_files};
+
+        if (!c_source_files.empty()) {
+            for (size_t ci = 0; ci < c_source_files.size(); ++ci) {
+                const auto& c_file = c_source_files[ci];
+                std::string tmp_so = "/tmp/cas_dpi_" + std::to_string(getpid()) + "_" + std::to_string(ci) + ".so";
+                size_t slash = c_file.find_last_of("/\\");
+                std::string c_dir = (slash == std::string::npos) ? "." : c_file.substr(0, slash);
+
+                std::string dpi_inc = "-I/app/CAS/include/dpi -I/app/CAS/include -I/app/CAS/include/common";
+                std::string compile_cmd = "g++ -shared -fPIC -O2 " + dpi_inc + " -I\"" + c_dir + "\" \"" + c_file + "\" -o \"" + tmp_so + "\"";
+                if (verbose) {
+                    std::cout << "[CAS DPI] Compiling C/C++ source: " << compile_cmd << "\n";
+                }
+                int res = std::system(compile_cmd.c_str());
+                if (res != 0) {
+                    std::cerr << "[CAS ERROR] Failed to compile DPI C/C++ source '" << c_file << "' (exit code " << res << ")\n";
+                    return 1;
+                }
+                sv_lib_paths.push_back(tmp_so);
+                temporary_so_files.push_back(tmp_so);
+            }
+        }
+
         Engine engine;
+        for (const auto& lib : sv_lib_paths) {
+            engine.dpi_registry.add_library(lib);
+        }
         for (const auto& file : source_files) {
             size_t slash = file.find_last_of("/\\");
             if (slash != std::string::npos) {

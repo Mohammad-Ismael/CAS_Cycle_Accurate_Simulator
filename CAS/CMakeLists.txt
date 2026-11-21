@@ -4,7 +4,7 @@ project(CAS LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include_directories(include)
+include_directories(include include/dpi)
 
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
@@ -56,6 +56,7 @@ add_executable(cas
     src/kernel/scheduler.cpp
     src/frontend/number_parser.cpp
     src/kernel/expr_evaluator.cpp
+    src/kernel/dpi_runtime.cpp
     src/kernel/execution_context.cpp
     src/frontend/parser_function.cpp
     src/frontend/parser_task.cpp

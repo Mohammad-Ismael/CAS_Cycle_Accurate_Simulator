@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.5.8.0`  
-**Status:** Release v4.5.8.0 Clean (100.0% Pass Rate Across All 1,660 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 112/112 Milestone Regressions [100% VCS Golden Parity], and 2,078 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
+**Current Version:** `v4.6.0.0`  
+**Status:** Release v4.6.0.0 Clean (100.0% Pass Rate Across All 1,663 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 115/115 Milestone Regressions [100% VCS Golden Parity], and 2,079 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog & IEEE Std 1364-2005 Verilog  
 
@@ -29,7 +29,7 @@ CAS_Cycle_Accurate_Simulator/
 │   └── build/               # Default Build Output Directory
 ├── CASDB/                   # High-Performance Waveform Database Engine (Fast Read/Write)
 ├── CAS_Studio/              # Monaco-based Integrated Development & Debugging GUI
-├── regression_testing/      # 112/112 Comprehensive IEEE 1800-2023 Milestone Regression Suites
+├── regression_testing/      # 115/115 Comprehensive IEEE 1800-2023 Milestone Regression Suites
 │   └── run_regressions.py   # Automated Regression Runner (100% VCS Parity Verification)
 ├── benchmarks/              # External Standards Compliance Suites
 │   ├── sv-tests/            # 1,028 IEEE 1800-2023 Compliance Tests
@@ -42,7 +42,7 @@ CAS_Cycle_Accurate_Simulator/
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
 │   └── ibex_simple_system_tb.sv # Simple System Top-Level Testbench
 ├── scripts/                 # Turnkey Automation & Verification Pipelines
-│   ├── setup_and_verify.sh  # Mandatory 4-Stage CI Gate (112 Regr + 1,028 sv-tests + 520 ivtest = 1,660/1,660)
+│   ├── setup_and_verify.sh  # Mandatory 5-Stage CI Gate (115 Regr + 1,028 sv-tests + 520 ivtest = 1,663 + Verilator >= 2,050)
 │   └── run_ibex_demo.sh     # One-Command lowRISC Ibex SoC Execution Demo
 ├── VERSIONS.md              # Consolidated Version Release Notes & Milestone Roadmap
 └── versions/                # Detailed Version Release Notes (v1.0.0.0 – v4.4.1.0)

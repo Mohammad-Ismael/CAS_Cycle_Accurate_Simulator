@@ -1,0 +1,12 @@
+{
+  "name": "v4_6_0_0_dpi_c_strings_chandles",
+  "version": "v4.6.0.0",
+  "standard": "IEEE Std 1800-2023",
+  "section": "§35.5.4, §35.5.5",
+  "description": "Direct Programming Interface (DPI-C): opaque pointer chandles and dynamic strings across SystemVerilog and C",
+  "files": [
+    "design.sv",
+    "testbench.sv"
+  ],
+  "top_module": "tb_v4_6_0_0_strings_chandles"
+}
