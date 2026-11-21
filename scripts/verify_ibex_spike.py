@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ibex RV32IMC Architectural Lockstep Verification with Spike (v4.7.0.0)
+Ibex RV32IMC Architectural Lockstep Verification with Spike (v4.8.1.0)
 
 Runs lowRISC Ibex SoC simulation on CAS and verifies retirement trace against
 the golden Spike RISC-V ISA Simulator with 100.0% instruction-by-instruction lockstep parity.
