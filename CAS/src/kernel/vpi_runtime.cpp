@@ -468,18 +468,30 @@ void vpi_get_time(vpiHandle /*object*/, p_vpi_time time_p) {
     time_p->real = static_cast<double>(t);
 }
 
-int32_t vpi_printf(const char *format, ...) {
+PLI_INT32 vpi_printf(PLI_BYTE8 *format, ...) {
     if (!format) return 0;
     va_list ap;
     va_start(ap, format);
-    int ret = std::vprintf(format, ap);
+    int ret = std::vprintf(reinterpret_cast<const char*>(format), ap);
     va_end(ap);
     return ret;
 }
 
-int32_t vpi_vprintf(const char *format, va_list ap) {
+PLI_INT32 vpi_vprintf(PLI_BYTE8 *format, va_list ap) {
     if (!format) return 0;
-    return std::vprintf(format, ap);
+    return std::vprintf(reinterpret_cast<const char*>(format), ap);
+}
+
+PLI_INT32 vpi_chk_error(p_vpi_error_info error_info_p) {
+    if (error_info_p) {
+        error_info_p->state = 0;
+        error_info_p->level = 0;
+        error_info_p->message = const_cast<char*>("");
+        error_info_p->code = 0;
+        error_info_p->file = const_cast<char*>("");
+        error_info_p->line = 0;
+    }
+    return 0;
 }
 
 int32_t vpi_control(int32_t operation, ...) {

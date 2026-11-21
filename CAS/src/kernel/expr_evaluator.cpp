@@ -27,7 +27,7 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
     std::string frame_name = func_name + "__call";
     auto fn_dot = func_name.rfind('.');
     auto fn_colon = func_name.rfind("::");
-    std::string fn_scope = !target_fn->scope.empty() ? target_fn->scope : (fn_dot != std::string::npos ? func_name.substr(0, fn_dot) : (fn_colon != std::string::npos ? func_name.substr(0, fn_colon) : ""));
+    std::string fn_scope = (fn_dot != std::string::npos) ? func_name.substr(0, fn_dot) : ((fn_colon != std::string::npos) ? func_name.substr(0, fn_colon) : target_fn->scope);
     context.push_frame(frame_name);
     if (context.depth() > 100) {
         result_out = LogicVal::make_x(target_fn->return_width);
@@ -197,7 +197,8 @@ bool ExprEvaluator::eval_function(const std::string& func_name, const std::vecto
 
     // 3. Execute body statements directly through Evaluator
     BoundProcess* prev_bp = current_bp;
-    BoundProcess bp{target_fn->scope.empty() ? (fn_scope.empty() ? frame_name : fn_scope) : target_fn->scope, nullptr, 0, false};
+    std::string exec_scope = !fn_scope.empty() ? fn_scope : target_fn->scope;
+    BoundProcess bp{exec_scope.empty() ? frame_name : exec_scope, nullptr, 0, false};
     set_current_process(&bp);
     engine.evaluator.set_current_process(&bp);
     for (auto& s : target_fn->get_body()) {
@@ -507,7 +508,7 @@ LogicVal ExprEvaluator::writeback_lvalue(ExpressionNode* target, const LogicVal&
             }
         }
         if (local) {
-            LogicVal casted = (local->type_name == "string" || val.is_string || local->type_name == "real" || local->type_name == "shortreal" || val.is_real)
+            LogicVal casted = (local->type_name == "string" || local->type_name == "string_t" || val.is_string || local->type_name == "real" || local->type_name == "shortreal" || local->type_name == "real_t" || local->type_name == "shortreal_t" || val.is_real)
                               ? val
                               : LogicOps::cast_width(val, local->width, local->is_signed && val.is_signed);
             if (!val.is_queue_empty_pop && (local->type_name == "bit" || local->type_name == "int" || local->type_name == "byte" ||
@@ -3695,6 +3696,10 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
     if (auto scast = dynamic_cast<StaticCastExprNode*>(expr)) {
         if (scast->kind == CastKind::SIZE) {
             uint32_t width = scast->target_width;
+            if (scast->size_expr) {
+                LogicVal sv = eval(scast->size_expr.get(), scope);
+                if (sv.aval > 0) width = static_cast<uint32_t>(sv.aval);
+            }
             if (!scast->target_type_name.empty()) {
                 bool found = false;
                 std::string cur_scope = scope;
@@ -6968,9 +6973,26 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
         if (un->op == "+") return val;
         if (un->op == "-") {
             if (val.is_unknown()) return LogicVal::make_x(val.width);
-            uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
-            uint64_t neg_a = (~val.aval + 1) & mask;
-            return LogicVal(val.width, neg_a, 0, true);
+            if (val.width <= 64) {
+                uint64_t mask = (val.width >= 64) ? ~0ULL : ((1ULL << val.width) - 1);
+                uint64_t neg_a = (~val.aval + 1) & mask;
+                return LogicVal(val.width, neg_a, 0, true);
+            }
+            LogicVal res(val.width, 0, 0, true);
+            size_t nwords = ((size_t)val.width + 63) / 64;
+            res.wide_aval.assign(nwords, 0ULL);
+            res.wide_bval.assign(nwords, 0ULL);
+            uint64_t carry = 1;
+            for (size_t i = 0; i < nwords; ++i) {
+                uint64_t cur = (i < val.wide_aval.size()) ? val.wide_aval[i] : ((i == 0) ? val.aval : 0ULL);
+                uint64_t inv = ~cur;
+                uint64_t sum = inv + carry;
+                carry = (sum < inv || (carry && inv == ~0ULL)) ? 1 : 0;
+                res.wide_aval[i] = sum;
+            }
+            res.aval = res.wide_aval.empty() ? 0 : res.wide_aval[0];
+            res.mask();
+            return res;
         }
 
         // Unary Reductions (§11.4.3)
@@ -7074,6 +7096,22 @@ LogicVal ExprEvaluator::eval_sampled_func(SysSampledFuncNode* func, const std::s
 
 static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector<uint64_t>& c_args) {
     if (dpi->is_task || dpi->return_type == "void") {
+        if (c_args.size() == 1 && !dpi->tf_ports.empty()) {
+            const std::string& p0_type = dpi->tf_ports[0].type_name;
+            const std::string& p0_dir = dpi->tf_ports[0].direction;
+            bool is_input = (p0_dir == "input" || p0_dir.empty());
+            if (is_input && (p0_type == "real" || p0_type == "real_t")) {
+                double d = 0.0;
+                std::memcpy(&d, &c_args[0], sizeof(double));
+                reinterpret_cast<void(*)(double)>(sym)(d);
+                return LogicVal(0, 0, 0);
+            } else if (is_input && (p0_type == "shortreal" || p0_type == "shortreal_t")) {
+                float f = 0.0f;
+                std::memcpy(&f, &c_args[0], sizeof(float));
+                reinterpret_cast<void(*)(float)>(sym)(f);
+                return LogicVal(0, 0, 0);
+            }
+        }
         switch (c_args.size()) {
             case 0: reinterpret_cast<void(*)()>(sym)(); break;
             case 1: reinterpret_cast<void(*)(uint64_t)>(sym)(c_args[0]); break;
@@ -7132,6 +7170,38 @@ static LogicVal invoke_c_symbol(void* sym, DpiImportNode* dpi, const std::vector
                 throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
         }
         return LogicVal::make_known(64, reinterpret_cast<uintptr_t>(ret_ptr));
+    }
+
+    if (dpi->return_type == "real") {
+        double ret_d = 0.0;
+        switch (c_args.size()) {
+            case 0: ret_d = reinterpret_cast<double(*)()>(sym)(); break;
+            case 1: ret_d = reinterpret_cast<double(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_d = reinterpret_cast<double(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_d = reinterpret_cast<double(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_d = reinterpret_cast<double(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_d = reinterpret_cast<double(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_d = reinterpret_cast<double(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            default:
+                throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
+        }
+        return LogicVal::make_real(ret_d);
+    }
+
+    if (dpi->return_type == "shortreal") {
+        float ret_f = 0.0f;
+        switch (c_args.size()) {
+            case 0: ret_f = reinterpret_cast<float(*)()>(sym)(); break;
+            case 1: ret_f = reinterpret_cast<float(*)(uint64_t)>(sym)(c_args[0]); break;
+            case 2: ret_f = reinterpret_cast<float(*)(uint64_t, uint64_t)>(sym)(c_args[0], c_args[1]); break;
+            case 3: ret_f = reinterpret_cast<float(*)(uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2]); break;
+            case 4: ret_f = reinterpret_cast<float(*)(uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3]); break;
+            case 5: ret_f = reinterpret_cast<float(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4]); break;
+            case 6: ret_f = reinterpret_cast<float(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t)>(sym)(c_args[0], c_args[1], c_args[2], c_args[3], c_args[4], c_args[5]); break;
+            default:
+                throw std::runtime_error("[CAS-DPI-ERR] Unsupported number of DPI-C arguments: " + std::to_string(c_args.size()));
+        }
+        return LogicVal::make_real(static_cast<double>(ret_f));
     }
 
     if (dpi->return_width > 32 || dpi->return_type == "longint") {
@@ -7224,6 +7294,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
         bool is_signed = true;
         int64_t val64 = 0;
         void* ptr_val = nullptr;
+        const char* str_ptr = nullptr;
         std::vector<svBitVecVal> bit_vec;
         std::vector<svLogicVecVal> logic_vec;
         bool is_vector = false;
@@ -7248,6 +7319,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
 
             MemoryArray* target_mem = nullptr;
             DynamicArrayObject* target_dyn = nullptr;
+            QueueObject* target_queue = nullptr;
             LocalVar* target_local = nullptr;
 
             if (context.has_active_frame()) {
@@ -7255,19 +7327,21 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 if (local) {
                     if (local->is_unpacked_array) target_local = local;
                     else if (local->is_dynamic_array) target_dyn = &local->dyn_array_data;
+                    else if (local->is_queue) target_queue = &local->queue_data;
                 }
             }
-            if (!target_local && !target_dyn && current_bp && !current_bp->call_stack.empty()) {
+            if (!target_local && !target_dyn && !target_queue && current_bp && !current_bp->call_stack.empty()) {
                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                     LocalVar* local = it->local_frame.get_var(arr_name);
                     if (local) {
                         if (local->is_unpacked_array) { target_local = local; break; }
                         else if (local->is_dynamic_array) { target_dyn = &local->dyn_array_data; break; }
+                        else if (local->is_queue) { target_queue = &local->queue_data; break; }
                     }
                 }
             }
 
-            if (!target_local && !target_dyn) {
+            if (!target_local && !target_dyn && !target_queue) {
                 if (engine.memory_map.find(scoped_arr) != engine.memory_map.end()) {
                     target_mem = &engine.memory_map.at(scoped_arr);
                 } else if (!engine.active_scope_name.empty() &&
@@ -7278,7 +7352,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 }
             }
 
-            if (!target_local && !target_dyn && !target_mem) {
+            if (!target_local && !target_dyn && !target_queue && !target_mem) {
                 target_dyn = engine.get_dynamic_array(scope, arr_name);
                 if (!target_dyn && !engine.active_scope_name.empty()) {
                     target_dyn = engine.get_dynamic_array(engine.active_scope_name, arr_name);
@@ -7288,7 +7362,14 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             oa->elem_width = pw;
             oa->is_logic = (ptype == "logic" || ptype == "reg");
             oa->is_2state = !oa->is_logic;
-            if (ptype == "byte") oa->elem_stride = 1;
+            oa->is_real = (ptype == "real" || ptype == "realtime");
+            if (oa->is_real) {
+                oa->elem_stride = sizeof(double);
+                oa->elem_width = 64;
+            } else if (ptype == "chandle" || ptype == "chandle_t") {
+                oa->elem_stride = sizeof(void*);
+                oa->elem_width = 64;
+            } else if (ptype == "byte") oa->elem_stride = 1;
             else if (ptype == "shortint") oa->elem_stride = 2;
             else if (ptype == "longint") oa->elem_stride = 8;
             else if (ptype == "int" || ptype == "integer") oa->elem_stride = 4;
@@ -7328,10 +7409,25 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                     int64_t sv_idx = target_mem->is_descending ? (target_mem->end_idx - static_cast<int64_t>(j)) : (target_mem->start_idx + static_cast<int64_t>(j));
                     LogicVal w_val = target_mem->get_word(sv_idx);
                     void* ptr = oa->buffer.data() + j * oa->elem_stride;
-                    if (oa->is_logic) {
+                    if (oa->is_real) {
+                        *reinterpret_cast<double*>(ptr) = w_val.to_real();
+                    } else if (ptype == "chandle" || ptype == "chandle_t") {
+                        *reinterpret_cast<void**>(ptr) = reinterpret_cast<void*>(static_cast<uintptr_t>(w_val.aval));
+                    } else if (oa->is_logic) {
                         svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
                         lv->aval = static_cast<uint32_t>(w_val.aval);
                         lv->bval = static_cast<uint32_t>(w_val.bval);
+                    } else if (oa->elem_width > 64) {
+                        size_t c_cnt = (oa->elem_width + 31) / 32;
+                        uint32_t* u32_ptr = reinterpret_cast<uint32_t*>(ptr);
+                        for (size_t c = 0; c < c_cnt; ++c) {
+                            size_t w64 = c / 2;
+                            if (w64 < w_val.wide_aval.size()) {
+                                u32_ptr[c] = (c % 2 == 0) ? static_cast<uint32_t>(w_val.wide_aval[w64]) : static_cast<uint32_t>(w_val.wide_aval[w64] >> 32);
+                            } else {
+                                u32_ptr[c] = 0;
+                            }
+                        }
                     } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(w_val.aval);
                     else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(w_val.aval);
                     else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = w_val.aval;
@@ -7364,10 +7460,25 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 for (size_t j = 0; j < target_local->unpacked_elements.size(); ++j) {
                     LogicVal w_val = target_local->unpacked_elements[j];
                     void* ptr = oa->buffer.data() + j * oa->elem_stride;
-                    if (oa->is_logic) {
+                    if (oa->is_real) {
+                        *reinterpret_cast<double*>(ptr) = w_val.to_real();
+                    } else if (ptype == "chandle" || ptype == "chandle_t") {
+                        *reinterpret_cast<void**>(ptr) = reinterpret_cast<void*>(static_cast<uintptr_t>(w_val.aval));
+                    } else if (oa->is_logic) {
                         svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
                         lv->aval = static_cast<uint32_t>(w_val.aval);
                         lv->bval = static_cast<uint32_t>(w_val.bval);
+                    } else if (oa->elem_width > 64) {
+                        size_t c_cnt = (oa->elem_width + 31) / 32;
+                        uint32_t* u32_ptr = reinterpret_cast<uint32_t*>(ptr);
+                        for (size_t c = 0; c < c_cnt; ++c) {
+                            size_t w64 = c / 2;
+                            if (w64 < w_val.wide_aval.size()) {
+                                u32_ptr[c] = (c % 2 == 0) ? static_cast<uint32_t>(w_val.wide_aval[w64]) : static_cast<uint32_t>(w_val.wide_aval[w64] >> 32);
+                            } else {
+                                u32_ptr[c] = 0;
+                            }
+                        }
                     } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(w_val.aval);
                     else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(w_val.aval);
                     else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = w_val.aval;
@@ -7376,16 +7487,64 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             } else if (target_dyn) {
                 oa->source_dyn = target_dyn;
                 int sz = static_cast<int>(target_dyn->size());
-                oa->dims.push_back({0, sz > 0 ? sz - 1 : 0, 0, sz > 0 ? sz - 1 : 0, 1, sz});
+                oa->dims.push_back({0, sz - 1, 0, sz - 1, -1, sz});
                 oa->size = sz;
                 oa->buffer.resize(static_cast<size_t>(sz) * oa->elem_stride, 0);
                 for (size_t j = 0; j < static_cast<size_t>(sz); ++j) {
                     LogicVal elem = target_dyn->get_elem(static_cast<int64_t>(j));
                     void* ptr = oa->buffer.data() + j * oa->elem_stride;
-                    if (oa->is_logic) {
+                    if (oa->is_real) {
+                        *reinterpret_cast<double*>(ptr) = elem.to_real();
+                    } else if (ptype == "chandle" || ptype == "chandle_t") {
+                        *reinterpret_cast<void**>(ptr) = reinterpret_cast<void*>(static_cast<uintptr_t>(elem.aval));
+                    } else if (oa->is_logic) {
                         svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
                         lv->aval = static_cast<uint32_t>(elem.aval);
                         lv->bval = static_cast<uint32_t>(elem.bval);
+                    } else if (oa->elem_width > 64) {
+                        size_t c_cnt = (oa->elem_width + 31) / 32;
+                        uint32_t* u32_ptr = reinterpret_cast<uint32_t*>(ptr);
+                        for (size_t c = 0; c < c_cnt; ++c) {
+                            size_t w64 = c / 2;
+                            if (w64 < elem.wide_aval.size()) {
+                                u32_ptr[c] = (c % 2 == 0) ? static_cast<uint32_t>(elem.wide_aval[w64]) : static_cast<uint32_t>(elem.wide_aval[w64] >> 32);
+                            } else {
+                                u32_ptr[c] = 0;
+                            }
+                        }
+                    } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(elem.aval);
+                    else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(elem.aval);
+                    else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = elem.aval;
+                    else *reinterpret_cast<uint32_t*>(ptr) = static_cast<uint32_t>(elem.aval);
+                }
+            } else if (target_queue) {
+                oa->source_queue = target_queue;
+                int sz = static_cast<int>(target_queue->elements.size());
+                oa->dims.push_back({0, sz - 1, 0, sz - 1, -1, sz});
+                oa->size = sz;
+                oa->buffer.resize(static_cast<size_t>(sz) * oa->elem_stride, 0);
+                for (size_t j = 0; j < static_cast<size_t>(sz); ++j) {
+                    LogicVal elem = target_queue->elements[j];
+                    void* ptr = oa->buffer.data() + j * oa->elem_stride;
+                    if (oa->is_real) {
+                        *reinterpret_cast<double*>(ptr) = elem.to_real();
+                    } else if (ptype == "chandle" || ptype == "chandle_t") {
+                        *reinterpret_cast<void**>(ptr) = reinterpret_cast<void*>(static_cast<uintptr_t>(elem.aval));
+                    } else if (oa->is_logic) {
+                        svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(ptr);
+                        lv->aval = static_cast<uint32_t>(elem.aval);
+                        lv->bval = static_cast<uint32_t>(elem.bval);
+                    } else if (oa->elem_width > 64) {
+                        size_t c_cnt = (oa->elem_width + 31) / 32;
+                        uint32_t* u32_ptr = reinterpret_cast<uint32_t*>(ptr);
+                        for (size_t c = 0; c < c_cnt; ++c) {
+                            size_t w64 = c / 2;
+                            if (w64 < elem.wide_aval.size()) {
+                                u32_ptr[c] = (c % 2 == 0) ? static_cast<uint32_t>(elem.wide_aval[w64]) : static_cast<uint32_t>(elem.wide_aval[w64] >> 32);
+                            } else {
+                                u32_ptr[c] = 0;
+                            }
+                        }
                     } else if (oa->elem_stride == 1) *reinterpret_cast<uint8_t*>(ptr) = static_cast<uint8_t>(elem.aval);
                     else if (oa->elem_stride == 2) *reinterpret_cast<uint16_t*>(ptr) = static_cast<uint16_t>(elem.aval);
                     else if (oa->elem_stride == 8) *reinterpret_cast<uint64_t*>(ptr) = elem.aval;
@@ -7398,16 +7557,37 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             continue;
         }
 
+        bool is_out_dir = (pdir == "output" || pdir == "inout" || pdir == "ref");
+
         if (ptype == "string") {
-            LogicVal v = eval(args[i].get(), scope);
-            std::string s = v.is_string ? v.str_val : "";
-            string_storage.push_back(s);
-            c_args.push_back(reinterpret_cast<uint64_t>(string_storage.back().c_str()));
+            if (is_out_dir) {
+                auto out_rec = std::make_shared<OutArgRecord>();
+                out_rec->arg_idx = i;
+                out_rec->expr = args[i].get();
+                out_rec->type_name = "string";
+                out_rec->width = 0;
+                out_rec->is_signed = false;
+                if (pdir == "inout" || pdir == "ref") {
+                    LogicVal v = eval(args[i].get(), scope);
+                    string_storage.push_back(v.is_string ? v.str_val : "");
+                    out_rec->str_ptr = string_storage.back().c_str();
+                } else {
+                    out_rec->str_ptr = nullptr;
+                }
+                c_args.push_back(reinterpret_cast<uint64_t>(&out_rec->str_ptr));
+                out_records.push_back(out_rec);
+            } else {
+                LogicVal v = eval(args[i].get(), scope);
+                std::string s = v.is_string ? v.str_val : "";
+                string_storage.push_back(s);
+                c_args.push_back(reinterpret_cast<uint64_t>(string_storage.back().c_str()));
+            }
             continue;
         }
 
-        bool is_out_dir = (pdir == "output" || pdir == "inout" || pdir == "ref");
-        bool is_vector = (pw > 1 && (ptype == "bit" || ptype == "logic" || ptype == "reg"));
+        bool is_vector = (pw > 1 && (ptype == "bit" || ptype == "logic" || ptype == "reg")) ||
+                         ((ptype == "bit" || ptype == "logic" || ptype == "reg") && dpi->tf_ports[i].is_vectored) ||
+                         ptype == "time" || ptype == "integer";
 
         if (is_vector) {
             auto out_rec = std::make_shared<OutArgRecord>();
@@ -7417,28 +7597,45 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             out_rec->width = pw;
             out_rec->is_signed = psigned;
             out_rec->is_vector = true;
-            out_rec->is_logic_vec = (ptype == "logic" || ptype == "reg");
+            out_rec->is_logic_vec = (ptype == "logic" || ptype == "reg" || ptype == "time" || ptype == "integer");
 
             size_t chunks = (pw + 31) / 32;
             LogicVal init_val = (pdir != "output") ? eval(args[i].get(), scope) : LogicVal(pw, 0, 0);
 
+            auto get_chunk_aval = [&](size_t c) -> uint32_t {
+                if (pw <= 64) {
+                    return (c == 0) ? static_cast<uint32_t>(init_val.aval) : (c == 1 ? static_cast<uint32_t>(init_val.aval >> 32) : 0);
+                } else {
+                    size_t w64 = c / 2;
+                    if (w64 < init_val.wide_aval.size()) {
+                        return (c % 2 == 0) ? static_cast<uint32_t>(init_val.wide_aval[w64]) : static_cast<uint32_t>(init_val.wide_aval[w64] >> 32);
+                    }
+                    return 0;
+                }
+            };
+            auto get_chunk_bval = [&](size_t c) -> uint32_t {
+                if (pw <= 64) {
+                    return (c == 0) ? static_cast<uint32_t>(init_val.bval) : (c == 1 ? static_cast<uint32_t>(init_val.bval >> 32) : 0);
+                } else {
+                    size_t w64 = c / 2;
+                    if (w64 < init_val.wide_bval.size()) {
+                        return (c % 2 == 0) ? static_cast<uint32_t>(init_val.wide_bval[w64]) : static_cast<uint32_t>(init_val.wide_bval[w64] >> 32);
+                    }
+                    return 0;
+                }
+            };
+
             if (out_rec->is_logic_vec) {
                 out_rec->logic_vec.resize(chunks);
                 for (size_t c = 0; c < chunks; ++c) {
-                    if (c == 0) {
-                        out_rec->logic_vec[0].aval = static_cast<uint32_t>(init_val.aval);
-                        out_rec->logic_vec[0].bval = static_cast<uint32_t>(init_val.bval);
-                    } else if (c == 1) {
-                        out_rec->logic_vec[1].aval = static_cast<uint32_t>(init_val.aval >> 32);
-                        out_rec->logic_vec[1].bval = static_cast<uint32_t>(init_val.bval >> 32);
-                    }
+                    out_rec->logic_vec[c].aval = get_chunk_aval(c);
+                    out_rec->logic_vec[c].bval = get_chunk_bval(c);
                 }
                 c_args.push_back(reinterpret_cast<uint64_t>(out_rec->logic_vec.data()));
             } else {
                 out_rec->bit_vec.resize(chunks, 0);
                 for (size_t c = 0; c < chunks; ++c) {
-                    if (c == 0) out_rec->bit_vec[0] = static_cast<uint32_t>(init_val.aval);
-                    else if (c == 1) out_rec->bit_vec[1] = static_cast<uint32_t>(init_val.aval >> 32);
+                    out_rec->bit_vec[c] = get_chunk_aval(c);
                 }
                 c_args.push_back(reinterpret_cast<uint64_t>(out_rec->bit_vec.data()));
             }
@@ -7458,10 +7655,19 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             out_rec->is_signed = psigned;
             if (pdir == "inout" || pdir == "ref") {
                 LogicVal v = eval(args[i].get(), scope);
-                out_rec->val64 = v.to_signed();
-                out_rec->ptr_val = reinterpret_cast<void*>(static_cast<uintptr_t>(v.aval));
+                if (v.is_real || ptype == "real" || ptype == "real_t") {
+                    double d = v.to_real();
+                    std::memcpy(&out_rec->val64, &d, sizeof(double));
+                } else if (ptype == "shortreal" || ptype == "shortreal_t") {
+                    float f = static_cast<float>(v.to_real());
+                    std::memcpy(&out_rec->val64, &f, sizeof(float));
+                } else {
+                    uint64_t m = (pw >= 64 || pw == 0) ? ~0ULL : ((1ULL << pw) - 1ULL);
+                    out_rec->val64 = static_cast<int64_t>(v.aval & m);
+                    out_rec->ptr_val = reinterpret_cast<void*>(static_cast<uintptr_t>(v.aval));
+                }
             }
-            if (ptype == "chandle") {
+            if (ptype == "chandle" || ptype == "chandle_t") {
                 c_args.push_back(reinterpret_cast<uint64_t>(&out_rec->ptr_val));
             } else {
                 c_args.push_back(reinterpret_cast<uint64_t>(&out_rec->val64));
@@ -7472,8 +7678,16 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
 
         // Default: input scalar
         LogicVal v = eval(args[i].get(), scope);
-        if (v.is_real) {
-            c_args.push_back(static_cast<uint64_t>(v.real_val));
+        if (v.is_real || ptype == "real") {
+            double d = v.to_real();
+            uint64_t bits = 0;
+            std::memcpy(&bits, &d, sizeof(double));
+            c_args.push_back(bits);
+        } else if (ptype == "shortreal") {
+            float f = static_cast<float>(v.to_real());
+            uint64_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(float));
+            c_args.push_back(bits);
         } else {
             c_args.push_back(v.aval);
         }
@@ -7485,9 +7699,29 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
     auto extract_oa_val = [](const SvOpenArray* oa, size_t j) -> LogicVal {
         if (!oa || oa->buffer.empty() || j * oa->elem_stride >= oa->buffer.size()) return LogicVal::make_known(oa ? oa->elem_width : 32, 0);
         const uint8_t* ptr = oa->buffer.data() + j * oa->elem_stride;
+        if (oa->is_real) {
+            double d = *reinterpret_cast<const double*>(ptr);
+            return LogicVal::make_real(d);
+        }
         if (oa->is_logic) {
             const svLogicVecVal* lv = reinterpret_cast<const svLogicVecVal*>(ptr);
             return LogicVal(oa->elem_width, lv->aval, lv->bval);
+        } else if (oa->elem_width > 64) {
+            LogicVal res(oa->elem_width, 0, 0);
+            size_t n64 = (oa->elem_width + 63) / 64;
+            res.wide_aval.assign(n64, 0);
+            res.wide_bval.assign(n64, 0);
+            size_t c_cnt = (oa->elem_width + 31) / 32;
+            const uint32_t* u32_ptr = reinterpret_cast<const uint32_t*>(ptr);
+            for (size_t c = 0; c < c_cnt; ++c) {
+                size_t w64 = c / 2;
+                if (w64 < n64) {
+                    if (c % 2 == 0) res.wide_aval[w64] |= static_cast<uint64_t>(u32_ptr[c]);
+                    else res.wide_aval[w64] |= (static_cast<uint64_t>(u32_ptr[c]) << 32);
+                }
+            }
+            res.aval = res.wide_aval[0];
+            return res;
         } else {
             uint64_t v = 0;
             if (oa->elem_stride == 1) v = *reinterpret_cast<const uint8_t*>(ptr);
@@ -7516,6 +7750,12 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
                     rec.oa->source_dyn->set_elem(static_cast<int64_t>(j), extract_oa_val(rec.oa.get(), j));
                 }
+            } else if (rec.oa->source_queue) {
+                for (size_t j = 0; j < static_cast<size_t>(rec.oa->size); ++j) {
+                    if (j < rec.oa->source_queue->elements.size()) {
+                        rec.oa->source_queue->elements[j] = extract_oa_val(rec.oa.get(), j);
+                    }
+                }
             }
         }
     }
@@ -7525,22 +7765,56 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
         if (!rec->expr) continue;
         LogicVal out_val;
         if (rec->is_vector) {
-            if (rec->is_logic_vec) {
-                uint64_t a = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].aval;
-                uint64_t b = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].bval;
-                if (rec->logic_vec.size() > 1) {
-                    a |= (static_cast<uint64_t>(rec->logic_vec[1].aval) << 32);
-                    b |= (static_cast<uint64_t>(rec->logic_vec[1].bval) << 32);
+            if (rec->width <= 64) {
+                uint64_t a = 0, b = 0;
+                if (rec->is_logic_vec) {
+                    a = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].aval;
+                    b = rec->logic_vec.empty() ? 0 : rec->logic_vec[0].bval;
+                    if (rec->logic_vec.size() > 1) {
+                        a |= (static_cast<uint64_t>(rec->logic_vec[1].aval) << 32);
+                        b |= (static_cast<uint64_t>(rec->logic_vec[1].bval) << 32);
+                    }
+                } else {
+                    a = rec->bit_vec.empty() ? 0 : rec->bit_vec[0];
+                    if (rec->bit_vec.size() > 1) {
+                        a |= (static_cast<uint64_t>(rec->bit_vec[1]) << 32);
+                    }
                 }
-                out_val = LogicVal(rec->width, a, b);
+                out_val = LogicVal(rec->width, a, b, rec->is_signed);
             } else {
-                uint64_t a = rec->bit_vec.empty() ? 0 : rec->bit_vec[0];
-                if (rec->bit_vec.size() > 1) {
-                    a |= (static_cast<uint64_t>(rec->bit_vec[1]) << 32);
+                out_val = LogicVal(rec->width, 0, 0, rec->is_signed);
+                size_t n64 = (rec->width + 63) / 64;
+                out_val.wide_aval.assign(n64, 0);
+                out_val.wide_bval.assign(n64, 0);
+                size_t c_cnt = rec->is_logic_vec ? rec->logic_vec.size() : rec->bit_vec.size();
+                for (size_t c = 0; c < c_cnt; ++c) {
+                    size_t w64 = c / 2;
+                    if (w64 >= n64) break;
+                    uint32_t a = rec->is_logic_vec ? rec->logic_vec[c].aval : rec->bit_vec[c];
+                    uint32_t b = rec->is_logic_vec ? rec->logic_vec[c].bval : 0;
+                    if (c % 2 == 0) {
+                        out_val.wide_aval[w64] |= static_cast<uint64_t>(a);
+                        out_val.wide_bval[w64] |= static_cast<uint32_t>(b);
+                    } else {
+                        out_val.wide_aval[w64] |= (static_cast<uint64_t>(a) << 32);
+                        out_val.wide_bval[w64] |= (static_cast<uint64_t>(b) << 32);
+                    }
                 }
-                out_val = LogicVal::make_known(rec->width, a);
+                out_val.aval = out_val.wide_aval[0];
+                out_val.bval = out_val.wide_bval[0];
+                out_val.mask();
             }
-        } else if (rec->type_name == "chandle") {
+        } else if (rec->type_name == "real" || rec->type_name == "real_t") {
+            double d = 0.0;
+            std::memcpy(&d, &rec->val64, sizeof(double));
+            out_val = LogicVal::make_real(d);
+        } else if (rec->type_name == "shortreal" || rec->type_name == "shortreal_t") {
+            float f = 0.0f;
+            std::memcpy(&f, &rec->val64, sizeof(float));
+            out_val = LogicVal::make_real(static_cast<double>(f));
+        } else if (rec->type_name == "string" || rec->type_name == "string_t") {
+            out_val = LogicVal::make_string(std::string(rec->str_ptr ? rec->str_ptr : ""));
+        } else if (rec->type_name == "chandle" || rec->type_name == "chandle_t") {
             out_val = LogicVal::make_known(64, reinterpret_cast<uintptr_t>(rec->ptr_val));
         } else {
             uint64_t m = (rec->width >= 64 || rec->width == 0) ? ~0ULL : ((1ULL << rec->width) - 1ULL);
@@ -7554,7 +7828,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
             if (context.has_active_frame()) {
                 LocalVar* loc = context.lookup_local(var_name);
                 if (loc) {
-                    loc->value = LogicOps::cast_width(out_val, loc->width, loc->is_signed);
+                    loc->value = (out_val.is_real || out_val.is_string) ? out_val : LogicOps::cast_width(out_val, loc->width, loc->is_signed);
                     written = true;
                 }
             }
@@ -7562,7 +7836,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
                     LocalVar* loc = it->local_frame.get_var(var_name);
                     if (loc) {
-                        loc->value = LogicOps::cast_width(out_val, loc->width, loc->is_signed);
+                        loc->value = (out_val.is_real || out_val.is_string) ? out_val : LogicOps::cast_width(out_val, loc->width, loc->is_signed);
                         written = true;
                         break;
                     }
@@ -7574,7 +7848,7 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<std:
                 if (engine.net_map.count(scoped)) net_id = engine.net_map.at(scoped);
                 else if (engine.net_map.count(var_name)) net_id = engine.net_map.at(var_name);
                 if (net_id != (size_t)-1) {
-                    engine.netlist[net_id].set(LogicOps::cast_width(out_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed));
+                    engine.netlist[net_id].set((out_val.is_real || out_val.is_string) ? out_val : LogicOps::cast_width(out_val, engine.netlist[net_id].width, engine.netlist[net_id].is_signed));
                 }
             }
         }
@@ -7617,8 +7891,17 @@ LogicVal ExprEvaluator::eval_dpi_call(DpiImportNode* dpi, const std::vector<Logi
     std::vector<uint64_t> c_args;
     for (size_t i = 0; i < evaluated_args.size(); ++i) {
         const auto& v = evaluated_args[i];
-        if (v.is_real) {
-            c_args.push_back(static_cast<uint64_t>(v.real_val));
+        std::string ptype = (i < dpi->tf_ports.size()) ? dpi->tf_ports[i].type_name : "int";
+        if (v.is_real || ptype == "real") {
+            double d = v.to_real();
+            uint64_t bits = 0;
+            std::memcpy(&bits, &d, sizeof(double));
+            c_args.push_back(bits);
+        } else if (ptype == "shortreal") {
+            float f = static_cast<float>(v.to_real());
+            uint64_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(float));
+            c_args.push_back(bits);
         } else {
             c_args.push_back(v.aval);
         }

@@ -1,5 +1,38 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.6.2.0 (Phase 3C: DPI-C C ABI Hardening, Multi-Word Part-Selects, Export Trampolines, & Wide Vector Arithmetic)
+
+**Release Date:** November 2026  
+**Milestone:** Phase 3C — IEEE 1800-2023 Annex I DPI-C ABI Hardening (`svBitVecVal`/`svLogicVecVal` Multi-Word Slicing, `svGetPartselBit`/`svGetPartselLogic`, `svPutPartselBit`/`svPutPartselLogic`), Context Tasks, Multidimensional Open Arrays, Export Trampolines Argument Marshaling & Dispatch, Wide-Vector (>64-bit) Signed Arithmetic & Shift Hardening, & Verilator `t_dpi_*` Pass Surge (30 / 45 = 66.7%)  
+**Parity Target:** 100% Synopsys VCS, Icarus Verilog, & Verilator Golden Parity  
+**Regression Status:** 117 / 117 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0%)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0%)  
+**Verilator `test_regress` Compliance:** **2,132 / 2,804 PASS (76.0%)** (enforced >= 2,125 threshold)  
+- **Pure-SV Simulation (SIM):** **2,061 / 2,630 PASS (78.4%)**  
+- **Negative Compile-Error (CE):** **41 / 129 PASS (31.8%)**  
+- **DPI-C Integration (DPI):** **30 / 45 PASS (66.7%)**  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,665 tests + Verilator >= 2,125 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase 3C Architectural, Kernel, & DPI-C ABI Implementations
+
+1. **IEEE Std 1800-2023 Annex I Part-Select Bit/Logic Vectors (`CAS/src/kernel/dpi_runtime.cpp`)**:
+   - Generalized `svGetPartselBit` and `svGetPartselLogic` to support arbitrary destination vector widths `w` across multiple 32-bit words `(w + 31) / 32`, properly writing word 1+ without truncating at 32 bits.
+   - Hardened `svPutPartselBit` and `svPutPartselLogic` for multi-word slice insertion and boundary conditions.
+2. **DPI-C Export Trampolines & Argument Marshaling (`benchmarks/run_verilator_tests.py`, `CAS/src/kernel/dpi_runtime.cpp`)**:
+   - Implemented standard argument packing for export trampolines (e.g. `set_value(const svBitVecVal* v)` packing into 64-bit parameter arrays for `cas_dispatch_dpi_export`).
+   - Hardened C companion parameter sanitizer (`sanitize_ident`) to handle unnamed formal parameters in open arrays without duplicate identifier collision.
+3. **Wide-Vector (>64-bit) Signed Arithmetic & Arithmetic Shift Operations (`CAS/include/kernel/logic_ops.hpp`, `CAS/src/kernel/expr_evaluator.cpp`, `CAS/src/frontend/parser_expr.cpp`)**:
+   - Generalised wide-vector two's complement negation (unary minus `-`) across multi-word vectors in both runtime evaluation (`expr_evaluator.cpp`) and compile-time AST constant folding (`parser_expr.cpp`), propagating carry across all 64-bit words.
+   - Generalised arithmetic right shift (`>>>`) for wide vectors in `logic_ops.hpp` to sample the true sign bit from the topmost word/bit and sign-fill high-order words appropriately.
+4. **Verilator `test_regress` DPI Suite Advancement**:
+   - Elevated passing DPI tests from 5 / 45 (11.1%) to 30 / 45 (66.7%), passing key suites including `t_dpi_lib`, `t_dpi_qw`, `t_dpi_open_elem`, `t_dpi_decl`, `t_dpi_context_noopt`, `t_dpi_export_scope_flat`, and `t_dpi_threads`.
+   - Bumped enforced CI gate floor in `scripts/setup_and_verify.sh` from `--min-pass 2050` to `--min-pass 2125`.
+
+---
+
 ## Version v4.6.1.0 (Phase 3B: DPI-C Open Arrays, Procedural/Expression Invocation, Core VPI Runtime, & Verilator t_dpi_* Suite)
 
 **Release Date:** November 2026  

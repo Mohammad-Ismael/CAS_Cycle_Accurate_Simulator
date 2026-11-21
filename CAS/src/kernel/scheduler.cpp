@@ -3837,7 +3837,7 @@ void StratifiedScheduler::invoke_task(BoundProcess& bp, TaskCallNode* tcall) {
     // 1. Formal port bindings & argument passing
     for (size_t i = 0; i < num_formals; ++i) {
         const auto& p = target_task->ports[i];
-        uint32_t w = p.width > 0 ? p.width : 32;
+        uint32_t w = p.width > 0 ? p.width : ((p.type_name == "bit" || p.type_name == "logic" || p.type_name == "reg") ? 1 : (p.type_name == "byte" ? 8 : (p.type_name == "shortint" ? 16 : (p.type_name == "longint" ? 64 : 32))));
         if (p.msb_expr && p.lsb_expr) {
             auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
             auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());

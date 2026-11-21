@@ -1364,6 +1364,8 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
     if (scope.empty()) {
         scope = active_scope_name;
     }
+    if (scope.rfind("top.", 0) == 0) scope = scope.substr(4);
+    else if (scope.rfind("TOP.", 0) == 0) scope = scope.substr(4);
 
     std::string sv_name = c_name;
     bool is_task = false;
@@ -1372,6 +1374,14 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
     if (dpi_export_map.find(scoped_export) != dpi_export_map.end()) {
         sv_name = dpi_export_map[scoped_export]->sv_name;
         is_task = dpi_export_map[scoped_export]->is_task;
+    } else if (scoped_export.rfind("top.", 0) == 0 && dpi_export_map.find(scoped_export.substr(4)) != dpi_export_map.end()) {
+        sv_name = dpi_export_map[scoped_export.substr(4)]->sv_name;
+        is_task = dpi_export_map[scoped_export.substr(4)]->is_task;
+        scope = scope.substr(4);
+    } else if (scoped_export.rfind("TOP.", 0) == 0 && dpi_export_map.find(scoped_export.substr(4)) != dpi_export_map.end()) {
+        sv_name = dpi_export_map[scoped_export.substr(4)]->sv_name;
+        is_task = dpi_export_map[scoped_export.substr(4)]->is_task;
+        scope = scope.substr(4);
     } else if (dpi_export_map.find(c_name) != dpi_export_map.end()) {
         sv_name = dpi_export_map[c_name]->sv_name;
         is_task = dpi_export_map[c_name]->is_task;
@@ -1381,21 +1391,36 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
     FunctionNode* fn = nullptr;
     if (function_map.find(scoped_target) != function_map.end()) {
         fn = function_map[scoped_target];
+    } else if (scoped_target.rfind("top.", 0) == 0 && function_map.find(scoped_target.substr(4)) != function_map.end()) {
+        scoped_target = scoped_target.substr(4);
+        fn = function_map[scoped_target];
+    } else if (scoped_target.rfind("TOP.", 0) == 0 && function_map.find(scoped_target.substr(4)) != function_map.end()) {
+        scoped_target = scoped_target.substr(4);
+        fn = function_map[scoped_target];
     } else if (function_map.find(sv_name) != function_map.end()) {
         fn = function_map[sv_name];
     }
 
     if (fn) {
-        LogicVal ret = LogicVal::make_known(fn->return_width, 0);
+        bool is_real_ret = (fn->return_type_name == "real" || fn->return_type_name == "shortreal" ||
+                            fn->return_type_name == "real_t" || fn->return_type_name == "shortreal_t");
+        LogicVal ret = is_real_ret ? LogicVal::make_real(0.0) : LogicVal::make_known(fn->return_width, 0);
         bool ok = evaluator.get_expr_eval().eval_function(scoped_target, args, ret);
         if (!ok) {
             evaluator.get_expr_eval().eval_function(fn->name, args, ret);
         }
+        scheduler.propagate_comb();
         return ret;
     }
 
     TaskNode* tn = nullptr;
     if (task_map.find(scoped_target) != task_map.end()) {
+        tn = task_map[scoped_target];
+    } else if (scoped_target.rfind("top.", 0) == 0 && task_map.find(scoped_target.substr(4)) != task_map.end()) {
+        scoped_target = scoped_target.substr(4);
+        tn = task_map[scoped_target];
+    } else if (scoped_target.rfind("TOP.", 0) == 0 && task_map.find(scoped_target.substr(4)) != task_map.end()) {
+        scoped_target = scoped_target.substr(4);
         tn = task_map[scoped_target];
     } else if (task_map.find(sv_name) != task_map.end()) {
         tn = task_map[sv_name];
@@ -1404,9 +1429,21 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
     if (tn) {
         std::string frame_name = (scope.empty() ? "" : (scope + ".")) + tn->name + "__call";
         evaluator.get_expr_eval().get_context().push_frame(frame_name);
-        for (size_t i = 0; i < tn->ports.size() && i < args.size(); ++i) {
-            evaluator.get_expr_eval().get_context().declare_local(tn->ports[i].name, tn->ports[i].width, tn->ports[i].is_signed, tn->ports[i].type_name);
-            evaluator.get_expr_eval().get_context().set_local_value(tn->ports[i].name, args[i]);
+        if (tn->ports.size() == 1 && tn->ports[0].width > 32 && args.size() > 1) {
+            uint64_t combined_aval = 0;
+            uint64_t combined_bval = 0;
+            for (size_t k = 0; k < args.size() && k < 2; ++k) {
+                combined_aval |= ((uint64_t)args[k].aval << (k * 32));
+                combined_bval |= ((uint64_t)args[k].bval << (k * 32));
+            }
+            LogicVal wide_arg(tn->ports[0].width, combined_aval, combined_bval, tn->ports[0].is_signed);
+            evaluator.get_expr_eval().get_context().declare_local(tn->ports[0].name, tn->ports[0].width, tn->ports[0].is_signed, tn->ports[0].type_name);
+            evaluator.get_expr_eval().get_context().set_local_value(tn->ports[0].name, wide_arg);
+        } else {
+            for (size_t i = 0; i < tn->ports.size() && i < args.size(); ++i) {
+                evaluator.get_expr_eval().get_context().declare_local(tn->ports[i].name, tn->ports[i].width, tn->ports[i].is_signed, tn->ports[i].type_name);
+                evaluator.get_expr_eval().get_context().set_local_value(tn->ports[i].name, args[i]);
+            }
         }
         BoundProcess bp{scope.empty() ? tn->scope : scope, nullptr, 0, false};
         for (auto& s : tn->body) {
@@ -1414,6 +1451,7 @@ LogicVal Engine::dispatch_dpi_export(const std::string& c_name, const std::vecto
             if (!scheduler.is_active()) break;
         }
         evaluator.get_expr_eval().get_context().pop_frame();
+        scheduler.propagate_comb();
         return LogicVal(0, 0, 0);
     }
 

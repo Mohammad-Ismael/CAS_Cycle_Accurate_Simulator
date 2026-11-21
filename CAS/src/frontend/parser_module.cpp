@@ -4642,11 +4642,27 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                         break;
                     }
                 }
+                if (!found) {
+                    for (const auto& f : global_functions) {
+                        if (f->name == exp->sv_name) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
             } else {
                 for (const auto& t : mod->tasks) {
                     if (t->name == exp->sv_name) {
                         found = true;
                         break;
+                    }
+                }
+                if (!found) {
+                    for (const auto& t : global_tasks) {
+                        if (t->name == exp->sv_name) {
+                            found = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -5151,7 +5167,7 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             if (base_t == "integer" || base_t == "int") width = 32;
             else if (base_t == "byte") width = 8;
             else if (base_t == "shortint") width = 16;
-            else if (base_t == "longint") width = 64;
+            else if (base_t == "longint" || base_t == "time") width = 64;
             else if (base_t == "real") width = 64;
             else if (base_t == "shortreal") width = 32;
             else if (base_t == "string") width = 64;
@@ -5185,9 +5201,10 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             bool is_builtin = (base_t == "logic" || base_t == "bit" || base_t == "reg" || base_t == "wire" ||
                                base_t == "tri" || base_t == "wand" || base_t == "wor" ||
                                base_t == "integer" || base_t == "int" || base_t == "byte" ||
-                               base_t == "shortint" || base_t == "longint" || base_t == "string" ||
-                               base_t == "chandle" || base_t == "real" || base_t == "shortreal" ||
-                               base_t == "void" || base_t == "signed" || base_t == "unsigned");
+                               base_t == "shortint" || base_t == "longint" || base_t == "time" ||
+                               base_t == "string" || base_t == "chandle" || base_t == "real" ||
+                               base_t == "shortreal" || base_t == "void" || base_t == "signed" ||
+                               base_t == "unsigned");
             bool is_type_param = false;
             if (current_parsing_class) {
                 for (const auto& p : current_parsing_class->parameters) {
@@ -8182,7 +8199,12 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             ret_w = 64;
             ret_signed = false;
             advance();
-        } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+        } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "integer")) {
+            ret_type = "integer";
+            ret_w = 32;
+            ret_signed = true;
+            advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
             ret_type = "int";
             ret_w = 32;
             ret_signed = true;
@@ -8246,9 +8268,15 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             expect(TokenType::TOKEN_COLON, "Expected ':' in return type range");
             auto lsb_e = parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in return type range");
-            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                    ret_w = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+            try {
+                uint64_t m = eval_const_expr(msb_e.get());
+                uint64_t l = eval_const_expr(lsb_e.get());
+                ret_w = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+            } catch (...) {
+                if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                    if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                        ret_w = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    }
                 }
             }
         }
@@ -8299,13 +8327,19 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
             std::string ptype = "logic";
             uint32_t pw = 32;
             bool psigned = false;
+            bool has_packed_range = false;
 
             if (current.type == TokenType::TOKEN_CHANDLE || current.text == "chandle") {
                 ptype = "chandle";
                 pw = 64;
                 psigned = false;
                 advance();
-            } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int")) {
+            } else if (current.type == TokenType::TOKEN_INTEGER || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "integer")) {
+                ptype = "integer";
+                pw = 32;
+                psigned = true;
+                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
                 ptype = "int";
                 pw = 32;
                 psigned = true;
@@ -8350,10 +8384,67 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                 pw = 64;
                 psigned = false;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
-                ptype = current.text;
-                pw = 32;
-                advance();
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER) {
+                bool is_custom_type = false;
+                if (simple_typedef_map.find(current.text) != simple_typedef_map.end() ||
+                    struct_typedef_map.find(current.text) != struct_typedef_map.end() ||
+                    unpacked_array_typedef_map.find(current.text) != unpacked_array_typedef_map.end() ||
+                    typedef_map.find(current.text) != typedef_map.end()) {
+                    is_custom_type = true;
+                } else if (peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+                    is_custom_type = true;
+                } else if (peek_token().type == TokenType::TOKEN_LBRACKET) {
+                    size_t n = 1;
+                    while (peek_token_n(n).type == TokenType::TOKEN_LBRACKET) {
+                        n++;
+                        while (peek_token_n(n).type != TokenType::TOKEN_RBRACKET && peek_token_n(n).type != TokenType::TOKEN_EOF) {
+                            n++;
+                        }
+                        if (peek_token_n(n).type == TokenType::TOKEN_RBRACKET) {
+                            n++;
+                        }
+                    }
+                    if (peek_token_n(n).type == TokenType::TOKEN_IDENTIFIER) {
+                        is_custom_type = true;
+                    }
+                }
+
+                if (is_custom_type) {
+                    ptype = current.text;
+                    if (simple_typedef_map.find(current.text) != simple_typedef_map.end()) {
+                        pw = simple_typedef_map[current.text].width;
+                        psigned = simple_typedef_map[current.text].is_signed;
+                        if (!simple_typedef_map[current.text].base_type.empty()) {
+                            ptype = simple_typedef_map[current.text].base_type;
+                        }
+                    } else if (auto st = get_struct_typedef(current.text)) {
+                        pw = st->total_width;
+                        psigned = st->is_signed;
+                        if (st->is_packed) {
+                            has_packed_range = true;
+                            bool all_2state = true;
+                            for (const auto& m : st->members) {
+                                if (m.type_name != "bit" && m.type_name != "byte" && m.type_name != "shortint" && m.type_name != "int" && m.type_name != "longint") {
+                                    all_2state = false;
+                                    break;
+                                }
+                            }
+                            ptype = all_2state ? "bit" : "logic";
+                        }
+                    } else {
+                        pw = 32;
+                    }
+                    const auto* vdm = find_type_dim_metadata(current.text);
+                    if (vdm) {
+                        for (const auto& d : vdm->dimensions) {
+                            if (!d.is_unpacked) {
+                                has_packed_range = true;
+                                break;
+                            }
+                        }
+                    }
+                    advance();
+                }
             }
 
             if (current.type == TokenType::TOKEN_SIGNED || current.text == "signed") {
@@ -8369,13 +8460,30 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                 if (match(TokenType::TOKEN_RBRACKET)) {
                     is_open_array = true;
                 } else {
+                    has_packed_range = true;
                     auto msb_e = parse_expression();
-                    expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
-                    auto lsb_e = parse_expression();
-                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
-                    if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-                        if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                            pw = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb_e = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                        try {
+                            uint64_t m = eval_const_expr(msb_e.get());
+                            uint64_t l = eval_const_expr(lsb_e.get());
+                            pw = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                        } catch (...) {
+                            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
+                                    pw = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
+                                }
+                            }
+                        }
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                        try {
+                            pw = (uint32_t)eval_const_expr(msb_e.get());
+                        } catch (...) {
+                            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
+                                pw = (uint32_t)nm->aval;
+                            }
                         }
                     }
                 }
@@ -8389,9 +8497,12 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                     is_open_array = true;
                 } else {
                     auto msb_e = parse_expression();
-                    expect(TokenType::TOKEN_COLON, "Expected ':' in port range");
-                    auto lsb_e = parse_expression();
-                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                    if (match(TokenType::TOKEN_COLON)) {
+                        auto lsb_e = parse_expression();
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                    } else {
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in port range");
+                    }
                 }
             }
 
@@ -8402,6 +8513,7 @@ std::unique_ptr<DpiImportNode> Parser::parse_dpi_import() {
                 port.is_chandle = true;
             }
             port.is_open_array = is_open_array;
+            port.is_vectored = has_packed_range;
             port.msb_expr = std::make_unique<NumberNode>(pw > 0 ? pw - 1 : 0, 32);
             port.lsb_expr = std::make_unique<NumberNode>(0, 32);
             dpi_node->tf_ports.push_back(std::move(port));
@@ -9410,6 +9522,55 @@ std::shared_ptr<CaseGenerateNode> Parser::parse_generate_case(ModuleNode* mod) {
 }
 
 void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
+    if (current.type == TokenType::TOKEN_IMPORT) {
+        if (peek_token().type == TokenType::TOKEN_STRING) {
+            auto dpi = parse_dpi_import();
+            if (dpi) {
+                std::shared_ptr<DpiImportNode> sdpi = std::move(dpi);
+                if (mod) {
+                    mod->dpi_imports.push_back(sdpi);
+                    mod->dpi_import_map[sdpi->sv_name] = sdpi.get();
+                }
+                dpi_import_map[sdpi->sv_name] = sdpi;
+            }
+            return;
+        } else {
+            advance(); // consume 'import'
+            while (true) {
+                std::string pkg_name = current.text;
+                expect(TokenType::TOKEN_IDENTIFIER, "Expected package name in import");
+                expect(TokenType::TOKEN_COLON_COLON, "Expected '::' after package name in import");
+                if (match(TokenType::TOKEN_STAR)) {
+                    if (mod && std::find(mod->wildcard_imports.begin(), mod->wildcard_imports.end(), pkg_name) == mod->wildcard_imports.end()) {
+                        mod->wildcard_imports.push_back(pkg_name);
+                    }
+                } else {
+                    std::string sym_name = current.text;
+                    expect(TokenType::TOKEN_IDENTIFIER, "Expected symbol name or '*' in import");
+                    if (mod) mod->explicit_imports[sym_name] = {pkg_name, sym_name};
+                }
+                if (match(TokenType::TOKEN_COMMA)) continue;
+                break;
+            }
+            expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after import statement");
+            return;
+        }
+    }
+    if (current.type == TokenType::TOKEN_EXPORT) {
+        auto exp = parse_dpi_export();
+        if (exp) {
+            std::shared_ptr<DpiExportNode> sexp = std::move(exp);
+            if (mod) {
+                mod->dpi_exports.push_back(sexp);
+                mod->dpi_export_map[sexp->c_name] = sexp.get();
+                mod->dpi_export_map[sexp->sv_name] = sexp.get();
+            }
+            dpi_export_map[sexp->c_name] = sexp;
+            dpi_export_map[sexp->sv_name] = sexp;
+            global_dpi_exports.push_back(sexp);
+        }
+        return;
+    }
     if (match(TokenType::TOKEN_DEFPARAM)) {
         while (true) {
             std::string hier_path = current.text;

@@ -68,6 +68,9 @@ struct MemoryArray {
             end_idx = b1;
             is_descending = true;
         }
+        if (d > 10000000) {
+            d = 1;
+        }
         words = std::vector<LogicVal>(d, LogicVal::make_x(w));
     }
 

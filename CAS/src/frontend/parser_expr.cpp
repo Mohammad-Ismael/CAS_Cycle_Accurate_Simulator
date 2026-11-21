@@ -2055,7 +2055,9 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         if (match(TokenType::TOKEN_APOSTROPHE)) {
             expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
             int64_t sz = 0;
+            bool is_explicit_literal = false;
             if (auto num = dynamic_cast<NumberNode*>(expr.get())) {
+                is_explicit_literal = true;
                 if (num->width <= 32) {
                     sz = static_cast<int64_t>(static_cast<int32_t>(num->aval));
                 } else {
@@ -2064,6 +2066,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
             } else if (auto un = dynamic_cast<UnaryOpNode*>(expr.get())) {
                 if (un->op == "-") {
                     if (auto un_num = dynamic_cast<NumberNode*>(un->operand.get())) {
+                        is_explicit_literal = true;
                         sz = -static_cast<int64_t>(un_num->aval);
                     } else {
                         sz = -1;
@@ -2076,12 +2079,14 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                     sz = 0;
                 }
             }
-            if (sz <= 0) {
+            if (is_explicit_literal && sz <= 0) {
                 throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got " + std::to_string(sz) + ") per IEEE 1800-2023 section 6.24.1");
             }
             auto cast_expr = parse_expression();
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing size cast expression");
-            return std::make_unique<StaticCastExprNode>(static_cast<uint32_t>(sz), std::move(cast_expr));
+            auto cast_node = std::make_unique<StaticCastExprNode>(sz > 0 ? static_cast<uint32_t>(sz) : 32, std::move(cast_expr));
+            cast_node->size_expr = std::move(expr);
+            return cast_node;
         }
         return expr;
     }
@@ -2286,14 +2291,39 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
             uint64_t a = current.num_val;
             uint64_t b = current.bval;
             uint32_t w = current.width;
+            auto wide_a = current.wide_aval;
+            auto wide_b = current.wide_bval;
             advance();
             if (match(TokenType::TOKEN_APOSTROPHE)) {
                 expect(TokenType::TOKEN_LPAREN, "Expected '(' in size cast expression");
                 throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got -" + std::to_string(a) + ") per IEEE 1800-2023 section 6.24.1");
             }
-            uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
-            uint64_t neg_a = (~a + 1) & mask;
-            return std::make_unique<NumberNode>(neg_a, b, w, true);
+            if (w <= 64) {
+                uint64_t mask = (w >= 64) ? ~0ULL : ((1ULL << w) - 1);
+                uint64_t neg_a = (~a + 1) & mask;
+                return std::make_unique<NumberNode>(neg_a, b, w, true);
+            }
+            auto num = std::make_unique<NumberNode>(0ULL, w, false, true);
+            num->bval = b;
+            size_t nwords = (w + 63) / 64;
+            num->wide_aval.assign(nwords, 0ULL);
+            num->wide_bval = wide_b;
+            if (num->wide_bval.size() < nwords) num->wide_bval.resize(nwords, 0ULL);
+            uint64_t carry = 1;
+            for (size_t i = 0; i < nwords; ++i) {
+                uint64_t cur = (i < wide_a.size()) ? wide_a[i] : ((i == 0) ? a : 0ULL);
+                uint64_t inv = ~cur;
+                uint64_t sum = inv + carry;
+                carry = (sum < inv || (carry && inv == ~0ULL)) ? 1 : 0;
+                num->wide_aval[i] = sum;
+            }
+            uint32_t rem = w % 64;
+            if (rem != 0 && !num->wide_aval.empty()) {
+                uint64_t mask = (1ULL << rem) - 1;
+                num->wide_aval.back() &= mask;
+            }
+            num->aval = num->wide_aval.empty() ? 0 : num->wide_aval[0];
+            return num;
         }
 
         return std::make_unique<UnaryOpNode>(op, parse_unary());

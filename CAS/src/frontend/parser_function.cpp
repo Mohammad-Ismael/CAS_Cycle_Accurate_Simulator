@@ -121,6 +121,9 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
             } else if (get_simple_typedef(current.text, smp)) {
                 func->return_width = smp.width;
                 func->return_signed = smp.is_signed;
+                if (smp.base_type == "real" || smp.base_type == "shortreal") {
+                    func->return_type_name = smp.base_type;
+                }
             } else {
                 func->return_width = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
                 func->return_signed = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);

@@ -58,7 +58,7 @@ struct LocalVar {
         if (type_name == "bit" || type_name == "int" || type_name == "byte" || type_name == "shortint" || type_name == "longint") {
             value = LogicVal(w, 0, 0, is_signed);
         }
-        if (type_name == "chandle") {
+        if (type_name == "chandle" || type_name == "chandle_t") {
             is_chandle = true;
             value = LogicVal(64, 0, 0);
         }
@@ -72,6 +72,9 @@ struct LocalVar {
         }
         if (type_name == "string") {
             value = LogicVal::make_string("");
+        }
+        if (type_name == "real" || type_name == "shortreal" || type_name == "real_t" || type_name == "shortreal_t") {
+            value = LogicVal::make_real(0.0);
         }
     }
 };

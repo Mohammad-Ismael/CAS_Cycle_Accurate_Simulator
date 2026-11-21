@@ -300,14 +300,64 @@ public:
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
         if (sh >= l.width) return LogicVal(l.width, 0, 0, l.is_signed);
-        return LogicVal(l.width, l.aval << sh, l.bval << sh, l.is_signed);
+        if (l.width <= 64) {
+            return LogicVal(l.width, l.aval << sh, l.bval << sh, l.is_signed);
+        }
+        LogicVal res(l.width, 0, 0, l.is_signed);
+        size_t nwords = res.wide_aval.size();
+        size_t w_sh = sh / 64;
+        size_t b_sh = sh % 64;
+        for (size_t i = 0; i < nwords; ++i) {
+            if (i >= w_sh) {
+                size_t src = i - w_sh;
+                uint64_t cur_a = (src < l.wide_aval.size()) ? l.wide_aval[src] : ((src == 0) ? l.aval : 0ULL);
+                uint64_t cur_b = (src < l.wide_bval.size()) ? l.wide_bval[src] : ((src == 0) ? l.bval : 0ULL);
+                res.wide_aval[i] |= (b_sh == 0) ? cur_a : (cur_a << b_sh);
+                res.wide_bval[i] |= (b_sh == 0) ? cur_b : (cur_b << b_sh);
+                if (b_sh > 0 && src > 0) {
+                    uint64_t prev_a = ((src - 1) < l.wide_aval.size()) ? l.wide_aval[src - 1] : (((src - 1) == 0) ? l.aval : 0ULL);
+                    uint64_t prev_b = ((src - 1) < l.wide_bval.size()) ? l.wide_bval[src - 1] : (((src - 1) == 0) ? l.bval : 0ULL);
+                    res.wide_aval[i] |= (prev_a >> (64 - b_sh));
+                    res.wide_bval[i] |= (prev_b >> (64 - b_sh));
+                }
+            }
+        }
+        res.aval = res.wide_aval.empty() ? 0 : res.wide_aval[0];
+        res.bval = res.wide_bval.empty() ? 0 : res.wide_bval[0];
+        res.mask();
+        return res;
     }
 
     static LogicVal shift_right(const LogicVal& l, const LogicVal& r) {
         if (r.is_unknown()) return LogicVal::make_x(l.width);
         uint64_t sh = r.aval;
         if (sh >= l.width) return LogicVal(l.width, 0, 0, l.is_signed);
-        return LogicVal(l.width, l.aval >> sh, l.bval >> sh, l.is_signed);
+        if (l.width <= 64) {
+            return LogicVal(l.width, l.aval >> sh, l.bval >> sh, l.is_signed);
+        }
+        LogicVal res(l.width, 0, 0, l.is_signed);
+        size_t nwords = res.wide_aval.size();
+        size_t w_sh = sh / 64;
+        size_t b_sh = sh % 64;
+        for (size_t i = 0; i < nwords; ++i) {
+            size_t src = i + w_sh;
+            if (src < nwords) {
+                uint64_t cur_a = (src < l.wide_aval.size()) ? l.wide_aval[src] : ((src == 0) ? l.aval : 0ULL);
+                uint64_t cur_b = (src < l.wide_bval.size()) ? l.wide_bval[src] : ((src == 0) ? l.bval : 0ULL);
+                res.wide_aval[i] |= (b_sh == 0) ? cur_a : (cur_a >> b_sh);
+                res.wide_bval[i] |= (b_sh == 0) ? cur_b : (cur_b >> b_sh);
+                if (b_sh > 0 && src + 1 < nwords) {
+                    uint64_t next_a = ((src + 1) < l.wide_aval.size()) ? l.wide_aval[src + 1] : 0ULL;
+                    uint64_t next_b = ((src + 1) < l.wide_bval.size()) ? l.wide_bval[src + 1] : 0ULL;
+                    res.wide_aval[i] |= (next_a << (64 - b_sh));
+                    res.wide_bval[i] |= (next_b << (64 - b_sh));
+                }
+            }
+        }
+        res.aval = res.wide_aval.empty() ? 0 : res.wide_aval[0];
+        res.bval = res.wide_bval.empty() ? 0 : res.wide_bval[0];
+        res.mask();
+        return res;
     }
 
     static LogicVal arith_shift_right(const LogicVal& l, const LogicVal& r, bool is_signed) {
@@ -320,30 +370,70 @@ public:
         }
 
         if (l.width == 0) return l;
-        bool sign_a = (l.aval >> (l.width - 1)) & 1;
-        bool sign_b = (l.bval >> (l.width - 1)) & 1;
+
+        if (l.width <= 64) {
+            bool sign_a = (l.aval >> (l.width - 1)) & 1;
+            bool sign_b = (l.bval >> (l.width - 1)) & 1;
+
+            if (sh >= l.width) {
+                if (sign_b) return LogicVal::make_x(l.width);
+                return sign_a ? LogicVal::make_known(l.width, (l.width == 64) ? ~0ULL : ((1ULL << l.width) - 1), true)
+                              : LogicVal::make_known(l.width, 0, true);
+            }
+
+            uint64_t new_a = l.aval >> sh;
+            uint64_t new_b = l.bval >> sh;
+
+            uint64_t fill_mask = (l.width == 64 && sh == 0) ? 0ULL : ((~0ULL) << (l.width - sh));
+            uint64_t width_mask = (l.width == 64) ? ~0ULL : ((1ULL << l.width) - 1);
+            fill_mask &= width_mask;
+
+            if (sign_b) {
+                new_a |= fill_mask;
+                new_b |= fill_mask;
+            } else if (sign_a) {
+                new_a |= fill_mask;
+            }
+
+            return LogicVal(l.width, new_a & width_mask, new_b & width_mask, true);
+        }
+
+        // Wide vector path (width > 64)
+        size_t top_word = (l.width - 1) / 64;
+        size_t top_bit = (l.width - 1) % 64;
+        bool sign_a = (top_word < l.wide_aval.size()) ? ((l.wide_aval[top_word] >> top_bit) & 1) : ((l.aval >> top_bit) & 1);
+        bool sign_b = (top_word < l.wide_bval.size()) ? ((l.wide_bval[top_word] >> top_bit) & 1) : ((l.bval >> top_bit) & 1);
 
         if (sh >= l.width) {
             if (sign_b) return LogicVal::make_x(l.width);
-            return sign_a ? LogicVal::make_known(l.width, (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1), true)
-                          : LogicVal::make_known(l.width, 0, true);
+            if (sign_a) {
+                LogicVal res(l.width, ~0ULL, 0ULL, true);
+                size_t nwords = ((size_t)l.width + 63) / 64;
+                res.wide_aval.assign(nwords, ~0ULL);
+                res.wide_bval.assign(nwords, 0ULL);
+                res.mask();
+                return res;
+            }
+            return LogicVal(l.width, 0, 0, true);
         }
 
-        uint64_t new_a = l.aval >> sh;
-        uint64_t new_b = l.bval >> sh;
-
-        uint64_t fill_mask = (~0ULL) << (l.width - sh);
-        uint64_t width_mask = (l.width >= 64) ? ~0ULL : ((1ULL << l.width) - 1);
-        fill_mask &= width_mask;
-
-        if (sign_b) {
-            new_a |= fill_mask;
-            new_b |= fill_mask;
-        } else if (sign_a) {
-            new_a |= fill_mask;
+        LogicVal res = shift_right(l, r);
+        res.is_signed = true;
+        size_t fill_start = l.width - sh;
+        for (size_t bit = fill_start; bit < l.width; ++bit) {
+            size_t w = bit / 64;
+            size_t b = bit % 64;
+            if (sign_b) {
+                if (w < res.wide_aval.size()) res.wide_aval[w] |= (1ULL << b);
+                if (w < res.wide_bval.size()) res.wide_bval[w] |= (1ULL << b);
+            } else if (sign_a) {
+                if (w < res.wide_aval.size()) res.wide_aval[w] |= (1ULL << b);
+            }
         }
-
-        return LogicVal(l.width, new_a & width_mask, new_b & width_mask, true);
+        res.aval = res.wide_aval.empty() ? 0 : res.wide_aval[0];
+        res.bval = res.wide_bval.empty() ? 0 : res.wide_bval[0];
+        res.mask();
+        return res;
     }
 
     static LogicVal logical_eq(const LogicVal& l, const LogicVal& r) {

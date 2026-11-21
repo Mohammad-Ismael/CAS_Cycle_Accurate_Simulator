@@ -42,7 +42,7 @@ CAS_Cycle_Accurate_Simulator/
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
 │   └── ibex_simple_system_tb.sv # Simple System Top-Level Testbench
 ├── scripts/                 # Turnkey Automation & Verification Pipelines
-│   ├── setup_and_verify.sh  # Mandatory 5-Stage CI Gate (117 Regr + 1,028 sv-tests + 520 ivtest = 1,665 + Verilator >= 2,050)
+│   ├── setup_and_verify.sh  # Mandatory 5-Stage CI Gate (117 Regr + 1,028 sv-tests + 520 ivtest = 1,665 + Verilator >= 2,125)
 │   └── run_ibex_demo.sh     # One-Command lowRISC Ibex SoC Execution Demo
 ├── VERSIONS.md              # Consolidated Version Release Notes & Milestone Roadmap
 └── versions/                # Detailed Version Release Notes (v1.0.0.0 – v4.4.1.0)
@@ -63,7 +63,7 @@ bash scripts/setup_and_verify.sh
 - **Stage 2**: Runs all **117 milestone regression suites** (**117 / 117 PASS = 100.0%**).
 - **Stage 3**: Runs all **1,028 IEEE Std 1800-2023 `sv-tests`** (**1,028 / 1,028 PASS = 100.0%** in ~11-15s).
 - **Stage 4**: Runs all **520 Icarus Verilog `ivtest` tests** (**520 / 520 PASS = 100.0%** in ~14-17s).
-- **Stage 5**: Runs the **Verilator `test_regress` suite** (**2,102 / 2,804 PASS = 75.0%**, enforcing >= 2,050 threshold).
+- **Stage 5**: Runs the **Verilator `test_regress` suite** (**2,132 / 2,804 PASS = 76.0%**, enforcing >= 2,125 threshold).
 - **Grand Total**: **5 / 5 Stages PASS — ZERO-REGRESSION CI GATE PASSED**.
 
 ### 2. Run lowRISC Ibex RV32IMC SoC Boot Demo

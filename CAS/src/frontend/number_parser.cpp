@@ -181,7 +181,7 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
                 words.resize(nwords, 0ULL);
                 res.wide_aval = words;
                 res.wide_bval.assign(nwords, 0ULL);
-                if (words.size() * 64 > width) res.width = static_cast<uint32_t>(words.size() * 64);
+                res.width = width;
             } else {
                 try {
                     res.aval = clean.empty() ? 0 : std::stoull(clean);
@@ -192,7 +192,7 @@ ParsedNumber NumberParser::parse_sized_literal(uint32_t width, bool is_signed, c
         }
     }
 
-    if (width > 64) {
+    if (width > 64 && base != 'd' && base != 'D') {
         size_t nwords = (width + 63) / 64;
         res.wide_aval.assign(nwords, 0ULL);
         res.wide_bval.assign(nwords, 0ULL);

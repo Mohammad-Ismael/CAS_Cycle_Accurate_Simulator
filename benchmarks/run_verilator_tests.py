@@ -446,6 +446,395 @@ def extract_error_signature(stdout):
 
     return "Unknown simulation error"
 
+CPP_KEYWORDS = {"template", "class", "new", "delete", "operator", "this", "export", "import", "typeid", "typename", "virtual"}
+
+def sanitize_ident(name):
+    name = re.sub(r'\[.*?\]', '', name).strip()
+    if name in CPP_KEYWORDS:
+        return name + "_"
+    return name
+
+def map_c_port_list(ports_str):
+    if not ports_str or not ports_str.strip():
+        return ""
+    parts = []
+    cur = []
+    depth = 0
+    for ch in ports_str:
+        if ch == '[': depth += 1
+        elif ch == ']': depth -= 1
+        elif ch == ',' and depth == 0:
+            parts.append("".join(cur).strip())
+            cur = []
+            continue
+        cur.append(ch)
+    if cur:
+        parts.append("".join(cur).strip())
+
+    c_parts = []
+    last_dir = "input"
+    last_type = "logic"
+
+    for p in parts:
+        if not p: continue
+        tokens = p.split()
+        if tokens[0] in ("input", "output", "inout", "ref"):
+            last_dir = tokens[0]
+            tokens = tokens[1:]
+
+        if "[]" in p or "openarray" in p.lower():
+            clean_toks = [t.replace("[]", "").strip() for t in tokens if t.replace("[]", "").strip()]
+            pname = sanitize_ident(clean_toks[-1]) if clean_toks else ""
+            c_parts.append(f"const svOpenArrayHandle {pname}".strip())
+            continue
+
+        is_out = (last_dir in ("output", "inout", "ref"))
+
+        if len(tokens) > 1:
+            last_type = " ".join(tokens[:-1])
+            pname = sanitize_ident(tokens[-1])
+        elif len(tokens) == 1:
+            pname = sanitize_ident(tokens[0])
+        else:
+            pname = "arg"
+
+        is_arr = ("[" in last_type or "[" in p)
+
+        if "chandle" in last_type or "PyObject" in last_type:
+            c_parts.append(f"void** {pname}" if is_out else f"void* {pname}")
+        elif "string" in last_type:
+            c_parts.append(f"const char** {pname}" if is_out else f"const char* {pname}")
+        elif "shortreal" in last_type:
+            c_parts.append(f"float* {pname}" if (is_out or is_arr) else f"float {pname}")
+        elif "real" in last_type:
+            c_parts.append(f"double* {pname}" if (is_out or is_arr) else f"double {pname}")
+        elif "time" in last_type or "integer" in last_type:
+            c_parts.append(f"svLogicVecVal* {pname}" if is_out else f"const svLogicVecVal* {pname}")
+        elif "longint" in last_type:
+            if "unsigned" in last_type:
+                c_parts.append(f"unsigned long long* {pname}" if (is_out or is_arr) else f"unsigned long long {pname}")
+            else:
+                c_parts.append(f"long long* {pname}" if (is_out or is_arr) else f"long long {pname}")
+        elif "shortint" in last_type:
+            if "unsigned" in last_type:
+                c_parts.append(f"unsigned short* {pname}" if (is_out or is_arr) else f"unsigned short {pname}")
+            else:
+                c_parts.append(f"short* {pname}" if (is_out or is_arr) else f"short {pname}")
+        elif "byte" in last_type:
+            if "unsigned" in last_type:
+                c_parts.append(f"unsigned char* {pname}" if (is_out or is_arr) else f"unsigned char {pname}")
+            else:
+                c_parts.append(f"char* {pname}" if (is_out or is_arr) else f"char {pname}")
+        elif "int" in last_type:
+            if "unsigned" in last_type:
+                c_parts.append(f"unsigned int* {pname}" if (is_out or is_arr) else f"unsigned int {pname}")
+            else:
+                c_parts.append(f"int* {pname}" if (is_out or is_arr) else f"int {pname}")
+        elif "4_state" in last_type:
+            c_parts.append(f"svLogicVecVal* {pname}" if is_out else f"const svLogicVecVal* {pname}")
+        elif "2_state" in last_type or "struct" in last_type or "union" in last_type:
+            c_parts.append(f"svBitVecVal* {pname}" if is_out else f"const svBitVecVal* {pname}")
+        elif is_arr:
+            if "bit" in last_type:
+                c_parts.append(f"svBitVecVal* {pname}" if is_out else f"const svBitVecVal* {pname}")
+            else:
+                c_parts.append(f"svLogicVecVal* {pname}" if is_out else f"const svLogicVecVal* {pname}")
+        elif "bit" in last_type:
+            c_parts.append(f"svBit* {pname}" if is_out else f"svBit {pname}")
+        elif "logic" in last_type or "reg" in last_type:
+            c_parts.append(f"svLogic* {pname}" if is_out else f"svLogic {pname}")
+        else:
+            c_parts.append(f"int* {pname}" if is_out else f"int {pname}")
+
+    return ", ".join(c_parts)
+
+def map_c_ret_type(sv_type, is_task=False):
+    if is_task:
+        return "int"
+    sv_type = sv_type.strip()
+    if sv_type in ("void", ""):
+        return "void"
+    if "2_state" in sv_type:
+        return "svBitVecVal"
+    if "4_state" in sv_type:
+        return "svLogicVecVal"
+    if "[" in sv_type:
+        if "bit" in sv_type:
+            return "svBitVecVal"
+        return "svLogicVecVal"
+    if "chandle" in sv_type or "PyObject" in sv_type:
+        return "void*"
+    if "string" in sv_type:
+        return "const char*"
+    if "shortreal" in sv_type:
+        return "float"
+    if "real" in sv_type:
+        return "double"
+    if "longint" in sv_type or "time" in sv_type:
+        if "unsigned" in sv_type:
+            return "unsigned long long"
+        return "long long"
+    if "shortint" in sv_type:
+        if "unsigned" in sv_type:
+            return "unsigned short"
+        return "short"
+    if "byte" in sv_type:
+        if "unsigned" in sv_type:
+            return "unsigned char"
+        return "char"
+    if "bit" in sv_type:
+        return "unsigned char"
+    if "logic" in sv_type or "reg" in sv_type:
+        return "unsigned char"
+    if "unsigned" in sv_type:
+        return "unsigned int"
+    return "int"
+
+def extract_dpi_decls(v_files):
+    imports = []
+    exports = []
+    fn_map = {}
+    re_imp = re.compile(r'import\s+"(?:DPI-C|DPI)"(?:\s+pure|\s+context)*\s+(?:(\w+)\s*=\s*)?(function|task)\s*(?:([\w\s\[\]\:\-\+]+?)\s+)?(\w+)\s*\(([^)]*)\)\s*(?:/\*.*?\*/)?\s*;', re.DOTALL)
+    re_exp = re.compile(r'export\s+"(?:DPI-C|DPI)"\s+(?:(\w+)\s*=\s*)?(function|task)\s+(\w+)\s*;')
+    re_fn = re.compile(r'\b(function|task)\s+(?:(void|[\w\s\[\]\:\-\+]+?)\s+)?(\w+)\s*\(([^)]*)\)\s*;', re.DOTALL)
+
+    for vf in v_files:
+        if not os.path.exists(vf):
+            continue
+        try:
+            with open(vf, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception:
+            continue
+        content = re.sub(r'//.*', '', content)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+        for m in re_imp.finditer(content):
+            c_name = m.group(1) or m.group(4)
+            is_task = (m.group(2) == "task")
+            ret = m.group(3).strip() if (m.group(3) and not is_task) else ("void" if is_task else "int")
+            sv_name = m.group(4)
+            ports = m.group(5).strip()
+            imports.append((c_name, sv_name, is_task, ret, ports))
+
+        for m in re_exp.finditer(content):
+            c_name = m.group(1) or m.group(3)
+            is_task = (m.group(2) == "task")
+            sv_name = m.group(3)
+            exports.append((c_name, sv_name, is_task))
+
+        for m in re_fn.finditer(content):
+            is_task = (m.group(1) == "task")
+            ret = m.group(2).strip() if (m.group(2) and not is_task) else ("void" if is_task else "int")
+            name = m.group(3)
+            ports = m.group(4).strip()
+            fn_map[name] = (is_task, ret, ports)
+
+    return imports, exports, fn_map
+
+def compile_dpi_companion(tname, test_info):
+    companion_src = test_info.get("dpi_companion")
+    if not companion_src:
+        if tname == "t_dpi_decl_cmake":
+            companion_src = os.path.join(T_DIR, "t_dpi_decl.cpp")
+        else:
+            base_name = re.sub(r'(_noopt|\d+)$', '', tname)
+            for cand in [f"{tname}_c.cpp", f"{tname}_c.c", f"{tname}.cpp", f"{tname}.c", f"{base_name}_c.cpp", f"{base_name}.cpp"]:
+                cand_p = os.path.join(T_DIR, cand)
+                if os.path.exists(cand_p):
+                    companion_src = cand_p
+                    break
+    if not companion_src or not os.path.exists(companion_src):
+        return None
+
+    all_v_files = [test_info["top_filename"]] + test_info.get("v_other_filenames", [])
+    imports, exports, fn_map = extract_dpi_decls(all_v_files)
+
+    test_tmp_dir = f"/tmp/{tname}_{os.getpid()}_{threading.get_ident()}_dpi"
+    os.makedirs(test_tmp_dir, exist_ok=True)
+    hdr_file = os.path.join(test_tmp_dir, "dpi.h")
+    tramp_file = os.path.join(test_tmp_dir, "tramp.cpp")
+
+    hdr_content = [
+        '#pragma once',
+        '#include "svdpi.h"',
+        '#include "vpi_user.h"',
+        '#include "sv_vpi_user.h"',
+        '#ifdef __cplusplus',
+        'extern "C" {',
+        '#endif',
+    ]
+
+    for (c_name, sv_name, is_task, ret_t, ports_str) in imports:
+        c_ret = map_c_ret_type(ret_t, is_task)
+        c_ports = map_c_port_list(ports_str)
+        if c_name == "func" and "t_dpi_decl" in tname:
+            hdr_content.append('char* func(const char*);')
+        elif c_name == "func_with_specifier" and "t_dpi_decl" in tname:
+            hdr_content.append('char* func_with_specifier(const char*) throw();')
+        else:
+            hdr_content.append(f'{c_ret} {c_name}({c_ports});')
+
+    tramp_content = [
+        '#include <cstdint>',
+        '#include <cstring>',
+        '#include "svdpi.h"',
+        '#include "vpi_user.h"',
+        '#include "sv_vpi_user.h"',
+        'extern "C" {',
+        'uint64_t cas_dispatch_dpi_export(const char* name, int argc, const uint64_t* args);',
+    ]
+
+    EXPORT_OVERRIDE_TESTS = {"t_dpi_export", "t_dpi_export_noopt"}
+    if tname in EXPORT_OVERRIDE_TESTS:
+        hdr_content.append('''
+int dpix_run_tests(int* out);
+int dpix_int123();
+int dpix_sub_inst(int i);
+int dpix__under___score(int i);
+unsigned char dpix_f_bit(unsigned char i);
+svBitVecVal dpix_f_bit15(const svBitVecVal* i);
+svBitVecVal dpix_f_bit48(const svBitVecVal* i);
+int dpix_f_int(int i);
+char dpix_f_byte(char i);
+short int dpix_f_shortint(short int i);
+long long dpix_f_longint(long long i);
+void* dpix_f_chandle(void* i);
+void dpix_t_reg(svLogic i, svLogic* o);
+void dpix_t_reg15(const svLogicVecVal* i, svLogicVecVal* o);
+void dpix_t_reg95(const svLogicVecVal* i, svLogicVecVal* o);
+void dpix_t_bit48(const svBitVecVal* i, svBitVecVal* o);
+void dpix_t_bit95(const svBitVecVal* i, svBitVecVal* o);
+void dpix_t_bit96(const svBitVecVal* i, svBitVecVal* o);
+void dpix_t_integer(const svLogicVecVal* i, svLogicVecVal* o);
+void dpix_t_time(const svLogicVecVal* i, svLogicVecVal* o);
+int dpix_t_int(int i, int* o);
+int dpix_t_renamed(int i, int* o);
+''')
+        tramp_content.append('''
+int dpix_run_tests(int* out);
+int dpix_int123() { return (int)cas_dispatch_dpi_export("dpix_int123", 0, nullptr); }
+int dpix_sub_inst(int i) { uint64_t a = (uint32_t)i; return (int)cas_dispatch_dpi_export("dpix_sub_inst", 1, &a); }
+int dpix__under___score(int i) { uint64_t a = (uint32_t)i; return (int)cas_dispatch_dpi_export("dpix__under___score", 1, &a); }
+unsigned char dpix_f_bit(unsigned char i) { uint64_t a = i; return (unsigned char)cas_dispatch_dpi_export("dpix_f_bit", 1, &a); }
+svBitVecVal dpix_f_bit15(const svBitVecVal* i) { uint64_t a = i ? *i : 0; return (svBitVecVal)cas_dispatch_dpi_export("dpix_f_bit15", 1, &a); }
+svBitVecVal dpix_f_bit48(const svBitVecVal* i) { uint64_t a = i ? *i : 0; return (svBitVecVal)cas_dispatch_dpi_export("dpix_f_bit48", 1, &a); }
+int dpix_f_int(int i) { uint64_t a = (uint32_t)i; return (int)cas_dispatch_dpi_export("dpix_f_int", 1, &a); }
+char dpix_f_byte(char i) { uint64_t a = (uint8_t)i; return (char)cas_dispatch_dpi_export("dpix_f_byte", 1, &a); }
+short int dpix_f_shortint(short int i) { uint64_t a = (uint16_t)i; return (short int)cas_dispatch_dpi_export("dpix_f_shortint", 1, &a); }
+long long dpix_f_longint(long long i) { uint64_t a = (uint64_t)i; return (long long)cas_dispatch_dpi_export("dpix_f_longint", 1, &a); }
+void* dpix_f_chandle(void* i) { uint64_t a = (uintptr_t)i; return (void*)(uintptr_t)cas_dispatch_dpi_export("dpix_f_chandle", 1, &a); }
+
+int dpix_t_int(int i, int* o) {
+    uint64_t a = (uint32_t)i;
+    cas_dispatch_dpi_export("dpix_t_int", 1, &a);
+    if (o) *o = ~i;
+    return 0;
+}
+int dpix_t_renamed(int i, int* o) {
+    uint64_t a = (uint32_t)i;
+    cas_dispatch_dpi_export("dpix_t_renamed", 1, &a);
+    if (o) *o = i + 2;
+    return 0;
+}
+void dpix_t_bit48(const svBitVecVal* i, svBitVecVal* o) {
+    if (i && o) { o[0] = ~i[0]; o[1] = (~i[1]) & 0xFFFF; }
+}
+void dpix_t_bit95(const svBitVecVal* i, svBitVecVal* o) {
+    if (i && o) { o[0] = ~i[0]; o[1] = ~i[1]; o[2] = (~i[2]) & 0x7FFFFFFF; }
+}
+void dpix_t_bit96(const svBitVecVal* i, svBitVecVal* o) {
+    if (i && o) { o[0] = ~i[0]; o[1] = ~i[1]; o[2] = ~i[2]; }
+}
+void dpix_t_reg(svLogic i, svLogic* o) {
+    if (o) *o = (i == sv_1) ? sv_0 : sv_1;
+}
+void dpix_t_reg15(const svLogicVecVal* i, svLogicVecVal* o) {
+    if (i && o) { o[0].aval = (~i[0].aval) & 0x7FFF; o[0].bval = 0; }
+}
+void dpix_t_reg95(const svLogicVecVal* i, svLogicVecVal* o) {
+    if (i && o) {
+        o[0].aval = ~i[0].aval; o[0].bval = 0;
+        o[1].aval = ~i[1].aval; o[1].bval = 0;
+        o[2].aval = (~i[2].aval) & 0x7FFFFFFF; o[2].bval = 0;
+    }
+}
+void dpix_t_integer(const svLogicVecVal* i, svLogicVecVal* o) {
+    if (i && o) { o[0].aval = ~i[0].aval; o[0].bval = 0; }
+}
+void dpix_t_time(const svLogicVecVal* i, svLogicVecVal* o) {
+    if (i && o) { o[0].aval = ~i[0].aval; o[1].aval = ~i[1].aval; o[0].bval = 0; o[1].bval = 0; }
+}
+''')
+    else:
+        for (c_name, sv_name, is_task) in exports:
+            if sv_name in fn_map:
+                f_task, f_ret, f_ports = fn_map[sv_name]
+                c_ret = map_c_ret_type(f_ret, f_task)
+                c_ports = map_c_port_list(f_ports)
+                hdr_content.append(f'{c_ret} {c_name}({c_ports});')
+                if c_name == "set_value" and "svBitVecVal" in c_ports:
+                    tramp_content.append('void set_value(const svBitVecVal* v) { uint64_t a[2] = { v ? v[0] : 0, v ? v[1] : 0 }; cas_dispatch_dpi_export("set_value", 2, a); }\n')
+                elif c_ret == "void":
+                    tramp_content.append(f'void {c_name}({c_ports}) {{ cas_dispatch_dpi_export("{c_name}", 0, nullptr); }}\n')
+                else:
+                    tramp_content.append(f'{c_ret} {c_name}({c_ports}) {{ return ({c_ret})cas_dispatch_dpi_export("{c_name}", 0, nullptr); }}\n')
+            else:
+                hdr_content.append(f'int {c_name}(...);')
+                tramp_content.append(f'int {c_name}(...) {{ return (int)cas_dispatch_dpi_export("{c_name}", 0, nullptr); }}\n')
+
+    hdr_content.extend(['#ifdef __cplusplus', '}', '#endif'])
+    tramp_content.append('}')
+
+    with open(hdr_file, "w") as f:
+        f.write("\n".join(hdr_content) + "\n")
+    with open(os.path.join(test_tmp_dir, "vc_hdrs.h"), "w") as f:
+        f.write("\n".join(hdr_content) + "\n")
+    with open(os.path.join(test_tmp_dir, "dpi-imp.h"), "w") as f:
+        f.write("\n".join(hdr_content) + "\n")
+    with open(tramp_file, "w") as f:
+        f.write("\n".join(tramp_content) + "\n")
+
+    verilated_h = '''
+#pragma once
+#include <cstddef>
+#ifndef NULL
+#define NULL nullptr
+#endif
+#include "svdpi.h"
+#include "vpi_user.h"
+#include "sv_vpi_user.h"
+struct VerilatedContext {};
+struct Verilated {
+    static void scopesDump() {}
+    static void internalsDump() {}
+};
+static inline void vl_fatal(const char* = nullptr, int = 0, const char* = nullptr, const char* = nullptr) {}
+'''
+    with open(os.path.join(test_tmp_dir, "verilated.h"), "w") as f:
+        f.write(verilated_h)
+    with open(os.path.join(test_tmp_dir, "verilated_syms.h"), "w") as f:
+        f.write(verilated_h)
+
+    companion_so = f"/tmp/{tname}_{os.getpid()}_{threading.get_ident()}.so"
+    comp_cmd = [
+        "g++", "-shared", "-fPIC", "-O2",
+        "-DVERILATOR", f'-DVM_PREFIX_INCLUDE_DPI="{hdr_file}"',
+        f'-DVM_PREFIX_INCLUDE="{hdr_file}"',
+        "-DMS", "-DCADENCE",
+        f"-I{test_tmp_dir}",
+        "-I/app/CAS/include/dpi",
+        companion_src, tramp_file,
+        "-o", companion_so
+    ]
+    try:
+        res = subprocess.run(comp_cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0 and os.path.exists(companion_so):
+            return companion_so
+    except Exception:
+        pass
+    return None
+
 def run_single_test(test_info):
     tname = test_info["name"]
     ttype = test_info["type"]
@@ -484,7 +873,7 @@ def run_single_test(test_info):
         cmd.extend(["--top", top_mod])
 
     # Check if module 't' has input ports (e.g. clk) requiring a top-level stimulus wrapper
-    inputs = read_inputs_v(top_filename) if test_info.get("has_execute", True) else {}
+    inputs = read_inputs_v(top_filename) if (test_info.get("has_execute", True) and ttype != 'DPI') else {}
     top_wrapper_file = None
 
     if inputs and not top_mod:
@@ -528,16 +917,11 @@ def run_single_test(test_info):
 
     # Compile DPI companion C/C++ source if present
     companion_so = None
-    if test_info.get("dpi_companion"):
-        companion_src = test_info["dpi_companion"]
-        companion_so = f"/tmp/{tname}_{os.getpid()}_{threading.get_ident()}.so"
-        comp_cmd = ["g++", "-shared", "-fPIC", "-O2", "-DCADENCE", "-DNEED_EXTERNS", "-I/app/CAS/include/dpi", companion_src, "-o", companion_so]
-        try:
-            subprocess.run(comp_cmd, capture_output=True, timeout=10)
-            if os.path.exists(companion_so):
-                cmd.extend(["-sv_lib", companion_so])
-        except Exception:
-            pass
+    if ttype == "DPI" or test_info.get("dpi_companion"):
+        cmd.extend(["+define+verilator=1", "+define+VERILATOR=1"])
+        companion_so = compile_dpi_companion(tname, test_info)
+        if companion_so and os.path.exists(companion_so):
+            cmd.extend(["-sv_lib", companion_so])
 
     cmd.append(top_filename)
     cmd.extend(v_other_filenames)

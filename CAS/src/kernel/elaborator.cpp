@@ -3101,8 +3101,8 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             uint32_t unpacked_cnt = 0;
             if (!p.unpacked_dimensions.empty()) {
                 for (const auto& udim : p.unpacked_dimensions) {
-                    int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), current_scope);
-                    int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), current_scope) : 0;
+                    int64_t b1 = eval_const_signed_val(eval_const_expr(udim.left_expr.get(), current_scope));
+                    int64_t b2 = udim.right_expr ? eval_const_signed_val(eval_const_expr(udim.right_expr.get(), current_scope)) : 0;
                     if (udim.is_single) {
                         b2 = b1 > 0 ? (b1 - 1) : 0;
                         b1 = 0;
@@ -3118,8 +3118,8 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 int64_t b1 = 0;
                 int64_t b2 = 0;
                 if (p.bound1_expr && p.bound2_expr) {
-                    b1 = (int64_t)eval_const_expr(p.bound1_expr.get(), current_scope);
-                    b2 = (int64_t)eval_const_expr(p.bound2_expr.get(), current_scope);
+                    b1 = eval_const_signed_val(eval_const_expr(p.bound1_expr.get(), current_scope));
+                    b2 = eval_const_signed_val(eval_const_expr(p.bound2_expr.get(), current_scope));
                 } else if (p.bound1_expr) {
                     uint32_t d = (uint32_t)eval_const_expr(p.bound1_expr.get(), current_scope);
                     b1 = 0;
@@ -4361,8 +4361,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint32_t total_depth = 1;
             if (!p.unpacked_dimensions.empty()) {
                 for (const auto& udim : p.unpacked_dimensions) {
-                    int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), scope);
-                    int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), scope) : 0;
+                    int64_t b1 = eval_const_signed_val(eval_const_expr(udim.left_expr.get(), scope));
+                    int64_t b2 = udim.right_expr ? eval_const_signed_val(eval_const_expr(udim.right_expr.get(), scope)) : 0;
                     if (udim.is_single) {
                         b2 = b1 > 0 ? (b1 - 1) : 0;
                         b1 = 0;
@@ -4378,8 +4378,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 int64_t b1 = 0;
                 int64_t b2 = 0;
                 if (p.bound1_expr && p.bound2_expr) {
-                    b1 = (int64_t)eval_const_expr(p.bound1_expr.get(), scope);
-                    b2 = (int64_t)eval_const_expr(p.bound2_expr.get(), scope);
+                    b1 = eval_const_signed_val(eval_const_expr(p.bound1_expr.get(), scope));
+                    b2 = eval_const_signed_val(eval_const_expr(p.bound2_expr.get(), scope));
                 } else if (p.bound1_expr) {
                     uint32_t d = (uint32_t)eval_const_expr(p.bound1_expr.get(), scope);
                     b1 = 0;
@@ -4760,8 +4760,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (pw > 0) w = pw;
             } else if (!s.unpacked_dimensions.empty()) {
                 for (const auto& udim : s.unpacked_dimensions) {
-                    int64_t b1 = (int64_t)eval_const_expr(udim.left_expr.get(), scope);
-                    int64_t b2 = udim.right_expr ? (int64_t)eval_const_expr(udim.right_expr.get(), scope) : 0;
+                    int64_t b1 = eval_const_signed_val(eval_const_expr(udim.left_expr.get(), scope));
+                    int64_t b2 = udim.right_expr ? eval_const_signed_val(eval_const_expr(udim.right_expr.get(), scope)) : 0;
                     if (udim.is_single) {
                         b2 = b1 > 0 ? (b1 - 1) : 0;
                         b1 = 0;
@@ -4777,8 +4777,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 int64_t b1 = 0;
                 int64_t b2 = 0;
                 if (s.bound1_expr && s.bound2_expr) {
-                    b1 = (int64_t)eval_const_expr(s.bound1_expr.get(), scope);
-                    b2 = (int64_t)eval_const_expr(s.bound2_expr.get(), scope);
+                    b1 = eval_const_signed_val(eval_const_expr(s.bound1_expr.get(), scope));
+                    b2 = eval_const_signed_val(eval_const_expr(s.bound2_expr.get(), scope));
                 } else if (s.bound1_expr) {
                     uint32_t d = (uint32_t)eval_const_expr(s.bound1_expr.get(), scope);
                     b1 = 0;
@@ -4797,8 +4797,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (!has_unpacked_type) {
                 if (!s.packed_dimensions.empty()) {
                     for (const auto& pdim : s.packed_dimensions) {
-                        int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), scope);
-                        int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), scope) : 0;
+                        int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), scope));
+                        int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), scope)) : 0;
                         ArrayDimInfo info;
                         info.left = b1;
                         info.right = b2;
@@ -4806,8 +4806,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                         all_dims.push_back(info);
                     }
                 } else if (s.msb_expr) {
-                    int64_t b1 = (int64_t)eval_const_expr(s.msb_expr.get(), scope);
-                    int64_t b2 = s.lsb_expr ? (int64_t)eval_const_expr(s.lsb_expr.get(), scope) : 0;
+                    int64_t b1 = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
+                    int64_t b2 = s.lsb_expr ? eval_const_signed_val(eval_const_expr(s.lsb_expr.get(), scope)) : 0;
                     ArrayDimInfo info;
                     info.left = b1;
                     info.right = b2;

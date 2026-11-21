@@ -39,8 +39,13 @@ bool BytecodeCompiler::compile_node(ExpressionNode* node, CompileContext& ctx, u
         if (num->bval != 0 || out_width > 64) {
             ctx.is_pure_2state_64 = false;
         }
-        ctx.instructions.emplace_back(Opcode::PUSH_CONST_VAL, out_width, out_signed ? 1 : 0, num->aval,
-                                      LogicVal(out_width, num->aval, num->bval, out_signed));
+        LogicVal const_val(out_width, num->aval, num->bval, out_signed);
+        if (!num->wide_aval.empty()) {
+            const_val.wide_aval = num->wide_aval;
+            const_val.wide_bval = num->wide_bval;
+            const_val.mask();
+        }
+        ctx.instructions.emplace_back(Opcode::PUSH_CONST_VAL, out_width, out_signed ? 1 : 0, num->aval, const_val);
         return true;
     }
 

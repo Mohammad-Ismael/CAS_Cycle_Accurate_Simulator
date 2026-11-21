@@ -180,14 +180,14 @@ void Evaluator::write_variable(const std::string& var_name, const LogicVal& val,
         if (actual_val.is_tagged_union) {
             actual_val = pack_tagged_union_if_needed(actual_val, local->type_name, var_name, local->width, bp.scope);
         }
-        if (local->type_name == "string") {
+        if (local->type_name == "string" || local->type_name == "string_t") {
             local->value = actual_val;
             if (local->is_static && !local->static_key.empty()) {
                 engine.procedural_static_vars[local->static_key] = local->value;
             }
             return;
         }
-        if (local->type_name == "real" || local->type_name == "shortreal") {
+        if (local->type_name == "real" || local->type_name == "shortreal" || local->type_name == "real_t" || local->type_name == "shortreal_t" || actual_val.is_real) {
             LogicVal rval;
             rval.width = local->width ? local->width : 64;
             rval.is_real = true;
@@ -879,7 +879,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         auto saved_wc = bp.active_wildcard_imports;
         auto saved_exp = bp.active_explicit_imports;
         for (auto& s : blk->statements) {
-            if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
             execute_statement(s.get(), bp);
             if (!bp.disabled_block.empty()) {
                 if (bp.disabled_block == blk->name || 
@@ -1078,8 +1078,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     lv->is_vector_or_array = true;
                 }
                 if (!lv->dimensions.empty()) lv->is_vector_or_array = true;
-                if (vdecl->is_chandle || vdecl->type_name == "chandle") {
+                if (vdecl->is_chandle || vdecl->type_name == "chandle" || vdecl->type_name == "chandle_t") {
                     lv->is_chandle = true;
+                    lv->width = 64;
                     lv->type_name = "chandle";
                     lv->value = LogicVal(64, 0, 0);
                 }
@@ -1247,8 +1248,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->is_vector_or_array = true;
             }
             if (lv && !lv->dimensions.empty()) lv->is_vector_or_array = true;
-            if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle")) {
+            if (lv && (vdecl->is_chandle || vdecl->type_name == "chandle" || vdecl->type_name == "chandle_t")) {
                 lv->is_chandle = true;
+                lv->width = 64;
                 lv->type_name = "chandle";
                 lv->value = LogicVal(64, 0, 0);
             }
@@ -1384,8 +1386,9 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 lv->class_type_name = vdecl->class_type_name;
                 lv->value = LogicVal(64, 0, 0);
             }
-            if (vdecl->is_chandle || vdecl->type_name == "chandle") {
+            if (vdecl->is_chandle || vdecl->type_name == "chandle" || vdecl->type_name == "chandle_t") {
                 lv->is_chandle = true;
+                lv->width = 64;
                 lv->type_name = "chandle";
                 lv->value = LogicVal(64, 0, 0);
             }
@@ -1526,12 +1529,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         if (for_stmt->init_stmt) execute_statement(for_stmt->init_stmt.get(), bp);
         uint64_t for_iters = 0;
         while (eval_expr(for_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : for_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
+                if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp) || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1540,7 +1543,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 bp.loop_continue = false;
             }
             if (for_stmt->step_stmt) execute_statement(for_stmt->step_stmt.get(), bp);
-            if (!bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || !bp.disabled_block.empty()) break;
             for_iters++;
             if (for_iters > 100000) {
                 std::cout << "[ERROR FOR LOOP] for loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -1694,12 +1697,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto while_stmt = dynamic_cast<WhileStatementNode*>(stmt)) {
         uint64_t while_iters = 0;
         while (eval_expr(while_stmt->condition.get(), bp.scope).to_bool()) {
-            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : while_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
+                if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp) || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1707,7 +1710,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
-            if (!bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || !bp.disabled_block.empty()) break;
             while_iters++;
             if (while_iters > 100000) {
                 std::cout << "[ERROR WHILE LOOP] while loop in " << bp.scope << " exceeded 100000 iters!\n" << std::flush;
@@ -1720,12 +1723,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
     if (auto do_while_stmt = dynamic_cast<DoWhileStatementNode*>(stmt)) {
         uint64_t iters = 0;
         do {
-            if (has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || !bp.disabled_block.empty()) break;
             for (auto& s : do_while_stmt->body) {
-                if (has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
+                if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || bp.loop_break || bp.loop_continue || !bp.disabled_block.empty()) break;
                 execute_statement(s.get(), bp);
             }
-            if (has_returned(bp) || !bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || has_returned(bp) || !bp.disabled_block.empty()) break;
             if (bp.loop_break) {
                 bp.loop_break = false;
                 break;
@@ -1733,7 +1736,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             if (bp.loop_continue) {
                 bp.loop_continue = false;
             }
-            if (!bp.disabled_block.empty()) break;
+            if (bp.completed || !engine.scheduler.is_active() || !bp.disabled_block.empty()) break;
             iters++;
             if (iters > 100000) break;
         } while (eval_expr(do_while_stmt->condition.get(), bp.scope).to_bool());
@@ -3658,7 +3661,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             for (size_t i = 0; i < num_formals; ++i) {
                 const auto& p = target_task->ports[i];
-                uint32_t w = p.width > 0 ? p.width : 32;
+                uint32_t w = p.width > 0 ? p.width : ((p.type_name == "bit" || p.type_name == "logic" || p.type_name == "reg") ? 1 : (p.type_name == "byte" ? 8 : (p.type_name == "shortint" ? 16 : (p.type_name == "longint" ? 64 : 32))));
                 if (p.msb_expr && p.lsb_expr) {
                     auto msb_n = dynamic_cast<NumberNode*>(p.msb_expr.get());
                     auto lsb_n = dynamic_cast<NumberNode*>(p.lsb_expr.get());
@@ -4719,12 +4722,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     throw std::runtime_error("[CAS-DTINPCIL] Incompatible class assignment: '" + rhs_obj->class_type_name + "' is not a subtype of '" + local->class_type_name + "' per IEEE 1800-2023 section 8.26");
                 }
             }
-            if (local->type_name == "string" || rhs_val.is_string) {
+            if (local->type_name == "string" || local->type_name == "string_t" || rhs_val.is_string) {
                 if (local->value != rhs_val) {
                     local->value = rhs_val;
                     local->change_counter++;
                 }
-            } else if (local->type_name == "real" || local->type_name == "shortreal") {
+            } else if (local->type_name == "real" || local->type_name == "shortreal" || local->type_name == "real_t" || local->type_name == "shortreal_t" || rhs_val.is_real) {
                 LogicVal rv = LogicVal::make_real(rhs_val.to_real());
                 if (local->value != rv) {
                     local->value = rv;
@@ -6581,12 +6584,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             local->value = rhs_val;
                             local->change_counter++;
                         }
-                    } else if (local->type_name == "string") {
+                    } else if (local->type_name == "string" || local->type_name == "string_t" || rhs_val.is_string) {
                         if (local->value != rhs_val) {
                             local->value = rhs_val;
                             local->change_counter++;
                         }
-                    } else if (local->type_name == "real" || local->type_name == "shortreal") {
+                    } else if (local->type_name == "real" || local->type_name == "shortreal" || local->type_name == "real_t" || local->type_name == "shortreal_t" || rhs_val.is_real) {
                         LogicVal rv = LogicVal::make_real(rhs_val.to_real());
                         if (local->value != rv) {
                             local->value = rv;

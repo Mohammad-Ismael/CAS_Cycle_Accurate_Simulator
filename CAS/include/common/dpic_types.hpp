@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <cstdint>
 #include <memory>
+#include <cstring>
+#include <cctype>
 
 #ifndef _WIN32
 #ifndef _GNU_SOURCE
@@ -20,6 +22,7 @@
 
 struct MemoryArray;
 struct DynamicArrayObject;
+struct QueueObject;
 struct LocalVar;
 struct LogicVal;
 
@@ -38,18 +41,25 @@ struct SvOpenArray {
     size_t elem_stride = 4;
     bool is_2state = true;
     bool is_logic = false;
+    bool is_real = false;
     std::vector<SvOpenArrayDim> dims;
     std::vector<uint8_t> buffer;
 
     // Backing references for writeback
     MemoryArray* source_mem = nullptr;
     DynamicArrayObject* source_dyn = nullptr;
+    QueueObject* source_queue = nullptr;
     LocalVar* source_local = nullptr;
     std::vector<int64_t> source_indices;
 
+    static inline int compute_dim_offset(const SvOpenArrayDim& dim, int idx) {
+        if (dim.increment == -1 && dim.left == 0) return idx;
+        return (dim.left >= dim.right) ? (dim.left - idx) : (idx - dim.left);
+    }
+
     void* get_elem_ptr(int indx1) {
         if (dims.empty()) return nullptr;
-        int off = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
+        int off = compute_dim_offset(dims[0], indx1);
         if (off < 0 || off >= dims[0].size) return nullptr;
         size_t byte_off = static_cast<size_t>(off) * elem_stride;
         if (byte_off + elem_stride > buffer.size()) return nullptr;
@@ -58,8 +68,8 @@ struct SvOpenArray {
 
     void* get_elem_ptr2(int indx1, int indx2) {
         if (dims.size() < 2) return nullptr;
-        int off1 = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
-        int off2 = (dims[1].left >= dims[1].right) ? (dims[1].left - indx2) : (indx2 - dims[1].left);
+        int off1 = compute_dim_offset(dims[0], indx1);
+        int off2 = compute_dim_offset(dims[1], indx2);
         if (off1 < 0 || off1 >= dims[0].size || off2 < 0 || off2 >= dims[1].size) return nullptr;
         size_t linear = static_cast<size_t>(off1) * dims[1].size + off2;
         size_t byte_off = linear * elem_stride;
@@ -69,9 +79,9 @@ struct SvOpenArray {
 
     void* get_elem_ptr3(int indx1, int indx2, int indx3) {
         if (dims.size() < 3) return nullptr;
-        int off1 = (dims[0].left >= dims[0].right) ? (dims[0].left - indx1) : (indx1 - dims[0].left);
-        int off2 = (dims[1].left >= dims[1].right) ? (dims[1].left - indx2) : (indx2 - dims[1].left);
-        int off3 = (dims[2].left >= dims[2].right) ? (dims[2].left - indx3) : (indx3 - dims[2].left);
+        int off1 = compute_dim_offset(dims[0], indx1);
+        int off2 = compute_dim_offset(dims[1], indx2);
+        int off3 = compute_dim_offset(dims[2], indx3);
         if (off1 < 0 || off1 >= dims[0].size || off2 < 0 || off2 >= dims[1].size || off3 < 0 || off3 >= dims[2].size) return nullptr;
         size_t linear = (static_cast<size_t>(off1) * dims[1].size + off2) * dims[2].size + off3;
         size_t byte_off = linear * elem_stride;
@@ -167,6 +177,42 @@ public:
         }
         if (h) {
             handles.push_back(h);
+#ifndef _WIN32
+            // Scan for Itanium C++ mangled symbols to support companion libraries compiled without extern "C"
+            std::string cmd = "nm -D \"" + path + "\" 2>/dev/null";
+            FILE* pipe = popen(cmd.c_str(), "r");
+            if (pipe) {
+                char buf[512];
+                while (fgets(buf, sizeof(buf), pipe)) {
+                    char* sym_start = strrchr(buf, ' ');
+                    if (sym_start) {
+                        sym_start++;
+                        char* nl = strchr(sym_start, '\n');
+                        if (nl) *nl = '\0';
+                        char* cr = strchr(sym_start, '\r');
+                        if (cr) *cr = '\0';
+                        if (strncmp(sym_start, "_Z", 2) == 0) {
+                            const char* p = sym_start + 2;
+                            if (isdigit(static_cast<unsigned char>(*p))) {
+                                int len = 0;
+                                while (isdigit(static_cast<unsigned char>(*p))) {
+                                    len = len * 10 + (*p - '0');
+                                    p++;
+                                }
+                                if (len > 0 && strlen(p) >= static_cast<size_t>(len)) {
+                                    std::string base_name(p, len);
+                                    void* sym = dlsym(h, sym_start);
+                                    if (sym && symbol_cache.find(base_name) == symbol_cache.end()) {
+                                        symbol_cache[base_name] = sym;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                pclose(pipe);
+            }
+#endif
             return true;
         }
 #else
@@ -209,10 +255,10 @@ public:
     }
 
     void* get_symbol(const std::string& symbol_name, const std::vector<std::string>& search_paths = {}) {
+        ensure_loaded(search_paths);
+
         auto it = symbol_cache.find(symbol_name);
         if (it != symbol_cache.end()) return it->second;
-
-        ensure_loaded(search_paths);
 
         // Search open handles
         for (void* h : handles) {

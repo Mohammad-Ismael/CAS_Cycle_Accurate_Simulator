@@ -369,6 +369,7 @@ struct StaticCastExprNode : public ExpressionNode {
     uint32_t target_width = 0;
     std::string target_type_name;
     std::unique_ptr<ExpressionNode> expr;
+    std::unique_ptr<ExpressionNode> size_expr;
 
     StaticCastExprNode(CastKind k, uint32_t w, std::string t, std::unique_ptr<ExpressionNode> e)
         : kind(k), target_width(w), target_type_name(std::move(t)), expr(std::move(e)) {}
@@ -383,7 +384,9 @@ struct StaticCastExprNode : public ExpressionNode {
         : kind(CastKind::TYPE), target_type_name(std::move(t)), expr(std::move(e)) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
-        return std::make_unique<StaticCastExprNode>(kind, target_width, target_type_name, expr ? expr->clone() : nullptr);
+        auto node = std::make_unique<StaticCastExprNode>(kind, target_width, target_type_name, expr ? expr->clone() : nullptr);
+        if (size_expr) node->size_expr = size_expr->clone();
+        return node;
     }
 };
 

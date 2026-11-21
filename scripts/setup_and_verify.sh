@@ -49,9 +49,9 @@ echo "--------------------------------------------------------------------------
 python3 -u "${REPO_ROOT}/benchmarks/run_ivtest.py"
 echo ">>> Icarus Verilog ivtest Benchmark Suite PASSED (520 / 520 = 100.0%)"
 
-# Stage 5: Verilator test_regress Benchmark Suite (>= 2,050 passing tests)
+# Stage 5: Verilator test_regress Benchmark Suite (>= 2,125 passing tests)
 echo ""
-echo "[STAGE 5/5] Running Verilator test_regress Benchmark Suite (>= 2,050 tests)..."
+echo "[STAGE 5/5] Running Verilator test_regress Benchmark Suite (>= 2,125 tests)..."
 echo "--------------------------------------------------------------------------------"
 if [ ! -d "${REPO_ROOT}/benchmarks/verilator_repo/test_regress/t" ]; then
     echo "Verilator repository not found. Cloning verilator/verilator (depth 1)..."
@@ -59,8 +59,8 @@ if [ ! -d "${REPO_ROOT}/benchmarks/verilator_repo/test_regress/t" ]; then
     git clone --depth 1 https://github.com/verilator/verilator.git "${REPO_ROOT}/benchmarks/verilator_repo"
 fi
 
-python3 -u "${REPO_ROOT}/benchmarks/run_verilator_tests.py" --min-pass 2050
-echo ">>> Verilator test_regress Benchmark Suite PASSED (>= 2,050 tests)"
+python3 -u "${REPO_ROOT}/benchmarks/run_verilator_tests.py" --min-pass 2125
+echo ">>> Verilator test_regress Benchmark Suite PASSED (>= 2,125 tests)"
 
 echo ""
 echo "================================================================================"
@@ -70,6 +70,6 @@ echo " Stage 1: Build CAS (Release)               — PASSED"
 echo " Stage 2: Milestone Regressions: 117 / 117 (100.0%)"
 echo " Stage 3: sv-tests:              1,028 / 1,028 (100.0%)"
 echo " Stage 4: ivtest:                520 / 520 (100.0%)"
-echo " Stage 5: Verilator test_regress: >= 2,050 tests (ENFORCED)"
+echo " Stage 5: Verilator test_regress: >= 2,125 tests (ENFORCED)"
 echo " TOTAL ZERO-REGRESSION CI GATE PASSED (5 / 5 Stages)"
 echo "================================================================================"

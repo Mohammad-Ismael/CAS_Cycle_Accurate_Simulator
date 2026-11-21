@@ -91,31 +91,27 @@ void svPutBitselLogic(svLogicVecVal* d, int i, svLogic s) {
 
 void svGetPartselBit(svBitVecVal* d, const svBitVecVal* s, int i, int w) {
     if (!d || !s || w <= 0) return;
-    if (w > 32) w = 32;
-    uint32_t mask = (w == 32) ? 0xFFFFFFFFU : ((1U << w) - 1U);
-    int chunk = i >> 5;
-    int bit = i & 31;
-    uint32_t val = s[chunk] >> bit;
-    if (bit + w > 32) {
-        val |= (s[chunk + 1] << (32 - bit));
+    int words = (w + 31) / 32;
+    for (int word = 0; word < words; ++word) {
+        d[word] = 0;
     }
-    *d = val & mask;
+    for (int bit = 0; bit < w; ++bit) {
+        svBit b = svGetBitselBit(s, i + bit);
+        svPutBitselBit(d, bit, b);
+    }
 }
 
 void svGetPartselLogic(svLogicVecVal* d, const svLogicVecVal* s, int i, int w) {
     if (!d || !s || w <= 0) return;
-    if (w > 32) w = 32;
-    uint32_t mask = (w == 32) ? 0xFFFFFFFFU : ((1U << w) - 1U);
-    int chunk = i >> 5;
-    int bit = i & 31;
-    uint32_t aval = s[chunk].aval >> bit;
-    uint32_t bval = s[chunk].bval >> bit;
-    if (bit + w > 32) {
-        aval |= (s[chunk + 1].aval << (32 - bit));
-        bval |= (s[chunk + 1].bval << (32 - bit));
+    int words = (w + 31) / 32;
+    for (int word = 0; word < words; ++word) {
+        d[word].aval = 0;
+        d[word].bval = 0;
     }
-    d->aval = aval & mask;
-    d->bval = bval & mask;
+    for (int bit = 0; bit < w; ++bit) {
+        svLogic b = svGetBitselLogic(s, i + bit);
+        svPutBitselLogic(d, bit, b);
+    }
 }
 
 void svPutPartselBit(svBitVecVal* d, const svBitVecVal s, int i, int w) {
@@ -216,13 +212,11 @@ void* svGetArrElemPtr3(const svOpenArrayHandle h, int indx1, int indx2, int indx
     return arr->get_elem_ptr3(indx1, indx2, indx3);
 }
 
-void* svGetArrElemPtr(const svOpenArrayHandle h, int indx1, ...) {
+static void* svGetArrElemPtr_v(const svOpenArrayHandle h, int indx1, va_list args) {
     if (!h) return nullptr;
     SvOpenArray* arr = const_cast<SvOpenArray*>(reinterpret_cast<const SvOpenArray*>(h));
     if (arr->dims.empty()) return nullptr;
     if (arr->dims.size() == 1) return arr->get_elem_ptr(indx1);
-    va_list args;
-    va_start(args, indx1);
     int cur_idx = indx1;
     size_t linear = 0;
     for (size_t d = 0; d < arr->dims.size(); ++d) {
@@ -230,15 +224,21 @@ void* svGetArrElemPtr(const svOpenArrayHandle h, int indx1, ...) {
         const auto& dim = arr->dims[d];
         int off = (dim.left >= dim.right) ? (dim.left - cur_idx) : (cur_idx - dim.left);
         if (off < 0 || off >= dim.size) {
-            va_end(args);
             return nullptr;
         }
         linear = linear * dim.size + off;
     }
-    va_end(args);
     size_t byte_off = linear * arr->elem_stride;
     if (byte_off + arr->elem_stride > arr->buffer.size()) return nullptr;
     return arr->buffer.data() + byte_off;
+}
+
+void* svGetArrElemPtr(const svOpenArrayHandle h, int indx1, ...) {
+    va_list args;
+    va_start(args, indx1);
+    void* ptr = svGetArrElemPtr_v(h, indx1, args);
+    va_end(args);
+    return ptr;
 }
 
 void* svGetArrayPtr(const svOpenArrayHandle h) {
@@ -297,7 +297,10 @@ void svGetBitArrElem3VecVal(svBitVecVal* d, const svOpenArrayHandle s, int indx1
 
 void svPutBitArrElemVecVal(const svOpenArrayHandle d, const svBitVecVal* s, int indx1, ...) {
     if (!d || !s) return;
-    void* ptr = svGetArrElemPtr(d, indx1);
+    va_list args;
+    va_start(args, indx1);
+    void* ptr = svGetArrElemPtr_v(d, indx1, args);
+    va_end(args);
     if (ptr) {
         std::memcpy(ptr, s, reinterpret_cast<const SvOpenArray*>(d)->elem_stride);
     }
@@ -305,7 +308,10 @@ void svPutBitArrElemVecVal(const svOpenArrayHandle d, const svBitVecVal* s, int 
 
 void svGetBitArrElemVecVal(svBitVecVal* d, const svOpenArrayHandle s, int indx1, ...) {
     if (!d || !s) return;
-    void* ptr = svGetArrElemPtr(s, indx1);
+    va_list args;
+    va_start(args, indx1);
+    void* ptr = svGetArrElemPtr_v(s, indx1, args);
+    va_end(args);
     if (ptr) {
         std::memcpy(d, ptr, reinterpret_cast<const SvOpenArray*>(s)->elem_stride);
     }
@@ -361,7 +367,10 @@ void svGetLogicArrElem3VecVal(svLogicVecVal* d, const svOpenArrayHandle s, int i
 
 void svPutLogicArrElemVecVal(const svOpenArrayHandle d, const svLogicVecVal* s, int indx1, ...) {
     if (!d || !s) return;
-    void* ptr = svGetArrElemPtr(d, indx1);
+    va_list args;
+    va_start(args, indx1);
+    void* ptr = svGetArrElemPtr_v(d, indx1, args);
+    va_end(args);
     if (ptr) {
         std::memcpy(ptr, s, reinterpret_cast<const SvOpenArray*>(d)->elem_stride);
     }
@@ -369,7 +378,10 @@ void svPutLogicArrElemVecVal(const svOpenArrayHandle d, const svLogicVecVal* s, 
 
 void svGetLogicArrElemVecVal(svLogicVecVal* d, const svOpenArrayHandle s, int indx1, ...) {
     if (!d || !s) return;
-    void* ptr = svGetArrElemPtr(s, indx1);
+    va_list args;
+    va_start(args, indx1);
+    void* ptr = svGetArrElemPtr_v(s, indx1, args);
+    va_end(args);
     if (ptr) {
         std::memcpy(d, ptr, reinterpret_cast<const SvOpenArray*>(s)->elem_stride);
     }
@@ -412,6 +424,145 @@ void svPutLogicArrElem1(const svOpenArrayHandle d, svLogic value, int indx1) {
     uint32_t b = (value == sv_z || value == sv_x) ? 1U : 0U;
     if (a) lv->aval |= 1U; else lv->aval &= ~1U;
     if (b) lv->bval |= 1U; else lv->bval &= ~1U;
+}
+
+svBit svGetBitArrElem(const svOpenArrayHandle s, int indx1, ...) {
+    if (!s) return sv_0;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(s);
+    if (arr->dims.empty()) return sv_0;
+    va_list args;
+    va_start(args, indx1);
+    int64_t linear = 0;
+    int cur_idx = indx1;
+    for (size_t d = 0; d < arr->dims.size(); ++d) {
+        if (d > 0) cur_idx = va_arg(args, int);
+        const auto& dim = arr->dims[d];
+        int off = (dim.left >= dim.right) ? (dim.left - cur_idx) : (cur_idx - dim.left);
+        if (off < 0 || off >= dim.size) {
+            va_end(args);
+            return sv_0;
+        }
+        linear = linear * dim.size + off;
+    }
+    va_end(args);
+    size_t byte_off = linear * arr->elem_stride;
+    if (byte_off + arr->elem_stride > arr->buffer.size()) return sv_0;
+    const uint32_t* u = reinterpret_cast<const uint32_t*>(arr->buffer.data() + byte_off);
+    return (*u & 1) ? sv_1 : sv_0;
+}
+
+svBit svGetBitArrElem2(const svOpenArrayHandle s, int indx1, int indx2) {
+    return svGetBitArrElem(s, indx1, indx2);
+}
+
+svBit svGetBitArrElem3(const svOpenArrayHandle s, int indx1, int indx2, int indx3) {
+    return svGetBitArrElem(s, indx1, indx2, indx3);
+}
+
+void svPutBitArrElem(const svOpenArrayHandle d, svBit value, int indx1, ...) {
+    if (!d) return;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(d);
+    if (arr->dims.empty()) return;
+    va_list args;
+    va_start(args, indx1);
+    int64_t linear = 0;
+    int cur_idx = indx1;
+    for (size_t d_idx = 0; d_idx < arr->dims.size(); ++d_idx) {
+        if (d_idx > 0) cur_idx = va_arg(args, int);
+        const auto& dim = arr->dims[d_idx];
+        int off = (dim.left >= dim.right) ? (dim.left - cur_idx) : (cur_idx - dim.left);
+        if (off < 0 || off >= dim.size) {
+            va_end(args);
+            return;
+        }
+        linear = linear * dim.size + off;
+    }
+    va_end(args);
+    size_t byte_off = linear * arr->elem_stride;
+    if (byte_off + arr->elem_stride > arr->buffer.size()) return;
+    uint32_t* u = reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(arr->buffer.data()) + byte_off);
+    if (value == sv_1) *u |= 1U;
+    else *u &= ~1U;
+}
+
+void svPutBitArrElem2(const svOpenArrayHandle d, svBit value, int indx1, int indx2) {
+    svPutBitArrElem(d, value, indx1, indx2);
+}
+
+void svPutBitArrElem3(const svOpenArrayHandle d, svBit value, int indx1, int indx2, int indx3) {
+    svPutBitArrElem(d, value, indx1, indx2, indx3);
+}
+
+svLogic svGetLogicArrElem(const svOpenArrayHandle s, int indx1, ...) {
+    if (!s) return sv_x;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(s);
+    if (arr->dims.empty()) return sv_x;
+    va_list args;
+    va_start(args, indx1);
+    int64_t linear = 0;
+    int cur_idx = indx1;
+    for (size_t d = 0; d < arr->dims.size(); ++d) {
+        if (d > 0) cur_idx = va_arg(args, int);
+        const auto& dim = arr->dims[d];
+        int off = (dim.left >= dim.right) ? (dim.left - cur_idx) : (cur_idx - dim.left);
+        if (off < 0 || off >= dim.size) {
+            va_end(args);
+            return sv_x;
+        }
+        linear = linear * dim.size + off;
+    }
+    va_end(args);
+    size_t byte_off = linear * arr->elem_stride;
+    if (byte_off + arr->elem_stride > arr->buffer.size()) return sv_x;
+    const svLogicVecVal* lv = reinterpret_cast<const svLogicVecVal*>(arr->buffer.data() + byte_off);
+    uint32_t a = lv->aval & 1U;
+    uint32_t b = lv->bval & 1U;
+    if (b == 0) return a ? sv_1 : sv_0;
+    else return a ? sv_x : sv_z;
+}
+
+svLogic svGetLogicArrElem2(const svOpenArrayHandle s, int indx1, int indx2) {
+    return svGetLogicArrElem(s, indx1, indx2);
+}
+
+svLogic svGetLogicArrElem3(const svOpenArrayHandle s, int indx1, int indx2, int indx3) {
+    return svGetLogicArrElem(s, indx1, indx2, indx3);
+}
+
+void svPutLogicArrElem(const svOpenArrayHandle d, svLogic value, int indx1, ...) {
+    if (!d) return;
+    const SvOpenArray* arr = reinterpret_cast<const SvOpenArray*>(d);
+    if (arr->dims.empty()) return;
+    va_list args;
+    va_start(args, indx1);
+    int64_t linear = 0;
+    int cur_idx = indx1;
+    for (size_t d_idx = 0; d_idx < arr->dims.size(); ++d_idx) {
+        if (d_idx > 0) cur_idx = va_arg(args, int);
+        const auto& dim = arr->dims[d_idx];
+        int off = (dim.left >= dim.right) ? (dim.left - cur_idx) : (cur_idx - dim.left);
+        if (off < 0 || off >= dim.size) {
+            va_end(args);
+            return;
+        }
+        linear = linear * dim.size + off;
+    }
+    va_end(args);
+    size_t byte_off = linear * arr->elem_stride;
+    if (byte_off + arr->elem_stride > arr->buffer.size()) return;
+    svLogicVecVal* lv = reinterpret_cast<svLogicVecVal*>(const_cast<uint8_t*>(arr->buffer.data()) + byte_off);
+    uint32_t a = (value == sv_1 || value == sv_x) ? 1U : 0U;
+    uint32_t b = (value == sv_z || value == sv_x) ? 1U : 0U;
+    if (a) lv->aval |= 1U; else lv->aval &= ~1U;
+    if (b) lv->bval |= 1U; else lv->bval &= ~1U;
+}
+
+void svPutLogicArrElem2(const svOpenArrayHandle d, svLogic value, int indx1, int indx2) {
+    svPutLogicArrElem(d, value, indx1, indx2);
+}
+
+void svPutLogicArrElem3(const svOpenArrayHandle d, svLogic value, int indx1, int indx2, int indx3) {
+    svPutLogicArrElem(d, value, indx1, indx2, indx3);
 }
 
 int svIsDisabledState(void) {
@@ -460,6 +611,12 @@ uint64_t cas_dispatch_dpi_export(const char* name, int argc, const uint64_t* arg
         l_args.push_back(LogicVal::make_known(32, static_cast<uint32_t>(args[i])));
     }
     LogicVal res = eng->dispatch_dpi_export(name ? name : "", l_args);
+    if (res.is_real) {
+        double d = res.to_real();
+        uint64_t ret_bits = 0;
+        std::memcpy(&ret_bits, &d, sizeof(double));
+        return ret_bits;
+    }
     return res.aval;
 }
 

@@ -110,7 +110,6 @@ private:
     size_t delta_cycles_count = 0;
     size_t nba_commits_count = 0;
 
-    void propagate_comb();
     bool execute_bytecode_2state_64(const CompiledExpr& expr, uint64_t& out_val);
     LogicVal execute_bytecode_logicval(const CompiledExpr& expr);
     bool execute_process_bytecode_2state_64(BoundProcess& bp);
@@ -154,6 +153,7 @@ private:
     void enqueue_mca(uint32_t mca_idx);
 
 public:
+    void propagate_comb();
     explicit StratifiedScheduler(Engine& eng);
     void notify_parent_child_completed(size_t child_pid);
 
