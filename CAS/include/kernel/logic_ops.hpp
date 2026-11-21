@@ -11,6 +11,14 @@ public:
     // ------------------------------------------------------------------------
     static LogicVal reduce_and(const LogicVal& v) {
         if (v.width == 0) return LogicVal::make_x(1);
+        if (v.width <= 64) {
+            uint64_t mask = (v.width == 64) ? ~0ULL : ((1ULL << v.width) - 1);
+            uint64_t a = v.aval & mask;
+            uint64_t b = v.bval & mask;
+            if (((~a) & (~b) & mask) != 0) return LogicVal::make_known(1, 0); // known 0 dominates
+            if (b != 0) return LogicVal::make_x(1); // unknown with no 0
+            return LogicVal::make_known(1, (a == mask) ? 1 : 0);
+        }
         bool has_zero = false;
         bool has_unknown = false;
 
@@ -38,6 +46,14 @@ public:
 
     static LogicVal reduce_or(const LogicVal& v) {
         if (v.width == 0) return LogicVal::make_x(1);
+        if (v.width <= 64) {
+            uint64_t mask = (v.width == 64) ? ~0ULL : ((1ULL << v.width) - 1);
+            uint64_t a = v.aval & mask;
+            uint64_t b = v.bval & mask;
+            if ((a & (~b) & mask) != 0) return LogicVal::make_known(1, 1); // known 1 dominates
+            if (b != 0) return LogicVal::make_x(1); // unknown with no 1
+            return LogicVal::make_known(1, 0);
+        }
         bool has_one = false;
         bool has_unknown = false;
 
@@ -65,6 +81,11 @@ public:
 
     static LogicVal reduce_xor(const LogicVal& v) {
         if (v.width == 0) return LogicVal::make_x(1);
+        if (v.width <= 64) {
+            uint64_t mask = (v.width == 64) ? ~0ULL : ((1ULL << v.width) - 1);
+            if ((v.bval & mask) != 0) return LogicVal::make_x(1); // Any unknown forces XOR to X
+            return LogicVal::make_known(1, __builtin_parityll(v.aval & mask));
+        }
         uint64_t parity = 0;
 
         for (uint32_t i = 0; i < v.width; ++i) {

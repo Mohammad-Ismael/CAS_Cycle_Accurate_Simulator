@@ -22,6 +22,7 @@ namespace {
     std::vector<std::unique_ptr<VpiCallbackImpl>> g_vpi_callbacks;
     std::unordered_map<std::string, VpiSystfImpl> g_vpi_systfs;
     uint32_t g_cb_id_counter = 1;
+    size_t g_value_change_cb_count = 0;
     std::string g_last_str_buf;
     std::vector<s_vpi_vecval> g_vecval_buf;
 }
@@ -33,6 +34,7 @@ void initialize() {
     g_vpi_callbacks.clear();
     g_vpi_systfs.clear();
     g_cb_id_counter = 1;
+    g_value_change_cb_count = 0;
 }
 
 void cleanup() {
@@ -40,6 +42,11 @@ void cleanup() {
     g_vpi_callbacks.clear();
     g_vpi_systfs.clear();
     g_vpi_engine = nullptr;
+    g_value_change_cb_count = 0;
+}
+
+bool has_value_change_callbacks() {
+    return g_value_change_cb_count > 0;
 }
 
 void set_active_engine(Engine* eng) {
@@ -194,6 +201,9 @@ vpiHandle vpi_register_cb(p_cb_data cb_data_p) {
     if (cb_data_p->value) {
         cb->val_data = *cb_data_p->value;
     }
+    if (cb->reason == cbValueChange) {
+        g_value_change_cb_count++;
+    }
     VpiCallbackImpl* ptr = cb.get();
     g_vpi_callbacks.push_back(std::move(cb));
     return reinterpret_cast<vpiHandle>(ptr);
@@ -202,7 +212,12 @@ vpiHandle vpi_register_cb(p_cb_data cb_data_p) {
 int32_t vpi_remove_cb(vpiHandle cb_obj) {
     if (!cb_obj) return 0;
     VpiCallbackImpl* cb = reinterpret_cast<VpiCallbackImpl*>(cb_obj);
-    cb->removed = true;
+    if (!cb->removed) {
+        if (cb->reason == cbValueChange && g_value_change_cb_count > 0) {
+            g_value_change_cb_count--;
+        }
+        cb->removed = true;
+    }
     return 1;
 }
 

@@ -107,6 +107,17 @@ private:
     bool simulation_active = true;
     bool has_sequential_processes = false;
 
+    struct SequentialProcessInfo {
+        uint32_t pid;
+        struct SensInfo {
+            size_t net_id;
+            size_t canon_id;
+            EdgeType edge;
+        };
+        std::vector<SensInfo> sensitivities;
+    };
+    std::vector<SequentialProcessInfo> sequential_processes_info;
+
     size_t delta_cycles_count = 0;
     size_t nba_commits_count = 0;
 

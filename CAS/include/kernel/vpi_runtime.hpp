@@ -47,6 +47,7 @@ namespace VpiRuntime {
     void dispatch_end_of_simulation(Engine* eng);
     void dispatch_time_callbacks(uint64_t current_time);
     void dispatch_value_change(size_t net_id, const LogicVal& new_val);
+    bool has_value_change_callbacks();
 
     void load_vpi_library(const std::string& path);
     VpiObjectImpl* allocate_handle(int type, const std::string& name, const std::string& full_name, size_t net_id = (size_t)-1, uint32_t width = 0, bool is_signed = false);

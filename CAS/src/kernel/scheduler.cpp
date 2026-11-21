@@ -685,10 +685,22 @@ void StratifiedScheduler::init_scheduler() {
     }
     memory_fastpath.init(engine);
     has_sequential_processes = false;
-    for (const auto& bp : engine.processes) {
+    sequential_processes_info.clear();
+    for (size_t pid = 0; pid < engine.processes.size(); ++pid) {
+        auto& bp = engine.processes[pid];
         if (bp.proc && bp.proc->type == ProcessType::SEQUENTIAL) {
             has_sequential_processes = true;
-            break;
+            SequentialProcessInfo spi;
+            spi.pid = (uint32_t)pid;
+            for (auto& sens : bp.proc->sensitivity_list) {
+                if (sens.net_id == (size_t)-1) {
+                    sens.net_id = engine.get_net_id(bp.scope, sens.signal_name);
+                }
+                size_t nid = sens.net_id;
+                size_t cid = (nid != (size_t)-1) ? engine.get_canonical_net_id(nid) : (size_t)-1;
+                spi.sensitivities.push_back({nid, cid, sens.edge});
+            }
+            sequential_processes_info.push_back(std::move(spi));
         }
     }
     std::cout << "[INIT_SCHEDULER] slice_bindings=" << engine.slice_bindings.size()
@@ -700,11 +712,14 @@ void StratifiedScheduler::init_scheduler() {
 
 void StratifiedScheduler::notify_net_changed(size_t net_id) {
     if (net_id >= engine.netlist.size()) return;
-    VpiRuntime::dispatch_value_change(net_id, engine.netlist[net_id].value);
-    size_t canon_nid = engine.get_canonical_net_id(net_id);
-    if (canon_nid != net_id && canon_nid < engine.netlist.size()) {
-        VpiRuntime::dispatch_value_change(canon_nid, engine.netlist[canon_nid].value);
+    if (VpiRuntime::has_value_change_callbacks()) {
+        VpiRuntime::dispatch_value_change(net_id, engine.netlist[net_id].value);
+        size_t canon_nid = engine.get_canonical_net_id(net_id);
+        if (canon_nid != net_id && canon_nid < engine.netlist.size()) {
+            VpiRuntime::dispatch_value_change(canon_nid, engine.netlist[canon_nid].value);
+        }
     }
+    size_t canon_nid = engine.get_canonical_net_id(net_id);
     if (native_dispatch.is_active || llvm_dispatch.is_active) {
         if (net_id < native_nets_u64.size()) {
             native_nets_u64[net_id] = engine.netlist[net_id].value.aval;
@@ -2476,21 +2491,19 @@ void StratifiedScheduler::propagate_comb() {
             if (mbind.cached_src && mbind.cached_dst) {
                 auto* src_mem = mbind.cached_src;
                 auto* dst_mem = mbind.cached_dst;
-                for (size_t i = 0; i < src_mem->words.size() && i < dst_mem->words.size(); ++i) {
-                    if (dst_mem->words[i] != src_mem->words[i]) {
-                        if (iters == 50 || iters == 90) {
-                            std::cerr << "[OscillatingMBind] src=" << mbind.src << " dst=" << mbind.dst
-                                      << " [" << i << "] old=0x" << std::hex << dst_mem->words[i].aval
-                                      << " new=0x" << src_mem->words[i].aval << std::dec << "\n";
+                if (src_mem->change_counter != mbind.last_synced_version) {
+                    mbind.last_synced_version = src_mem->change_counter;
+                    for (size_t i = 0; i < src_mem->words.size() && i < dst_mem->words.size(); ++i) {
+                        if (dst_mem->words[i] != src_mem->words[i]) {
+                            dst_mem->words[i] = src_mem->words[i];
+                            dst_mem->change_counter++;
+                            notify_mem_changed();
+                            changed = true;
                         }
-                        dst_mem->words[i] = src_mem->words[i];
-                        notify_mem_changed();
-                        changed = true;
                     }
                 }
             }
         }
-
         // Continuous assignments targeting memory array words (IEEE 1800-2023 §27)
         if (!dirty_mcas.empty()) {
             std::vector<uint32_t> current_mca_batch;
@@ -2842,9 +2855,6 @@ void StratifiedScheduler::propagate_comb() {
         }
     }
 
-    if (iters > 10) {
-        std::cerr << "[COMB_ITERS] T=" << current_sim_time << " iters=" << iters << "\n";
-    }
 
     static uint64_t last_hang_check_time = UINT64_MAX;
     static size_t consecutive_delta_limits = 0;
@@ -3152,29 +3162,24 @@ bool StratifiedScheduler::evaluate_sequential_blocks(uint32_t triggered_net_id, 
         }
     }
 
-    for (auto& bp : engine.processes) {
-        if (bp.proc->type != ProcessType::SEQUENTIAL) continue;
+    for (const auto& spi : sequential_processes_info) {
+        auto& bp = engine.processes[spi.pid];
         if (bp.fired_in_time_slot) continue;
         if (seq_fn != nullptr && bp.is_native_seq) continue;
 
         bool triggered = false;
-        for (auto& sens : bp.proc->sensitivity_list) {
-            if (sens.net_id == (size_t)-1) {
-                sens.net_id = engine.get_net_id(bp.scope, sens.signal_name);
-            }
+        for (const auto& sens : spi.sensitivities) {
             size_t net_id = sens.net_id;
             if (net_id == (size_t)-1) continue;
             const auto& net = engine.netlist[net_id];
-            size_t canon_id = engine.get_canonical_net_id(net_id);
-            const auto& canon_net = engine.netlist[canon_id];
+            size_t canon_id = sens.canon_id;
+            const auto& canon_net = (canon_id < engine.netlist.size()) ? engine.netlist[canon_id] : net;
 
             bool is_active_low_rst_at_t0 = (current_sim_time == 0 && 
-                                            bp.proc->sensitivity_list.size() > 1 && 
+                                            spi.sensitivities.size() > 1 && 
                                             sens.edge == EdgeType::NEGEDGE && 
                                             ((net.value.bval == 0 && (net.value.aval & 1) == 0) || 
                                              (canon_net.value.bval == 0 && (canon_net.value.aval & 1) == 0)));
-
-
 
             if (sens.edge == EdgeType::POSEDGE && (net.is_posedge() || canon_net.is_posedge())) { triggered = true; break; }
             else if (sens.edge == EdgeType::NEGEDGE && (net.is_negedge() || canon_net.is_negedge() || is_active_low_rst_at_t0)) { triggered = true; break; }

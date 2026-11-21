@@ -55,6 +55,7 @@ struct MemoryArray {
     int64_t orig_left = 0;
     int64_t orig_right = 0;
     int64_t packed_lsb = 0;
+    uint64_t change_counter = 1;
 
     MemoryArray() : word_width(32), depth(0), start_idx(0), end_idx(0), is_descending(false), is_real(false), orig_left(0), orig_right(0), packed_lsb(0) {}
     MemoryArray(std::string n, uint32_t w, uint32_t d, int64_t b1 = 0, int64_t b2 = 0)
@@ -108,6 +109,7 @@ struct MemoryArray {
         size_t off = to_word_offset(idx);
         if (off < words.size()) {
             words[off] = val;
+            change_counter++;
         }
     }
 
@@ -120,6 +122,7 @@ struct MemoryArray {
     void set_raw_word(size_t off, const LogicVal& val) {
         if (off < words.size()) {
             words[off] = val;
+            change_counter++;
         }
     }
 };

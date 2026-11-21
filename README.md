@@ -1,7 +1,7 @@
 # CAS: Cycle-Accurate Simulator
 
-**Current Version:** `v4.7.0.0`  
-**Status:** Release v4.7.0.0 Clean (100.0% Pass Rate Across All 1,665 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 117/117 Milestone Regressions [100% VCS Golden Parity], 2,132 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`, and 100.0% Architectural Lockstep Parity with Spike RISC-V ISA Simulator on lowRISC Ibex SoC)  
+**Current Version:** `v4.8.0.0`  
+**Status:** Release v4.8.0.0 Clean (100.0% Pass Rate Across All 1,665 Standard Verification Tests: 520/520 Icarus Verilog `ivtest` Suite, 1,028/1,028 IEEE 1800-2023 `sv-tests` Suite, 117/117 Milestone Regressions [100% VCS Golden Parity], 2,133 Passing Tests Across Verilator `test_regress` Enforced in 5-Stage Zero-Regression CI Gate in `scripts/setup_and_verify.sh`, and 100.0% Architectural Lockstep Parity with Spike RISC-V ISA Simulator on lowRISC Ibex SoC)  
 **License:** MIT  
 **Target Standard:** IEEE Std 1800-2023 SystemVerilog & IEEE Std 1364-2005 Verilog  
 
@@ -36,7 +36,7 @@ CAS_Cycle_Accurate_Simulator/
 │   ├── run_sv_tests.py      # High-Performance Multi-Threaded Benchmark Runner (1,028/1,028)
 │   ├── ivtest/              # 520 Icarus Verilog Compliance & Edge-Case Tests
 │   ├── run_ivtest.py        # High-Performance Parallel ivtest Runner (520/520)
-│   └── run_verilator_tests.py # Verilator test_regress Triage Runner (2,132/2,804 = 76.0%)
+│   └── run_verilator_tests.py # Verilator test_regress Triage Runner (2,133/2,804 = 76.1%)
 ├── projects/                # Production Designs & System-on-Chip Verification Targets
 │   ├── ibex/                # lowRISC Ibex RISC-V 32-bit Core & SoC
 │   ├── ibex_simple_system/  # Simple System SoC Testbench & Firmware
@@ -64,7 +64,7 @@ bash scripts/setup_and_verify.sh
 - **Stage 2**: Runs all **117 milestone regression suites** (**117 / 117 PASS = 100.0%**).
 - **Stage 3**: Runs all **1,028 IEEE Std 1800-2023 `sv-tests`** (**1,028 / 1,028 PASS = 100.0%** in ~11-15s).
 - **Stage 4**: Runs all **520 Icarus Verilog `ivtest` tests** (**520 / 520 PASS = 100.0%** in ~14-17s).
-- **Stage 5**: Runs the **Verilator `test_regress` suite** (**2,132 / 2,804 PASS = 76.0%**, enforcing >= 2,125 threshold).
+- **Stage 5**: Runs the **Verilator `test_regress` suite** (**2,133 / 2,804 PASS = 76.1%**, enforcing >= 2,125 threshold).
 - **Grand Total**: **5 / 5 Stages PASS — ZERO-REGRESSION CI GATE PASSED**.
 
 ### 2. Run lowRISC Ibex RV32IMC SoC Boot Demo

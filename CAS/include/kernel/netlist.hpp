@@ -134,6 +134,7 @@ struct MemoryBinding {
     mutable MemoryArray* cached_src = nullptr;
     mutable MemoryArray* cached_dst = nullptr;
     mutable bool resolved = false;
+    mutable uint64_t last_synced_version = 0;
 };
 
 struct MemoryContinuousAssign {

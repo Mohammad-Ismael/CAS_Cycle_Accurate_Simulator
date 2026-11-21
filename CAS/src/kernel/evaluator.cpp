@@ -6056,7 +6056,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 }
                             }
                             if (!addr_unknown && linear_addr < mem.words.size()) {
-                                mem.words[linear_addr] = handle_val;
+                                mem.words[linear_addr] = handle_val; mem.change_counter++;
                             }
                         }
                     } else {
@@ -7944,7 +7944,7 @@ void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNo
                         }
                     }
                     val.mask();
-                    if (i < mem.words.size()) mem.words[i] = val;
+                    if (i < mem.words.size()) { mem.words[i] = val; mem.change_counter++; }
                 }
                 continue;
             }
