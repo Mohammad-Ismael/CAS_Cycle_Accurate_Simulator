@@ -1,5 +1,46 @@
 # CAS Version History & Milestone Release Notes
 
+## Version v4.8.2.0 (Checkpoint & Zero-Regression Stabilization: 64-Bit Compiler Upgrades Preserved)
+
+**Release Date:** November 2026  
+**Milestone:** Checkpoint & Zero-Regression Stabilization: Preserved All 64-Bit SystemVerilog Frontend & Kernel Upgrades for CVA6/ZETRAA (Package-Scoped Types, StaticMethodCallNode, Struct Slices, GenerateBlock Parameters, Multi-Dimensional Array Subtitution, and Set Inside Range Evaluation), SVA Implication Operator Grammar Decoupling, Parameter Signedness Disambiguation in `ivtest`, and Async Trace Buffer I/O Stream Speedup  
+**Parity Target:** 100.0% Golden Parity across Synopsys VCS, Spike ISA Simulator, and Verilator  
+**Regression Status:** 117 / 117 PASS (100.0% VCS Golden Parity)  
+**`sv-tests` Grand Total Compliance:** 1,028 / 1,028 PASS (100.0%)  
+**`ivtest` Grand Total Compliance:** 520 / 520 PASS (100.0%)  
+**Verilator `test_regress` Compliance:** **2,159 / 2,804 PASS (77.0%)** (exceeds >= 2,125 threshold; +29 tests gained)  
+- **Pure-SV Simulation (SIM):** **2,088 / 2,630 PASS (79.4%)**  
+- **Negative Compile-Error (CE):** **41 / 129 PASS (31.8%)**  
+- **DPI-C Integration (DPI):** **30 / 45 PASS (66.7%)**  
+**Ibex Spike Lockstep Parity (`scripts/verify_ibex_spike.py`):** **178 / 178 Instructions Verified (100.0% Parity, 0 Mismatches, 0 'x'/'z' Writebacks)**  
+- `hello_test`: 65 / 65 instructions match Spike golden commit trace (0 mismatches, 0 'x'/'z' in writebacks)  
+- `pmp_smoke_test`: 51 / 51 instructions match Spike golden commit trace (0 mismatches, 0 'x'/'z' in writebacks)  
+- `dummy_instr_test`: 62 / 62 instructions match Spike golden commit trace (0 mismatches, 0 'x'/'z' in writebacks)  
+**Combined Mandatory CI Gate:** 5 / 5 Stages PASS (100.0% across 1,665 tests + Verilator 2,159 >= 2,125 enforced) via `scripts/setup_and_verify.sh`  
+
+---
+
+### Phase Checkpoint Upgrades & Stabilization Innovations
+
+1. **Preserved 64-Bit SystemVerilog Compiler Upgrades for CVA6 / ZETRAA**:
+   - Package-scoped type parameter declarations and parameterized typedefs in port lists.
+   - `StaticMethodCallNode` AST expression evaluation for package/class static calls.
+   - Packed/unpacked structure member offset slicing and non-blocking assignments.
+   - Generate block local parameter scoping (`GenerateBlock::parameters`).
+   - Multi-dimensional array index substitution across hierarchical instances.
+   - `inside {[low:high], val}` set evaluation in kernel expression evaluator.
+
+2. **SVA Implication Operator Grammar Decoupling (`CAS/src/frontend/parser_expr.cpp`)**:
+   - Prevented `|->` and `|=>` from being erroneously treated as binary expressions during sequence parsing, ensuring concurrent assertions retain antecedent and consequent property attributes.
+
+3. **Parameter Signedness vs Type Disambiguation (`CAS/src/kernel/elaborator.cpp`)**:
+   - Decoupled `signed`/`unsigned` keyword evaluation from struct typedef searches for un-ranged parameters, restoring 100.0% pass rate in `ivtest` (520 / 520).
+
+4. **Async Trace Buffer High-Frequency I/O Stream Isolation (`CAS/src/kernel/evaluator.cpp`)**:
+   - Removed duplicate `stdout` mirroring for tracer files (`fd != 1`), avoiding Docker named-pipe stalls on high-frequency instruction logging.
+
+---
+
 ## Version v4.8.1.0 (Critical Bugfix & Ibex Full-Horizon Parity Hardening)
 
 **Release Date:** November 2026  

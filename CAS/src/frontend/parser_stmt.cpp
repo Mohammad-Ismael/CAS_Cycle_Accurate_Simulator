@@ -387,6 +387,9 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             }
         }
     }
+    if (current.type == TokenType::TOKEN_IDENTIFIER && is_module_type_parameter(current.text)) {
+        is_type_param = true;
+    }
     bool is_class_type = (current.type == TokenType::TOKEN_IDENTIFIER && (is_class(current.text) || is_known_class(current.text) || is_class(maybe_cls_ident) || is_known_class(maybe_cls_ident) || is_type_param));
     bool is_udt_decl = false;
     if (current.type == TokenType::TOKEN_IDENTIFIER && current.text != "var" && !is_type_identifier(current.text) &&
@@ -450,17 +453,40 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                 init_expr = parse_expression();
             }
+            bool is_actual_class = is_class(class_type) || is_known_class(class_type) || (current_parsing_class && is_type_param);
+            if (!is_actual_class && class_type.find("::") != std::string::npos) {
+                size_t p = class_type.rfind("::");
+                std::string base_cls = class_type.substr(p + 2);
+                if (is_class(base_cls) || is_known_class(base_cls)) is_actual_class = true;
+            }
+            uint32_t var_w = is_actual_class ? 64 : 0;
+            if (!is_actual_class) {
+                std::string res_t = resolve_imported_type_name(class_type);
+                auto st = get_struct_typedef(res_t.empty() ? class_type : res_t);
+                if (st) var_w = st->total_width;
+                else {
+                    SimpleTypedef st_info;
+                    if (get_simple_typedef(res_t.empty() ? class_type : res_t, st_info)) {
+                        var_w = st_info.width;
+                    }
+                }
+                current_scope_var_types[vname] = class_type;
+            }
             if (arr_size > 0) {
                 for (uint32_t i = 0; i < arr_size; ++i) {
-                    auto elem_stmt = std::make_unique<VarDeclStatementNode>(vname + "[" + std::to_string(i) + "]", 64, false, class_type);
-                    elem_stmt->is_class_handle = true;
-                    elem_stmt->class_type_name = class_type;
+                    auto elem_stmt = std::make_unique<VarDeclStatementNode>(vname + "[" + std::to_string(i) + "]", var_w, false, class_type);
+                    if (is_actual_class) {
+                        elem_stmt->is_class_handle = true;
+                        elem_stmt->class_type_name = class_type;
+                    }
                     vstmts.push_back(std::move(elem_stmt));
                 }
             }
-            auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, 64, false, class_type);
-            var_stmt->is_class_handle = true;
-            var_stmt->class_type_name = class_type;
+            auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, var_w, false, class_type);
+            if (is_actual_class) {
+                var_stmt->is_class_handle = true;
+                var_stmt->class_type_name = class_type;
+            }
             var_stmt->init_expr = std::move(init_expr);
             vstmts.push_back(std::move(var_stmt));
             if (match(TokenType::TOKEN_COMMA)) continue;
@@ -489,11 +515,27 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
             global_type_dimensions[anon_type] = svdm;
         }
 
+        std::vector<AstDimension> packed_dims;
+        while (match(TokenType::TOKEN_LBRACKET)) {
+            auto l = parse_expression();
+            std::unique_ptr<ExpressionNode> r = nullptr;
+            if (match(TokenType::TOKEN_COLON)) {
+                r = parse_expression();
+            }
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in packed range");
+            AstDimension ad;
+            ad.left_expr = l->clone();
+            ad.right_expr = r ? r->clone() : nullptr;
+            ad.is_single = (r == nullptr);
+            packed_dims.push_back(std::move(ad));
+        }
+
         std::vector<std::unique_ptr<StatementNode>> vstmts;
         while (true) {
             std::string vname = current.text;
             expect(TokenType::TOKEN_IDENTIFIER, "Expected variable identifier");
             auto var_stmt = std::make_unique<VarDeclStatementNode>(vname, struct_node->total_width, struct_node->is_signed, anon_type);
+            var_stmt->packed_dimensions = packed_dims;
             while (match(TokenType::TOKEN_LBRACKET)) {
                 if (match(TokenType::TOKEN_DOLLAR)) {
                     var_stmt->is_queue = true;
@@ -588,7 +630,7 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
         std::string t_name = current.text;
         expect(TokenType::TOKEN_IDENTIFIER, "Expected type identifier after '::'");
         proc_type_name = p_name + "::" + t_name;
-    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr)) {
+    } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_unpacked_array_typedef(current.text) || find_type_dim_metadata(current.text) != nullptr || is_module_type_parameter(current.text))) {
         proc_type_name = current.text;
         advance();
     }
@@ -3170,6 +3212,9 @@ std::unique_ptr<ProcessNode> Parser::parse_always_ff() {
         if (match(TokenType::TOKEN_POSEDGE)) edge = EdgeType::POSEDGE;
         else if (match(TokenType::TOKEN_NEGEDGE)) edge = EdgeType::NEGEDGE;
 
+        int paren_count = 0;
+        while (match(TokenType::TOKEN_LPAREN)) paren_count++;
+
         if (current.type == TokenType::TOKEN_NOT || current.type == TokenType::TOKEN_TILDE ||
             current.type == TokenType::TOKEN_AND || current.type == TokenType::TOKEN_OR_BIT) {
             advance();
@@ -3186,6 +3231,7 @@ std::unique_ptr<ProcessNode> Parser::parse_always_ff() {
             if (match(TokenType::TOKEN_COLON)) parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in sensitivity list select");
         }
+        while (paren_count > 0 && match(TokenType::TOKEN_RPAREN)) paren_count--;
         proc->sensitivity_list.push_back({edge, sig});
 
         if (match(TokenType::TOKEN_OR) || match(TokenType::TOKEN_GATE_OR) || match(TokenType::TOKEN_COMMA)) continue;

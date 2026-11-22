@@ -355,13 +355,14 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                 advance(); advance();
                 std::string t_name = current.text;
                 std::string full_t = p_name + "::" + t_name;
+                arg_type_name = full_t;
                 auto einfo = get_enum_typedef(full_t);
                 auto sinfo = get_struct_typedef(full_t);
                 def_w = sinfo ? sinfo->total_width : (einfo ? einfo->base_width : 32);
                 is_s = sinfo ? sinfo->is_signed : (einfo ? einfo->is_signed : false);
                 is_int = true;
                 advance();
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text))) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (is_typedef(current.text) || is_simple_typedef(current.text) || is_module_type_parameter(current.text))) {
                 has_explicit_type = true;
                 arg_type_name = current.text;
                 auto einfo = get_enum_typedef(current.text);
@@ -399,7 +400,7 @@ std::unique_ptr<FunctionNode> Parser::parse_function(bool is_pure, bool is_exter
                         }
                     }
                 }
-            } else if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_IDENTIFIER) {
+            } else if (current.type == TokenType::TOKEN_IDENTIFIER && (peek_token().type == TokenType::TOKEN_IDENTIFIER || (peek_token().type == TokenType::TOKEN_LBRACKET && is_type_identifier(current.text)))) {
                 bool is_valid_type = is_type_identifier(current.text) || is_interface_type(current.text) || is_covergroup(current.text);
                 if (!is_valid_type && current_parsing_module) {
                     for (const auto& p : current_parsing_module->parameters) {

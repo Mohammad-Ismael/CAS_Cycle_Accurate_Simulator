@@ -103,6 +103,8 @@ struct ParameterDef {
     bool has_range = false;
     bool is_signed = false;
     bool is_dynamic_array = false;
+    bool is_array = false;
+    std::vector<AstDimension> unpacked_dimensions;
 
     ParameterDef() = default;
     ParameterDef(std::string n, std::unique_ptr<ExpressionNode> e, bool is_local = false, std::string t = "")
@@ -116,7 +118,9 @@ struct ParameterDef {
           lsb_expr(other.lsb_expr ? other.lsb_expr->clone() : nullptr),
           has_range(other.has_range),
           is_signed(other.is_signed),
-          is_dynamic_array(other.is_dynamic_array) {}
+          is_dynamic_array(other.is_dynamic_array),
+          is_array(other.is_array),
+          unpacked_dimensions(other.unpacked_dimensions) {}
     ParameterDef& operator=(const ParameterDef& other) {
         if (this != &other) {
             name = other.name;
@@ -128,6 +132,8 @@ struct ParameterDef {
             has_range = other.has_range;
             is_signed = other.is_signed;
             is_dynamic_array = other.is_dynamic_array;
+            is_array = other.is_array;
+            unpacked_dimensions = other.unpacked_dimensions;
         }
         return *this;
     }
@@ -436,6 +442,8 @@ struct StructMemberNode : public ASTNode {
     std::shared_ptr<ExpressionNode> default_value = nullptr;
     uint32_t elem_width = 1;
     int64_t outer_low = 0;
+    std::shared_ptr<ExpressionNode> msb_expr = nullptr;
+    std::shared_ptr<ExpressionNode> lsb_expr = nullptr;
 };
 
 struct StructTypeNode : public ASTNode {
@@ -1119,6 +1127,7 @@ struct PackageNode : public ASTNode {
 struct GenerateBlock {
     std::string label;
     std::vector<PortNode> signals;
+    std::vector<ParameterDef> parameters;
     std::vector<std::unique_ptr<ContinuousAssignNode>> continuous_assigns;
     std::vector<std::unique_ptr<ProcessNode>> processes;
     std::vector<std::unique_ptr<InstantiationNode>> instantiations;

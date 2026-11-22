@@ -182,6 +182,44 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
         return lv;
     }
+    if (auto sma = dynamic_cast<StaticMemberAccessNode*>(expr)) {
+        std::string full_id = sma->class_type_name + "::" + sma->member_name;
+        if (result.param_val_map.find(full_id) != result.param_val_map.end()) {
+            return result.param_val_map.at(full_id);
+        }
+        if (result.param_map.find(full_id) != result.param_map.end()) {
+            return LogicVal::make_known(32, result.param_map.at(full_id));
+        }
+        if (result.enum_constant_map.find(full_id) != result.enum_constant_map.end()) {
+            return result.enum_constant_map.at(full_id);
+        }
+        std::string dot_id = sma->class_type_name + "." + sma->member_name;
+        if (result.param_val_map.find(dot_id) != result.param_val_map.end()) {
+            return result.param_val_map.at(dot_id);
+        }
+        if (result.param_map.find(dot_id) != result.param_map.end()) {
+            return LogicVal::make_known(32, result.param_map.at(dot_id));
+        }
+        auto pit = Parser::global_packages.find(sma->class_type_name);
+        if (pit != Parser::global_packages.end()) {
+            for (const auto& p : pit->second->parameters) {
+                if (p.name == sma->member_name) {
+                    LogicVal lv = eval_const_logic_val(p.default_expr.get(), sma->class_type_name);
+                    result.param_val_map[full_id] = lv;
+                    if (!p.type_name.empty()) {
+                        result.var_to_struct_type[full_id] = p.type_name;
+                    }
+                    return lv;
+                }
+            }
+            if (pit->second->param_constants.count(sma->member_name)) {
+                return LogicVal::make_known(32, pit->second->param_constants.at(sma->member_name));
+            }
+            if (pit->second->enum_constant_map.count(sma->member_name)) {
+                return pit->second->enum_constant_map.at(sma->member_name);
+            }
+        }
+    }
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
         std::string cur_scope = scope;
         while (!cur_scope.empty()) {
@@ -284,7 +322,21 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
             }
             return res;
         }
-        return LogicVal(0, 0, 0);
+        std::vector<LogicVal> arr_elems;
+        for (const auto& elem : ucat->elements) {
+            if (auto pm = dynamic_cast<PatternMemberNode*>(elem.get())) {
+                arr_elems.push_back(eval_const_logic_val(pm->value.get(), scope));
+            } else {
+                arr_elems.push_back(eval_const_logic_val(elem.get(), scope));
+            }
+        }
+        LogicVal res = LogicVal::make_known(32, (uint64_t)arr_elems.size());
+        res.is_unpacked = true;
+        res.unpacked_elements = std::move(arr_elems);
+        return res;
+    }
+    if (auto pm = dynamic_cast<PatternMemberNode*>(expr)) {
+        return eval_const_logic_val(pm->value.get(), scope);
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         std::string var_name = ma->var_name;
@@ -359,6 +411,29 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                 var_val = eval_const_logic_val(&parent_ma, scope);
                 if (var_val.width > 0) {
                     found_var = true;
+                    std::string p_type = "";
+                    std::string cur_ps = scope;
+                    while (true) {
+                        std::string sp = cur_ps.empty() ? parent_var : (cur_ps + "." + parent_var);
+                        if (result.var_to_struct_type.count(sp)) { p_type = result.var_to_struct_type.at(sp); break; }
+                        if (cur_ps.empty()) break;
+                        auto d = cur_ps.rfind('.');
+                        if (d == std::string::npos) cur_ps = "";
+                        else cur_ps = cur_ps.substr(0, d);
+                    }
+                    if (p_type.empty() && result.var_to_struct_type.count(parent_var)) p_type = result.var_to_struct_type.at(parent_var);
+                    const PackedStructType* pst = !p_type.empty() ? find_struct_type(p_type, scope) : nullptr;
+                    if (!pst) {
+                        for (const auto& pr : result.struct_types) {
+                            if (pr.second.get_member(sub_mem)) { pst = &pr.second; break; }
+                        }
+                    }
+                    if (pst) {
+                        const StructMember* psm = pst->get_member(sub_mem);
+                        if (psm && !psm->type_name.empty()) {
+                            struct_type = psm->type_name;
+                        }
+                    }
                 }
             }
         }
@@ -468,6 +543,46 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
 
         if (found_base) {
+            if (base_val.is_unpacked) {
+                int64_t raw_idx = (int64_t)eval_const_expr(idx->msb_expr.get(), scope);
+                const VariableDimMetadata* vdm = nullptr;
+                if (result.var_dimensions.count(scope + "." + idx->name)) {
+                    vdm = &result.var_dimensions.at(scope + "." + idx->name);
+                } else if (result.var_dimensions.count(idx->name)) {
+                    vdm = &result.var_dimensions.at(idx->name);
+                }
+                if (vdm && !vdm->dimensions.empty()) {
+                    int64_t low = vdm->dimensions[0].low();
+                    if (raw_idx >= low) raw_idx -= low;
+                }
+                if (raw_idx < 0 || (size_t)raw_idx >= base_val.unpacked_elements.size()) {
+                    return LogicVal(0, 0, 0);
+                }
+                LogicVal elem = base_val.unpacked_elements[raw_idx];
+                if (idx->has_bit_select && idx->bit_msb_expr) {
+                    uint64_t b_msb = eval_const_expr(idx->bit_msb_expr.get(), scope);
+                    uint64_t b_lsb = 0;
+                    uint32_t w = 1;
+                    if (idx->is_plus_colon) {
+                        uint64_t width = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : 1;
+                        b_lsb = b_msb;
+                        w = static_cast<uint32_t>(width);
+                    } else if (idx->is_minus_colon) {
+                        uint64_t width = idx->bit_lsb_expr ? eval_const_expr(idx->bit_lsb_expr.get(), scope) : 1;
+                        b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
+                        w = static_cast<uint32_t>(width);
+                    } else if (idx->bit_lsb_expr) {
+                        b_lsb = eval_const_expr(idx->bit_lsb_expr.get(), scope);
+                        w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                        b_lsb = std::min(b_msb, b_lsb);
+                    } else {
+                        b_lsb = b_msb;
+                        w = 1;
+                    }
+                    return elem.extract_slice((uint32_t)b_lsb, w);
+                }
+                return elem;
+            }
             if (idx->is_plus_colon) {
                 uint64_t base = eval_const_expr(idx->msb_expr.get(), scope);
                 uint64_t w = idx->lsb_expr ? eval_const_expr(idx->lsb_expr.get(), scope) : 1;
@@ -615,6 +730,56 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         }
         return val;
     }
+    if (auto inside_node = dynamic_cast<InsideNode*>(expr)) {
+        LogicVal target_val = eval_const_logic_val(inside_node->target.get(), scope);
+        bool has_unknown = false;
+        for (const auto& r : inside_node->ranges) {
+            if (r.high) {
+                LogicVal lo = eval_const_logic_val(r.low.get(), scope);
+                LogicVal hi = eval_const_logic_val(r.high.get(), scope);
+                if (target_val.is_unknown() || lo.is_unknown() || hi.is_unknown()) {
+                    has_unknown = true;
+                    continue;
+                }
+                bool is_signed = target_val.is_signed && lo.is_signed && hi.is_signed;
+                if (is_signed) {
+                    int64_t t = target_val.to_signed();
+                    int64_t l = lo.to_signed();
+                    int64_t h = hi.to_signed();
+                    if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                        return LogicVal::make_known(1, 1);
+                    }
+                } else {
+                    uint64_t t = target_val.aval;
+                    uint64_t l = lo.aval;
+                    uint64_t h = hi.aval;
+                    if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                        return LogicVal::make_known(1, 1);
+                    }
+                }
+            } else {
+                LogicVal v = eval_const_logic_val(r.low.get(), scope);
+                LogicVal cmp = LogicOps::wildcard_eq(target_val, v);
+                if (cmp.is_unknown()) {
+                    has_unknown = true;
+                } else if (cmp.aval == 1) {
+                    return LogicVal::make_known(1, 1);
+                }
+            }
+        }
+        if (has_unknown) {
+            return LogicVal::make_x(1);
+        }
+        return LogicVal::make_known(1, 0);
+    }
+    if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> copied_args;
+        for (const auto& a : smc->args) {
+            copied_args.push_back(a ? a->clone() : nullptr);
+        }
+        FunctionCallNode fc(smc->class_type_name + "::" + smc->method_name, std::move(copied_args), smc->arg_names);
+        return eval_const_logic_val(&fc, scope);
+    }
     if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
         if (fc->func_name == "$signed") {
             if (!fc->args.empty()) {
@@ -645,6 +810,21 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
             target_fn = result.function_map.at(scope.empty() ? fc->func_name : (scope + "." + fc->func_name));
         } else if (result.function_map.count(fc->func_name)) {
             target_fn = result.function_map.at(fc->func_name);
+        }
+        if (!target_fn && colon != std::string::npos) {
+            std::string pkg_name = fc->func_name.substr(0, colon);
+            auto pit = Parser::global_packages.find(pkg_name);
+            if (pit != Parser::global_packages.end() && pit->second->function_map.count(fname)) {
+                target_fn = pit->second->function_map.at(fname);
+            }
+        }
+        if (!target_fn) {
+            for (const auto& kv : Parser::global_packages) {
+                if (kv.second->function_map.count(fname)) {
+                    target_fn = kv.second->function_map.at(fname);
+                    break;
+                }
+            }
         }
         if (target_fn && (target_fn->return_type_name == "real" || target_fn->return_type_name == "shortreal")) {
             std::unordered_map<std::string, double> fn_real_env;
@@ -720,9 +900,45 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
             return LogicVal::make_real(ret_val);
         } else if (target_fn) {
             std::unordered_map<std::string, LogicVal> fn_logic_env;
+            std::unordered_map<std::string, std::string> fn_var_struct_type;
+
+            auto find_fn_struct_type = [&](const std::string& tname) -> const PackedStructType* {
+                if (tname.empty()) return nullptr;
+                std::string bare_tname = tname;
+                auto cpos = bare_tname.rfind("::");
+                if (cpos != std::string::npos) bare_tname = bare_tname.substr(cpos + 2);
+
+                const PackedStructType* st = find_struct_type(tname, scope);
+                if (!st) st = find_struct_type(bare_tname, scope);
+                if (!st && !target_fn->scope.empty()) {
+                    st = find_struct_type(tname, target_fn->scope);
+                    if (!st) st = find_struct_type(bare_tname, target_fn->scope);
+                    if (!st) st = find_struct_type(target_fn->scope + "::" + bare_tname, "");
+                    if (!st) st = find_struct_type(target_fn->scope + "." + bare_tname, "");
+                }
+                if (!st) {
+                    for (const auto& pair : result.struct_types) {
+                        if (pair.first == tname || pair.second.name == tname ||
+                            pair.first == bare_tname || pair.second.name == bare_tname ||
+                            pair.first.rfind("::" + bare_tname) != std::string::npos ||
+                            pair.first.rfind("." + bare_tname) != std::string::npos) {
+                            return &pair.second;
+                        }
+                    }
+                }
+                return st;
+            };
+
             for (size_t i = 0; i < target_fn->inputs.size(); ++i) {
                 const auto& in_p = target_fn->inputs[i];
                 uint32_t w = in_p.width > 0 ? in_p.width : 32;
+                if (!in_p.type_name.empty()) {
+                    const PackedStructType* pst = find_fn_struct_type(in_p.type_name);
+                    if (pst) {
+                        w = pst->total_width;
+                        fn_var_struct_type[in_p.name] = pst->name;
+                    }
+                }
                 if (in_p.msb_expr && in_p.lsb_expr) {
                     try {
                         uint64_t m = eval_const_expr(in_p.msb_expr.get(), scope);
@@ -733,6 +949,28 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                 LogicVal arg_val(w, 0, 0, in_p.is_signed);
                 if (i < fc->args.size() && fc->args[i]) {
                     arg_val = eval_const_logic_val(fc->args[i].get(), scope);
+                    if (auto sma_arg = dynamic_cast<StaticMemberAccessNode*>(fc->args[i].get())) {
+                        std::string full_id = sma_arg->class_type_name + "::" + sma_arg->member_name;
+                        if (result.var_to_struct_type.count(full_id)) {
+                            fn_var_struct_type[in_p.name] = result.var_to_struct_type.at(full_id);
+                        }
+                    } else if (auto id_arg = dynamic_cast<IdentifierNode*>(fc->args[i].get())) {
+                        std::string cur_ps = scope;
+                        while (true) {
+                            std::string scoped_id = cur_ps.empty() ? id_arg->name : (cur_ps + "." + id_arg->name);
+                            if (result.var_to_struct_type.count(scoped_id)) {
+                                fn_var_struct_type[in_p.name] = result.var_to_struct_type.at(scoped_id);
+                                break;
+                            }
+                            if (cur_ps.empty()) break;
+                            auto dot = cur_ps.rfind('.');
+                            if (dot == std::string::npos) cur_ps = "";
+                            else cur_ps = cur_ps.substr(0, dot);
+                        }
+                    }
+                }
+                if (fn_var_struct_type.find(in_p.name) == fn_var_struct_type.end() && !in_p.type_name.empty()) {
+                    fn_var_struct_type[in_p.name] = in_p.type_name;
                 } else if (in_p.default_value) {
                     std::function<void(ExpressionNode*)> check_const = [&](ExpressionNode* e) {
                         if (!e) return;
@@ -771,7 +1009,15 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                 }
                 fn_logic_env[in_p.name] = arg_val;
             }
-            uint32_t ret_w = target_fn->return_width > 0 ? target_fn->return_width : 32;
+            uint32_t ret_w = target_fn->return_width;
+            if (ret_w == 0 && !target_fn->return_type_name.empty()) {
+                const PackedStructType* rst = find_fn_struct_type(target_fn->return_type_name);
+                if (rst) {
+                    ret_w = rst->total_width;
+                    fn_var_struct_type[target_fn->name] = rst->name;
+                }
+            }
+            if (ret_w == 0) ret_w = 32;
             LogicVal ret_val(ret_w, 0, 0, target_fn->return_signed);
             fn_logic_env[target_fn->name] = ret_val;
             bool returned = false;
@@ -838,6 +1084,153 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         int64_t ival = op.is_signed ? op.to_signed() : static_cast<int64_t>(op.aval);
                         return LogicVal::make_known(op.width, static_cast<uint64_t>(-ival), true);
                     }
+                    if (un->op == "+") return op;
+                    if (un->op == "!") return LogicVal::make_known(1, op.to_bool() ? 0 : 1);
+                    if (un->op == "~") return LogicOps::bitwise_not(op);
+                    if (un->op == "&") return LogicOps::reduce_and(op);
+                    if (un->op == "|") return LogicOps::reduce_or(op);
+                    if (un->op == "^") return LogicOps::reduce_xor(op);
+                }
+                if (auto ter = dynamic_cast<TernaryOpNode*>(e)) {
+                    LogicVal c = eval_fn_expr(ter->condition.get());
+                    return c.to_bool() ? eval_fn_expr(ter->true_expr.get()) : eval_fn_expr(ter->false_expr.get());
+                }
+                if (auto clog = dynamic_cast<Clog2Node*>(e)) {
+                    LogicVal v = eval_fn_expr(clog->operand.get());
+                    uint64_t cl = compute_clog2(v.aval);
+                    return LogicVal::make_known(32, cl);
+                }
+                if (auto cat = dynamic_cast<ConcatNode*>(e)) {
+                    uint32_t total_w = 0;
+                    std::vector<LogicVal> vals;
+                    for (auto& elem : cat->elements) {
+                        LogicVal v = eval_fn_expr(elem.get());
+                        vals.push_back(v);
+                        total_w += v.width;
+                    }
+                    if (total_w <= 64) {
+                        uint64_t new_a = 0, new_b = 0;
+                        uint32_t shift = total_w;
+                        for (const auto& v : vals) {
+                            shift -= v.width;
+                            uint64_t mask = (v.width == 64) ? ~0ULL : ((1ULL << v.width) - 1);
+                            new_a |= ((v.aval & mask) << shift);
+                            new_b |= ((v.bval & mask) << shift);
+                        }
+                        return LogicVal(total_w, new_a, new_b);
+                    } else {
+                        LogicVal res(total_w, 0, 0);
+                        uint32_t cur_bit = total_w;
+                        for (const auto& v : vals) {
+                            cur_bit -= v.width;
+                            res.deposit_slice(cur_bit, v.width, v);
+                        }
+                        return res;
+                    }
+                }
+                if (auto inside_node = dynamic_cast<InsideNode*>(e)) {
+                    LogicVal target_val = eval_fn_expr(inside_node->target.get());
+                    bool has_unknown = false;
+                    for (const auto& r : inside_node->ranges) {
+                        if (r.high) {
+                            LogicVal lo = eval_fn_expr(r.low.get());
+                            LogicVal hi = eval_fn_expr(r.high.get());
+                            if (target_val.is_unknown() || lo.is_unknown() || hi.is_unknown()) {
+                                has_unknown = true;
+                                continue;
+                            }
+                            bool is_signed = target_val.is_signed && lo.is_signed && hi.is_signed;
+                            if (is_signed) {
+                                int64_t t = target_val.to_signed();
+                                int64_t l = lo.to_signed();
+                                int64_t h = hi.to_signed();
+                                if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                                    return LogicVal::make_known(1, 1);
+                                }
+                            } else {
+                                uint64_t t = target_val.aval;
+                                uint64_t l = lo.aval;
+                                uint64_t h = hi.aval;
+                                if ((l <= t && t <= h) || (h <= t && t <= l)) {
+                                    return LogicVal::make_known(1, 1);
+                                }
+                            }
+                        } else {
+                            LogicVal v = eval_fn_expr(r.low.get());
+                            LogicVal cmp = LogicOps::wildcard_eq(target_val, v);
+                            if (cmp.is_unknown()) {
+                                has_unknown = true;
+                            } else if (cmp.aval == 1) {
+                                return LogicVal::make_known(1, 1);
+                            }
+                        }
+                    }
+                    if (has_unknown) return LogicVal::make_x(1);
+                    return LogicVal::make_known(1, 0);
+                }
+                if (auto fc_inner = dynamic_cast<FunctionCallNode*>(e)) {
+                    std::string infname = fc_inner->func_name;
+                    auto colon = infname.rfind("::");
+                    if (colon != std::string::npos) infname = infname.substr(colon + 2);
+                    if (infname == "$clog2" || infname == "clog2") {
+                        if (!fc_inner->args.empty()) {
+                            LogicVal v = eval_fn_expr(fc_inner->args[0].get());
+                            uint64_t cl = compute_clog2(v.aval);
+                            std::cerr << "[FN_CLOG2] arg=" << v.aval << " (w=" << v.width << ") res=" << cl << "\n";
+                            return LogicVal::make_known(32, cl);
+                        }
+                    }
+                    if (infname == "$unsigned" || infname == "$signed") {
+                        if (!fc_inner->args.empty()) {
+                            LogicVal v = eval_fn_expr(fc_inner->args[0].get());
+                            v.is_signed = (infname == "$signed");
+                            return v;
+                        }
+                    }
+                    std::vector<std::unique_ptr<ExpressionNode>> evaluated_args;
+                    for (const auto& a : fc_inner->args) {
+                        if (a) {
+                            LogicVal av = eval_fn_expr(a.get());
+                            evaluated_args.push_back(std::make_unique<NumberNode>(av.aval, av.bval, av.width, av.is_signed));
+                        } else {
+                            evaluated_args.push_back(nullptr);
+                        }
+                    }
+                    FunctionCallNode resolved_fc(fc_inner->func_name, std::move(evaluated_args), fc_inner->arg_names);
+                    return eval_const_logic_val(&resolved_fc, scope);
+                }
+                if (auto ma = dynamic_cast<MemberAccessNode*>(e)) {
+                    if (fn_logic_env.count(ma->var_name)) {
+                        const LogicVal& base_val = fn_logic_env.at(ma->var_name);
+                        std::string st_name = fn_var_struct_type.count(ma->var_name) ? fn_var_struct_type.at(ma->var_name) : "";
+                        const PackedStructType* st = !st_name.empty() ? find_fn_struct_type(st_name) : nullptr;
+                        if (!st) {
+                            for (const auto& pair : result.struct_types) {
+                                if (pair.second.get_member(ma->member_name)) { st = &pair.second; break; }
+                            }
+                        }
+                        if (st) {
+                            const StructMember* sm = st->get_member(ma->member_name);
+                            if (sm) {
+                                LogicVal m_val = base_val.extract_slice(sm->offset, sm->width);
+                                if (ma->has_member_select) {
+                                    if (ma->is_part_select && ma->member_msb_expr && ma->member_lsb_expr) {
+                                        LogicVal m_msb = eval_fn_expr(ma->member_msb_expr.get());
+                                        LogicVal m_lsb = eval_fn_expr(ma->member_lsb_expr.get());
+                                        if (m_msb.aval >= m_lsb.aval) {
+                                            uint32_t slen = (uint32_t)(m_msb.aval - m_lsb.aval + 1);
+                                            m_val = m_val.extract_slice((uint32_t)m_lsb.aval, slen);
+                                        }
+                                    } else if (ma->member_msb_expr) {
+                                        LogicVal bit = eval_fn_expr(ma->member_msb_expr.get());
+                                        m_val = m_val.extract_slice((uint32_t)bit.aval, 1);
+                                    }
+                                }
+                                return m_val;
+                            }
+                        }
+                    }
+                    return eval_const_logic_val(ma, scope);
                 }
                 if (auto bin = dynamic_cast<BinaryOpNode*>(e)) {
                     LogicVal l = eval_fn_expr(bin->lhs.get());
@@ -892,6 +1285,15 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                         }
                         return LogicVal::make_known(op_w, l.aval * r.aval, false);
                     }
+                    if (bin->op == "**") {
+                        uint64_t base = l.aval, exp = r.aval, res = 1;
+                        while (exp > 0) {
+                            if (exp & 1) res *= base;
+                            base *= base;
+                            exp >>= 1;
+                        }
+                        return LogicVal::make_known(op_w, res, expr_signed);
+                    }
                     if (bin->op == "/") {
                         if (r.aval == 0) return LogicVal::make_x(l.width);
                         if (expr_signed) return LogicVal::make_known(l.width, static_cast<uint64_t>((int64_t)l.aval / (int64_t)r.aval), true);
@@ -935,7 +1337,58 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                     LogicVal rhs_val = eval_fn_expr(ba->rhs.get());
                     if (!ba->lhs_targets.empty()) {
                         const std::string& tgt = ba->lhs_targets[0];
-                        if (fn_logic_env.count(tgt)) {
+                        std::string base_var = tgt;
+                        std::string member_name = "";
+                        auto dot_pos = tgt.find('.');
+                        if (dot_pos != std::string::npos) {
+                            base_var = tgt.substr(0, dot_pos);
+                            member_name = tgt.substr(dot_pos + 1);
+                        }
+                        if (!member_name.empty() && fn_logic_env.count(base_var)) {
+                            LogicVal& cur = fn_logic_env[base_var];
+                            std::string st_name = fn_var_struct_type.count(base_var) ? fn_var_struct_type.at(base_var) : "";
+                            const PackedStructType* st = !st_name.empty() ? find_fn_struct_type(st_name) : nullptr;
+                            if (!st) {
+                                for (const auto& pair : result.struct_types) {
+                                    if (pair.second.get_member(member_name)) { st = &pair.second; break; }
+                                }
+                            }
+                            if (st) {
+                                if (cur.width < st->total_width) {
+                                    cur = LogicOps::cast_width(cur, st->total_width, false);
+                                }
+                                if (!fn_var_struct_type.count(base_var)) {
+                                    fn_var_struct_type[base_var] = st->name;
+                                }
+                                const PackedStructType* cur_st = st;
+                                std::string remaining = member_name;
+                                uint32_t eff_offset = 0;
+                                uint32_t eff_width = 0;
+                                bool eff_signed = false;
+                                bool res_ok = false;
+                                while (!remaining.empty() && cur_st) {
+                                    std::string part = remaining;
+                                    std::string next_part = "";
+                                    auto d_pos = remaining.find('.');
+                                    if (d_pos != std::string::npos) {
+                                        part = remaining.substr(0, d_pos);
+                                        next_part = remaining.substr(d_pos + 1);
+                                    }
+                                    const StructMember* sm = cur_st->get_member(part);
+                                    if (!sm) break;
+                                    eff_offset += sm->offset;
+                                    eff_width = sm->width;
+                                    eff_signed = sm->is_signed;
+                                    if (next_part.empty()) { res_ok = true; break; }
+                                    cur_st = find_fn_struct_type(sm->type_name);
+                                    remaining = next_part;
+                                }
+                                if (res_ok && eff_width > 0) {
+                                    LogicVal piece = LogicOps::cast_width(rhs_val, eff_width, eff_signed);
+                                    cur.deposit_slice(eff_offset, eff_width, piece);
+                                }
+                            }
+                        } else if (fn_logic_env.count(tgt)) {
                             LogicVal& cur = fn_logic_env[tgt];
                             std::string bop = "";
                             if (!ba->op.empty() && ba->op != "=") {
@@ -1009,7 +1462,15 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                     return;
                 }
                 if (auto vd = dynamic_cast<VarDeclStatementNode*>(s)) {
-                    LogicVal init_val(32, 0, 0);
+                    uint32_t vw = vd->width > 0 ? vd->width : 32;
+                    if (!vd->type_name.empty()) {
+                        const PackedStructType* vst = find_fn_struct_type(vd->type_name);
+                        if (vst) {
+                            vw = vst->total_width;
+                            fn_var_struct_type[vd->var_name] = vst->name;
+                        }
+                    }
+                    LogicVal init_val(vw, 0, 0);
                     if (vd->init_expr) {
                         init_val = eval_fn_expr(vd->init_expr.get());
                     }
@@ -1834,6 +2295,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 return (divisor != 0) ? (dividend + divisor - 1) / divisor : 0;
             }
         }
+        std::vector<std::unique_ptr<ExpressionNode>> copied_args;
+        for (const auto& a : smc->args) {
+            copied_args.push_back(a ? a->clone() : nullptr);
+        }
+        FunctionCallNode fc(smc->class_type_name + "::" + smc->method_name, std::move(copied_args), smc->arg_names);
+        return eval_const_expr(&fc, scope, local_env, local_signed, local_width);
     }
     if (auto fc = dynamic_cast<FunctionCallNode*>(expr)) {
         std::string fname = fc->func_name;
@@ -1888,11 +2355,33 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                 target_fn = pit->second->function_map.at(fname);
             }
         }
+        if (!target_fn) {
+            for (const auto& kv : Parser::global_packages) {
+                if (kv.second->function_map.count(fname)) {
+                    target_fn = kv.second->function_map.at(fname);
+                    break;
+                }
+            }
+        }
+        if (!target_fn && colon != std::string::npos) {
+            std::string pkg_name = fc->func_name.substr(0, colon);
+            auto pit = Parser::global_packages.find(pkg_name);
+            if (pit != Parser::global_packages.end() && pit->second->function_map.count(fname)) {
+                target_fn = pit->second->function_map.at(fname);
+            }
+        }
 
         if (target_fn) {
             if (target_fn->return_type_name == "real" || target_fn->return_type_name == "shortreal") {
                 LogicVal rlv = eval_const_logic_val(fc, scope);
                 return static_cast<uint64_t>(std::llround(rlv.real_val));
+            }
+            if (!target_fn->return_type_name.empty()) {
+                const PackedStructType* st = find_struct_type(target_fn->return_type_name, scope);
+                if (st) {
+                    LogicVal slv = eval_const_logic_val(fc, scope);
+                    return slv.aval;
+                }
             }
             std::unordered_map<std::string, uint64_t> fn_env;
             std::unordered_map<std::string, bool> fn_signed;
@@ -2206,6 +2695,9 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         }
         return (uint64_t)count;
     }
+    if (auto inside_node = dynamic_cast<InsideNode*>(expr)) {
+        return eval_const_logic_val(inside_node, scope).aval;
+    }
     return 0;
 }
 
@@ -2503,11 +2995,32 @@ size_t Elaborator::resolve_target_net_id(const std::string& target, const std::s
             }
         }
     }
+    // Check if target is a memory array in current scope or ancestors
+    std::string cur_s = scope;
+    while (!cur_s.empty()) {
+        std::string cand = cur_s + "." + resolved_target;
+        if (result.memory_map.find(cand) != result.memory_map.end() ||
+            result.assoc_array_map.find(cand) != result.assoc_array_map.end() ||
+            result.dynamic_array_map.find(cand) != result.dynamic_array_map.end() ||
+            result.queue_map.find(cand) != result.queue_map.end()) {
+            return (size_t)-1;
+        }
+        auto dot = cur_s.rfind('.');
+        if (dot == std::string::npos) cur_s = "";
+        else cur_s = cur_s.substr(0, dot);
+    }
+    if (result.memory_map.find(resolved_target) != result.memory_map.end() ||
+        result.assoc_array_map.find(resolved_target) != result.assoc_array_map.end() ||
+        result.dynamic_array_map.find(resolved_target) != result.dynamic_array_map.end() ||
+        result.queue_map.find(resolved_target) != result.queue_map.end()) {
+        return (size_t)-1;
+    }
+
     std::string scoped = scope.empty() ? resolved_target : (scope + "." + resolved_target);
     if (result.net_map.find(scoped) != result.net_map.end()) {
         return result.net_map.at(scoped);
     }
-    std::string cur_s = scope;
+    cur_s = scope;
     while (!cur_s.empty()) {
         std::string candidate = cur_s + "." + resolved_target;
         if (result.net_map.find(candidate) != result.net_map.end()) {
@@ -2520,21 +3033,27 @@ size_t Elaborator::resolve_target_net_id(const std::string& target, const std::s
     if (result.net_map.find(resolved_target) != result.net_map.end()) {
         return result.net_map.at(resolved_target);
     }
-    for (const auto& kv : result.net_map) {
-        if (kv.first.size() > target.size() &&
-            kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
-            return kv.second;
-        }
-    }
     auto dot_pos = target.rfind('.');
     if (dot_pos != std::string::npos) {
         std::string base_target = target.substr(0, dot_pos);
         std::string scoped_base = scope.empty() ? base_target : (scope + "." + base_target);
+        if (result.memory_map.find(scoped_base) != result.memory_map.end() ||
+            result.memory_map.find(base_target) != result.memory_map.end() ||
+            result.assoc_array_map.find(scoped_base) != result.assoc_array_map.end() ||
+            result.assoc_array_map.find(base_target) != result.assoc_array_map.end()) {
+            return (size_t)-1;
+        }
         if (result.net_map.find(scoped_base) != result.net_map.end()) {
             return result.net_map.at(scoped_base);
         }
         if (result.net_map.find(base_target) != result.net_map.end()) {
             return result.net_map.at(base_target);
+        }
+        for (const auto& kv : result.net_map) {
+            if (kv.first.size() > target.size() &&
+                kv.first.rfind("." + target) == kv.first.size() - (target.size() + 1)) {
+                return kv.second;
+            }
         }
     }
     return (size_t)-1;
@@ -2880,6 +3399,9 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
         node->has_bit_select = idx->has_bit_select;
         if (idx->bit_msb_expr) node->bit_msb_expr = substitute_genvar_in_expr(idx->bit_msb_expr.get(), gname, val);
         if (idx->bit_lsb_expr) node->bit_lsb_expr = substitute_genvar_in_expr(idx->bit_lsb_expr.get(), gname, val);
+        for (const auto& ei : idx->extra_indices) {
+            node->extra_indices.push_back(substitute_genvar_in_expr(ei.get(), gname, val));
+        }
         return node;
     }
     if (auto cat = dynamic_cast<ConcatNode*>(expr)) {
@@ -2984,6 +3506,9 @@ static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* s
         node->has_intra_event = nba->has_intra_event;
         node->intra_edge = nba->intra_edge;
         node->intra_signal = nba->intra_signal;
+        for (const auto& ei : nba->extra_indices) {
+            node->extra_indices.push_back(substitute_genvar_in_expr(ei.get(), gname, val));
+        }
         return node;
     }
     if (auto ba = dynamic_cast<BlockingAssignNode*>(stmt)) {
@@ -3000,6 +3525,9 @@ static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* s
         node->has_intra_event = ba->has_intra_event;
         node->intra_edge = ba->intra_edge;
         node->intra_signal = ba->intra_signal;
+        for (const auto& ei : ba->extra_indices) {
+            node->extra_indices.push_back(substitute_genvar_in_expr(ei.get(), gname, val));
+        }
         return node;
     }
     if (auto ifs = dynamic_cast<IfStatementNode*>(stmt)) {
@@ -3061,6 +3589,19 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                                        std::ostream* debug_out) {
     if (!blk) return;
 
+    for (const auto& param : blk->parameters) {
+        std::unique_ptr<ExpressionNode> val_expr = param.default_expr ? param.default_expr->clone() : nullptr;
+        if (has_genvar && val_expr) {
+            val_expr = substitute_genvar_in_expr(val_expr.get(), gname, gval);
+        }
+        std::string scoped_param = current_scope + "." + param.name;
+        if (val_expr) {
+            LogicVal lv = eval_const_logic_val(val_expr.get(), current_scope);
+            result.param_val_map[scoped_param] = lv;
+            result.param_map[scoped_param] = lv.aval;
+        }
+    }
+
     for (const auto& sig : blk->signals) {
         PortNode p = sig.clone();
         if (has_genvar) {
@@ -3088,15 +3629,15 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             has_explicit_packed = true;
             uint32_t packed_mult = 1;
             for (const auto& pdim : p.packed_dimensions) {
-                int64_t b1 = (int64_t)eval_const_expr(pdim.left_expr.get(), current_scope);
-                int64_t b2 = pdim.right_expr ? (int64_t)eval_const_expr(pdim.right_expr.get(), current_scope) : 0;
+                int64_t b1 = eval_const_signed_val(eval_const_expr(pdim.left_expr.get(), current_scope));
+                int64_t b2 = pdim.right_expr ? eval_const_signed_val(eval_const_expr(pdim.right_expr.get(), current_scope)) : 0;
                 packed_mult *= (uint32_t)(std::abs(b1 - b2) + 1);
             }
             w = elem_w * packed_mult;
         } else if (p.msb_expr && p.lsb_expr) {
             has_explicit_packed = true;
-            int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), current_scope);
-            int64_t lsb = (int64_t)eval_const_expr(p.lsb_expr.get(), current_scope);
+            int64_t msb = eval_const_signed_val(eval_const_expr(p.msb_expr.get(), current_scope));
+            int64_t lsb = eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), current_scope));
             w = (uint32_t)(std::abs(msb - lsb) + 1);
         }
 
@@ -3607,6 +4148,7 @@ void Elaborator::unroll_generate_node(ASTNode* node,
         int64_t val = (int64_t)eval_const_expr(init_expr.get(), scope);
         std::string gname = loop->genvar_name;
 
+        int loop_count = 0;
         while (true) {
             auto cond_e = substitute_genvar_in_expr(loop->cond_expr.get(), gname, val);
             if (has_parent_gvar) cond_e = substitute_genvar_in_expr(cond_e.get(), parent_gname, parent_gval);
@@ -3616,11 +4158,15 @@ void Elaborator::unroll_generate_node(ASTNode* node,
             } catch (const std::exception& e) {
                 throw std::runtime_error(std::string("[CAS-DTINPCIL] Dynamic type in non-procedural context: generate condition cannot be evaluated as elaboration-time constant per IEEE 1800-2023 section 27.5: ") + e.what());
             }
+            if (++loop_count > 100000) {
+                throw std::runtime_error("Generate loop exceeded 100000 iterations: " + gname + " in " + scope);
+            }
             if (cval == 0) break;
 
             std::string iter_label = loop->block_label.empty() ? ("genblk" + std::to_string(val)) : (loop->block_label + "[" + std::to_string(val) + "]");
             std::string iter_scope = scope + "." + iter_label;
             result.param_map[iter_scope + "." + gname] = (uint64_t)val;
+            result.param_val_map[iter_scope + "." + gname] = LogicVal::make_known(32, (uint64_t)val);
 
             unroll_generate_block(loop->body.get(), iter_scope, scope, gname, val, true, debug_out);
 
@@ -3701,6 +4247,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     ModuleNode* prev_module = current_module;
     current_module = mod;
     result.scope_cu_id[scope] = mod->compilation_unit_id;
+    std::cout << "[ELAB] " << mod->name << " [" << scope << "]\n" << std::flush;
     if (debug_out) {
         *debug_out << "  -> Scoping module '" << mod->name << "' as [" << scope << "]\n";
     }
@@ -3971,35 +4518,51 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         const std::string& st_name = pair.first;
         const auto& st_node = pair.second;
         if (!st_node) continue;
-        if (result.struct_types.find(st_name) != result.struct_types.end()) continue;
+        if (result.struct_types.find(scope + "." + st_name) != result.struct_types.end()) continue;
 
         PackedStructType st;
         st.name = st_name;
         st.is_signed = st_node->is_signed;
-        st.total_width = st_node->total_width;
         st.is_union = st_node->is_union;
         st.is_tagged = st_node->is_tagged;
         st.tag_bits = st_node->tag_bits;
         st.payload_width = st_node->payload_width;
 
         size_t n = st_node->members.size();
+        std::vector<uint32_t> member_widths(n, 1);
+        for (size_t i = 0; i < n; ++i) {
+            const auto& mn = st_node->members[i];
+            uint32_t mw = mn.width;
+            if (mn.msb_expr) {
+                try {
+                    uint64_t m = eval_const_expr(mn.msb_expr.get(), scope);
+                    uint64_t l = mn.lsb_expr ? eval_const_expr(mn.lsb_expr.get(), scope) : 0;
+                    mw = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+                } catch (...) {}
+            }
+            member_widths[i] = mw;
+        }
+
         std::vector<uint32_t> offsets(n, 0);
         uint32_t running_offset = 0;
         if (st.is_union) {
             for (size_t i = 0; i < n; ++i) offsets[i] = 0;
+            uint32_t max_w = 0;
+            for (uint32_t mw : member_widths) if (mw > max_w) max_w = mw;
+            st.total_width = max_w;
         } else {
             for (int i = (int)n - 1; i >= 0; --i) {
                 offsets[i] = running_offset;
-                running_offset += st_node->members[i].width;
+                running_offset += member_widths[i];
             }
-            if (st.total_width == 0) st.total_width = running_offset;
+            st.total_width = running_offset;
         }
 
         for (size_t i = 0; i < n; ++i) {
             const auto& mn = st_node->members[i];
             StructMember sm;
             sm.name = mn.name;
-            sm.width = mn.width;
+            sm.width = member_widths[i];
             sm.offset = offsets[i];
             sm.is_signed = mn.is_signed;
             sm.type_name = mn.type_name;
@@ -4111,13 +4674,59 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             for (size_t oi = 0; oi < overrides->size(); ++oi) {
                 const auto& ov = (*overrides)[oi];
                 if (!ov.param_name.empty() && ov.param_name == p.name) {
-                    lval = eval_const_logic_val(ov.expr.get(), parent_scope);
-                    val = lval.aval;
+                    if (p.type_name == "type") {
+                        if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                            std::string ov_t = ov_id->name;
+                            uint32_t tw = resolve_type_width(ov_t);
+                            if (tw > 0) {
+                                Parser::global_simple_typedefs[scope + "." + p.name] = tw;
+                                Parser::global_simple_typedefs[p.name] = tw;
+                            }
+                            result.var_to_struct_type[scope + "." + p.name] = ov_t;
+                            result.var_to_struct_type[p.name] = ov_t;
+                        }
+                        lval = LogicVal::make_known(32, 0);
+                        val = 0;
+                    } else {
+                        lval = eval_const_logic_val(ov.expr.get(), parent_scope);
+                        val = lval.aval;
+                    }
+                    if (ov.expr) {
+                        if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                            std::string parent_key = parent_scope.empty() ? ov_id->name : (parent_scope + "." + ov_id->name);
+                            if (result.var_to_struct_type.count(parent_key)) {
+                                result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(parent_key);
+                            }
+                        }
+                    }
                     overridden = true;
                     break;
                 } else if (ov.param_name.empty() && oi == non_local_param_idx) {
-                    lval = eval_const_logic_val(ov.expr.get(), parent_scope);
-                    val = lval.aval;
+                    if (p.type_name == "type") {
+                        if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                            std::string ov_t = ov_id->name;
+                            uint32_t tw = resolve_type_width(ov_t);
+                            if (tw > 0) {
+                                Parser::global_simple_typedefs[scope + "." + p.name] = tw;
+                                Parser::global_simple_typedefs[p.name] = tw;
+                            }
+                            result.var_to_struct_type[scope + "." + p.name] = ov_t;
+                            result.var_to_struct_type[p.name] = ov_t;
+                        }
+                        lval = LogicVal::make_known(32, 0);
+                        val = 0;
+                    } else {
+                        lval = eval_const_logic_val(ov.expr.get(), parent_scope);
+                        val = lval.aval;
+                    }
+                    if (ov.expr) {
+                        if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
+                            std::string parent_key = parent_scope.empty() ? ov_id->name : (parent_scope + "." + ov_id->name);
+                            if (result.var_to_struct_type.count(parent_key)) {
+                                result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(parent_key);
+                            }
+                        }
+                    }
                     overridden = true;
                     break;
                 }
@@ -4143,17 +4752,75 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 };
                 check_no_specparam(p.default_expr.get());
             }
-            lval = eval_const_logic_val(p.default_expr.get(), scope);
-            val = lval.aval;
+            if (p.type_name == "type" && p.default_expr) {
+                if (auto def_id = dynamic_cast<IdentifierNode*>(p.default_expr.get())) {
+                    std::string def_t = def_id->name;
+                    auto lb = def_t.find('[');
+                    auto rb = def_t.rfind(']');
+                    if (lb != std::string::npos && rb != std::string::npos && rb > lb) {
+                        std::string range_s = def_t.substr(lb + 1, rb - lb - 1);
+                        auto col = range_s.find(':');
+                        if (col != std::string::npos) {
+                            std::string msb_s = range_s.substr(0, col);
+                            std::string lsb_s = range_s.substr(col + 1);
+                            while (!msb_s.empty() && isspace(msb_s.front())) msb_s.erase(msb_s.begin());
+                            while (!msb_s.empty() && isspace(msb_s.back())) msb_s.pop_back();
+                            while (!lsb_s.empty() && isspace(lsb_s.front())) lsb_s.erase(lsb_s.begin());
+                            while (!lsb_s.empty() && isspace(lsb_s.back())) lsb_s.pop_back();
+                            uint32_t w = 1;
+                            try {
+                                Lexer msb_lex("msb", msb_s);
+                                Parser msb_parser(msb_lex);
+                                auto m_expr = msb_parser.parse_expression();
+                                Lexer lsb_lex("lsb", lsb_s);
+                                Parser lsb_parser(lsb_lex);
+                                auto l_expr = lsb_parser.parse_expression();
+                                int64_t m_v = (int64_t)eval_const_expr(m_expr.get(), scope);
+                                int64_t l_v = (int64_t)eval_const_expr(l_expr.get(), scope);
+                                w = (uint32_t)(std::abs(m_v - l_v) + 1);
+                            } catch (...) {}
+                            Parser::global_simple_typedefs[scope + "." + p.name] = w;
+                            Parser::global_simple_typedefs[p.name] = w;
+                        }
+                    } else {
+                        uint32_t tw = resolve_type_width(def_t);
+                        if (tw > 0) {
+                            Parser::global_simple_typedefs[scope + "." + p.name] = tw;
+                            Parser::global_simple_typedefs[p.name] = tw;
+                        }
+                    }
+                }
+                lval = LogicVal::make_known(32, 0);
+                val = 0;
+            } else {
+                lval = eval_const_logic_val(p.default_expr.get(), scope);
+                val = lval.aval;
+            }
             if (debug_out) *debug_out << "     * Parameter default: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
         }
         if (p.has_range && p.msb_expr) {
             int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
             int64_t lsb = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
             uint32_t width = (uint32_t)(std::abs(msb - lsb) + 1);
-            lval = LogicOps::cast_width(lval, width, p.is_signed);
-            val = lval.aval;
-        } else if (p.is_signed) {
+            if (!lval.is_unpacked) {
+                lval = LogicOps::cast_width(lval, width, p.is_signed);
+                val = lval.aval;
+            } else {
+                for (auto& elem : lval.unpacked_elements) {
+                    elem = LogicOps::cast_width(elem, width, p.is_signed);
+                }
+            }
+        }
+        if (!p.has_range && !p.type_name.empty() && p.type_name != "signed" && p.type_name != "unsigned") {
+            const PackedStructType* st = find_struct_type(p.type_name, scope);
+            if (st) {
+                if (lval.width < st->total_width) {
+                    lval = LogicOps::cast_width(lval, st->total_width, false);
+                }
+                result.var_to_struct_type[scope + "." + p.name] = st->name;
+            }
+        }
+        if (p.is_signed) {
             lval.is_signed = true;
         }
         if (p.type_name == "bit" || p.type_name == "byte" || p.type_name == "shortint" ||
@@ -4208,18 +4875,57 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             result.var_to_struct_type[scope + "." + p.name] = p.type_name;
             result.var_to_struct_type[p.name] = p.type_name;
         }
+        VariableDimMetadata pvdm;
+        pvdm.name = scope + "." + p.name;
+        if (!p.unpacked_dimensions.empty()) {
+            for (const auto& udim : p.unpacked_dimensions) {
+                int64_t b1 = eval_const_signed_val(eval_const_expr(udim.left_expr.get(), scope));
+                int64_t b2 = udim.right_expr ? eval_const_signed_val(eval_const_expr(udim.right_expr.get(), scope)) : 0;
+                ArrayDimInfo info;
+                info.left = b1;
+                info.right = b2;
+                info.is_unpacked = true;
+                pvdm.dimensions.push_back(info);
+            }
+            pvdm.unpacked_dims = (uint32_t)pvdm.dimensions.size();
+            pvdm.is_vector_or_array = true;
+        }
+        if (p.has_range && p.msb_expr) {
+            int64_t b1 = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+            int64_t b2 = p.lsb_expr ? (int64_t)eval_const_expr(p.lsb_expr.get(), scope) : 0;
+            pvdm.dimensions.push_back({b1, b2, false, false, false});
+            pvdm.is_vector_or_array = true;
+        }
+        if (pvdm.is_vector_or_array) {
+            result.var_dimensions[scope + "." + p.name] = pvdm;
+            if (parent_scope.empty()) {
+                result.var_dimensions[p.name] = pvdm;
+            }
+        }
         if (overridden && overrides && !p.is_localparam) {
             for (size_t oi = 0; oi < overrides->size(); ++oi) {
                 const auto& ov = (*overrides)[oi];
                 if ((!ov.param_name.empty() && ov.param_name == p.name) || (ov.param_name.empty() && oi == non_local_param_idx)) {
                     if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
-                        std::string ov_scoped = parent_scope.empty() ? ov_id->name : (parent_scope + "." + ov_id->name);
-                        if (result.var_to_struct_type.count(ov_scoped)) {
-                            result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(ov_scoped);
-                            result.var_to_struct_type[p.name] = result.var_to_struct_type.at(ov_scoped);
-                        } else if (result.var_to_struct_type.count(ov_id->name)) {
-                            result.var_to_struct_type[scope + "." + p.name] = result.var_to_struct_type.at(ov_id->name);
-                            result.var_to_struct_type[p.name] = result.var_to_struct_type.at(ov_id->name);
+                        std::string cur_ps = parent_scope;
+                        std::string found_type;
+                        while (true) {
+                            std::string ov_scoped = cur_ps.empty() ? ov_id->name : (cur_ps + "." + ov_id->name);
+                            if (result.var_to_struct_type.count(ov_scoped)) {
+                                found_type = result.var_to_struct_type.at(ov_scoped);
+                                break;
+                            }
+                            if (cur_ps.empty()) break;
+                            auto dot = cur_ps.rfind('.');
+                            if (dot == std::string::npos) cur_ps.clear();
+                            else cur_ps = cur_ps.substr(0, dot);
+                        }
+                        if (found_type.empty() && result.var_to_struct_type.count(ov_id->name)) {
+                            found_type = result.var_to_struct_type.at(ov_id->name);
+                        }
+                        if (!found_type.empty()) {
+                            result.var_to_struct_type[scope + "." + p.name] = found_type;
+                            result.var_to_struct_type[p.name] = found_type;
                         }
                     }
                     break;
@@ -7041,6 +7747,10 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             result.param_val_map[p.name] = lval;
             result.param_map[pkg_name + "::" + p.name] = lval.aval;
             result.param_map[p.name] = lval.aval;
+            if (!p.type_name.empty()) {
+                result.var_to_struct_type[pkg_name + "::" + p.name] = p.type_name;
+                result.var_to_struct_type[p.name] = p.type_name;
+            }
         }
         for (const auto& p : pkg->param_constants) {
             if (result.param_map.find(pkg_name + "::" + p.first) == result.param_map.end()) {
@@ -8044,6 +8754,13 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
     std::vector<std::vector<NetBitDriverInfo>> net_bit_drivers(result.netlist.size());
     for (size_t i = 0; i < result.netlist.size(); ++i) {
         uint32_t w = result.netlist[i].width > 0 ? result.netlist[i].width : 1;
+        if (w > 1024) {
+            std::cout << "[DRIVER_CHECK] Large net: " << result.netlist[i].name << " width=" << w << "\n" << std::flush;
+        }
+        if (w > 65536) {
+            // Cap driver checking width to avoid allocating gigabytes for unrolled memories / huge vectors
+            w = 1;
+        }
         net_bit_drivers[i].resize(w);
     }
 
@@ -8353,7 +9070,36 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     base_low = it_vdm->second.dimensions[0].low();
                     d1_low = it_vdm->second.dimensions[1].low();
                 }
-                if (tw.lsb >= 0 && tw.msb >= 0) {
+                uint32_t m_off = 0;
+                uint32_t m_len = w;
+                int64_t m_lsb = 0;
+                bool is_member_write = false;
+                auto dot_pos = tw.name.rfind('.');
+                if (dot_pos != std::string::npos) {
+                    std::string memb = tw.name.substr(dot_pos + 1);
+                    if (resolve_struct_member_slice(nid, memb, bp.scope, m_off, m_len, m_lsb)) {
+                        is_member_write = true;
+                    }
+                }
+                if (is_member_write) {
+                    if (tw.lsb >= 0 && tw.msb >= 0) {
+                        int64_t eff_lsb = tw.lsb >= m_lsb ? (tw.lsb - m_lsb) : tw.lsb;
+                        int64_t eff_msb = tw.msb >= m_lsb ? (tw.msb - m_lsb) : tw.msb;
+                        int64_t start_b = (int64_t)m_off + eff_lsb;
+                        int64_t end_b = (int64_t)m_off + eff_msb;
+                        int64_t low = std::max((int64_t)0, std::min(start_b, end_b));
+                        int64_t high = std::min((int64_t)w - 1, std::max(start_b, end_b));
+                        for (int64_t b = low; b <= high; ++b) {
+                            if (!bp.proc->is_decl_init) net_bit_drivers[nid][b].writing_procs.insert(i);
+                            if (is_strict_proc) net_bit_drivers[nid][b].driven_by_strict_proc = true;
+                        }
+                    } else {
+                        for (uint32_t b = m_off; b < m_off + m_len && b < w; ++b) {
+                            if (!bp.proc->is_decl_init) net_bit_drivers[nid][b].writing_procs.insert(i);
+                            if (is_strict_proc) net_bit_drivers[nid][b].driven_by_strict_proc = true;
+                        }
+                    }
+                } else if (tw.lsb >= 0 && tw.msb >= 0) {
                     int64_t eff_lsb = tw.lsb >= base_low ? (tw.lsb - base_low) : tw.lsb;
                     int64_t eff_msb = tw.msb >= base_low ? (tw.msb - base_low) : tw.msb;
                     int64_t act_lsb = eff_lsb * (int64_t)elem_w;
@@ -8440,6 +9186,29 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
 
             // Check variable driven by both continuous assign and procedural block
             if (net.kind == NetKind::VAR && bd.has_continuous_assign && !bd.writing_procs.empty()) {
+                std::cerr << "[CAS-MVPD-DEBUG] Net: " << net.name << " bit: " << b << "\n";
+                std::cerr << "  writing_procs size=" << bd.writing_procs.size() << "\n";
+                for (auto proc_idx : bd.writing_procs) {
+                    if (proc_idx < result.processes.size()) {
+                        std::cerr << "    proc=" << result.processes[proc_idx].scope << "\n";
+                    }
+                }
+                for (const auto& ca : result.continuous_assigns) {
+                    size_t raw_n = ca.target.net_id;
+                    size_t cn = result.canonical_net_map.empty() ? raw_n : result.canonical_net_map[raw_n];
+                    if (cn == nid) {
+                        std::cerr << "    CA: scope=" << ca.scope << " off=" << ca.target.offset 
+                                  << " w=" << ca.target.width << "\n";
+                    }
+                }
+                for (const auto& bind : result.slice_bindings) {
+                    size_t raw_n = bind.dst.net_id;
+                    size_t cn = result.canonical_net_map.empty() ? raw_n : result.canonical_net_map[raw_n];
+                    if (cn == nid) {
+                        std::cerr << "    BIND dst: net=" << result.netlist[bind.dst.net_id].name << " off=" << bind.dst.offset << "\n";
+                        std::cerr << "         src: net=" << result.netlist[bind.src.net_id].name << " off=" << bind.src.offset << "\n";
+                    }
+                }
                 throw std::runtime_error("[CAS-MVPD] Variable '" + net.name + "' driven by continuous assignment and procedural statement per IEEE 1800-2023 6.5");
             }
 

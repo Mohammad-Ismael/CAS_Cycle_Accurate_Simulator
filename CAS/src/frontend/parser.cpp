@@ -584,6 +584,19 @@ void Parser::parse_packages_only() {
                     std::string pname = current.text;
                     expect(TokenType::TOKEN_IDENTIFIER, "Expected parameter identifier");
                     expect(TokenType::TOKEN_EQUAL, "Expected '=' in parameter assignment");
+                    if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
+                        auto st = parse_struct_or_union_body();
+                        struct_typedef_map[pname] = st;
+                        if (st->is_packed && st->total_width > 0) {
+                            VariableDimMetadata svdm;
+                            svdm.name = pname;
+                            svdm.dimensions.push_back(ArrayDimInfo{(int64_t)st->total_width - 1, 0, false});
+                            svdm.is_vector_or_array = true;
+                            global_type_dimensions[pname] = svdm;
+                        }
+                        if (match(TokenType::TOKEN_COMMA)) continue;
+                        break;
+                    }
                     std::string def_type = current.text;
                     advance();
                     while (current.type == TokenType::TOKEN_DOT || current.type == TokenType::TOKEN_COLON_COLON || current.type == TokenType::TOKEN_HASH || current.type == TokenType::TOKEN_LBRACKET) {
@@ -608,21 +621,33 @@ void Parser::parse_packages_only() {
                 expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after parameter declaration");
                 continue;
             }
+            bool has_type = false;
             std::string ptype = "";
             while (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_REG || 
                    current.type == TokenType::TOKEN_WIRE || current.type == TokenType::TOKEN_INTEGER ||
                    current.type == TokenType::TOKEN_SIGNED || current.type == TokenType::TOKEN_UNSIGNED || 
                    current.type == TokenType::TOKEN_BIT ||
-                   (!ptype.empty() ? false : is_type_identifier(current.text)) ||
-                   (current.type == TokenType::TOKEN_IDENTIFIER && 
+                   (!has_type && is_type_identifier(current.text)) ||
+                   (!has_type && current.type == TokenType::TOKEN_IDENTIFIER && 
                     (current.text == "int" || current.text == "byte" || current.text == "shortint" || 
                      current.text == "longint" || current.text == "unsigned" || current.text == "signed" ||
                      current.text == "string" || current.text == "real" || current.text == "chandle" ||
+                     peek_token().type == TokenType::TOKEN_COLON_COLON ||
                      peek_token().type == TokenType::TOKEN_IDENTIFIER ||
                      peek_token().type == TokenType::TOKEN_UNSIGNED ||
                      peek_token().type == TokenType::TOKEN_SIGNED))) {
-                if (ptype.empty()) ptype = current.text;
-                advance();
+                has_type = true;
+                if (current.type == TokenType::TOKEN_IDENTIFIER && peek_token().type == TokenType::TOKEN_COLON_COLON) {
+                    ptype = current.text;
+                    advance();
+                    ptype += current.text;
+                    advance();
+                    ptype += current.text;
+                    advance();
+                } else {
+                    if (ptype.empty()) ptype = current.text;
+                    advance();
+                }
                 if (current.type == TokenType::TOKEN_LBRACKET) {
                     advance();
                     parse_expression();

@@ -161,6 +161,22 @@ struct FuncSensContext {
     std::unordered_set<std::string> shadowed_names;
 };
 
+static size_t resolve_hierarchical_net_id(const Engine& engine, const std::string& scope, const std::string& name) {
+    size_t raw_nid = engine.get_net_id(scope, name);
+    if (raw_nid != (size_t)-1 || name.find('.') == std::string::npos) {
+        return raw_nid;
+    }
+    size_t dpos = name.rfind('.');
+    while (dpos != std::string::npos && dpos > 0) {
+        std::string base = name.substr(0, dpos);
+        raw_nid = engine.get_net_id(scope, base);
+        if (raw_nid != (size_t)-1) return raw_nid;
+        if (dpos == 0) break;
+        dpos = name.rfind('.', dpos - 1);
+    }
+    return (size_t)-1;
+}
+
 static void collect_read_nets_internal(const ExpressionNode* expr, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem, FuncSensContext* ctx = nullptr);
 static void collect_stmt_read_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::vector<uint32_t>& out_net_ids, bool& out_reads_mem, FuncSensContext* ctx = nullptr);
 
@@ -178,26 +194,23 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
         if (ctx && ctx->shadowed_names.count(id->name)) {
             return;
         }
-        if (id->is_bound && id->cached_net_id != UINT32_MAX) {
-            out_net_ids.push_back(id->cached_net_id);
+        if (id->is_bound) {
+            if (id->cached_net_id != UINT32_MAX) {
+                out_net_ids.push_back(id->cached_net_id);
+            }
             return;
         }
         if (engine.is_memory(scope, id->name)) {
             out_reads_mem = true;
         }
-        size_t raw_nid = engine.get_net_id(scope, id->name);
-        if (raw_nid == (size_t)-1 && id->name.find('.') != std::string::npos) {
-            std::string iname = id->name;
-            size_t dpos = iname.rfind('.');
-            while (dpos != std::string::npos) {
-                std::string base = iname.substr(0, dpos);
-                raw_nid = engine.get_net_id(scope, base);
-                if (raw_nid != (size_t)-1) break;
-                dpos = iname.rfind('.', dpos - 1);
-            }
-        }
+        size_t exact_nid = engine.get_net_id(scope, id->name);
+        size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, id->name);
         if (raw_nid != (size_t)-1) {
             size_t canon = engine.get_canonical_net_id(raw_nid);
+            if (exact_nid != (size_t)-1) {
+                id->cached_net_id = (uint32_t)canon;
+                id->is_bound = true;
+            }
             out_net_ids.push_back((uint32_t)canon);
         }
         return;
@@ -209,49 +222,57 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             if (idx->lsb_expr) collect_read_nets_internal(idx->lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
             if (idx->bit_msb_expr) collect_read_nets_internal(idx->bit_msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
             if (idx->bit_lsb_expr) collect_read_nets_internal(idx->bit_lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+            for (const auto& extra : idx->extra_indices) {
+                if (extra) collect_read_nets_internal(extra.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+            }
             return;
         }
-        if (engine.is_memory(scope, idx->name)) {
-            out_reads_mem = true;
-        }
-        size_t raw_nid = engine.get_net_id(scope, idx->name);
-        if (raw_nid == (size_t)-1 && idx->name.find('.') != std::string::npos) {
-            std::string iname = idx->name;
-            size_t dpos = iname.rfind('.');
-            while (dpos != std::string::npos) {
-                std::string base = iname.substr(0, dpos);
-                raw_nid = engine.get_net_id(scope, base);
-                if (raw_nid != (size_t)-1) break;
-                dpos = iname.rfind('.', dpos - 1);
+        if (idx->is_bound) {
+            if (idx->cached_net_id != UINT32_MAX) {
+                out_net_ids.push_back(idx->cached_net_id);
             }
-        }
-        if (raw_nid != (size_t)-1) {
-            size_t canon = engine.get_canonical_net_id(raw_nid);
-            out_net_ids.push_back((uint32_t)canon);
+        } else {
+            if (engine.is_memory(scope, idx->name)) {
+                out_reads_mem = true;
+            }
+            size_t exact_nid = engine.get_net_id(scope, idx->name);
+            size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, idx->name);
+            if (raw_nid != (size_t)-1) {
+                size_t canon = engine.get_canonical_net_id(raw_nid);
+                if (exact_nid != (size_t)-1) {
+                    idx->cached_net_id = (uint32_t)canon;
+                    idx->is_bound = true;
+                }
+                out_net_ids.push_back((uint32_t)canon);
+            }
         }
         if (idx->msb_expr) collect_read_nets_internal(idx->msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->lsb_expr) collect_read_nets_internal(idx->lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->bit_msb_expr) collect_read_nets_internal(idx->bit_msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->bit_lsb_expr) collect_read_nets_internal(idx->bit_lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        for (const auto& extra : idx->extra_indices) {
+            if (extra) collect_read_nets_internal(extra.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        }
         return;
     }
 
     if (auto mem = dynamic_cast<const MemberAccessNode*>(expr)) {
-        std::string full_name = mem->var_name + "." + mem->member_name;
-        size_t raw_nid = engine.get_net_id(scope, full_name);
-        if (raw_nid == (size_t)-1) {
-            std::string iname = full_name;
-            size_t dpos = iname.rfind('.');
-            while (dpos != std::string::npos) {
-                std::string base = iname.substr(0, dpos);
-                raw_nid = engine.get_net_id(scope, base);
-                if (raw_nid != (size_t)-1) break;
-                dpos = iname.rfind('.', dpos - 1);
+        if (mem->is_bound) {
+            if (mem->cached_net_id != UINT32_MAX) {
+                out_net_ids.push_back(mem->cached_net_id);
             }
-        }
-        if (raw_nid != (size_t)-1) {
-            size_t canon = engine.get_canonical_net_id(raw_nid);
-            out_net_ids.push_back((uint32_t)canon);
+        } else {
+            std::string full_name = mem->var_name + "." + mem->member_name;
+            size_t exact_nid = engine.get_net_id(scope, full_name);
+            size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, full_name);
+            if (raw_nid != (size_t)-1) {
+                size_t canon = engine.get_canonical_net_id(raw_nid);
+                if (exact_nid != (size_t)-1) {
+                    mem->cached_net_id = (uint32_t)canon;
+                    mem->is_bound = true;
+                }
+                out_net_ids.push_back((uint32_t)canon);
+            }
         }
         if (mem->index_expr) collect_read_nets_internal(mem->index_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         return;
@@ -611,29 +632,47 @@ static void collect_stmt_read_nets(const StatementNode* stmt, const std::string&
 static void collect_stmt_write_nets(const StatementNode* stmt, const std::string& scope, const Engine& engine, std::unordered_set<uint32_t>& out_written_nets) {
     if (!stmt) return;
 
+    auto resolve_and_insert = [&](const std::string& raw_name) {
+        size_t raw_nid = engine.get_net_id(scope, raw_name);
+        if (raw_nid == (size_t)-1) {
+            auto dot_pos = raw_name.find('.');
+            auto bracket_pos = raw_name.find('[');
+            size_t cut = std::min(dot_pos, bracket_pos);
+            if (cut != std::string::npos) {
+                raw_nid = engine.get_net_id(scope, raw_name.substr(0, cut));
+            }
+        }
+        if (raw_nid != (size_t)-1) {
+            size_t canon = engine.get_canonical_net_id(raw_nid);
+            out_written_nets.insert((uint32_t)canon);
+            const auto& am = engine.get_alias_members();
+            if (canon < am.size()) {
+                for (size_t aid : am[canon]) {
+                    out_written_nets.insert((uint32_t)aid);
+                }
+            }
+            if (raw_nid < am.size()) {
+                for (size_t aid : am[raw_nid]) {
+                    out_written_nets.insert((uint32_t)aid);
+                }
+            }
+        }
+    };
+
     if (auto ba = dynamic_cast<const BlockingAssignNode*>(stmt)) {
         for (const auto& t : ba->lhs_targets) {
-            size_t raw_nid = engine.get_net_id(scope, t);
-            if (raw_nid != (size_t)-1) {
-                out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
-            }
+            resolve_and_insert(t);
         }
         return;
     }
 
     if (auto nba = dynamic_cast<const NonBlockingAssignNode*>(stmt)) {
-        size_t raw_nid = engine.get_net_id(scope, nba->target);
-        if (raw_nid != (size_t)-1) {
-            out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
-        }
+        resolve_and_insert(nba->target);
         return;
     }
 
     if (auto pa = dynamic_cast<const ProceduralAssignNode*>(stmt)) {
-        size_t raw_nid = engine.get_net_id(scope, pa->target);
-        if (raw_nid != (size_t)-1) {
-            out_written_nets.insert((uint32_t)engine.get_canonical_net_id(raw_nid));
-        }
+        resolve_and_insert(pa->target);
         return;
     }
 
@@ -750,7 +789,7 @@ static void bind_ast_expr(ExpressionNode* expr, const std::string& scope, const 
     if (!expr) return;
 
     if (auto id = dynamic_cast<IdentifierNode*>(expr)) {
-        if (!engine.is_excluded_from_net_binding(id->name, scope)) {
+        if (!id->is_bound && !engine.is_excluded_from_net_binding(id->name, scope)) {
             size_t raw_nid = engine.get_net_id(scope, id->name);
             if (raw_nid != (size_t)-1) {
                 size_t canon = engine.get_canonical_net_id(raw_nid);
@@ -762,14 +801,32 @@ static void bind_ast_expr(ExpressionNode* expr, const std::string& scope, const 
     }
 
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
+        if (!idx->is_bound) {
+            size_t raw_nid = engine.get_net_id(scope, idx->name);
+            if (raw_nid != (size_t)-1) {
+                idx->cached_net_id = (uint32_t)engine.get_canonical_net_id(raw_nid);
+                idx->is_bound = true;
+            }
+        }
         if (idx->msb_expr) bind_ast_expr(idx->msb_expr.get(), scope, engine);
         if (idx->lsb_expr) bind_ast_expr(idx->lsb_expr.get(), scope, engine);
         if (idx->bit_msb_expr) bind_ast_expr(idx->bit_msb_expr.get(), scope, engine);
         if (idx->bit_lsb_expr) bind_ast_expr(idx->bit_lsb_expr.get(), scope, engine);
+        for (const auto& ex : idx->extra_indices) {
+            if (ex) bind_ast_expr(ex.get(), scope, engine);
+        }
         return;
     }
 
     if (auto mem = dynamic_cast<MemberAccessNode*>(expr)) {
+        if (!mem->is_bound) {
+            std::string full_name = mem->var_name + "." + mem->member_name;
+            size_t raw_nid = engine.get_net_id(scope, full_name);
+            if (raw_nid != (size_t)-1) {
+                mem->cached_net_id = (uint32_t)engine.get_canonical_net_id(raw_nid);
+                mem->is_bound = true;
+            }
+        }
         if (mem->index_expr) bind_ast_expr(mem->index_expr.get(), scope, engine);
         return;
     }
@@ -1252,16 +1309,25 @@ void Engine::build_fanout_graph() {
         const auto& rca = resolved_continuous_assigns[rca_idx];
         std::vector<uint32_t> read_nets;
         bool reads_mem = false;
-        for (const auto& drv : rca.drivers) {
-            if (drv.is_gate) {
-                if (drv.gate_idx < gates.size()) {
-                    const auto& g = gates[drv.gate_idx];
-                    for (auto in_expr : g.in_exprs) {
-                        collect_read_nets(in_expr, g.scope, *this, read_nets, reads_mem);
-                    }
+        if (rca.compiled_expr.is_compiled) {
+            for (const auto& inst : rca.compiled_expr.instructions) {
+                if (inst.op == Opcode::DONE) break;
+                if (inst.op == Opcode::PUSH_NET_U64 || inst.op == Opcode::PUSH_NET_VAL) {
+                    read_nets.push_back((uint32_t)get_canonical_net_id(inst.arg0));
                 }
-            } else if (drv.rhs) {
-                collect_read_nets(drv.rhs, drv.scope, *this, read_nets, reads_mem);
+            }
+        } else {
+            for (const auto& drv : rca.drivers) {
+                if (drv.is_gate) {
+                    if (drv.gate_idx < gates.size()) {
+                        const auto& g = gates[drv.gate_idx];
+                        for (auto in_expr : g.in_exprs) {
+                            collect_read_nets(in_expr, g.scope, *this, read_nets, reads_mem);
+                        }
+                    }
+                } else if (drv.rhs) {
+                    collect_read_nets(drv.rhs, drv.scope, *this, read_nets, reads_mem);
+                }
             }
         }
         std::sort(read_nets.begin(), read_nets.end());

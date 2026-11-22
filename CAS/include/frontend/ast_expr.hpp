@@ -94,12 +94,14 @@ struct IndexSelectNode : public ExpressionNode {
     std::unique_ptr<ExpressionNode> bit_lsb_expr = nullptr;
     bool has_bit_select = false;
     std::vector<std::unique_ptr<ExpressionNode>> extra_indices;
+    mutable uint32_t cached_net_id = UINT32_MAX;
+    mutable bool is_bound = false;
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> idx)
-        : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false) { expr_kind = ExprKind::INDEX_SELECT; }
+        : name(std::move(n)), msb_expr(std::move(idx)), lsb_expr(nullptr), is_part_select(false), cached_net_id(UINT32_MAX), is_bound(false) { expr_kind = ExprKind::INDEX_SELECT; }
 
     IndexSelectNode(std::string n, std::unique_ptr<ExpressionNode> msb, std::unique_ptr<ExpressionNode> lsb)
-        : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true) { expr_kind = ExprKind::INDEX_SELECT; }
+        : name(std::move(n)), msb_expr(std::move(msb)), lsb_expr(std::move(lsb)), is_part_select(true), cached_net_id(UINT32_MAX), is_bound(false) { expr_kind = ExprKind::INDEX_SELECT; }
 
     std::unique_ptr<ExpressionNode> clone() const override {
         std::unique_ptr<IndexSelectNode> node;
@@ -121,6 +123,8 @@ struct IndexSelectNode : public ExpressionNode {
         for (const auto& e : extra_indices) {
             node->extra_indices.push_back(e ? e->clone() : nullptr);
         }
+        node->cached_net_id = cached_net_id;
+        node->is_bound = is_bound;
         return node;
     }
 };
@@ -331,9 +335,11 @@ struct MemberAccessNode : public ExpressionNode {
     bool is_part_select = false;
     bool is_plus_colon = false;
     bool is_minus_colon = false;
+    mutable uint32_t cached_net_id = UINT32_MAX;
+    mutable bool is_bound = false;
 
     MemberAccessNode(std::string v, std::string m)
-        : var_name(std::move(v)), member_name(std::move(m)) {}
+        : var_name(std::move(v)), member_name(std::move(m)), cached_net_id(UINT32_MAX), is_bound(false) {}
 
     std::unique_ptr<ExpressionNode> clone() const override {
         auto n = std::make_unique<MemberAccessNode>(var_name, member_name);
@@ -344,6 +350,8 @@ struct MemberAccessNode : public ExpressionNode {
         n->is_part_select = is_part_select;
         n->is_plus_colon = is_plus_colon;
         n->is_minus_colon = is_minus_colon;
+        n->cached_net_id = cached_net_id;
+        n->is_bound = is_bound;
         return n;
     }
 };

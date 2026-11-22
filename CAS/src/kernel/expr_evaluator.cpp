@@ -265,7 +265,12 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
     }
 
     // 1. Declare and initialize function return variable
-    context.declare_local(fn->name, fn->return_width, fn->return_signed, fn->return_type_name);
+    uint32_t ret_w = fn->return_width;
+    if (ret_w <= 32 && !fn->return_type_name.empty()) {
+        const PackedStructType* st = find_struct_type(fn->return_type_name, fn->scope);
+        if (st && st->total_width > 0) ret_w = st->total_width;
+    }
+    context.declare_local(fn->name, ret_w, fn->return_signed, fn->return_type_name);
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
@@ -277,6 +282,11 @@ bool ExprEvaluator::eval_class_method(ClassObject* obj, FunctionNode* fn, const 
             if (msb_n && lsb_n) {
                 w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
             }
+        } else if (!in_p.type_name.empty()) {
+            const PackedStructType* st = find_struct_type(in_p.type_name, fn->scope);
+            if (st && st->total_width > 0) w = st->total_width;
+            else if (in_p.width > 0) w = in_p.width;
+            else w = 32;
         } else {
             w = 32;
         }
@@ -393,7 +403,12 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
     }
 
     // 1. Declare and initialize function return variable
-    context.declare_local(fn->name, fn->return_width, fn->return_signed, fn->return_type_name);
+    uint32_t ret_w = fn->return_width;
+    if (ret_w <= 32 && !fn->return_type_name.empty()) {
+        const PackedStructType* st = find_struct_type(fn->return_type_name, fn->scope);
+        if (st && st->total_width > 0) ret_w = st->total_width;
+    }
+    context.declare_local(fn->name, ret_w, fn->return_signed, fn->return_type_name);
 
     // 2. Declare and initialize input parameters
     for (size_t i = 0; i < fn->inputs.size(); ++i) {
@@ -405,6 +420,11 @@ bool ExprEvaluator::eval_static_class_method(const std::string& class_type, Func
             if (msb_n && lsb_n) {
                 w = (msb_n->aval >= lsb_n->aval) ? (uint32_t)(msb_n->aval - lsb_n->aval + 1) : (uint32_t)(lsb_n->aval - msb_n->aval + 1);
             }
+        } else if (!in_p.type_name.empty()) {
+            const PackedStructType* st = find_struct_type(in_p.type_name, fn->scope);
+            if (st && st->total_width > 0) w = st->total_width;
+            else if (in_p.width > 0) w = in_p.width;
+            else w = 32;
         } else {
             w = 32;
         }
@@ -1444,13 +1464,13 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb +:] for " + idx_node->name + " in " + scope);
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb -:] for " + idx_node->name + " in " + scope);
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -1498,13 +1518,13 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb +:] for " + idx_node->name + " in " + scope);
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb -:] for " + idx_node->name + " in " + scope);
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -1936,26 +1956,47 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 }
             } else if (found_struct_member) {
                 // target_val already extracted above
-            } else if (engine.param_val_map.count(idx_node->name)) {
-                target_val = engine.param_val_map.at(idx_node->name);
-            } else if (!scope.empty() && engine.param_val_map.count(scope + "." + idx_node->name)) {
-                target_val = engine.param_val_map.at(scope + "." + idx_node->name);
-            } else if (engine.param_map.count(idx_node->name)) {
-                target_val = LogicVal::make_known(64, engine.param_map.at(idx_node->name));
-            } else if (!scope.empty() && engine.param_map.count(scope + "." + idx_node->name)) {
-                target_val = LogicVal::make_known(64, engine.param_map.at(scope + "." + idx_node->name));
             } else {
-                auto colon = idx_node->name.find("::");
-                if (colon != std::string::npos) {
-                    std::string pkg = idx_node->name.substr(0, colon);
-                    std::string item = idx_node->name.substr(colon + 2);
-                    if (engine.package_defs.count(pkg) && engine.package_defs.at(pkg)->param_constants.count(item)) {
-                        target_val = LogicVal::make_known(64, engine.package_defs.at(pkg)->param_constants.at(item));
+                bool found_param = false;
+                std::string cur_ps = scope;
+                while (!cur_ps.empty()) {
+                    std::string cand = cur_ps + "." + idx_node->name;
+                    if (engine.param_val_map.count(cand)) {
+                        target_val = engine.param_val_map.at(cand);
+                        found_param = true;
+                        break;
+                    }
+                    if (engine.param_map.count(cand)) {
+                        target_val = LogicVal::make_known(64, engine.param_map.at(cand));
+                        found_param = true;
+                        break;
+                    }
+                    auto dot = cur_ps.rfind('.');
+                    if (dot == std::string::npos) break;
+                    cur_ps = cur_ps.substr(0, dot);
+                }
+                if (!found_param) {
+                    if (engine.param_val_map.count(idx_node->name)) {
+                        target_val = engine.param_val_map.at(idx_node->name);
+                        found_param = true;
+                    } else if (engine.param_map.count(idx_node->name)) {
+                        target_val = LogicVal::make_known(64, engine.param_map.at(idx_node->name));
+                        found_param = true;
+                    }
+                }
+                if (!found_param) {
+                    auto colon = idx_node->name.find("::");
+                    if (colon != std::string::npos) {
+                        std::string pkg = idx_node->name.substr(0, colon);
+                        std::string item = idx_node->name.substr(colon + 2);
+                        if (engine.package_defs.count(pkg) && engine.package_defs.at(pkg)->param_constants.count(item)) {
+                            target_val = LogicVal::make_known(64, engine.package_defs.at(pkg)->param_constants.at(item));
+                        } else {
+                            return LogicVal::make_x(1);
+                        }
                     } else {
                         return LogicVal::make_x(1);
                     }
-                } else {
-                    return LogicVal::make_x(1);
                 }
             }
         }
@@ -2016,6 +2057,44 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                     }
                 }
             }
+        }
+
+        if (target_val.is_unpacked) {
+            LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
+            if (idx_val.is_unknown()) return LogicVal::make_x(1);
+            int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
+            if (base_low != 0 && raw_idx >= base_low) raw_idx -= base_low;
+            else if (vdm && !vdm->dimensions.empty()) {
+                int64_t low = vdm->dimensions[0].low();
+                if (raw_idx >= low) raw_idx -= low;
+            }
+            if (raw_idx < 0 || (size_t)raw_idx >= target_val.unpacked_elements.size()) {
+                return LogicVal::make_x(1);
+            }
+            LogicVal elem = target_val.unpacked_elements[raw_idx];
+            if (idx_node->has_bit_select && idx_node->bit_msb_expr) {
+                uint64_t b_msb = eval(idx_node->bit_msb_expr.get(), scope).aval;
+                uint64_t b_lsb = 0;
+                uint32_t w = 1;
+                if (idx_node->is_plus_colon) {
+                    uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    b_lsb = b_msb;
+                    w = static_cast<uint32_t>(width);
+                } else if (idx_node->is_minus_colon) {
+                    uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
+                    b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
+                    w = static_cast<uint32_t>(width);
+                } else if (idx_node->bit_lsb_expr) {
+                    b_lsb = eval(idx_node->bit_lsb_expr.get(), scope).aval;
+                    w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                    b_lsb = std::min(b_msb, b_lsb);
+                } else {
+                    b_lsb = b_msb;
+                    w = 1;
+                }
+                return elem.extract_slice((uint32_t)b_lsb, w);
+            }
+            return elem;
         }
 
         if ((!idx_node->extra_indices.empty() || idx_node->has_bit_select) && vdm && vdm->dimensions.size() > 1) {
@@ -2117,13 +2196,13 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 uint32_t w = 1;
                 if (idx_node->is_plus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb +:] for " + idx_node->name + " in " + scope);
                     b_lsb = b_msb;
                     b_msb = b_lsb + width - 1;
                     w = static_cast<uint32_t>(width);
                 } else if (idx_node->is_minus_colon) {
                     uint64_t width = idx_node->bit_lsb_expr ? eval(idx_node->bit_lsb_expr.get(), scope).aval : 1;
-                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                    if (width == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 [bit_lsb -:] for " + idx_node->name + " in " + scope);
                     b_lsb = (b_msb >= width - 1) ? (b_msb - width + 1) : 0;
                     w = static_cast<uint32_t>(width);
                 } else {
@@ -2144,12 +2223,16 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             if (idx_node->is_plus_colon) {
                 lsb = base_v.aval;
                 slice_w = w_v.aval;
-                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                if (slice_w == 0) {
+                    throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 for " + idx_node->name + " in " + scope);
+                }
                 msb = lsb + slice_w - 1;
                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
             } else if (idx_node->is_minus_colon) {
                 slice_w = w_v.aval;
-                if (slice_w == 0) throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6");
+                if (slice_w == 0) {
+                    throw std::runtime_error("Indexed part-select width must be greater than zero per IEEE 1800-2023 7.4.6 for " + idx_node->name + " in " + scope);
+                }
                 msb = base_v.aval;
                 lsb = (msb >= slice_w - 1) ? (msb - (slice_w - 1)) : 0;
                 if (base_low > 0 && lsb >= (uint32_t)base_low) lsb -= (uint32_t)base_low;
@@ -5786,7 +5869,7 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (it_cls != engine.class_defs.end() && it_cls->second && it_cls->second->has_static_member(member_name)) {
                     return engine.get_class_static_var(ctype, member_name);
                 }
-                throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: accessing member '" + member_name + "' of null handle per IEEE 1800-2023 section 8.4");
+                throw std::runtime_error("[CAS ERROR] Null pointer dereferenced: accessing member '" + member_name + "' of null handle '" + var_name + "' (ctype='" + ctype + "') in scope '" + scope + "' per IEEE 1800-2023 section 8.4");
             }
         }
         if (!cl_obj && var_name.find('[') != std::string::npos) {
@@ -5919,14 +6002,24 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             if (local && !local->type_name.empty()) type_name = local->type_name;
         }
         if (type_name.empty()) {
-            if (engine.var_to_struct_type.find(scoped_var) != engine.var_to_struct_type.end()) {
-                type_name = engine.var_to_struct_type.at(scoped_var);
-            } else if (engine.var_to_struct_type.find(var_name) != engine.var_to_struct_type.end()) {
-                type_name = engine.var_to_struct_type.at(var_name);
-            } else if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
-                type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
-            } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
-                type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+            std::string cur_s = scope;
+            while (true) {
+                std::string s = cur_s.empty() ? var_name : (cur_s + "." + var_name);
+                if (engine.var_to_struct_type.count(s)) {
+                    type_name = engine.var_to_struct_type.at(s);
+                    break;
+                }
+                if (cur_s.empty()) break;
+                auto dot = cur_s.rfind('.');
+                if (dot == std::string::npos) cur_s = "";
+                else cur_s = cur_s.substr(0, dot);
+            }
+            if (type_name.empty()) {
+                if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
+                } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+                }
             }
         }
 

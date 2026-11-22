@@ -24,6 +24,7 @@ tb_tmp.txt
 **/*.d
 projects/ibex/
 projects/veer_el2/
+projects/cva6/
 benchmarks/sv-tests/
 benchmarks/ivtest/
 benchmarks/verilator_repo/

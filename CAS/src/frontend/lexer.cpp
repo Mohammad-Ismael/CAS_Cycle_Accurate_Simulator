@@ -1023,7 +1023,7 @@ Token Lexer::next_token_internal() {
             advance();
             return {TokenType::TOKEN_COLON_EQ, ":=", 0, 0, cur_file, cur_line, 0};
         }
-        if (peek() == '/') {
+        if (peek() == '/' && peek_next() != '/' && peek_next() != '*') {
             advance();
             return {TokenType::TOKEN_COLON_DIV, ":/", 0, 0, cur_file, cur_line, 0};
         }

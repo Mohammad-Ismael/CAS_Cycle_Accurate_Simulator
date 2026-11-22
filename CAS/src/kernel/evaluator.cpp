@@ -2487,9 +2487,6 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             if (AsyncTraceBuffer::instance().is_running()) {
                 AsyncTraceBuffer::instance().log_string(fd, out_str);
-                if (fd != 1) {
-                    AsyncTraceBuffer::instance().log_string(1, out_str);
-                }
             } else {
                 auto it = engine.open_files.find(fd);
                 if (it != engine.open_files.end() && it->second.fp) {
@@ -4706,6 +4703,26 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                     return;
                 }
+                if (auto ucat = dynamic_cast<UnpackedConcatNode*>(nassign->rhs.get())) {
+                    bool has_def = false;
+                    LogicVal def_v;
+                    for (const auto& el : ucat->elements) {
+                        if (auto pm = dynamic_cast<PatternMemberNode*>(el.get())) {
+                            if (pm->member_name == "default") {
+                                has_def = true;
+                                def_v = eval_expr(pm->value.get(), bp.scope);
+                                break;
+                            }
+                        }
+                    }
+                    if (has_def) {
+                        for (size_t i = 0; i < local->unpacked_elements.size(); ++i) {
+                            local->unpacked_elements[i] = LogicOps::cast_width(def_v, local->elem_width, local->is_signed);
+                        }
+                        local->value = rhs_val;
+                        return;
+                    }
+                }
                 std::vector<LogicVal> elems;
                 if (rhs_val.is_unpacked) {
                     elems = rhs_val.unpacked_elements;
@@ -4933,6 +4950,25 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                 return;
             }
             LogicVal rhs_val = eval_expr(nassign->rhs.get(), bp.scope);
+            if (auto ucat = dynamic_cast<UnpackedConcatNode*>(nassign->rhs.get())) {
+                bool has_def = false;
+                LogicVal def_v;
+                for (const auto& el : ucat->elements) {
+                    if (auto pm = dynamic_cast<PatternMemberNode*>(el.get())) {
+                        if (pm->member_name == "default") {
+                            has_def = true;
+                            def_v = eval_expr(pm->value.get(), bp.scope);
+                            break;
+                        }
+                    }
+                }
+                if (has_def) {
+                    for (size_t i = 0; i < mem.depth; ++i) {
+                        mem.set_raw_word(i, LogicOps::cast_width(def_v, mem.word_width, false));
+                    }
+                    return;
+                }
+            }
             std::vector<LogicVal> elems;
             if (rhs_val.is_unpacked) {
                 elems = rhs_val.unpacked_elements;
@@ -6108,6 +6144,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         for (auto it = bp.call_stack.rbegin(); it != bp.call_stack.rend(); ++it) {
                             h_local = it->local_frame.get_var(base_var);
                             if (h_local) break;
+                        }
+                    }
+                    if (h_local && !member_name.empty()) {
+                        const PackedStructType* st = expr_eval.find_struct_type_by_member(h_local->type_name, member_name, h_local->width, bp.scope);
+                        if (!st) st = expr_eval.find_struct_type_by_member("", member_name, h_local->width, bp.scope);
+                        if (!st) st = expr_eval.find_struct_type(h_local->type_name, bp.scope);
+                        if (st) {
+                            const StructMember* sm = st->get_member(member_name);
+                            if (sm) {
+                                h_local->value.deposit_slice(sm->offset, sm->width, rhs_val);
+                                return;
+                            }
                         }
                     }
                     if (h_local && h_local->is_class_handle) {
