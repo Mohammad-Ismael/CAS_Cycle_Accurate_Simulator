@@ -8626,6 +8626,28 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
         }
     }
 
+    // Multi-pass fixed-point resolution for cross-package localparams (e.g. ariane_axi_soc::IdWidthSlave)
+    for (int pkg_pass = 0; pkg_pass < 3; ++pkg_pass) {
+        for (const auto& kv : Parser::global_packages) {
+            const std::string& pkg_name = kv.first;
+            const auto& pkg = kv.second;
+            for (const auto& p : pkg->parameters) {
+                if (!p.default_expr || p.type_name == "type") continue;
+                LogicVal lval = eval_const_logic_val(p.default_expr.get(), pkg_name, p.type_name);
+                if (lval.aval == 0 && p.type_name.empty() && !dynamic_cast<UnpackedConcatNode*>(p.default_expr.get())) {
+                    try {
+                        uint64_t ev = eval_const_expr(p.default_expr.get(), pkg_name);
+                        if (ev != 0) lval = LogicVal::make_known(32, ev);
+                    } catch (...) {}
+                }
+                result.param_val_map[pkg_name + "::" + p.name] = lval;
+                result.param_val_map[pkg_name + "." + p.name] = lval;
+                result.param_map[pkg_name + "::" + p.name] = lval.aval;
+                result.param_map[pkg_name + "." + p.name] = lval.aval;
+            }
+        }
+    }
+
     std::string unit_tu = !Parser::global_timeunit_val.empty() ? Parser::global_timeunit_val : (Lexer::global_timescale_encountered ? Lexer::global_time_unit_str : "1s");
     std::string unit_tp = !Parser::global_timeprec_val.empty() ? Parser::global_timeprec_val : (Lexer::global_timescale_encountered ? Lexer::global_time_precision_str : "1s");
     result.timescale_map["$unit"] = {unit_tu, unit_tp};
