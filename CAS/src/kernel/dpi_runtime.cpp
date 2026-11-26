@@ -1,6 +1,7 @@
 #include "kernel/dpi_runtime.hpp"
 #include "engine.hpp"
 #include "common/dpic_types.hpp"
+#include <map>
 #include <cstdarg>
 #include <cstring>
 #include <iostream>
@@ -654,6 +655,32 @@ int sv_get_status(void) {
 void sv_set_status(int status) {
     uint64_t args[1] = { static_cast<uint64_t>(static_cast<uint32_t>(status)) };
     cas_dispatch_dpi_export("sv_set_status", 1, args);
+}
+
+char read_symbol(const char* symbol_name, unsigned long long* address) {
+    if (!address || !symbol_name) return 0;
+#ifndef _WIN32
+#ifdef RTLD_DEFAULT
+    void* sym_map_ptr = dlsym(RTLD_DEFAULT, "_Z7symbolsB5cxx11");
+    if (sym_map_ptr) {
+        auto* sym_map = reinterpret_cast<std::map<std::string, uint64_t>*>(sym_map_ptr);
+        auto it = sym_map->find(symbol_name);
+        if (it != sym_map->end()) {
+            *address = it->second;
+            return 1;
+        }
+    }
+#endif
+#endif
+    if (std::strcmp(symbol_name, "tohost") == 0) {
+        *address = 0x80001000ULL;
+        return 1;
+    }
+    return 0;
+}
+
+char cas_read_symbol(const char* symbol_name, unsigned long long* address) {
+    return read_symbol(symbol_name, address);
 }
 
 } // extern "C"

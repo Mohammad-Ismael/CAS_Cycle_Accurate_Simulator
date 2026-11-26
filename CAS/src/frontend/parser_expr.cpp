@@ -1808,6 +1808,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         ma->member_msb_expr = std::move(msb_sub);
                         ma->member_lsb_expr = std::move(w_sub);
                         ma->has_member_select = true;
+                        ma->is_part_select = true;
                         ma->is_plus_colon = true;
                     } else if (match(TokenType::TOKEN_MINUS_COLON)) {
                         auto w_sub = parse_expression();
@@ -1815,6 +1816,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
                         ma->member_msb_expr = std::move(msb_sub);
                         ma->member_lsb_expr = std::move(w_sub);
                         ma->has_member_select = true;
+                        ma->is_part_select = true;
                         ma->is_minus_colon = true;
                     } else {
                         expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing bit-select index");
@@ -2086,7 +2088,7 @@ std::unique_ptr<ExpressionNode> Parser::parse_primary() {
         if (current.type == TokenType::TOKEN_OVERLAP_IMP || current.type == TokenType::TOKEN_NON_OVERLAP_IMP) {
             std::string imp_op = current.text;
             advance();
-            auto rhs = parse_expression();
+            auto rhs = parse_sequence_expression();
             expect(TokenType::TOKEN_RPAREN, "Expected ')' closing parenthesized property expression");
             return std::make_unique<BinaryOpNode>(imp_op, std::move(expr), std::move(rhs));
         }
@@ -2373,6 +2375,43 @@ std::unique_ptr<ExpressionNode> Parser::parse_unary() {
         std::string op = current.text;
         advance();
         expr = std::make_unique<IncDecExprNode>(op, false, std::move(expr));
+    }
+    if (current.type == TokenType::TOKEN_APOSTROPHE && peek_token().type == TokenType::TOKEN_LPAREN) {
+        advance(); // consume '''
+        advance(); // consume '('
+        int64_t sz = 0;
+        bool is_explicit_literal = false;
+        if (auto num = dynamic_cast<NumberNode*>(expr.get())) {
+            is_explicit_literal = true;
+            if (num->width <= 32) {
+                sz = static_cast<int64_t>(static_cast<int32_t>(num->aval));
+            } else {
+                sz = static_cast<int64_t>(num->aval);
+            }
+        } else if (auto un = dynamic_cast<UnaryOpNode*>(expr.get())) {
+            if (un->op == "-") {
+                if (auto un_num = dynamic_cast<NumberNode*>(un->operand.get())) {
+                    is_explicit_literal = true;
+                    sz = -static_cast<int64_t>(un_num->aval);
+                } else {
+                    sz = -1;
+                }
+            }
+        } else {
+            try {
+                sz = static_cast<int64_t>(eval_const_expr(expr.get()));
+            } catch (...) {
+                sz = 0;
+            }
+        }
+        if (is_explicit_literal && sz <= 0) {
+            throw std::runtime_error("[CAS-DTINPCIL] Size cast bit width must be positive integer (got " + std::to_string(sz) + ") per IEEE 1800-2023 section 6.24.1");
+        }
+        auto cast_expr = parse_expression();
+        expect(TokenType::TOKEN_RPAREN, "Expected ')' closing size cast expression");
+        auto cast_node = std::make_unique<StaticCastExprNode>(sz > 0 ? static_cast<uint32_t>(sz) : 32, std::move(cast_expr));
+        cast_node->size_expr = std::move(expr);
+        return cast_node;
     }
     return expr;
 }

@@ -329,6 +329,8 @@ struct ContinuousAssignNode : public ASTNode {
     std::unique_ptr<ExpressionNode> member_lsb_expr = nullptr;
     bool has_member_select = false;
     bool is_part_select = false;
+    bool is_indexed_part_select = false;
+    bool is_plus_colon = true;
 
     ContinuousAssignNode() = default;
     ContinuousAssignNode(std::string target, std::unique_ptr<ExpressionNode> r)
@@ -347,6 +349,8 @@ struct ContinuousAssignNode : public ASTNode {
         node->member_name = member_name;
         node->has_member_select = has_member_select;
         node->is_part_select = is_part_select;
+        node->is_indexed_part_select = is_indexed_part_select;
+        node->is_plus_colon = is_plus_colon;
         if (member_msb_expr) node->member_msb_expr = member_msb_expr->clone();
         if (member_lsb_expr) node->member_lsb_expr = member_lsb_expr->clone();
         return node;
@@ -1136,6 +1140,7 @@ struct GenerateBlock {
     std::vector<std::unique_ptr<TaskNode>> tasks;
     std::vector<std::unique_ptr<FunctionNode>> functions;
     std::vector<std::shared_ptr<ASTNode>> nested_generates;
+    std::vector<std::unique_ptr<AssertPropertyStatementNode>> assertions;
 
     GenerateBlock() = default;
     GenerateBlock(GenerateBlock&&) = default;

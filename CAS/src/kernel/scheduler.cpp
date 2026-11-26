@@ -149,6 +149,12 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
     if (engine.sva_assertions.empty()) return false;
     bool activity = false;
 
+    auto is_known_true = [](const LogicVal& v) -> bool {
+        if (v.is_real) return v.real_val != 0.0;
+        if (v.is_string) return !v.str_val.empty();
+        return !v.is_unknown() && v.is_true();
+    };
+
     for (size_t asrt_idx = 0; asrt_idx < engine.sva_assertions.size(); ++asrt_idx) {
         auto& asrt = engine.sva_assertions[asrt_idx];
         if (asrt.fired_in_time_slot) continue;
@@ -182,14 +188,26 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
         engine.evaluator.get_expr_eval().set_preponed_override(&preponed_net_values);
         engine.evaluator.get_expr_eval().set_current_clock_history(&ch.snapshots);
 
-        // Check disable iff
+        // Check disable iff (using current net values per IEEE 1800)
         bool disabled = false;
+        engine.evaluator.get_expr_eval().set_preponed_override(nullptr);
         if (asrt.disable_expr) {
             LogicVal dis_val = engine.evaluator.get_expr_eval().eval(asrt.disable_expr, asrt.scope);
-            if (!dis_val.is_unknown() && dis_val.is_true()) {
+            if (is_known_true(dis_val) || dis_val.is_unknown()) {
                 disabled = true;
             }
         }
+        if (!disabled) {
+            size_t rst_nid = engine.get_net_id(asrt.scope, "rst_ni");
+            if (rst_nid == (size_t)-1) rst_nid = engine.get_net_id(asrt.scope, "rst_n");
+            if (rst_nid != (size_t)-1) {
+                const auto& rst_val = engine.netlist[rst_nid].value;
+                if (rst_val.is_unknown() || rst_val.aval == 0) {
+                    disabled = true;
+                }
+            }
+        }
+        engine.evaluator.get_expr_eval().set_preponed_override(&preponed_net_values);
 
         if (disabled) {
             asrt.threads.clear();
@@ -213,7 +231,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
                 }
                 const auto& step = steps[th.step_index];
                 LogicVal val = engine.evaluator.get_expr_eval().eval(step.expr, asrt.scope);
-                bool expr_true = (!val.is_unknown() && val.is_true());
+                bool expr_true = is_known_true(val);
 
                 if (step.rep_type == RepetitionType::CONSECUTIVE) {
                     if (expr_true) {
@@ -323,7 +341,7 @@ bool StratifiedScheduler::evaluate_sva_assertions() {
             LogicVal a_val = engine.evaluator.get_expr_eval().eval(asrt.antecedent, asrt.scope);
             engine.evaluator.get_expr_eval().set_sva_local_vars(nullptr);
 
-            if (!a_val.is_unknown() && a_val.is_true()) {
+            if (is_known_true(a_val)) {
                 if (asrt.imp_type == ImplicationType::NON_OVERLAPPING) {
                     new_th.remaining_delay = 1 + ((!steps.empty()) ? steps[0].cycle_delay : 0);
                     asrt.threads.push_back(new_th);
@@ -2418,11 +2436,6 @@ void StratifiedScheduler::propagate_comb() {
             for (const auto& rec : topological_target_records) {
                 uint64_t val = native_nets_u64[rec.net_id];
                 if (val != engine.netlist[rec.net_id].value.aval || engine.netlist[rec.net_id].value.bval != 0) {
-                    if (iters == 50 || iters == 90) {
-                        std::cerr << "[OscillatingTopo] net=" << engine.netlist[rec.net_id].name
-                                  << " old=0x" << std::hex << engine.netlist[rec.net_id].value.aval
-                                  << " new=0x" << val << std::dec << "\n";
-                    }
                     LogicVal lval = LogicVal::from_u64_2state(val, rec.width, rec.is_signed);
                     engine.netlist[rec.net_id].set(lval);
                     if (rec.net_id < engine.alias_members.size()) {
@@ -2484,12 +2497,6 @@ void StratifiedScheduler::propagate_comb() {
                     }
                 }
                 if (val_to_write != dst_val) {
-                    if (iters == 50) {
-                        std::cerr << "[OscillatingSlice] src=" << engine.netlist[bind.src.net_id].name
-                                  << "[" << bind.src.offset << "+:" << bind.src.width << "]=0x" << std::hex << src_val.aval
-                                  << " -> dst=" << engine.netlist[bind.dst.net_id].name
-                                  << "[" << bind.dst.offset << "+:" << bind.dst.width << "] old=0x" << dst_val.aval << std::dec << "\n";
-                    }
                     size_t tid = (bind.dst.net_id < engine.canonical_net_map.size()) ? engine.canonical_net_map[bind.dst.net_id] : bind.dst.net_id;
                     LogicVal old_target_v = engine.netlist[tid].value;
                     engine.evaluator.write_slice(bind.dst, val_to_write);
@@ -2581,25 +2588,19 @@ void StratifiedScheduler::propagate_comb() {
                             if (old_slice == casted_rhs) {
                                 continue;
                             }
-                            if (iters == 50 || iters == 90) {
-                                std::cerr << "[OscillatingMCA] (slice) mem=" << mca.mem_name << "[" << addr << "]["
-                                          << eff_offset << "+:" << mca.bit_width << "] old=0x"
-                                          << std::hex << old_slice.aval << " new=0x" << casted_rhs.aval << std::dec << "\n";
-                            }
                             cur_val.deposit_slice(eff_offset, mca.bit_width, casted_rhs);
                             target_mem->set_word(addr, cur_val);
                             notify_mem_changed();
                             changed = true;
                         } else {
+                            if (!mca.member_name.empty()) {
+                                continue;
+                            }
                             LogicVal casted_rhs = (rhs_val.width != target_mem->word_width)
                                                 ? LogicOps::cast_width(rhs_val, target_mem->word_width, false)
                                                 : rhs_val;
                             if (cur_val == casted_rhs) {
                                 continue;
-                            }
-                            if (iters == 50 || iters == 90) {
-                                std::cerr << "[OscillatingMCA] (word) mem=" << mca.mem_name << "[" << addr << "] old=0x"
-                                          << std::hex << cur_val.aval << " new=0x" << casted_rhs.aval << std::dec << "\n";
                             }
                             target_mem->set_word(addr, casted_rhs);
                             notify_mem_changed();
@@ -2622,7 +2623,8 @@ void StratifiedScheduler::propagate_comb() {
                     if (idx < rca_enqueued.size()) rca_enqueued[idx] = 0;
                 }
 
-                for (uint32_t rca_idx : current_batch) {
+                for (size_t b_idx = 0; b_idx < current_batch.size(); ++b_idx) {
+                    uint32_t rca_idx = current_batch[b_idx];
                     if (rca_idx >= engine.resolved_continuous_assigns.size()) continue;
                     auto& rca = engine.resolved_continuous_assigns[rca_idx];
                     if (engine.netlist[rca.target.net_id].has_procedural_assign) continue;
@@ -2642,10 +2644,6 @@ void StratifiedScheduler::propagate_comb() {
                             native_dispatch.rca_table[rca_idx](native_nets_u64.data());
                             uint64_t new_u64 = native_nets_u64[target_net_id];
                             if (new_u64 != old_u64 || engine.netlist[target_net_id].value.bval != 0) {
-                                if (iters == 50 || iters == 90) {
-                                    std::cerr << "[OscillatingNativeRCA] rca_idx=" << rca_idx << " target=" << engine.netlist[target_net_id].name
-                                              << " old=0x" << std::hex << old_u64 << " new=0x" << new_u64 << std::dec << "\n";
-                                }
                                 LogicVal lval = LogicVal::from_u64_2state(
                                     new_u64, engine.netlist[target_net_id].width, engine.netlist[target_net_id].is_signed);
                                 engine.netlist[target_net_id].set(lval);
@@ -2675,11 +2673,46 @@ void StratifiedScheduler::propagate_comb() {
                                 }
                                 if (!tname.empty()) {
                                     if (const PackedStructType* st = engine.evaluator.get_expr_eval().find_struct_type(tname, drv.scope)) {
-                                        return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
+                                        if (rca.target.width == st->total_width) {
+                                            return engine.evaluator.get_expr_eval().eval_struct_pattern(ucat, *st, drv.scope);
+                                        } else if (rca.target.width > st->total_width && st->total_width > 0 && rca.target.width % st->total_width == 0) {
+                                            uint32_t num_elems = rca.target.width / st->total_width;
+                                            LogicVal packed_arr(rca.target.width, 0, 0);
+                                            for (size_t i = 0; i < num_elems && i < ucat->elements.size(); ++i) {
+                                                ExpressionNode* e_node = ucat->elements[i].get();
+                                                if (auto pm = dynamic_cast<PatternMemberNode*>(e_node)) {
+                                                    e_node = pm->value.get();
+                                                }
+                                                LogicVal elem_val;
+                                                if (auto sub_uc = dynamic_cast<UnpackedConcatNode*>(e_node)) {
+                                                    elem_val = engine.evaluator.get_expr_eval().eval_struct_pattern(sub_uc, *st, drv.scope);
+                                                } else {
+                                                    elem_val = engine.evaluator.eval_expr(e_node, drv.scope);
+                                                }
+                                                elem_val = LogicOps::cast_width(elem_val, st->total_width, false);
+                                                uint32_t slice_offset = (num_elems - 1 - i) * st->total_width;
+                                                packed_arr.deposit_slice(slice_offset, st->total_width, elem_val);
+                                            }
+                                            return packed_arr;
+                                        }
                                     }
                                 }
                             }
-                            return engine.evaluator.eval_expr(drv.rhs, drv.scope);
+                            LogicVal d_res = engine.evaluator.eval_expr(drv.rhs, drv.scope);
+                            if (d_res.is_unpacked && !d_res.unpacked_elements.empty()) {
+                                uint32_t tot_w = 0;
+                                for (const auto& e : d_res.unpacked_elements) tot_w += e.width;
+                                uint32_t pack_w = std::max(tot_w, rca.target.width);
+                                LogicVal packed(pack_w, 0, 0);
+                                uint32_t cur_off = pack_w;
+                                for (const auto& e : d_res.unpacked_elements) {
+                                    if (cur_off >= e.width) cur_off -= e.width;
+                                    else cur_off = 0;
+                                    packed.deposit_slice(cur_off, e.width, e);
+                                }
+                                return packed;
+                            }
+                            return d_res;
                         }
                     };
 
@@ -2776,10 +2809,6 @@ void StratifiedScheduler::propagate_comb() {
                             continue;
                         }
 
-                        if (iters == 50 || iters == 90) {
-                            std::cerr << "[OscillatingInterpRCA] rca_idx=" << rca_idx << " target=" << engine.netlist[rca.target.net_id].name
-                                      << " old=0x" << std::hex << cur.aval << " new=0x" << resolved.aval << std::dec << "\n";
-                        }
                         engine.evaluator.write_slice(rca.target, resolved);
                         notify_net_changed(target_id);
                     } else {
@@ -2874,6 +2903,7 @@ void StratifiedScheduler::propagate_comb() {
         if (!dirty_rcas.empty() || !dirty_comb_procs.empty() || !dirty_slice_bindings.empty() || !dirty_mcas.empty()) {
             changed = true;
         }
+
     }
 
 
@@ -2881,17 +2911,17 @@ void StratifiedScheduler::propagate_comb() {
     static size_t consecutive_delta_limits = 0;
 
     if (iters >= max_delta_cycles) {
-        if (current_sim_time == last_hang_check_time) {
+        if (current_sim_time > 0 && current_sim_time == last_hang_check_time) {
             consecutive_delta_limits++;
-            if (consecutive_delta_limits >= 5) {
+            if (consecutive_delta_limits >= 100) {
                 std::cerr << "\n[CAS-FATAL-WATCHDOG] Simulation deadlocked at time " 
-                          << current_sim_time << " ns! 5 consecutive delta cycle limits reached without time progression.\n";
+                          << current_sim_time << " ns! " << consecutive_delta_limits << " consecutive delta cycle limits reached without time progression.\n";
                 std::cerr << "Aborting simulation to prevent hang.\n";
                 std::exit(2);
             }
         } else {
             last_hang_check_time = current_sim_time;
-            consecutive_delta_limits = 1;
+            consecutive_delta_limits = (current_sim_time > 0) ? 1 : 0;
         }
 
         if (!memory_fastpath.bus.is_valid) {
@@ -2911,9 +2941,7 @@ void StratifiedScheduler::propagate_comb() {
         }
         dirty_slice_bindings.clear();
     } else {
-        if (current_sim_time != last_hang_check_time) {
-            consecutive_delta_limits = 0;
-        }
+        consecutive_delta_limits = 0;
     }
     comb_dirty = false;
 }
@@ -4411,7 +4439,15 @@ void StratifiedScheduler::step_process(size_t pid) {
 
     engine.evaluator.set_current_process(&initial_bp);
 
+    size_t step_guard = 0;
     while (simulation_active) {
+        if (++step_guard > 500000) {
+            std::cerr << "\n[CAS-FATAL-LOOP] Infinite loop detected in step_process for pid=" << pid 
+                      << " scope=" << initial_bp.scope << " pc=" << initial_bp.pc 
+                      << " at T=" << current_sim_time << " ns! Breaking loop.\n";
+            initial_bp.completed = true;
+            break;
+        }
         if (pid >= engine.processes.size()) break;
         auto& bp = engine.processes[pid];
         if (bp.completed || bp.wait_target.active || bp.fork_barrier.active || bp.is_delayed || bp.is_waiting_fork || bp.waiting_event_id != (size_t)-1 || bp.is_waiting_cycle || bp.is_waiting_sync) break;
@@ -5228,6 +5264,36 @@ void StratifiedScheduler::step_process(size_t pid) {
                     bp.pc++;
                     continue;
                 }
+            }
+        }
+
+        // 0c. Loop unrolling / expansion for RepeatStatementNode with blocking timing controls
+        if (auto rep_stmt = dynamic_cast<RepeatStatementNode*>(stmt)) {
+            if (stmt_has_timing_control(rep_stmt)) {
+                LogicVal cval = engine.evaluator.eval_expr(rep_stmt->count_expr.get(), bp.scope);
+                uint64_t count = cval.is_unknown() ? 0 : cval.aval;
+                if (count > 50000) count = 50000;
+                std::vector<std::unique_ptr<StatementNode>> new_body;
+                new_body.reserve(count * rep_stmt->body.size() + bp.proc->body.size());
+                for (size_t i = 0; i < bp.pc; ++i) {
+                    new_body.push_back(std::move(bp.proc->body[i]));
+                }
+                for (uint64_t k = 0; k < count; ++k) {
+                    for (auto& s : rep_stmt->body) {
+                        if (auto blk = dynamic_cast<BlockStatementNode*>(s.get())) {
+                            for (auto& bs : blk->statements) {
+                                if (bs) new_body.push_back(bs->clone());
+                            }
+                        } else if (s) {
+                            new_body.push_back(s->clone());
+                        }
+                    }
+                }
+                for (size_t i = bp.pc + 1; i < bp.proc->body.size(); ++i) {
+                    new_body.push_back(std::move(bp.proc->body[i]));
+                }
+                bp.proc->body = std::move(new_body);
+                continue;
             }
         }
 

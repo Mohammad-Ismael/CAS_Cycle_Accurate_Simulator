@@ -49,6 +49,10 @@ namespace VpiRuntime {
     void dispatch_value_change(size_t net_id, const LogicVal& new_val);
     bool has_value_change_callbacks();
 
+    void set_args(int argc, char** argv);
+    int get_argc();
+    char** get_argv();
+
     void load_vpi_library(const std::string& path);
     VpiObjectImpl* allocate_handle(int type, const std::string& name, const std::string& full_name, size_t net_id = (size_t)-1, uint32_t width = 0, bool is_signed = false);
     VpiSystfImpl* find_systf(const std::string& name);

@@ -125,12 +125,47 @@ public:
         }
         if (v.is_unpacked) {
             LogicVal res(target_width, 0, 0, is_signed);
-            uint32_t elem_w = v.width > 0 ? v.width : 8;
             size_t n = v.unpacked_elements.size();
-            for (size_t i = 0; i < n; ++i) {
-                int64_t bit_pos = (int64_t)target_width - (int64_t)(i + 1) * elem_w;
-                if (bit_pos >= 0) {
-                    res.deposit_slice((uint32_t)bit_pos, elem_w, v.unpacked_elements[i]);
+            if (n == 0) return res;
+            if (n == 1) {
+                uint32_t elem_w = v.unpacked_elements[0].width > 0 ? v.unpacked_elements[0].width : target_width;
+                if (elem_w > 0 && target_width >= elem_w && (target_width % elem_w == 0)) {
+                    size_t slots = target_width / elem_w;
+                    for (size_t k = 0; k < slots; ++k) {
+                        res.deposit_slice((uint32_t)(k * elem_w), elem_w, v.unpacked_elements[0]);
+                    }
+                } else {
+                    bool is_zero = (v.unpacked_elements[0].aval == 0 && v.unpacked_elements[0].bval == 0);
+                    if (is_zero && !v.unpacked_elements[0].wide_aval.empty()) {
+                        for (uint64_t wa : v.unpacked_elements[0].wide_aval) if (wa != 0) { is_zero = false; break; }
+                        for (uint64_t wb : v.unpacked_elements[0].wide_bval) if (wb != 0) { is_zero = false; break; }
+                    }
+                    if (is_zero) {
+                        return res;
+                    }
+                    return cast_width(v.unpacked_elements[0], target_width, is_signed);
+                }
+            } else {
+                uint32_t total_elem_w = 0;
+                for (const auto& elem : v.unpacked_elements) total_elem_w += elem.width;
+                if (total_elem_w == target_width) {
+                    uint32_t cur_pos = target_width;
+                    for (size_t i = 0; i < n; ++i) {
+                        uint32_t ew = v.unpacked_elements[i].width;
+                        if (cur_pos >= ew) {
+                            cur_pos -= ew;
+                            res.deposit_slice(cur_pos, ew, v.unpacked_elements[i]);
+                        }
+                    }
+                } else {
+                    uint32_t elem_w = (target_width % n == 0) ? (target_width / (uint32_t)n)
+                                    : (!v.unpacked_elements.empty() && v.unpacked_elements[0].width > 0 ? v.unpacked_elements[0].width : (v.width > 0 ? v.width : 8));
+                    for (size_t i = 0; i < n; ++i) {
+                        int64_t bit_pos = (int64_t)target_width - (int64_t)(i + 1) * elem_w;
+                        if (bit_pos >= 0) {
+                            res.deposit_slice((uint32_t)bit_pos, elem_w, v.unpacked_elements[i]);
+                        }
+                    }
                 }
             }
             res.mask();

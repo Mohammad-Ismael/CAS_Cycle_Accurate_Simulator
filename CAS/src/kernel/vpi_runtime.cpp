@@ -25,9 +25,24 @@ namespace {
     size_t g_value_change_cb_count = 0;
     std::string g_last_str_buf;
     std::vector<s_vpi_vecval> g_vecval_buf;
+    int g_vpi_argc = 0;
+    char** g_vpi_argv = nullptr;
 }
 
 namespace VpiRuntime {
+
+void set_args(int argc, char** argv) {
+    g_vpi_argc = argc;
+    g_vpi_argv = argv;
+}
+
+int get_argc() {
+    return g_vpi_argc;
+}
+
+char** get_argv() {
+    return g_vpi_argv;
+}
 
 void initialize() {
     g_vpi_objects.clear();
@@ -526,6 +541,47 @@ int32_t vpi_control(int32_t operation, ...) {
 }
 
 int32_t vpi_free_object(vpiHandle /*object*/) {
+    return 1;
+}
+
+PLI_INT32 vpi_get_vlog_info(p_vpi_vlog_info vlog_info_p) {
+    if (!vlog_info_p) return 0;
+    static std::vector<char*> s_argv;
+    static std::vector<std::string> s_storage;
+    if (s_argv.empty()) {
+        int orig_argc = VpiRuntime::get_argc();
+        char** orig_argv = VpiRuntime::get_argv();
+        if (orig_argc > 0 && orig_argv) {
+            s_storage.push_back(orig_argv[0]);
+            s_storage.push_back("+permissive");
+            std::string binary_arg = "";
+            for (int i = 1; i < orig_argc; ++i) {
+                std::string arg = orig_argv[i];
+                if (arg.rfind("+PRELOAD=", 0) == 0) {
+                    binary_arg = arg.substr(9);
+                } else if (arg.rfind("+elf_file=", 0) == 0 && binary_arg.empty()) {
+                    binary_arg = arg.substr(10);
+                }
+                s_storage.push_back(arg);
+            }
+            s_storage.push_back("+permissive-off");
+            if (!binary_arg.empty()) {
+                s_storage.push_back(binary_arg);
+            }
+            for (auto& s : s_storage) {
+                s_argv.push_back(const_cast<char*>(s.c_str()));
+            }
+        }
+    }
+    if (!s_argv.empty()) {
+        vlog_info_p->argc = static_cast<PLI_INT32>(s_argv.size());
+        vlog_info_p->argv = reinterpret_cast<PLI_BYTE8**>(s_argv.data());
+    } else {
+        vlog_info_p->argc = VpiRuntime::get_argc();
+        vlog_info_p->argv = reinterpret_cast<PLI_BYTE8**>(VpiRuntime::get_argv());
+    }
+    vlog_info_p->product = const_cast<PLI_BYTE8*>((const PLI_BYTE8*)"CAS");
+    vlog_info_p->version = const_cast<PLI_BYTE8*>((const PLI_BYTE8*)"v4.9.0.0");
     return 1;
 }
 

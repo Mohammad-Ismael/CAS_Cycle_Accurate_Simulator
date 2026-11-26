@@ -385,7 +385,7 @@ private:
 
 public:
     std::unordered_map<std::string, LogicVal> top_param_overrides;
-    LogicVal eval_const_logic_val(ExpressionNode* expr, const std::string& scope);
+    LogicVal eval_const_logic_val(ExpressionNode* expr, const std::string& scope, const std::string& target_type_name = "");
     Elaborator() = default;
 
     ElaborationResult elaborate(std::vector<std::unique_ptr<ModuleNode>>& modules,

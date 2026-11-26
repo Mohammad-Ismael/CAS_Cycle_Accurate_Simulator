@@ -694,28 +694,79 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
             }
         }
         if (is_cu_var) {
+            std::unique_ptr<ExpressionNode> cu_packed_msb = nullptr;
+            std::unique_ptr<ExpressionNode> cu_packed_lsb = nullptr;
             if (match(TokenType::TOKEN_LBRACKET)) {
-                parse_expression();
-                if (match(TokenType::TOKEN_COLON)) parse_expression();
+                cu_packed_msb = parse_expression();
+                if (match(TokenType::TOKEN_COLON)) cu_packed_lsb = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
             }
             while (true) {
                 std::string vname = current.text;
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected compilation unit variable identifier");
+                bool is_assoc = false;
+                std::string assoc_ktype = "";
+                uint32_t assoc_kwidth = 0;
+                bool is_dyn = false;
+                bool is_q = false;
+                std::unique_ptr<ExpressionNode> q_bound = nullptr;
+                bool is_unpacked = false;
+                std::vector<AstDimension> unpacked_dims;
+
+                while (match(TokenType::TOKEN_LBRACKET)) {
+                    if (match(TokenType::TOKEN_DOLLAR)) {
+                        is_q = true;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            q_bound = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in dimension");
+                        continue;
+                    } else if (match(TokenType::TOKEN_RBRACKET)) {
+                        is_dyn = true;
+                        continue;
+                    } else if (is_assoc_key_token(current)) {
+                        is_assoc = true;
+                        parse_assoc_key_type(assoc_ktype, assoc_kwidth);
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in associative array dimension");
+                        continue;
+                    } else {
+                        is_unpacked = true;
+                        auto l = parse_expression();
+                        std::unique_ptr<ExpressionNode> r = nullptr;
+                        if (match(TokenType::TOKEN_COLON)) {
+                            r = parse_expression();
+                        }
+                        expect(TokenType::TOKEN_RBRACKET, "Expected ']' in unpacked dimension");
+                        AstDimension ad;
+                        ad.left_expr = std::move(l);
+                        ad.right_expr = std::move(r);
+                        unpacked_dims.push_back(std::move(ad));
+                    }
+                }
+
                 std::unique_ptr<ExpressionNode> val_expr = nullptr;
                 if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
                     val_expr = parse_expression();
                 }
                 if (cu_type == "event") {
                     global_events.push_back(vname);
-                } else if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire") {
+                } else if (val_expr != nullptr && cu_type != "reg" && cu_type != "wire" && !is_assoc && !is_dyn && !is_q && !is_unpacked) {
                     ParameterDef pdef_cu(vname, val_expr->clone(), false, cu_type);
                     cu_parameters[current_compilation_unit_id].push_back(std::move(pdef_cu));
                     ParameterDef pdef(vname, std::move(val_expr), false, cu_type);
                     global_parameters.push_back(std::move(pdef));
                 } else {
-                    PortNode sig(vname, "internal", nullptr, nullptr, false, NetKind::VAR);
+                    PortNode sig(vname, "internal", cu_packed_msb ? cu_packed_msb->clone() : nullptr, cu_packed_lsb ? cu_packed_lsb->clone() : nullptr, false, NetKind::VAR);
                     sig.type_name = cu_type;
+                    sig.is_associative_array = is_assoc;
+                    sig.assoc_key_type = assoc_ktype;
+                    sig.assoc_key_width = assoc_kwidth;
+                    sig.is_dynamic_array = is_dyn;
+                    sig.is_queue = is_q;
+                    sig.queue_bound_expr = std::move(q_bound);
+                    sig.is_array = is_unpacked;
+                    sig.unpacked_dimensions = std::move(unpacked_dims);
+                    if (val_expr) sig.default_value = std::move(val_expr);
                     cu_signals[current_compilation_unit_id].push_back(sig.clone());
                     global_signals.push_back(std::move(sig));
                 }
@@ -2528,11 +2579,6 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
-            if (current.type == TokenType::TOKEN_FATAL || current.type == TokenType::TOKEN_ERROR ||
-                current.type == TokenType::TOKEN_WARNING || current.type == TokenType::TOKEN_INFO) {
-                throw std::runtime_error(current.filename + ":" + std::to_string(current.line) + ": [CAS-DTINPCIL] Dynamic type in non-procedural context: severity system task '" + current.text + "' is not permitted outside procedural or action-block context per IEEE 1800-2023 section 20.10");
-            }
-
             if (current.type == TokenType::TOKEN_IDENTIFIER && is_covergroup(current.text)) {
                 std::string cg_type = current.text;
                 advance();
@@ -3897,6 +3943,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     std::unique_ptr<ExpressionNode> member_lsb = nullptr;
                     bool has_mem_sel = false;
                     bool is_part_sel = false;
+                    bool is_indexed_part_sel = false;
+                    bool is_plus_c = true;
                     while (match(TokenType::TOKEN_DOT)) {
                         if (!member_name.empty()) member_name += ".";
                         member_name += current.text;
@@ -3906,6 +3954,16 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                             member_msb = parse_expression();
                             if (match(TokenType::TOKEN_COLON)) {
                                 is_part_sel = true;
+                                member_lsb = parse_expression();
+                            } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                                is_part_sel = true;
+                                is_indexed_part_sel = true;
+                                is_plus_c = true;
+                                member_lsb = parse_expression();
+                            } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                                is_part_sel = true;
+                                is_indexed_part_sel = true;
+                                is_plus_c = false;
                                 member_lsb = parse_expression();
                             }
                             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member select in assign target");
@@ -3932,6 +3990,8 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                     ca->member_name = member_name;
                     ca->has_member_select = has_mem_sel;
                     ca->is_part_select = is_part_sel;
+                    ca->is_indexed_part_select = is_indexed_part_sel;
+                    ca->is_plus_colon = is_plus_c;
                     ca->member_msb_expr = std::move(member_msb);
                     ca->member_lsb_expr = std::move(member_lsb);
                     mod->continuous_assigns.push_back(std::move(ca));
@@ -5931,6 +5991,8 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         current_parsing_package->enum_typedefs[type_name] = enum_node;
         for (const auto& m : enum_node->members) {
             current_parsing_package->enum_constant_map[m.first] = m.second;
+            current_parsing_package->param_constants[m.first] = m.second.aval;
+            current_parsing_package->param_constants[current_parsing_package->name + "::" + m.first] = m.second.aval;
         }
     } else if (current_parsing_module) {
         current_parsing_module->enum_typedefs[type_name] = enum_node;
@@ -7076,6 +7138,10 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
                 }
             }
         }
+        if (current_parsing_package) {
+            auto it_ec = current_parsing_package->enum_constant_map.find(id->name);
+            if (it_ec != current_parsing_package->enum_constant_map.end()) return it_ec->second.aval;
+        }
         auto colon = id->name.find("::");
         if (colon != std::string::npos) {
             std::string pkg = id->name.substr(0, colon);
@@ -7084,11 +7150,15 @@ uint64_t Parser::eval_const_expr_with_params(ExpressionNode* expr, const std::un
             if (pit != global_packages.end()) {
                 auto cit = pit->second->param_constants.find(item);
                 if (cit != pit->second->param_constants.end()) return cit->second;
+                auto ecit = pit->second->enum_constant_map.find(item);
+                if (ecit != pit->second->enum_constant_map.end()) return ecit->second.aval;
             }
         }
         for (const auto& kv : global_packages) {
             auto cit = kv.second->param_constants.find(id->name);
             if (cit != kv.second->param_constants.end()) return cit->second;
+            auto ecit = kv.second->enum_constant_map.find(id->name);
+            if (ecit != kv.second->enum_constant_map.end()) return ecit->second.aval;
         }
         return 0;
     }
@@ -8114,6 +8184,23 @@ std::unique_ptr<PropertyNode> Parser::parse_property() {
         prop->imp_type = ImplicationType::NONE;
         prop->antecedent = std::move(first_expr);
     }
+    if (prop->imp_type == ImplicationType::NONE && prop->antecedent) {
+        if (auto bin = dynamic_cast<BinaryOpNode*>(prop->antecedent.get())) {
+            if (bin->op == "|->" || bin->op == "|=>") {
+                prop->imp_type = (bin->op == "|->") ? ImplicationType::OVERLAPPING : ImplicationType::NON_OVERLAPPING;
+                prop->consequent = std::move(bin->rhs);
+                prop->antecedent = std::move(bin->lhs);
+            }
+        }
+    }
+    while (current.type == TokenType::TOKEN_NON_OVERLAP_IMP || current.type == TokenType::TOKEN_OVERLAP_IMP) {
+        TokenType op = current.type;
+        advance();
+        auto next_expr = parse_sequence_expression();
+        prop->antecedent = std::make_unique<BinaryOpNode>("&&", std::move(prop->antecedent), std::move(prop->consequent));
+        prop->consequent = std::move(next_expr);
+        prop->imp_type = (op == TokenType::TOKEN_NON_OVERLAP_IMP) ? ImplicationType::NON_OVERLAPPING : ImplicationType::OVERLAPPING;
+    }
 
     match(TokenType::TOKEN_SEMICOLON);
     expect(TokenType::TOKEN_ENDPROPERTY, "Expected 'endproperty'");
@@ -8350,6 +8437,23 @@ std::unique_ptr<AssertPropertyStatementNode> Parser::parse_assert_property(const
         } else {
             inlined->imp_type = ImplicationType::NONE;
             inlined->antecedent = std::move(first_expr);
+        }
+        if (inlined->imp_type == ImplicationType::NONE && inlined->antecedent) {
+            if (auto bin = dynamic_cast<BinaryOpNode*>(inlined->antecedent.get())) {
+                if (bin->op == "|->" || bin->op == "|=>") {
+                    inlined->imp_type = (bin->op == "|->") ? ImplicationType::OVERLAPPING : ImplicationType::NON_OVERLAPPING;
+                    inlined->consequent = std::move(bin->rhs);
+                    inlined->antecedent = std::move(bin->lhs);
+                }
+            }
+        }
+        while ((is_property || is_expect) && (current.type == TokenType::TOKEN_NON_OVERLAP_IMP || current.type == TokenType::TOKEN_OVERLAP_IMP)) {
+            TokenType op = current.type;
+            advance();
+            auto next_expr = parse_sequence_expression();
+            inlined->antecedent = std::make_unique<BinaryOpNode>("&&", std::move(inlined->antecedent), std::move(inlined->consequent));
+            inlined->consequent = std::move(next_expr);
+            inlined->imp_type = (op == TokenType::TOKEN_NON_OVERLAP_IMP) ? ImplicationType::NON_OVERLAPPING : ImplicationType::OVERLAPPING;
         }
         assert_node->inlined_property = std::move(inlined);
     }
@@ -9001,6 +9105,7 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
 
                 ParameterDef pdef;
                 pdef.name = pname;
+                pdef.type_name = ptype;
                 pdef.default_expr = std::move(val_expr);
                 pkg->parameters.push_back(std::move(pdef));
 
@@ -9034,6 +9139,8 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                     pkg->enum_typedefs[td->type_name] = td->enum_type;
                     for (const auto& m : td->enum_type->members) {
                         pkg->enum_constant_map[m.first] = m.second;
+                        pkg->param_constants[m.first] = m.second.aval;
+                        pkg->param_constants[pkg->name + "::" + m.first] = m.second.aval;
                     }
                     VariableDimMetadata edim;
                     edim.name = td->type_name;
@@ -9898,6 +10005,222 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         mod->typedefs.push_back(std::move(td));
         return;
     }
+    if (current.type == TokenType::TOKEN_ENUM) {
+        advance(); // consume enum
+        uint32_t e_width = 32;
+        bool e_signed = true;
+        std::string e_base = "int";
+        if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+            e_signed = true; advance();
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+            e_signed = false; advance();
+        }
+
+        if (current.type == TokenType::TOKEN_INTEGER) {
+            e_width = 32; e_base = "integer"; advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "int") {
+            e_width = 32; e_base = "int"; advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "byte") {
+            e_width = 8; e_base = "byte"; advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "shortint") {
+            e_width = 16; e_base = "shortint"; advance();
+        } else if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "longint") {
+            e_width = 64; e_base = "longint"; advance();
+        } else if (current.type == TokenType::TOKEN_LOGIC || current.type == TokenType::TOKEN_BIT || current.type == TokenType::TOKEN_REG) {
+            e_base = current.text; e_width = 1; e_signed = false; advance();
+        }
+
+        if (current.type == TokenType::TOKEN_SIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "signed")) {
+            e_signed = true; advance();
+        } else if (current.type == TokenType::TOKEN_UNSIGNED || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "unsigned")) {
+            e_signed = false; advance();
+        }
+
+        if (match(TokenType::TOKEN_LBRACKET)) {
+            auto msb_e = parse_expression();
+            expect(TokenType::TOKEN_COLON, "Expected ':' in range");
+            auto lsb_e = parse_expression();
+            expect(TokenType::TOKEN_RBRACKET, "Expected ']' in range");
+            try {
+                uint64_t m = eval_const_expr(msb_e.get());
+                uint64_t l = eval_const_expr(lsb_e.get());
+                e_width = (m >= l) ? (m - l + 1) : (l - m + 1);
+            } catch (...) {}
+        }
+        expect(TokenType::TOKEN_LBRACE, "Expected '{' in enum declaration");
+        auto enum_node = std::make_shared<EnumTypeNode>();
+        enum_node->base_width = e_width;
+        enum_node->is_signed = e_signed;
+        enum_node->base_type_name = e_base;
+        uint64_t current_val = 0;
+        bool prev_had_xz = false;
+        std::unordered_set<uint64_t> seen_enum_vals;
+        while (current.type != TokenType::TOKEN_RBRACE && current.type != TokenType::TOKEN_EOF) {
+            std::string mname = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected enum member identifier");
+            bool is_seq = false;
+            int64_t seq_start = 0, seq_end = 0;
+            if (match(TokenType::TOKEN_LBRACKET)) {
+                is_seq = true;
+                auto l = parse_expression();
+                if (match(TokenType::TOKEN_COLON)) {
+                    auto r = parse_expression();
+                    if (expr_has_xz(l.get()) || expr_has_xz(r.get())) {
+                        throw std::runtime_error("Undefined sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                    }
+                    try {
+                        seq_start = eval_const_expr(l.get());
+                        seq_end = eval_const_expr(r.get());
+                    } catch (...) {}
+                } else {
+                    if (expr_has_xz(l.get())) {
+                        throw std::runtime_error("Undefined sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                    }
+                    int64_t cnt = 0;
+                    try {
+                        cnt = eval_const_expr(l.get());
+                    } catch (...) {}
+                    if (cnt <= 0) {
+                        throw std::runtime_error("A zero or negative sequence count in enum is an error per IEEE 1800-2023 section 6.19");
+                    }
+                    seq_start = 0; seq_end = cnt - 1;
+                }
+                expect(TokenType::TOKEN_RBRACKET, "Expected ']' in enum sequence");
+            }
+            bool has_eq = false;
+            bool curr_had_xz = false;
+            uint64_t current_bval = 0;
+            if (match(TokenType::TOKEN_EQUAL)) {
+                has_eq = true;
+                auto val_expr = parse_expression();
+                if (auto num = dynamic_cast<NumberNode*>(val_expr.get())) {
+                    current_val = num->aval;
+                    current_bval = num->bval;
+                    if (num->explicit_size && num->width != e_width) {
+                        throw std::runtime_error("If integer value expression is a sized literal constant, it shall be an error if the size is different from the enum base type per IEEE 1800-2023 6.19");
+                    }
+                    if (!num->explicit_size && num->width > e_width && e_width < 64) {
+                        uint64_t msb_a = (num->aval >> (e_width - 1)) & 1ULL;
+                        uint64_t msb_b = (num->bval >> (e_width - 1)) & 1ULL;
+                        for (uint32_t b = e_width; b < num->width && b < 64; ++b) {
+                            uint64_t cur_a = (num->aval >> b) & 1ULL;
+                            uint64_t cur_b = (num->bval >> b) & 1ULL;
+                            if (cur_a != msb_a || cur_b != msb_b) {
+                                throw std::runtime_error("If integer value expression is an unsized literal constant, it shall be an error if trimmed bits do not match MSB per IEEE 1800-2023 6.19");
+                            }
+                        }
+                    }
+                    if (num->bval != 0) {
+                        curr_had_xz = true;
+                        if (e_base == "bit" || e_base == "byte" || e_base == "int" || e_base == "shortint" || e_base == "longint") {
+                            throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                        }
+                    }
+                } else {
+                    if (expr_has_xz(val_expr.get())) {
+                        curr_had_xz = true;
+                        if (e_base == "bit" || e_base == "byte" || e_base == "int" || e_base == "shortint" || e_base == "longint") {
+                            throw std::runtime_error("An enumerated name with x or z assignments assigned to an enum with 2-state declaration shall be a syntax error per IEEE 1800-2023 6.19");
+                        }
+                    }
+                    try {
+                        current_val = eval_const_expr(val_expr.get());
+                        current_bval = 0;
+                    } catch (...) {
+                        throw std::runtime_error("Enum value expression must be an elaboration-time constant expression per IEEE 1800-2023 section 6.19");
+                    }
+                }
+            } else {
+                current_bval = 0;
+                if (prev_had_xz) {
+                    throw std::runtime_error("An unassigned enumerated name that follows an enum name with x or z assignments shall be a syntax error per IEEE 1800-2023 6.19");
+                }
+            }
+            if (!e_signed && e_width < 64) {
+                uint64_t max_val = (1ULL << e_width) - 1;
+                if (current_val > max_val) {
+                    throw std::runtime_error("Enum value exceeds range of base type per IEEE 1800-2023 section 6.19");
+                }
+            }
+            if (!curr_had_xz) {
+                if (seen_enum_vals.count(current_val)) {
+                    throw std::runtime_error("Duplicate enum value in enum declaration per IEEE 1800-2023 section 6.19");
+                }
+                seen_enum_vals.insert(current_val);
+            }
+            prev_had_xz = curr_had_xz;
+            if (is_seq) {
+                int64_t step = (seq_start <= seq_end) ? 1 : -1;
+                for (int64_t idx = seq_start; ; idx += step) {
+                    std::string s_name = mname + std::to_string(idx);
+                    LogicVal mval(e_width, current_val, current_bval);
+                    enum_node->members.push_back({s_name, mval});
+                    ParameterDef pdef;
+                    pdef.name = s_name;
+                    pdef.is_signed = e_signed;
+                    pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width, e_signed);
+                    if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
+                        throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                    }
+                    if (blk) blk->parameters.push_back(pdef);
+                    if (mod) mod->parameters.push_back(std::move(pdef));
+                    current_val++;
+                    current_bval = 0;
+                    if (idx == seq_end) break;
+                }
+            } else {
+                LogicVal mval(e_width, current_val, current_bval);
+                enum_node->members.push_back({mname, mval});
+                ParameterDef pdef;
+                pdef.name = mname;
+                pdef.is_signed = e_signed;
+                pdef.default_expr = std::make_unique<NumberNode>(mval.aval, mval.bval, e_width, e_signed);
+                if (mod && mod->referenced_wildcard_symbols.count(pdef.name)) {
+                    throw std::runtime_error("Declaration of '" + pdef.name + "' conflicts with previous wildcard import reference per IEEE 1800-2023 section 26.3");
+                }
+                if (blk) blk->parameters.push_back(pdef);
+                if (mod) mod->parameters.push_back(std::move(pdef));
+                current_val++;
+                current_bval = 0;
+            }
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_RBRACE, "Expected '}' closing enum member list");
+
+        std::string anon_enum_name = "__anon_enum_" + std::to_string(anon_struct_counter++);
+        typedef_map[anon_enum_name] = enum_node;
+        if (mod) {
+            mod->enum_typedefs[anon_enum_name] = enum_node;
+            mod->typedefs.push_back(std::make_unique<TypedefNode>(anon_enum_name, enum_node));
+        }
+
+        while (true) {
+            std::string signame = current.text;
+            expect(TokenType::TOKEN_IDENTIFIER, "Expected signal identifier");
+            auto msb = std::make_unique<NumberNode>(e_width > 0 ? e_width - 1 : 0, 32);
+            auto lsb = std::make_unique<NumberNode>(0, 32);
+            PortNode sig(signame, "internal", std::move(msb), std::move(lsb), e_signed, NetKind::VAR);
+            sig.type_name = anon_enum_name;
+            sig.is_2state = (e_base == "bit" || e_base == "int" || e_base == "byte" || e_base == "shortint" || e_base == "longint");
+            if (match(TokenType::TOKEN_EQUAL) || match(TokenType::TOKEN_ASSIGN)) {
+                auto init_expr = parse_expression();
+                sig.default_value = init_expr->clone();
+                sig.net_kind = NetKind::VAR;
+                auto init_proc = std::make_unique<ProcessNode>(ProcessType::INITIAL);
+                init_proc->is_decl_init = true;
+                init_proc->body.push_back(std::make_unique<BlockingAssignNode>(signame, std::move(init_expr)));
+                if (blk) blk->processes.push_back(std::move(init_proc));
+                else if (mod) mod->processes.push_back(std::move(init_proc));
+            }
+            if (blk) blk->signals.push_back(std::move(sig));
+            else if (mod) mod->signals.push_back(std::move(sig));
+            if (match(TokenType::TOKEN_COMMA)) continue;
+            break;
+        }
+        expect(TokenType::TOKEN_SEMICOLON, "Expected ';' after enum signal declaration");
+        return;
+    }
     if (match(TokenType::TOKEN_FUNCTION)) {
         auto fn = parse_function();
         if (fn) {
@@ -10235,6 +10558,8 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             std::unique_ptr<ExpressionNode> member_lsb = nullptr;
             bool has_mem_sel = false;
             bool is_part_sel = false;
+            bool is_indexed_part_sel = false;
+            bool is_plus_c = true;
             while (match(TokenType::TOKEN_DOT)) {
                 if (!member_name.empty()) member_name += ".";
                 member_name += current.text;
@@ -10244,6 +10569,16 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
                     member_msb = parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         is_part_sel = true;
+                        member_lsb = parse_expression();
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        is_part_sel = true;
+                        is_indexed_part_sel = true;
+                        is_plus_c = true;
+                        member_lsb = parse_expression();
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        is_part_sel = true;
+                        is_indexed_part_sel = true;
+                        is_plus_c = false;
                         member_lsb = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member select in assign target");
@@ -10256,6 +10591,8 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
             ca->member_name = member_name;
             ca->has_member_select = has_mem_sel;
             ca->is_part_select = is_part_sel;
+            ca->is_indexed_part_select = is_indexed_part_sel;
+            ca->is_plus_colon = is_plus_c;
             ca->member_msb_expr = std::move(member_msb);
             ca->member_lsb_expr = std::move(member_lsb);
             if (blk) blk->continuous_assigns.push_back(std::move(ca));
@@ -10535,8 +10872,9 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
 
     if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {
         auto asrt = parse_assert_property("");
-        if (asrt && mod) {
-            mod->assertions.push_back(std::move(asrt));
+        if (asrt) {
+            if (blk) blk->assertions.push_back(std::move(asrt));
+            else if (mod) mod->assertions.push_back(std::move(asrt));
         }
         return;
     }
@@ -10547,8 +10885,9 @@ void Parser::parse_generate_item(ModuleNode* mod, GenerateBlock* blk) {
         advance(); // colon
         if (current.type == TokenType::TOKEN_ASSERT || current.type == TokenType::TOKEN_ASSUME || (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "cover")) {
             auto asrt = parse_assert_property(label);
-            if (asrt && mod) {
-                mod->assertions.push_back(std::move(asrt));
+            if (asrt) {
+                if (blk) blk->assertions.push_back(std::move(asrt));
+                else if (mod) mod->assertions.push_back(std::move(asrt));
             }
             return;
         }

@@ -16,6 +16,7 @@
 int main(int argc, char* argv[]) {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
+    VpiRuntime::set_args(argc, argv);
     if (argc < 2) {
         std::cerr << "Usage: cas [options] <source_files...>\n";
         return 1;
@@ -24,6 +25,7 @@ int main(int argc, char* argv[]) {
     bool enable_profiling = true;
     bool verbose = true;
     bool enable_vcd = true;
+    bool enable_debug = true;
     bool enable_display = true;
     bool enable_monitor = true;
     bool enable_finish_msg = true;
@@ -172,6 +174,8 @@ int main(int argc, char* argv[]) {
             verbose = false;
         } else if (std::strcmp(argv[i], "--no-vcd") == 0) {
             enable_vcd = false;
+        } else if (std::strcmp(argv[i], "--no-debug") == 0) {
+            enable_debug = false;
         } else if (std::strcmp(argv[i], "--no-display") == 0) {
             enable_display = false;
         } else if (std::strcmp(argv[i], "--no-monitor") == 0) {
@@ -301,9 +305,9 @@ int main(int argc, char* argv[]) {
     profiler.start();
 
     std::stringstream debug_ss;
-    std::ostream* debug_ptr = verbose ? &debug_ss : nullptr;
+    std::ostream* debug_ptr = (verbose && enable_debug) ? &debug_ss : nullptr;
 
-    if (verbose) {
+    if (verbose && enable_debug) {
         debug_ss << "==================================================================\n";
         debug_ss << " CAS COMPILER & PREPROCESSOR FILE ACCESS TRACE\n";
         debug_ss << "==================================================================\n";
@@ -509,13 +513,16 @@ int main(int argc, char* argv[]) {
         Profiler::emit_json_telemetry(metrics, std::cout);
 
         std::cout << "\n---BEGIN_CAS_DEBUG_LOG---\n";
-        if (verbose) {
+        if (verbose && enable_debug) {
             std::cout << debug_ss.str();
         }
         std::cout << "---END_CAS_DEBUG_LOG---\n";
 
         if (engine.has_fatal_error()) {
-            return engine.get_sim_exit_code();
+            std::fflush(stdout);
+            std::fflush(stderr);
+            std::fflush(nullptr);
+            std::_Exit(engine.get_sim_exit_code());
         }
 
     } catch (const std::exception& e) {
@@ -523,5 +530,8 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    return 0;
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::fflush(nullptr);
+    std::_Exit(0);
 }

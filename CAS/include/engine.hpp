@@ -77,6 +77,9 @@ private:
     std::unordered_map<std::string, QueueObject> queue_map;
     std::unordered_map<std::string, DynamicArrayObject> dynamic_array_map;
     std::unordered_map<std::string, AssociativeArrayObject> assoc_array_map;
+    std::unordered_set<std::string> queue_names;
+    std::unordered_set<std::string> dynamic_array_names;
+    std::unordered_set<std::string> assoc_array_names;
     std::unordered_map<std::string, TaskNode*> task_map;
     std::unordered_map<TaskNode*, ScopeFrame> static_task_frames;
     std::unordered_set<TaskNode*> initialized_static_tasks;
@@ -95,6 +98,7 @@ private:
     std::unordered_map<std::string, LogicVal> enum_constant_map;
     std::unordered_map<std::string, PackedStructType> struct_types;
     std::unordered_map<std::string, std::string> var_to_struct_type;
+    mutable std::unordered_map<std::string, size_t> net_id_lookup_cache;
     std::unordered_map<std::string, SimpleTypeInfo> simple_types;
     std::unordered_map<std::string, UnpackedArrayTypeInfo> unpacked_array_types;
     std::unordered_map<std::string, std::string> interface_port_map;
@@ -241,6 +245,7 @@ public:
     int get_sim_exit_code() const { return sim_exit_code; }
 
     bool is_queue(const std::string& name, const std::string& scope = "") const {
+        if (queue_names.empty() || queue_names.find(name) == queue_names.end()) return false;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (queue_map.find(scoped) != queue_map.end()) return true;
         if (queue_map.find(name) != queue_map.end()) return true;
@@ -258,6 +263,7 @@ public:
     }
 
     QueueObject* get_queue(const std::string& name, const std::string& scope = "") {
+        if (queue_names.empty() || queue_names.find(name) == queue_names.end()) return nullptr;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         auto it = queue_map.find(scoped);
         if (it != queue_map.end()) return &it->second;
@@ -278,6 +284,7 @@ public:
     }
 
     bool is_dynamic_array(const std::string& name, const std::string& scope = "") const {
+        if (dynamic_array_names.empty() || dynamic_array_names.find(name) == dynamic_array_names.end()) return false;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (dynamic_array_map.find(scoped) != dynamic_array_map.end()) return true;
         if (dynamic_array_map.find(name) != dynamic_array_map.end()) return true;
@@ -295,6 +302,7 @@ public:
     }
 
     DynamicArrayObject* get_dynamic_array(const std::string& name, const std::string& scope = "") {
+        if (dynamic_array_names.empty() || dynamic_array_names.find(name) == dynamic_array_names.end()) return nullptr;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         auto it = dynamic_array_map.find(scoped);
         if (it != dynamic_array_map.end()) return &it->second;
@@ -315,6 +323,7 @@ public:
     }
 
     bool is_assoc_array(const std::string& name, const std::string& scope = "") const {
+        if (assoc_array_names.empty() || assoc_array_names.find(name) == assoc_array_names.end()) return false;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (assoc_array_map.find(scoped) != assoc_array_map.end()) return true;
         if (assoc_array_map.find(name) != assoc_array_map.end()) return true;
@@ -332,6 +341,7 @@ public:
     }
 
     AssociativeArrayObject* get_assoc_array(const std::string& name, const std::string& scope = "") {
+        if (assoc_array_names.empty() || assoc_array_names.find(name) == assoc_array_names.end()) return nullptr;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         auto it = assoc_array_map.find(scoped);
         if (it != assoc_array_map.end()) return &it->second;
@@ -352,6 +362,7 @@ public:
     }
 
     bool is_class_handle(const std::string& name, const std::string& scope = "") const {
+        if (class_handle_names.empty()) return false;
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         if (class_handle_names.find(scoped) != class_handle_names.end()) return true;
         if (class_handle_names.find(name) != class_handle_names.end()) return true;
@@ -359,6 +370,7 @@ public:
     }
 
     std::string get_class_type(const std::string& name, const std::string& scope = "") const {
+        if (var_to_class_type.empty()) return "";
         std::string scoped = scope.empty() ? name : (scope + "." + name);
         auto it = var_to_class_type.find(scoped);
         if (it != var_to_class_type.end()) return it->second;

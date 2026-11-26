@@ -7,6 +7,11 @@
 #include "../include/kernel/vpi_runtime.hpp"
 
 #include <algorithm>
+#if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
+#include <elf.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 Engine::Engine() : evaluator(*this), scheduler(*this) {}
 
@@ -68,8 +73,26 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
     var_dimensions = std::move(elab_res.var_dimensions);
     memory_map = std::move(elab_res.memory_map);
     queue_map = std::move(elab_res.queue_map);
+    queue_names.clear();
+    for (const auto& kv : queue_map) {
+        auto d = kv.first.rfind('.');
+        queue_names.insert((d != std::string::npos) ? kv.first.substr(d + 1) : kv.first);
+        queue_names.insert(kv.first);
+    }
     dynamic_array_map = std::move(elab_res.dynamic_array_map);
+    dynamic_array_names.clear();
+    for (const auto& kv : dynamic_array_map) {
+        auto d = kv.first.rfind('.');
+        dynamic_array_names.insert((d != std::string::npos) ? kv.first.substr(d + 1) : kv.first);
+        dynamic_array_names.insert(kv.first);
+    }
     assoc_array_map = std::move(elab_res.assoc_array_map);
+    assoc_array_names.clear();
+    for (const auto& kv : assoc_array_map) {
+        auto d = kv.first.rfind('.');
+        assoc_array_names.insert((d != std::string::npos) ? kv.first.substr(d + 1) : kv.first);
+        assoc_array_names.insert(kv.first);
+    }
     timescale_map = std::move(elab_res.timescale_map);
     global_prec_fs = elab_res.global_prec_fs;
     scopes_with_timeunit = std::move(elab_res.scopes_with_timeunit);
@@ -263,6 +286,11 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             }
         } else {
             std::string full_name = mem->var_name + "." + mem->member_name;
+            if (mem->index_expr) {
+                if (auto num = dynamic_cast<const NumberNode*>(mem->index_expr.get())) {
+                    full_name = mem->var_name + "[" + std::to_string(num->aval) + "]." + mem->member_name;
+                }
+            }
             size_t exact_nid = engine.get_net_id(scope, full_name);
             size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, full_name);
             if (raw_nid != (size_t)-1) {
@@ -821,6 +849,11 @@ static void bind_ast_expr(ExpressionNode* expr, const std::string& scope, const 
     if (auto mem = dynamic_cast<MemberAccessNode*>(expr)) {
         if (!mem->is_bound) {
             std::string full_name = mem->var_name + "." + mem->member_name;
+            if (mem->index_expr) {
+                if (auto num = dynamic_cast<const NumberNode*>(mem->index_expr.get())) {
+                    full_name = mem->var_name + "[" + std::to_string(num->aval) + "]." + mem->member_name;
+                }
+            }
             size_t raw_nid = engine.get_net_id(scope, full_name);
             if (raw_nid != (size_t)-1) {
                 mem->cached_net_id = (uint32_t)engine.get_canonical_net_id(raw_nid);
@@ -1561,49 +1594,86 @@ std::string Engine::resolve_scoped_name(const std::string& scope, const std::str
             }
             return bound + "." + suffix;
         }
+        size_t bpos = prefix.find('[');
+        if (bpos != std::string::npos) {
+            std::string base_prefix = prefix.substr(0, bpos);
+            std::string idx_str = prefix.substr(bpos);
+            std::string scoped_base = scope.empty() ? base_prefix : (scope + "." + base_prefix);
+            auto it_b = interface_port_map.find(scoped_base);
+            if (it_b != interface_port_map.end()) {
+                std::string bound = it_b->second + idx_str;
+                while (interface_port_map.find(bound) != interface_port_map.end()) {
+                    bound = interface_port_map.at(bound);
+                }
+                return bound + "." + suffix;
+            }
+            auto it_b2 = interface_port_map.find(base_prefix);
+            if (it_b2 != interface_port_map.end()) {
+                std::string bound = it_b2->second + idx_str;
+                while (interface_port_map.find(bound) != interface_port_map.end()) {
+                    bound = interface_port_map.at(bound);
+                }
+                return bound + "." + suffix;
+            }
+        }
         dot_pos = name.find('.', dot_pos + 1);
     }
     return scope.empty() ? name : (scope + "." + name);
 }
 
 size_t Engine::get_net_id(const std::string& scope, const std::string& name) const {
-    std::string cur_scope = scope;
-    while (true) {
-        std::string resolved = resolve_scoped_name(cur_scope, name);
-        auto it = net_map.find(resolved);
-        if (it != net_map.end()) return it->second;
+    static thread_local std::unordered_map<std::string, size_t> s_net_id_cache;
+    std::string cache_key;
+    cache_key.reserve(scope.size() + name.size() + 1);
+    cache_key.append(scope);
+    cache_key.push_back('\0');
+    cache_key.append(name);
+    auto it_c = s_net_id_cache.find(cache_key);
+    if (it_c != s_net_id_cache.end()) return it_c->second;
 
-        std::string scoped = cur_scope.empty() ? name : (cur_scope + "." + name);
-        auto it3 = net_map.find(scoped);
-        if (it3 != net_map.end()) return it3->second;
+    auto do_lookup = [&]() -> size_t {
+        std::string cur_scope = scope;
+        while (true) {
+            std::string resolved = resolve_scoped_name(cur_scope, name);
+            auto it = net_map.find(resolved);
+            if (it != net_map.end()) return it->second;
 
-        if (!cur_scope.empty()) {
-            std::string colon_scoped = cur_scope + "::" + name;
-            auto itc = net_map.find(colon_scoped);
-            if (itc != net_map.end()) return itc->second;
+            std::string scoped = cur_scope.empty() ? name : (cur_scope + "." + name);
+            auto it3 = net_map.find(scoped);
+            if (it3 != net_map.end()) return it3->second;
+
+            if (!cur_scope.empty()) {
+                std::string colon_scoped = cur_scope + "::" + name;
+                auto itc = net_map.find(colon_scoped);
+                if (itc != net_map.end()) return itc->second;
+            }
+
+            if (cur_scope.empty()) break;
+            auto dot = cur_scope.rfind('.');
+            if (dot == std::string::npos) cur_scope = "";
+            else cur_scope = cur_scope.substr(0, dot);
         }
 
-        if (cur_scope.empty()) break;
-        auto dot = cur_scope.rfind('.');
-        if (dot == std::string::npos) cur_scope = "";
-        else cur_scope = cur_scope.substr(0, dot);
-    }
+        auto it2 = net_map.find(name);
+        if (it2 != net_map.end()) return it2->second;
 
-    auto it2 = net_map.find(name);
-    if (it2 != net_map.end()) return it2->second;
+        auto it_unit = net_map.find("$unit." + name);
+        if (it_unit != net_map.end()) return it_unit->second;
 
-    auto it_unit = net_map.find("$unit." + name);
-    if (it_unit != net_map.end()) return it_unit->second;
-
-    if (scope == "$unit" || scope.empty()) {
-        for (const auto& pair : net_map) {
-            auto d = pair.first.rfind('.');
-            std::string uq = (d != std::string::npos) ? pair.first.substr(d + 1) : pair.first;
-            if (uq == name) return pair.second;
+        if (scope == "$unit" || scope.empty()) {
+            for (const auto& pair : net_map) {
+                auto d = pair.first.rfind('.');
+                std::string uq = (d != std::string::npos) ? pair.first.substr(d + 1) : pair.first;
+                if (uq == name) return pair.second;
+            }
         }
-    }
 
-    return (size_t)-1;
+        return (size_t)-1;
+    };
+
+    size_t res = do_lookup();
+    s_net_id_cache[std::move(cache_key)] = res;
+    return res;
 }
 
 
@@ -1670,6 +1740,68 @@ void Engine::run(std::ostream* debug_out) {
 
     VpiRuntime::set_active_engine(this);
     VpiRuntime::dispatch_start_of_simulation(this);
+
+#if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
+    std::string preload_elf = "";
+    for (const auto& pa : plusargs) {
+        if (pa.rfind("+PRELOAD=", 0) == 0) preload_elf = pa.substr(9);
+        else if (pa.rfind("+elf_file=", 0) == 0 && preload_elf.empty()) preload_elf = pa.substr(10);
+    }
+    if (!preload_elf.empty()) {
+        MemoryArray* dram_mem = nullptr;
+        for (auto& kv : memory_map) {
+            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("sram") != std::string::npos && kv.first.find("i_tc_sram.sram") != std::string::npos) {
+                dram_mem = &kv.second;
+                break;
+            }
+        }
+        if (!dram_mem) {
+            for (auto& kv : memory_map) {
+                if (kv.first.find("sram") != std::string::npos && kv.second.words.size() >= 1024) {
+                    dram_mem = &kv.second;
+                    break;
+                }
+            }
+        }
+        if (dram_mem) {
+            int fd = open(preload_elf.c_str(), O_RDONLY);
+            if (fd >= 0) {
+                Elf64_Ehdr ehdr;
+                if (read(fd, &ehdr, sizeof(ehdr)) == sizeof(ehdr)) {
+                    if (ehdr.e_ident[EI_MAG0] == ELFMAG0 && ehdr.e_ident[EI_MAG1] == ELFMAG1 &&
+                        ehdr.e_ident[EI_MAG2] == ELFMAG2 && ehdr.e_ident[EI_MAG3] == ELFMAG3) {
+                        lseek(fd, ehdr.e_phoff, SEEK_SET);
+                        std::vector<Elf64_Phdr> phdrs(ehdr.e_phnum);
+                        if (read(fd, phdrs.data(), sizeof(Elf64_Phdr) * ehdr.e_phnum) == (ssize_t)(sizeof(Elf64_Phdr) * ehdr.e_phnum)) {
+                            size_t loaded_bytes = 0;
+                            for (const auto& ph : phdrs) {
+                                if (ph.p_type == PT_LOAD && ph.p_filesz > 0 && ph.p_vaddr >= 0x80000000ULL) {
+                                    uint64_t dram_offset = ph.p_vaddr - 0x80000000ULL;
+                                    std::vector<uint8_t> seg_data(ph.p_filesz);
+                                    lseek(fd, ph.p_offset, SEEK_SET);
+                                    if (read(fd, seg_data.data(), ph.p_filesz) == (ssize_t)ph.p_filesz) {
+                                        for (size_t k = 0; k < ph.p_filesz; ++k) {
+                                            size_t w_idx = (dram_offset + k) / 8;
+                                            size_t b_idx = (dram_offset + k) % 8;
+                                            if (w_idx < dram_mem->words.size()) {
+                                                dram_mem->words[w_idx].aval |= ((uint64_t)seg_data[k] << (b_idx * 8));
+                                                dram_mem->words[w_idx].bval = 0;
+                                                loaded_bytes++;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            dram_mem->change_counter++;
+                            std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into DRAM (" << dram_mem->words.size() << " words)\n" << std::flush;
+                        }
+                    }
+                }
+                close(fd);
+            }
+        }
+    }
+#endif
 
     scheduler.run_simulation();
 

@@ -2684,7 +2684,22 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 expect(TokenType::TOKEN_IDENTIFIER, "Expected identifier after '.'");
                 if (!post_member_name.empty()) post_member_name += ".";
                 post_member_name += m;
-                while (match(TokenType::TOKEN_LBRACKET)) {
+                while (current.type == TokenType::TOKEN_LBRACKET) {
+                    int depth = 1;
+                    size_t k = 1;
+                    bool is_slice = false;
+                    while (depth > 0) {
+                        Token t = peek_token_n(k++);
+                        if (t.type == TokenType::TOKEN_EOF) break;
+                        if (t.type == TokenType::TOKEN_LBRACKET) depth++;
+                        else if (t.type == TokenType::TOKEN_RBRACKET) depth--;
+                        else if (depth == 1 && (t.type == TokenType::TOKEN_COLON || t.type == TokenType::TOKEN_PLUS_COLON || t.type == TokenType::TOKEN_MINUS_COLON)) is_slice = true;
+                    }
+                    Token after = (depth == 0) ? peek_token_n(k) : Token();
+                    if (is_slice || after.type == TokenType::TOKEN_EQUAL || after.type == TokenType::TOKEN_LE || (after.type != TokenType::TOKEN_DOT && after.type != TokenType::TOKEN_LBRACKET)) {
+                        break;
+                    }
+                    advance();
                     post_member_name += "[";
                     auto sub_e = parse_expression();
                     if (auto num = dynamic_cast<NumberNode*>(sub_e.get())) {
@@ -2701,11 +2716,23 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                 std::unique_ptr<ExpressionNode> mem_lsb = nullptr;
                 bool has_mem_sel = false;
                 bool is_part_sel = false;
+                bool is_indexed_part_sel = false;
+                bool is_plus_c = true;
                 if (match(TokenType::TOKEN_LBRACKET)) {
                     has_mem_sel = true;
                     mem_msb = parse_expression();
                     if (match(TokenType::TOKEN_COLON)) {
                         is_part_sel = true;
+                        mem_lsb = parse_expression();
+                    } else if (match(TokenType::TOKEN_PLUS_COLON)) {
+                        is_part_sel = true;
+                        is_indexed_part_sel = true;
+                        is_plus_c = true;
+                        mem_lsb = parse_expression();
+                    } else if (match(TokenType::TOKEN_MINUS_COLON)) {
+                        is_part_sel = true;
+                        is_indexed_part_sel = true;
+                        is_plus_c = false;
                         mem_lsb = parse_expression();
                     }
                     expect(TokenType::TOKEN_RBRACKET, "Expected ']' closing index in member select");
@@ -2723,6 +2750,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     node->member_name = post_member_name;
                     node->has_member_select = has_mem_sel;
                     node->is_part_select = is_part_sel;
+                    node->is_indexed_part_select = is_indexed_part_sel;
+                    node->is_plus_colon = is_plus_c;
                     node->member_msb_expr = std::move(mem_msb);
                     node->member_lsb_expr = std::move(mem_lsb);
                     if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));
@@ -2744,6 +2773,8 @@ std::unique_ptr<StatementNode> Parser::parse_statement() {
                     node->member_name = post_member_name;
                     node->has_member_select = has_mem_sel;
                     node->is_part_select = is_part_sel;
+                    node->is_indexed_part_select = is_indexed_part_sel;
+                    node->is_plus_colon = is_plus_c;
                     node->member_msb_expr = std::move(mem_msb);
                     node->member_lsb_expr = std::move(mem_lsb);
                     if (has_intra_ev) node->set_intra_event(intra_edge, std::move(intra_sig));

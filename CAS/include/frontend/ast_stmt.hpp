@@ -287,6 +287,8 @@ struct MemAssignNode : public StatementNode {
     std::unique_ptr<ExpressionNode> member_lsb_expr = nullptr;
     bool has_member_select = false;
     bool is_part_select = false;
+    bool is_indexed_part_select = false;
+    bool is_plus_colon = true;
 
     void set_intra_event(EdgeType edge, std::string sig) {
         has_intra_event = true;
@@ -308,6 +310,8 @@ struct MemAssignNode : public StatementNode {
         node->member_name = member_name;
         node->has_member_select = has_member_select;
         node->is_part_select = is_part_select;
+        node->is_indexed_part_select = is_indexed_part_select;
+        node->is_plus_colon = is_plus_colon;
         if (member_msb_expr) node->member_msb_expr = member_msb_expr->clone();
         if (member_lsb_expr) node->member_lsb_expr = member_lsb_expr->clone();
         return node;

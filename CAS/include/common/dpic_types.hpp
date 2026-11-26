@@ -96,6 +96,8 @@ struct SvScopeContext {
     std::unordered_map<void*, void*> user_data_map;
 };
 
+extern "C" char cas_read_symbol(const char*, unsigned long long*);
+
 class DpiRegistry {
 private:
     std::vector<void*> handles;
@@ -171,9 +173,12 @@ public:
 
     bool load_library_file(const std::string& path) {
 #ifndef _WIN32
-        void* h = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+#ifndef RTLD_NODELETE
+#define RTLD_NODELETE 0
+#endif
+        void* h = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL | RTLD_NODELETE);
         if (!h) {
-            h = dlopen(path.c_str(), RTLD_LAZY | RTLD_GLOBAL);
+            h = dlopen(path.c_str(), RTLD_LAZY | RTLD_GLOBAL | RTLD_NODELETE);
         }
         if (h) {
             handles.push_back(h);
@@ -259,6 +264,10 @@ public:
 
         auto it = symbol_cache.find(symbol_name);
         if (it != symbol_cache.end()) return it->second;
+
+        if (symbol_name == "read_symbol") {
+            return reinterpret_cast<void*>(&cas_read_symbol);
+        }
 
         // Search open handles
         for (void* h : handles) {
