@@ -5790,6 +5790,11 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
         }
 
         struct_typedef_map[type_name] = struct_node;
+        if (current_parsing_package) {
+            current_parsing_package->struct_typedefs[type_name] = struct_node;
+        } else if (current_parsing_module) {
+            current_parsing_module->struct_typedefs[type_name] = struct_node;
+        }
         if (struct_node->is_packed && struct_node->total_width > 0) {
             VariableDimMetadata svdm;
             svdm.name = type_name;

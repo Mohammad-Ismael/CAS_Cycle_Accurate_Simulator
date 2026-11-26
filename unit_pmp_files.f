@@ -1,0 +1,13 @@
++incdir+/app/projects/ZETRAA/core/include
++incdir+/app/projects/ZETRAA/vendor/pulp-platform/common_cells/include
+/app/projects/ZETRAA/vendor/pulp-platform/common_cells/src/cf_math_pkg.sv
+/app/projects/ZETRAA/core/include/config_pkg.sv
+/app/projects/ZETRAA/core/include/zetraa64a6_SL4_imafdc_sv39_hpdcache_wb_config_pkg.sv
+/app/projects/ZETRAA/core/include/riscv_pkg.sv
+/app/projects/ZETRAA/core/include/build_config_pkg.sv
+/app/projects/ZETRAA/core/include/zetraa_pkg.sv
+/app/projects/ZETRAA/vendor/pulp-platform/common_cells/src/lzc.sv
+/app/projects/ZETRAA/core/pmp/src/pmp_entry.sv
+/app/projects/ZETRAA/core/pmp/src/pmp.sv
+/app/projects/ZETRAA/core/pmp/src/pmp_data_if.sv
+/tmp/unit_pmp_tb.sv

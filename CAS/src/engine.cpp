@@ -293,6 +293,15 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             }
             size_t exact_nid = engine.get_net_id(scope, full_name);
             size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, full_name);
+            if (raw_nid == (size_t)-1) {
+                raw_nid = engine.get_net_id(scope, mem->var_name);
+            }
+            if (raw_nid == (size_t)-1) {
+                auto dpos = mem->var_name.find('.');
+                if (dpos != std::string::npos) {
+                    raw_nid = engine.get_net_id(scope, mem->var_name.substr(0, dpos));
+                }
+            }
             if (raw_nid != (size_t)-1) {
                 size_t canon = engine.get_canonical_net_id(raw_nid);
                 if (exact_nid != (size_t)-1) {

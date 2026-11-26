@@ -911,6 +911,14 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         } else if (result.function_map.count(fc->func_name)) {
             target_fn = result.function_map.at(fc->func_name);
         }
+        if (!target_fn && current_module && colon == std::string::npos) {
+            for (const auto& fn : current_module->functions) {
+                if (fn && fn->name == fname) {
+                    target_fn = fn.get();
+                    break;
+                }
+            }
+        }
         if (!target_fn && colon != std::string::npos) {
             std::string pkg_name = fc->func_name.substr(0, colon);
             auto pit = Parser::global_packages.find(pkg_name);
@@ -2550,6 +2558,14 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
         } else if (result.function_map.count(fc->func_name)) {
             target_fn = result.function_map.at(fc->func_name);
         }
+        if (!target_fn && current_module && colon == std::string::npos) {
+            for (const auto& fn : current_module->functions) {
+                if (fn && fn->name == fname) {
+                    target_fn = fn.get();
+                    break;
+                }
+            }
+        }
         if (!target_fn && colon != std::string::npos) {
             std::string pkg_name = fc->func_name.substr(0, colon);
             auto pit = Parser::global_packages.find(pkg_name);
@@ -3009,6 +3025,12 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
             std::string scoped = cur_s.empty() ? type_name : (cur_s + "." + type_name);
             auto it = result.struct_types.find(scoped);
             if (it != result.struct_types.end()) return &it->second;
+            auto it_v = result.var_to_struct_type.find(scoped);
+            if (it_v != result.var_to_struct_type.end() && it_v->second != type_name) {
+                if (const PackedStructType* mapped_st = find_struct_type(it_v->second, scope)) {
+                    return mapped_st;
+                }
+            }
             if (cur_s.empty()) break;
             auto dot = cur_s.rfind('.');
             if (dot == std::string::npos) cur_s = "";
@@ -3094,6 +3116,11 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
     }
     if (!st) return false;
 
+    std::string pkg_prefix = "";
+    auto pkg_col = tname.find("::");
+    if (pkg_col != std::string::npos) {
+        pkg_prefix = tname.substr(0, pkg_col + 2);
+    }
     const PackedStructType* cur_st = st;
     std::string remaining = member_name;
     uint32_t accum_off = 0;
@@ -3116,7 +3143,14 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
             out_lsb = sm->lsb;
             return true;
         }
-        cur_st = find_struct_type(sm->type_name, scope);
+        const PackedStructType* next_st = nullptr;
+        if (!pkg_prefix.empty() && sm->type_name.find("::") == std::string::npos) {
+            next_st = find_struct_type(pkg_prefix + sm->type_name, scope);
+        }
+        if (!next_st) {
+            next_st = find_struct_type(sm->type_name, scope);
+        }
+        cur_st = next_st;
         remaining = next_part;
     }
     return false;
@@ -3280,6 +3314,10 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         throw std::runtime_error("Cannot resolve null expression in resolve_slice_ref");
     }
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
+        if (ma->index_expr) {
+            IndexSelectNode idx_node(ma->var_name + "." + ma->member_name, ma->index_expr->clone());
+            return resolve_slice_ref(&idx_node, scope);
+        }
         IdentifierNode id_node(ma->var_name + "." + ma->member_name);
         return resolve_slice_ref(&id_node, scope);
     }
@@ -3330,6 +3368,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         size_t id = get_net_id(scope, idx->name);
         std::string full_name = (id != (size_t)-1) ? result.netlist[id].name : (scope.empty() ? idx->name : (scope + "." + idx->name));
         uint32_t struct_member_offset = 0;
+        uint32_t struct_member_len = 0;
         int64_t base_low = 0;
         if (id == (size_t)-1) {
             std::string iname = idx->name;
@@ -3352,6 +3391,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                 int64_t memb_lsb = 0;
                 if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb)) {
                     struct_member_offset = off;
+                    struct_member_len = len;
                     base_low = memb_lsb;
                 }
             }
@@ -3473,7 +3513,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                             total_off += (uint32_t)val * strides[d];
                         }
                         if (d == N - 1) {
-                            slice_w = strides[d];
+                            slice_w = (struct_member_len > 0) ? struct_member_len : strides[d];
                         }
                     }
                 }
@@ -3556,7 +3596,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         } else {
             uint64_t off = eval_const_expr(idx->msb_expr.get(), scope);
             if (base_low > 0 && off >= (uint64_t)base_low) off -= (uint64_t)base_low;
-            return {id, (uint32_t)(struct_member_offset + off * d1_width), d1_width};
+            return {id, (uint32_t)(struct_member_offset + off * d1_width), (struct_member_len > 0) ? struct_member_len : d1_width};
         }
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
@@ -3796,6 +3836,8 @@ static std::unique_ptr<StatementNode> substitute_genvar_in_stmt(StatementNode* s
     return stmt->clone();
 }
 
+static thread_local std::vector<std::pair<std::string, int64_t>> active_genvars;
+
 void Elaborator::unroll_generate_block(GenerateBlock* blk,
                                        const std::string& current_scope,
                                        const std::string& parent_scope,
@@ -3836,7 +3878,18 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
         }
         uint32_t elem_w = 1;
         if (!p.type_name.empty()) {
-            uint32_t tw = resolve_type_width(p.type_name);
+            uint32_t tw = 0;
+            std::string cur_s = current_scope;
+            while (true) {
+                std::string cand = cur_s.empty() ? p.type_name : (cur_s + "." + p.type_name);
+                if (result.enum_types.count(cand)) { tw = result.enum_types.at(cand).width; break; }
+                if (result.struct_types.count(cand)) { tw = result.struct_types.at(cand).total_width; break; }
+                if (result.simple_types.count(cand)) { tw = result.simple_types.at(cand).width; break; }
+                if (cur_s.empty()) break;
+                auto dot = cur_s.rfind('.');
+                cur_s = (dot == std::string::npos) ? "" : cur_s.substr(0, dot);
+            }
+            if (tw == 0) tw = resolve_type_width(p.type_name);
             if (tw > 0) elem_w = tw;
         }
         uint32_t w = elem_w;
@@ -3851,10 +3904,14 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
             }
             w = elem_w * packed_mult;
         } else if (p.msb_expr && p.lsb_expr) {
-            has_explicit_packed = true;
-            int64_t msb = eval_const_signed_val(eval_const_expr(p.msb_expr.get(), current_scope));
-            int64_t lsb = eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), current_scope));
-            w = (uint32_t)(std::abs(msb - lsb) + 1);
+            if (elem_w > 1) {
+                w = elem_w;
+            } else {
+                has_explicit_packed = true;
+                int64_t msb = eval_const_signed_val(eval_const_expr(p.msb_expr.get(), current_scope));
+                int64_t lsb = eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), current_scope));
+                w = (uint32_t)(std::abs(msb - lsb) + 1);
+            }
         }
 
         if (p.is_array) {
@@ -3997,10 +4054,22 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
 
     auto resolve_gen_net_id = [&](const std::string& start_scope, const std::string& name) -> size_t {
         std::string cur_s = start_scope;
+        auto brk = name.find('[');
+        std::string iface_base = (brk != std::string::npos) ? name.substr(0, brk) : "";
+        std::string iface_rest = (brk != std::string::npos) ? name.substr(brk) : "";
         while (true) {
             std::string cand = cur_s.empty() ? name : (cur_s + "." + name);
             auto it = result.net_map.find(cand);
             if (it != result.net_map.end()) return it->second;
+            if (!iface_base.empty()) {
+                std::string pkey = cur_s.empty() ? iface_base : (cur_s + "." + iface_base);
+                auto ipm = result.interface_port_map.find(pkey);
+                if (ipm != result.interface_port_map.end()) {
+                    std::string mapped = ipm->second + iface_rest;
+                    auto it_m = result.net_map.find(mapped);
+                    if (it_m != result.net_map.end()) return it_m->second;
+                }
+            }
             if (cur_s.empty()) break;
             auto dot = cur_s.rfind('.');
             if (dot == std::string::npos) cur_s = "";
@@ -4023,7 +4092,12 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
 
     for (const auto& ca : blk->continuous_assigns) {
         auto ca_copy = ca->clone();
-        if (has_genvar) {
+        if (!active_genvars.empty()) {
+            for (auto it = active_genvars.rbegin(); it != active_genvars.rend(); ++it) {
+                if (ca_copy->target_index_expr) ca_copy->target_index_expr = substitute_genvar_in_expr(ca_copy->target_index_expr.get(), it->first, it->second);
+                if (ca_copy->rhs) ca_copy->rhs = substitute_genvar_in_expr(ca_copy->rhs.get(), it->first, it->second);
+            }
+        } else if (has_genvar) {
             if (ca_copy->target_index_expr) {
                 ca_copy->target_index_expr = substitute_genvar_in_expr(ca_copy->target_index_expr.get(), gname, gval);
             }
@@ -4115,6 +4189,32 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                     if (tid != (size_t)-1) break;
                     dot_pos = tname.rfind('.', dot_pos - 1);
                 }
+            }
+            if (tid == (size_t)-1 && !ca_copy->member_name.empty()) {
+                try {
+                    ExpressionNode* idx_expr_to_eval = ca_copy->target_index_expr.get();
+                    if (auto idx_sel = dynamic_cast<IndexSelectNode*>(idx_expr_to_eval)) {
+                        if (idx_sel->msb_expr) idx_expr_to_eval = idx_sel->msb_expr.get();
+                    }
+                    uint64_t inst_idx = eval_const_expr(idx_expr_to_eval, current_scope);
+                    std::string inst_net = ca_copy->target_name + "[" + std::to_string(inst_idx) + "]." + ca_copy->member_name;
+                    size_t inst_nid = resolve_gen_net_id(current_scope, inst_net);
+                    if (inst_nid != (size_t)-1) {
+                        NetSliceRef slice{inst_nid, 0, result.netlist[inst_nid].width};
+                        if (ca_copy->has_member_select && ca_copy->member_msb_expr) {
+                            uint64_t b_msb = eval_const_expr(ca_copy->member_msb_expr.get(), current_scope);
+                            uint64_t b_lsb = ca_copy->member_lsb_expr ? eval_const_expr(ca_copy->member_lsb_expr.get(), current_scope) : b_msb;
+                            uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                            uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            slice.offset += (uint32_t)sub_lsb;
+                            slice.width = sub_w;
+                        }
+                        auto rhs_ptr = ca_copy->rhs.get();
+                        result.generated_continuous_assigns.push_back(std::move(ca_copy));
+                        result.continuous_assigns.push_back({current_scope, slice, rhs_ptr});
+                        continue;
+                    }
+                } catch (...) {}
             }
             if (tid != (size_t)-1) {
                 NetSliceRef slice{tid, 0, 1};
@@ -4451,7 +4551,9 @@ void Elaborator::unroll_generate_node(ASTNode* node,
             result.param_map[iter_scope + "." + gname] = (uint64_t)val;
             result.param_val_map[iter_scope + "." + gname] = LogicVal::make_known(32, (uint64_t)val);
 
+            active_genvars.push_back({gname, val});
             unroll_generate_block(loop->body.get(), iter_scope, scope, gname, val, true, debug_out);
+            active_genvars.pop_back();
 
             // Step
             if (loop->step_op == "++") {
@@ -4982,7 +5084,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                 result.struct_types[scope + "." + p.name].name = p.name;
                                 result.struct_types[p.name] = *st_ov;
                                 result.struct_types[p.name].name = p.name;
-                            } else tw = resolve_type_width(ov_t);
+                            } else {
+                                std::string cur_ps = parent_scope;
+                                while (!cur_ps.empty()) {
+                                    auto it_st = result.simple_types.find(cur_ps + "." + ov_t);
+                                    if (it_st != result.simple_types.end() && it_st->second.width > 0) {
+                                        tw = it_st->second.width;
+                                        break;
+                                    }
+                                    auto dot = cur_ps.rfind('.');
+                                    cur_ps = (dot == std::string::npos) ? "" : cur_ps.substr(0, dot);
+                                }
+                                if (tw == 0) tw = resolve_type_width(ov_t);
+                            }
                             if (tw > 0) {
                                 Parser::global_simple_typedefs[scope + "." + p.name] = tw;
                                 Parser::global_simple_typedefs[p.name] = tw;
@@ -5026,7 +5140,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                 result.struct_types[scope + "." + p.name].name = p.name;
                                 result.struct_types[p.name] = *st_ov;
                                 result.struct_types[p.name].name = p.name;
-                            } else tw = resolve_type_width(ov_t);
+                            } else {
+                                std::string cur_ps = parent_scope;
+                                while (!cur_ps.empty()) {
+                                    auto it_st = result.simple_types.find(cur_ps + "." + ov_t);
+                                    if (it_st != result.simple_types.end() && it_st->second.width > 0) {
+                                        tw = it_st->second.width;
+                                        break;
+                                    }
+                                    auto dot = cur_ps.rfind('.');
+                                    cur_ps = (dot == std::string::npos) ? "" : cur_ps.substr(0, dot);
+                                }
+                                if (tw == 0) tw = resolve_type_width(ov_t);
+                            }
                             if (tw > 0) {
                                 Parser::global_simple_typedefs[scope + "." + p.name] = tw;
                                 Parser::global_simple_typedefs[p.name] = tw;
@@ -5109,6 +5235,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                             } catch (...) {}
                             Parser::global_simple_typedefs[scope + "." + p.name] = w;
                             Parser::global_simple_typedefs[p.name] = w;
+                            SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = w;
+                            result.simple_types[scope + "." + p.name] = sinfo;
+                            result.simple_types[p.name] = sinfo;
                         }
                     } else {
                         uint32_t tw = 0;
@@ -5190,11 +5319,23 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 st_param = find_struct_type(p.type_name, scope);
             }
             if (st_param) {
-                for (const auto& sm : st_param->members) {
-                    LogicVal sm_val = lval.extract_slice(sm.offset, sm.width);
-                    result.param_val_map[scope + "." + p.name + "." + sm.name] = sm_val;
-                    result.param_map[scope + "." + p.name + "." + sm.name] = sm_val.aval;
-                }
+                std::function<void(const PackedStructType*, const std::string&, const LogicVal&, int)> unpack_param_members =
+                    [&](const PackedStructType* cur_st, const std::string& prefix, const LogicVal& cur_val, int depth) {
+                        if (!cur_st || depth > 4) return;
+                        for (const auto& sm : cur_st->members) {
+                            LogicVal sm_val = cur_val.extract_slice(sm.offset, sm.width);
+                            std::string mkey = prefix + "." + sm.name;
+                            result.param_val_map[mkey] = sm_val;
+                            result.param_map[mkey] = sm_val.aval;
+                            if (!sm.type_name.empty()) {
+                                result.var_to_struct_type[mkey] = sm.type_name;
+                                if (const PackedStructType* sub_st = find_struct_type(sm.type_name, scope)) {
+                                    unpack_param_members(sub_st, mkey, sm_val, depth + 1);
+                                }
+                            }
+                        }
+                    };
+                unpack_param_members(st_param, scope + "." + p.name, lval, 0);
             }
         }
         bool is_unb = false;
@@ -5496,6 +5637,97 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
     }
 
+    // Re-evaluate module struct typedefs after local typedefs (e.g. hpdcache_mem_addr_t) are resolved
+    for (int pass = 0; pass < 2; ++pass) {
+        for (const auto& pair : mod->struct_typedefs) {
+            const std::string& st_name = pair.first;
+            const auto& st_node = pair.second;
+            if (!st_node) continue;
+
+            PackedStructType st;
+            st.name = st_name;
+            st.is_signed = st_node->is_signed;
+            st.is_union = st_node->is_union;
+            st.is_tagged = st_node->is_tagged;
+            st.tag_bits = st_node->tag_bits;
+            st.payload_width = st_node->payload_width;
+
+            size_t n = st_node->members.size();
+            std::vector<uint32_t> member_widths(n, 1);
+            for (size_t i = 0; i < n; ++i) {
+                const auto& mn = st_node->members[i];
+                uint32_t mw = mn.width;
+                if (mn.msb_expr) {
+                    try {
+                        int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
+                        int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
+                        if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
+                            mw = (uint32_t)(std::abs(m - l) + 1);
+                            if (mn.elem_width > 1) mw *= mn.elem_width;
+                            else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
+                        }
+                    } catch (...) {}
+                } else if (!mn.type_name.empty()) {
+                    uint32_t tw = get_type_width(mn.type_name, scope);
+                    if (tw > 0) mw = tw;
+                }
+                if (mw > 65536) mw = 1;
+                member_widths[i] = mw;
+            }
+
+            std::vector<uint32_t> offsets(n, 0);
+            uint32_t running_offset = 0;
+            if (st.is_union) {
+                for (size_t i = 0; i < n; ++i) offsets[i] = 0;
+                uint32_t max_w = 0;
+                for (uint32_t mw : member_widths) if (mw > max_w) max_w = mw;
+                st.total_width = max_w;
+            } else {
+                for (int i = (int)n - 1; i >= 0; --i) {
+                    offsets[i] = running_offset;
+                    running_offset += member_widths[i];
+                }
+                st.total_width = running_offset;
+            }
+
+            for (size_t i = 0; i < n; ++i) {
+                const auto& mn = st_node->members[i];
+                StructMember sm;
+                sm.name = mn.name;
+                sm.width = member_widths[i];
+                sm.offset = offsets[i];
+                sm.is_signed = mn.is_signed;
+                sm.type_name = mn.type_name;
+                sm.msb = mn.msb;
+                sm.lsb = mn.lsb;
+                sm.elem_width = mn.elem_width;
+                sm.outer_low = mn.outer_low;
+                sm.default_expr = mn.default_value;
+                st.members.push_back(sm);
+            }
+            result.struct_types[st_name] = st;
+            result.struct_types[scope + "." + st_name] = st;
+
+            if (st.total_width > 0) {
+                VariableDimMetadata svdm;
+                svdm.name = scope + "." + st_name;
+                svdm.dimensions.push_back(ArrayDimInfo{(int64_t)st.total_width - 1, 0, false});
+                svdm.is_vector_or_array = true;
+                result.var_dimensions[scope + "." + st_name] = svdm;
+                result.var_dimensions[st_name] = svdm;
+                Parser::global_type_dimensions[scope + "." + st_name] = svdm;
+                Parser::global_type_dimensions[st_name] = svdm;
+                Parser::global_simple_typedefs[scope + "." + st_name] = st.total_width;
+                Parser::global_simple_typedefs[st_name] = st.total_width;
+                SimpleTypeInfo sinfo;
+                sinfo.name = st_name;
+                sinfo.width = st.total_width;
+                result.simple_types[scope + "." + st_name] = sinfo;
+                result.simple_types[st_name] = sinfo;
+            }
+        }
+    }
+
     for (auto& p : mod->ports) {
         uint32_t elem_w = 1;
         if (!p.type_name.empty()) {
@@ -5522,17 +5754,29 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             }
             w = elem_w * packed_mult;
         } else if (p.msb_expr && p.lsb_expr) {
-            has_explicit_packed = true;
-            int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
-            int64_t lsb = (int64_t)eval_const_expr(p.lsb_expr.get(), scope);
-            w = (uint32_t)(std::abs(msb - lsb) + 1);
+            if (elem_w > 1) {
+                w = elem_w;
+            } else {
+                has_explicit_packed = true;
+                int64_t msb = (int64_t)eval_const_expr(p.msb_expr.get(), scope);
+                int64_t lsb = (int64_t)eval_const_expr(p.lsb_expr.get(), scope);
+                w = (uint32_t)(std::abs(msb - lsb) + 1);
+            }
         }
 
         const VariableDimMetadata* type_meta = nullptr;
-        if (!p.type_name.empty()) {
+        bool has_scoped_vdm = false;
+        auto scoped_vdm_it = result.var_dimensions.find(scope + "." + p.type_name);
+        if (!p.type_name.empty() && scoped_vdm_it != result.var_dimensions.end()) {
+            type_meta = &scoped_vdm_it->second;
+            has_scoped_vdm = true;
+        } else if (!p.type_name.empty() &&
+                   !find_struct_type(p.type_name, scope) &&
+                   result.simple_types.find(scope + "." + p.type_name) == result.simple_types.end() &&
+                   result.var_to_struct_type.find(scope + "." + p.type_name) == result.var_to_struct_type.end()) {
             type_meta = Parser::find_type_dim_metadata(p.type_name);
         }
-        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0 && (has_scoped_vdm || elem_w <= 1)) {
             uint32_t pw = 1;
             for (const auto& d : type_meta->dimensions) {
                 pw *= (uint32_t)d.size();
@@ -5829,6 +6073,8 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             auto scoped_td_it = result.simple_types.find(scope + "." + s.type_name);
             if (!s.type_name.empty() && scoped_td_it != result.simple_types.end()) {
                 w = scoped_td_it->second.width;
+            } else if (elem_w > 1) {
+                w = elem_w;
             } else {
                 has_explicit_packed = true;
                 int64_t msb = eval_const_signed_val(eval_const_expr(s.msb_expr.get(), scope));
@@ -5838,13 +6084,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
 
         const VariableDimMetadata* type_meta = nullptr;
+        bool has_scoped_vdm = false;
         auto scoped_vdm_it = result.var_dimensions.find(scope + "." + s.type_name);
-        if (scoped_vdm_it != result.var_dimensions.end()) {
+        if (!s.type_name.empty() && scoped_vdm_it != result.var_dimensions.end()) {
             type_meta = &scoped_vdm_it->second;
-        } else if (!s.type_name.empty()) {
+            has_scoped_vdm = true;
+        } else if (!s.type_name.empty() &&
+                   !find_struct_type(s.type_name, scope) &&
+                   result.simple_types.find(scope + "." + s.type_name) == result.simple_types.end() &&
+                   result.var_to_struct_type.find(scope + "." + s.type_name) == result.var_to_struct_type.end()) {
             type_meta = Parser::find_type_dim_metadata(s.type_name);
         }
-        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0) {
+        if (type_meta && !has_explicit_packed && !type_meta->dimensions.empty() && type_meta->unpacked_dims == 0 && (has_scoped_vdm || elem_w <= 1)) {
             uint32_t pw = 1;
             for (const auto& d : type_meta->dimensions) {
                 pw *= (uint32_t)d.size();
@@ -6729,6 +6980,33 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     dot_pos = tname.rfind('.', dot_pos - 1);
                 }
             }
+            if (tid == (size_t)-1 && !ca->member_name.empty()) {
+                try {
+                    ExpressionNode* idx_expr_to_eval = ca->target_index_expr.get();
+                    if (auto idx_sel = dynamic_cast<IndexSelectNode*>(idx_expr_to_eval)) {
+                        if (idx_sel->msb_expr) idx_expr_to_eval = idx_sel->msb_expr.get();
+                    }
+                    uint64_t inst_idx = eval_const_expr(idx_expr_to_eval, scope);
+                    std::string inst_net = ca->target_name + "[" + std::to_string(inst_idx) + "]." + ca->member_name;
+                    size_t inst_nid = get_net_id(scope, inst_net);
+                    if (inst_nid != (size_t)-1) {
+                        NetSliceRef slice{inst_nid, 0, result.netlist[inst_nid].width};
+                        if (ca->has_member_select && ca->member_msb_expr) {
+                            uint64_t b_msb = eval_const_expr(ca->member_msb_expr.get(), scope);
+                            uint64_t b_lsb = ca->member_lsb_expr ? eval_const_expr(ca->member_lsb_expr.get(), scope) : b_msb;
+                            uint64_t sub_lsb = std::min(b_msb, b_lsb);
+                            uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
+                            slice.offset += (uint32_t)sub_lsb;
+                            slice.width = sub_w;
+                        }
+                        auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
+                        auto rhs_ptr = new_ca->rhs.get();
+                        result.generated_continuous_assigns.push_back(std::move(new_ca));
+                        result.continuous_assigns.push_back({scope, slice, rhs_ptr});
+                        continue;
+                    }
+                } catch (...) {}
+            }
             if (tid != (size_t)-1) {
                 NetSliceRef slice{tid, 0, 1};
                 uint32_t d1_width = 1;
@@ -7511,6 +7789,48 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
             }
         }
 
+        // Pre-populate interface_port_map before elaborating submod so generate blocks inside submod can resolve interface array ports
+        for (size_t ci = 0; ci < inst->connections.size(); ++ci) {
+            const auto& conn = inst->connections[ci];
+            if (!conn.expr || conn.port_name == "*") continue;
+            std::string tpn = conn.port_name.empty() ? (ci < submod->ports.size() ? submod->ports[ci].name : "") : conn.port_name;
+            if (tpn.empty()) continue;
+            PortNode* fp = nullptr;
+            for (auto& p : submod->ports) {
+                if (p.name == tpn) { fp = &p; break; }
+            }
+            bool is_if = false;
+            if (fp) {
+                if (fp->is_interface || fp->direction == "interface" || !fp->interface_type_name.empty()) is_if = true;
+                else if (!fp->type_name.empty()) {
+                    std::string bt = fp->type_name;
+                    auto dp = bt.find('.');
+                    if (dp != std::string::npos) bt = bt.substr(0, dp);
+                    if (module_defs.count(bt) && module_defs.at(bt)->is_interface) is_if = true;
+                }
+            }
+            if (is_if) {
+                std::string a_name;
+                if (auto id = dynamic_cast<IdentifierNode*>(conn.expr.get())) a_name = id->name;
+                else if (auto mem = dynamic_cast<MemberAccessNode*>(conn.expr.get())) {
+                    a_name = mem->var_name;
+                    if (mem->index_expr) {
+                        try { a_name += "[" + std::to_string(eval_const_expr(mem->index_expr.get(), scope)) + "]"; } catch (...) {}
+                    }
+                } else if (auto idx = dynamic_cast<IndexSelectNode*>(conn.expr.get())) {
+                    a_name = idx->name;
+                    if (idx->msb_expr) {
+                        try { a_name += "[" + std::to_string(eval_const_expr(idx->msb_expr.get(), scope)) + "]"; } catch (...) {}
+                    }
+                }
+                if (!a_name.empty()) {
+                    std::string pkey = scope.empty() ? a_name : (scope + "." + a_name);
+                    std::string bt = (result.interface_port_map.count(pkey)) ? result.interface_port_map.at(pkey) : pkey;
+                    result.interface_port_map[child_scope + "." + tpn] = bt;
+                }
+            }
+        }
+
         elaborate_module(submod, child_scope, module_defs, &inst->param_overrides, scope, debug_out);
 
         // Expand IEEE 1800-2023 §23.3.2.4 wildcard .* port connections
@@ -7646,7 +7966,15 @@ void Elaborator::elaborate_instantiation_node(InstantiationNode* inst, const std
                     actual_iface_name = id->name;
                 } else if (auto mem = dynamic_cast<MemberAccessNode*>(conn.expr.get())) {
                     actual_iface_name = mem->var_name;
+                    if (mem->index_expr) {
+                        try { actual_iface_name += "[" + std::to_string(eval_const_expr(mem->index_expr.get(), scope)) + "]"; } catch (...) {}
+                    }
                     modport_view = mem->member_name;
+                } else if (auto idx = dynamic_cast<IndexSelectNode*>(conn.expr.get())) {
+                    actual_iface_name = idx->name;
+                    if (idx->msb_expr) {
+                        try { actual_iface_name += "[" + std::to_string(eval_const_expr(idx->msb_expr.get(), scope)) + "]"; } catch (...) {}
+                    }
                 }
 
                 if (modport_view.empty() && formal_p && !formal_p->modport_name.empty()) {

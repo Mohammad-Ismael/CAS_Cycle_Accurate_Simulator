@@ -113,6 +113,62 @@ module ariane_cas_tb;
                      $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.icache_dreq_o));
         end
 
+        if ($time == 10) begin
+            $display("[HPD_CFG_DIAG] user_addrW=%0d cfg_addrW=%0d sub_req_w=%0d arb_req_i_w=%0d",
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.HPDcacheUserCfg.memAddrWidth,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.HPDcacheCfg.u.memAddrWidth,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.dcache_read),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.dcache_read_i));
+        end
+        if ($time == 5330 || $time == 5350) begin
+            $display("[MEM_REQ_DIAG] T=%0t miss_paddr=0x%h w_w=%0d w_addr=0x%h w_raw=0x%h r_w=%0d r_addr=0x%h r_raw=0x%h arb_w=%0d arb_addr=0x%h",
+                     $time,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_i.paddr,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_wdata),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_wdata.mem_req_addr,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_wdata,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_rdata),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_rdata.mem_req_addr,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_req_rdata,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_req_read_arb),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_req_read_arb.mem_req_addr);
+        end
+
+        if ($time == 5350) begin
+            $display("[XBAR_INT_DIAG] T=%0t dec_ar=%0d dec_err=%b ar_sel=%0d demux_in_val=%b demux_out8_val=%b mux8_in0_val=%b mux8_out_val=%b",
+                     $time,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_slv_port_demux[0].dec_ar,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_slv_port_demux[0].dec_ar_error,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_slv_port_demux[0].slv_ar_select,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_slv_port_demux[0].i_axi_demux.slv_req_i.ar_valid,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_slv_port_demux[0].i_axi_demux.mst_reqs_o[8].ar_valid,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_mst_port_mux[8].i_axi_mux.slv_reqs_i[0].ar_valid,
+                     zetraa_dut.i_axi_xbar.i_xbar.gen_mst_port_mux[8].i_axi_mux.mst_req_o.ar_valid);
+            $display("[XBAR_HOP_DIAG] T=%0t slv0_val=%b slv0_addr=0x%h xbar_in_val=%b xbar_in_addr=0x%h xbar_in_rdy=%b xbar_out8_val=%b xbar_out8_addr=0x%h mst8_val=%b mst8_addr=0x%h",
+                     $time,
+                     zetraa_dut.slave[0].ar_valid,
+                     zetraa_dut.slave[0].ar_addr,
+                     zetraa_dut.i_axi_xbar.i_xbar.slv_ports_req_i[0].ar_valid,
+                     zetraa_dut.i_axi_xbar.i_xbar.slv_ports_req_i[0].ar.addr,
+                     zetraa_dut.i_axi_xbar.i_xbar.slv_ports_resp_o[0].ar_ready,
+                     zetraa_dut.i_axi_xbar.i_xbar.mst_ports_req_o[8].ar_valid,
+                     zetraa_dut.i_axi_xbar.i_xbar.mst_ports_req_o[8].ar.addr,
+                     zetraa_dut.master[8].ar_valid,
+                     zetraa_dut.master[8].ar_addr);
+            $display("[AXI_WIDTH_DIAG] T=%0t arb_req_w=%0d read_ar_w=%0d read_ar_hex=0x%h arb_ar_w=%0d arb_ar_hex=0x%h core_w=%0d core_raw=0x%h top_w=%0d top_raw=0x%h req_addr=0x%h",
+                     $time,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_req_o),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_ar_o),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_ar_o,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_req_o.ar),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_req_o.ar,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.noc_req_o),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.noc_req_o,
+                     $bits(zetraa_dut.axi_ariane_req),
+                     zetraa_dut.axi_ariane_req,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.req_i.mem_req_addr);
+        end
+
         // [AXI_AR]
         if (rst_ni && zetraa_dut.axi_ariane_req.ar_valid === 1'b1 && axi_ar_cnt < 15) begin
             $display("[AXI_AR] T=%0t m_ar_addr=0x%h m_ar_rdy=%b rom_ar_val=%b rom_ar_rdy=%b b_req=%b b_addr=0x%h",

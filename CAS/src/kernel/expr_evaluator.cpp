@@ -2120,7 +2120,15 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             }
             size_t M = vdm->dimensions.size();
             size_t N = all_indices.size();
-            std::vector<uint32_t> strides(M, 1);
+            uint32_t total_dim_size = 1;
+            for (const auto& d : vdm->dimensions) {
+                total_dim_size *= (uint32_t)d.size();
+            }
+            uint32_t base_elem_w = 1;
+            if (total_dim_size > 0 && target_val.width > total_dim_size && (target_val.width % total_dim_size == 0)) {
+                base_elem_w = target_val.width / total_dim_size;
+            }
+            std::vector<uint32_t> strides(M, base_elem_w);
             for (int k = (int)M - 2; k >= 0; --k) {
                 strides[k] = strides[k + 1] * (uint32_t)vdm->dimensions[k + 1].size();
             }
@@ -2183,7 +2191,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 if (off_in_dim < 0) off_in_dim = 0;
                 total_off += (uint32_t)off_in_dim * strides[d];
             }
-            uint32_t out_w = part_w > 0 ? part_w : ((N <= M) ? (N == M ? 1 : strides[N - 1]) : 1);
+            uint32_t out_w = part_w > 0 ? part_w : ((N > 0 && N <= M) ? strides[N - 1] : 1);
             return target_val.extract_slice(total_off, out_w);
         }
 
@@ -4047,12 +4055,21 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 }
             }
 
-            // Look up Simple Type Info
+            // Look up Simple Type Info (walk up generate/block scopes before falling back to unscoped)
             const SimpleTypeInfo* si = nullptr;
-            if (engine.simple_types.find(scoped_type) != engine.simple_types.end()) {
-                si = &engine.simple_types.at(scoped_type);
-            } else if (engine.simple_types.find(target_type) != engine.simple_types.end()) {
-                si = &engine.simple_types.at(target_type);
+            {
+                std::string cur_s = scope;
+                while (true) {
+                    std::string cand = cur_s.empty() ? target_type : (cur_s + "." + target_type);
+                    auto it_si = engine.simple_types.find(cand);
+                    if (it_si != engine.simple_types.end()) {
+                        si = &it_si->second;
+                        break;
+                    }
+                    if (cur_s.empty()) break;
+                    auto dot = cur_s.rfind('.');
+                    cur_s = (dot == std::string::npos) ? "" : cur_s.substr(0, dot);
+                }
             }
             if (!si) {
                 auto colon = target_type.find("::");
@@ -4078,7 +4095,11 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
             }
-            if (!si && Parser::global_simple_typedefs.count(target_type)) {
+            if (!si && Parser::global_simple_typedefs.count(scoped_type)) {
+                static thread_local SimpleTypeInfo tmp_si;
+                tmp_si = {target_type, "logic", Parser::global_simple_typedefs.at(scoped_type), false};
+                si = &tmp_si;
+            } else if (!si && Parser::global_simple_typedefs.count(target_type)) {
                 static thread_local SimpleTypeInfo tmp_si;
                 tmp_si = {target_type, "logic", Parser::global_simple_typedefs.at(target_type), false};
                 si = &tmp_si;
@@ -6116,13 +6137,45 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             return engine.netlist[nid].value;
         }
 
-        IdentifierNode id_expr(var_name);
-        LogicVal var_val = eval(&id_expr, scope);
-
+        // Handle nested struct member access like "axi_ariane_req.ar.addr" or "zetraa_dut.axi_ariane_req.ar.addr"
+        std::string walk_member = member_name;
+        LogicVal var_val;
+        bool have_base_val = false;
+        std::string base_var_name = var_name;
         std::string type_name = "";
-        if (current_bp && !current_bp->call_stack.empty()) {
+
+        if (var_name.find('.') != std::string::npos) {
+            size_t base_nid = engine.get_net_id(scope, var_name);
+            if (base_nid == (size_t)-1) {
+                std::string probe = var_name;
+                while (true) {
+                    auto dpos = probe.rfind('.');
+                    if (dpos == std::string::npos) break;
+                    probe = probe.substr(0, dpos);
+                    size_t cand_nid = engine.get_net_id(scope, probe);
+                    if (cand_nid != (size_t)-1) {
+                        base_nid = cand_nid;
+                        base_var_name = probe;
+                        walk_member = full_hier.substr(probe.size() + 1);
+                        break;
+                    }
+                }
+            }
+            if (base_nid != (size_t)-1) {
+                var_val = engine.netlist[base_nid].value;
+                type_name = engine.netlist[base_nid].type_name;
+                have_base_val = true;
+            }
+        }
+
+        if (!have_base_val) {
+            IdentifierNode id_expr(var_name);
+            var_val = eval(&id_expr, scope);
+        }
+
+        if (type_name.empty() && current_bp && !current_bp->call_stack.empty()) {
             for (auto it = current_bp->call_stack.rbegin(); it != current_bp->call_stack.rend(); ++it) {
-                LocalVar* local = it->local_frame.get_var(var_name);
+                LocalVar* local = it->local_frame.get_var(base_var_name);
                 if (local && !local->type_name.empty()) {
                     type_name = local->type_name;
                     break;
@@ -6130,13 +6183,13 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
             }
         }
         if (type_name.empty() && context.has_active_frame()) {
-            LocalVar* local = context.lookup_local(var_name);
+            LocalVar* local = context.lookup_local(base_var_name);
             if (local && !local->type_name.empty()) type_name = local->type_name;
         }
         if (type_name.empty()) {
             std::string cur_s = scope;
             while (true) {
-                std::string s = cur_s.empty() ? var_name : (cur_s + "." + var_name);
+                std::string s = cur_s.empty() ? base_var_name : (cur_s + "." + base_var_name);
                 if (engine.var_to_struct_type.count(s)) {
                     type_name = engine.var_to_struct_type.at(s);
                     break;
@@ -6147,34 +6200,73 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 else cur_s = cur_s.substr(0, dot);
             }
             if (type_name.empty()) {
-                if (engine.net_map.find(scoped_var) != engine.net_map.end()) {
-                    type_name = engine.netlist[engine.net_map.at(scoped_var)].type_name;
-                } else if (engine.net_map.find(var_name) != engine.net_map.end()) {
-                    type_name = engine.netlist[engine.net_map.at(var_name)].type_name;
+                std::string base_scoped = scope.empty() ? base_var_name : (scope + "." + base_var_name);
+                if (engine.net_map.find(base_scoped) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(base_scoped)].type_name;
+                } else if (engine.net_map.find(base_var_name) != engine.net_map.end()) {
+                    type_name = engine.netlist[engine.net_map.at(base_var_name)].type_name;
                 }
             }
         }
 
-        const PackedStructType* st = find_struct_type_by_member(type_name, member_name, var_val.width, scope);
-        if (!st && !scoped_var.empty()) {
-            st = find_struct_type_by_member(scoped_var, member_name, var_val.width, scope);
+        std::string first_mem = walk_member;
+        auto first_dot = walk_member.find('.');
+        if (first_dot != std::string::npos) first_mem = walk_member.substr(0, first_dot);
+
+        const PackedStructType* st = find_struct_type_by_member(type_name, first_mem, var_val.width, scope);
+        if (!st && !scoped_var.empty() && base_var_name == var_name) {
+            st = find_struct_type_by_member(scoped_var, first_mem, var_val.width, scope);
         }
-        if (!st && !var_name.empty()) {
-            st = find_struct_type_by_member(var_name, member_name, var_val.width, scope);
+        if (!st && !base_var_name.empty()) {
+            st = find_struct_type_by_member(base_var_name, first_mem, var_val.width, scope);
         }
 
         if (st) {
-            if (st->is_tagged && st->tag_bits > 0) {
-                LogicVal current_tag = var_val.extract_slice(st->payload_width, st->tag_bits);
-                int expected_idx = st->get_member_index(member_name);
-                if ((int)current_tag.aval != expected_idx) {
-                    throw std::runtime_error("Member access of tagged union when tag is not active: '" + member_name + "' per IEEE 1800-2023 11.9");
-                }
+            std::string pkg_prefix = "";
+            auto pkg_col = type_name.find("::");
+            if (pkg_col != std::string::npos) {
+                pkg_prefix = type_name.substr(0, pkg_col + 2);
             }
-            const StructMember* sm = st->get_member(member_name);
-            if (sm) {
-                uint32_t m_offset = sm->offset;
-                uint32_t m_width = sm->width;
+            const PackedStructType* cur_st = st;
+            std::string remaining = walk_member;
+            uint32_t m_offset = 0;
+            uint32_t m_width = var_val.width;
+            bool resolved = false;
+            const StructMember* sm = nullptr;
+            while (!remaining.empty() && cur_st) {
+                std::string part = remaining;
+                std::string next_part = "";
+                auto d_pos = remaining.find('.');
+                if (d_pos != std::string::npos) {
+                    part = remaining.substr(0, d_pos);
+                    next_part = remaining.substr(d_pos + 1);
+                }
+                if (cur_st->is_tagged && cur_st->tag_bits > 0) {
+                    LogicVal current_tag = var_val.extract_slice(cur_st->payload_width, cur_st->tag_bits);
+                    int expected_idx = cur_st->get_member_index(part);
+                    if ((int)current_tag.aval != expected_idx) {
+                        throw std::runtime_error("Member access of tagged union when tag is not active: '" + part + "' per IEEE 1800-2023 11.9");
+                    }
+                }
+                sm = cur_st->get_member(part);
+                if (!sm) break;
+                m_offset += sm->offset;
+                m_width = sm->width;
+                if (next_part.empty()) {
+                    resolved = true;
+                    break;
+                }
+                const PackedStructType* next_st = nullptr;
+                if (!pkg_prefix.empty() && sm->type_name.find("::") == std::string::npos) {
+                    next_st = find_struct_type(pkg_prefix + sm->type_name, scope);
+                }
+                if (!next_st) {
+                    next_st = find_struct_type(sm->type_name, scope);
+                }
+                cur_st = next_st;
+                remaining = next_part;
+            }
+            if (resolved && sm) {
                 if (member_node->has_member_select) {
                     if (member_node->is_part_select) {
                         uint64_t msb = eval(member_node->member_msb_expr.get(), scope).aval;
