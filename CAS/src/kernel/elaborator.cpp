@@ -1768,16 +1768,6 @@ static uint32_t resolve_type_width(const std::string& type_name) {
         bare = type_name.substr(colon + 2);
     }
 
-    if (Parser::global_enum_typedefs.count(bare)) {
-        return Parser::global_enum_typedefs.at(bare)->base_width;
-    }
-    if (Parser::global_struct_typedefs.count(bare)) {
-        return Parser::global_struct_typedefs.at(bare)->total_width;
-    }
-    if (Parser::global_simple_typedefs.count(bare)) {
-        return Parser::global_simple_typedefs.at(bare);
-    }
-
     if (!pkg_prefix.empty()) {
         auto pit = Parser::global_packages.find(pkg_prefix);
         if (pit != Parser::global_packages.end()) {
@@ -1788,7 +1778,19 @@ static uint32_t resolve_type_width(const std::string& type_name) {
             auto sit2 = pit->second->simple_typedefs.find(bare);
             if (sit2 != pit->second->simple_typedefs.end()) return sit2->second.width;
         }
-    } else {
+    }
+
+    if (Parser::global_enum_typedefs.count(bare)) {
+        return Parser::global_enum_typedefs.at(bare)->base_width;
+    }
+    if (Parser::global_struct_typedefs.count(bare)) {
+        return Parser::global_struct_typedefs.at(bare)->total_width;
+    }
+    if (Parser::global_simple_typedefs.count(bare)) {
+        return Parser::global_simple_typedefs.at(bare);
+    }
+
+    if (pkg_prefix.empty()) {
         for (const auto& kv : Parser::global_packages) {
             auto eit = kv.second->enum_typedefs.find(bare);
             if (eit != kv.second->enum_typedefs.end()) return eit->second->base_width;

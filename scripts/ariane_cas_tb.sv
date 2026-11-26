@@ -196,6 +196,16 @@ module ariane_cas_tb;
         end
 
         if (rst_ni && ($time == 5370 || $time == 5390)) begin
+            $display("[ARB_DIAG] T=%0t w=(%0d,%0d,id=%0d,usr=%0d) axi_r_id=0x%h mem_r_id=0x%h rdy_arb0=%b wok=%b",
+                     $time,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_r_i),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_r_i.id),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_r_i.user),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_r_i.id,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read.mem_resp_r_id,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read_ready_arb[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_resp_wok);
             $display("[NOC_RESP_DIAG] T=%0t w=(%0d,%0d,%0d,%0d,%0d) rval=(%b,%b,%b,%b,%b) rdata=(0x%h,0x%h,0x%h,0x%h,0x%h) raw=(0x%h,0x%h)",
                      $time,
                      $bits(zetraa_dut.axi_ariane_resp),
