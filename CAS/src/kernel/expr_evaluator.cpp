@@ -6280,8 +6280,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 if (!pkg_prefix.empty() && sm->type_name.find("::") == std::string::npos) {
                     next_st = find_struct_type(pkg_prefix + sm->type_name, scope);
                 }
-                if (!next_st) {
+                if (!next_st || (sm->width > 0 && next_st->total_width != sm->width)) {
                     next_st = find_struct_type(sm->type_name, scope);
+                }
+                if (!next_st || (sm->width > 0 && next_st->total_width != sm->width)) {
+                    std::string nfirst = next_part;
+                    auto ndp = nfirst.find('.');
+                    if (ndp != std::string::npos) nfirst = nfirst.substr(0, ndp);
+                    const PackedStructType* by_m = find_struct_type_by_member(sm->type_name, nfirst, sm->width, scope);
+                    if (!by_m) by_m = find_struct_type_by_member("", nfirst, sm->width, scope);
+                    if (by_m) next_st = by_m;
                 }
                 cur_st = next_st;
                 remaining = next_part;
