@@ -8746,10 +8746,27 @@ const PackedStructType* ExprEvaluator::find_struct_type_by_member(
     const std::string& scope
 ) const {
     const PackedStructType* st = find_struct_type(type_name, scope);
-    if (st && (!member_name.empty() ? (st->get_member(member_name) != nullptr) : true)) {
+    if (st && (width == 0 || st->total_width == width || st->is_tagged) && (!member_name.empty() ? (st->get_member(member_name) != nullptr) : true)) {
         return st;
     }
     if (!member_name.empty()) {
+        if (!type_name.empty() && width > 0) {
+            std::string bare_tn = type_name;
+            auto col = bare_tn.rfind("::");
+            if (col != std::string::npos) bare_tn = bare_tn.substr(col + 2);
+            auto dot = bare_tn.rfind('.');
+            if (dot != std::string::npos) bare_tn = bare_tn.substr(dot + 1);
+            for (const auto& pair : engine.struct_types) {
+                if ((pair.second.total_width == width || pair.second.is_tagged) && pair.second.get_member(member_name)) {
+                    if (pair.first == bare_tn ||
+                        (pair.first.size() > bare_tn.size() &&
+                         (pair.first[pair.first.size() - bare_tn.size() - 1] == '.' || pair.first[pair.first.size() - bare_tn.size() - 1] == ':') &&
+                         pair.first.compare(pair.first.size() - bare_tn.size(), bare_tn.size(), bare_tn) == 0)) {
+                        return &pair.second;
+                    }
+                }
+            }
+        }
         static thread_local std::unordered_map<std::string, const PackedStructType*> s_member_type_cache;
         std::string mkey;
         mkey.reserve(member_name.size() + 16);
