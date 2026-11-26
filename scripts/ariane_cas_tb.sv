@@ -59,7 +59,6 @@ module ariane_cas_tb;
     end
 
     initial begin
-        #1;
         $display("[SOC_ID_DIAG] cva6=%0d axi=%0d soc=%0d slv=%0d nrslv=%0d",
                  cva6_config_pkg::CVA6ConfigAxiIdWidth,
                  ariane_axi::IdWidth,
