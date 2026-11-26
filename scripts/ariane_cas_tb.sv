@@ -195,8 +195,8 @@ module ariane_cas_tb;
                      zetraa_dut.i_zetraa_core.i_zetraa_core.commit_ack);
         end
 
-        if (rst_ni && $time == 5370) begin
-            $display("[NOC_RESP_DIAG] T=%0t w=(%0d,%0d,%0d,%0d,%0d) rval=(%b,%b,%b,%b,%b) rdata=(0x%h,0x%h,0x%h,0x%h,0x%h)",
+        if (rst_ni && ($time == 5370 || $time == 5390)) begin
+            $display("[NOC_RESP_DIAG] T=%0t w=(%0d,%0d,%0d,%0d,%0d) rval=(%b,%b,%b,%b,%b) rdata=(0x%h,0x%h,0x%h,0x%h,0x%h) raw=(0x%h,0x%h)",
                      $time,
                      $bits(zetraa_dut.axi_ariane_resp),
                      $bits(zetraa_dut.i_zetraa_core.noc_resp_i),
@@ -212,7 +212,9 @@ module ariane_cas_tb;
                      zetraa_dut.i_zetraa_core.noc_resp_i.r.data,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.noc_resp_i.r.data,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.noc_resp_i.r.data,
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r.data);
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r.data,
+                     zetraa_dut.axi_ariane_resp,
+                     zetraa_dut.i_zetraa_core.noc_resp_i);
         end
 
         // [AXI_R]

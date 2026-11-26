@@ -5381,7 +5381,16 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                                 resolved = true;
                                 break;
                             }
-                            cur_st = find_struct_type(sm->type_name, scope);
+                            std::string nfirst = next_part;
+                            auto ndp = nfirst.find('.');
+                            if (ndp != std::string::npos) nfirst = nfirst.substr(0, ndp);
+                            const PackedStructType* nst = find_struct_type(sm->type_name, scope);
+                            if (!nst || (sm->width > 0 && nst->total_width != sm->width)) {
+                                const PackedStructType* by_m = find_struct_type_by_member(sm->type_name, nfirst, sm->width, scope);
+                                if (!by_m) by_m = find_struct_type_by_member("", nfirst, sm->width, scope);
+                                if (by_m) nst = by_m;
+                            }
+                            cur_st = nst;
                             remaining = next_part;
                         }
                         if (resolved) {
