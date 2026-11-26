@@ -3054,7 +3054,13 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
     std::string bare = "";
     auto colon = type_name.rfind("::");
     if (colon != std::string::npos) {
+        std::string pkg = type_name.substr(0, colon);
         bare = type_name.substr(colon + 2);
+        auto pit = Parser::global_packages.find(pkg);
+        if (pit != Parser::global_packages.end() &&
+            pit->second->struct_typedefs.find(bare) == pit->second->struct_typedefs.end()) {
+            return nullptr;
+        }
         auto it_bare = result.struct_types.find(bare);
         if (it_bare != result.struct_types.end()) return &it_bare->second;
     }
