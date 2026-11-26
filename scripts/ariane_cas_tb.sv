@@ -182,6 +182,39 @@ module ariane_cas_tb;
             axi_ar_cnt = axi_ar_cnt + 1;
         end
 
+        if (rst_ni && $time >= 5350 && $time <= 5650) begin
+            $display("[R_RET_DIAG] T=%0t m_r_val=%b m_r_rdy=%b arb_r_val=%b arb_r_rdy=%b ic_ack=%b ic_rtrn=%b fe_val=%b c_ack=%b",
+                     $time,
+                     zetraa_dut.axi_ariane_resp.r_valid,
+                     zetraa_dut.axi_ariane_req.r_ready,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r_valid,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_req_o.r_ready,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_cva6_icache.mem_data_ack_i,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_cva6_icache.mem_rtrn_vld_i,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_valid_if_id,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.commit_ack);
+        end
+
+        if (rst_ni && $time == 5370) begin
+            $display("[NOC_RESP_DIAG] T=%0t w=(%0d,%0d,%0d,%0d,%0d) rval=(%b,%b,%b,%b,%b) rdata=(0x%h,0x%h,0x%h,0x%h,0x%h)",
+                     $time,
+                     $bits(zetraa_dut.axi_ariane_resp),
+                     $bits(zetraa_dut.i_zetraa_core.noc_resp_i),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.noc_resp_i),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.noc_resp_i),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i),
+                     zetraa_dut.axi_ariane_resp.r_valid,
+                     zetraa_dut.i_zetraa_core.noc_resp_i.r_valid,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.noc_resp_i.r_valid,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.noc_resp_i.r_valid,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r_valid,
+                     zetraa_dut.axi_ariane_resp.r.data,
+                     zetraa_dut.i_zetraa_core.noc_resp_i.r.data,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.noc_resp_i.r.data,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.noc_resp_i.r.data,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r.data);
+        end
+
         // [AXI_R]
         if (rst_ni && zetraa_dut.axi_ariane_resp.r_valid === 1'b1 && axi_r_cnt < 15) begin
             $display("[AXI_R] T=%0t m_r_data=0x%h m_r_resp=0x%h m_r_last=%b",

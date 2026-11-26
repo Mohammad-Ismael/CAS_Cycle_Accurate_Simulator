@@ -5439,6 +5439,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             const std::string& st_name = pair.first;
             const auto& st_node = pair.second;
             if (!st_node) continue;
+            if (result.struct_types.count(scope + "." + st_name)) {
+                bool is_type_param = false;
+                for (const auto& mp : mod->parameters) {
+                    if (mp.name == st_name && mp.type_name == "type") { is_type_param = true; break; }
+                }
+                if (is_type_param) continue;
+            }
 
             PackedStructType st;
             st.name = st_name;
@@ -5643,6 +5650,13 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             const std::string& st_name = pair.first;
             const auto& st_node = pair.second;
             if (!st_node) continue;
+            if (result.struct_types.count(scope + "." + st_name)) {
+                bool is_type_param = false;
+                for (const auto& mp : mod->parameters) {
+                    if (mp.name == st_name && mp.type_name == "type") { is_type_param = true; break; }
+                }
+                if (is_type_param) continue;
+            }
 
             PackedStructType st;
             st.name = st_name;
