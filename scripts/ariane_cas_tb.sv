@@ -58,6 +58,16 @@ module ariane_cas_tb;
                  zetraa_dut.i_zetraa_core.i_zetraa_core.ex_stage_i.lsu_i.i_pmp_data_if.i_pmp_if.allow_o);
     end
 
+    initial begin
+        #1;
+        $display("[SOC_ID_DIAG] cva6=%0d axi=%0d soc=%0d slv=%0d nrslv=%0d",
+                 cva6_config_pkg::CVA6ConfigAxiIdWidth,
+                 ariane_axi::IdWidth,
+                 ariane_axi_soc::IdWidth,
+                 ariane_axi_soc::IdWidthSlave,
+                 ariane_soc::NrSlaves);
+    end
+
     // Commit monitor
     integer commit_cnt = 0;
     integer axi_ar_cnt = 0;
