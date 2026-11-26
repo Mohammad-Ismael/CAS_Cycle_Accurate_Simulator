@@ -204,9 +204,25 @@ module ariane_cas_tb;
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_req_read_arb.mem_req_id,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_ar_o.id,
                      zetraa_dut.axi_ariane_req.ar.id);
+            $display("[XBAR_ID_DIAG] T=%0t w=(%0d,%0d) s0_ar=0x%h m8_ar=0x%h s0_r=0x%h m8_r=0x%h",
+                     $time,
+                     $bits(zetraa_dut.slave[0].ar_id),
+                     $bits(zetraa_dut.master[8].ar_id),
+                     zetraa_dut.slave[0].ar_id,
+                     zetraa_dut.master[8].ar_id,
+                     zetraa_dut.slave[0].r_id,
+                     zetraa_dut.master[8].r_id);
         end
 
         if (rst_ni && ($time == 5370 || $time == 5390)) begin
+            $display("[XBAR_ID_DIAG] T=%0t w=(%0d,%0d) s0_ar=0x%h m8_ar=0x%h s0_r=0x%h m8_r=0x%h",
+                     $time,
+                     $bits(zetraa_dut.slave[0].ar_id),
+                     $bits(zetraa_dut.master[8].ar_id),
+                     zetraa_dut.slave[0].ar_id,
+                     zetraa_dut.master[8].ar_id,
+                     zetraa_dut.slave[0].r_id,
+                     zetraa_dut.master[8].r_id);
             $display("[ARB_DIAG] T=%0t w=(%0d,%0d,id=%0d,usr=%0d) ic_id=0x%h m_ar_id=0x%h axi_r_id=0x%h mem_r_id=0x%h sel=%b dmux_rdy=%b rdy_arb0=%b m_rdy_i=%b m_rdy_o=%b wok=%b",
                      $time,
                      $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.axi_resp_i.r),
