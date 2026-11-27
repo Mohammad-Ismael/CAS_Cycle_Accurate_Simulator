@@ -7755,8 +7755,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 if (tname.empty()) {
                                     if (engine.var_to_struct_type.count(full_target_name)) {
                                         tname = engine.var_to_struct_type.at(full_target_name);
-                                    } else if (engine.var_to_struct_type.count(target_name)) {
-                                        tname = engine.var_to_struct_type.at(target_name);
+                                    } else if (!bp.scope.empty() && engine.var_to_struct_type.count(bp.scope + "." + target_name)) {
+                                        tname = engine.var_to_struct_type.at(bp.scope + "." + target_name);
                                     }
                                 }
                                 if (!tname.empty()) {

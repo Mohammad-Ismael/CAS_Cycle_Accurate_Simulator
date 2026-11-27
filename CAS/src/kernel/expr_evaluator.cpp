@@ -2018,8 +2018,6 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
         const VariableDimMetadata* vdm = nullptr;
         if (nid != (size_t)-1 && engine.var_dimensions.count(engine.netlist[nid].name)) {
             vdm = &engine.var_dimensions.at(engine.netlist[nid].name);
-        } else if (engine.var_dimensions.count(idx_node->name)) {
-            vdm = &engine.var_dimensions.at(idx_node->name);
         } else if (!scope.empty() && engine.var_dimensions.count(scope + "." + idx_node->name)) {
             vdm = &engine.var_dimensions.at(scope + "." + idx_node->name);
         }
@@ -2035,6 +2033,9 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                     break;
                 }
             }
+        }
+        if (!vdm && nid == (size_t)-1 && engine.var_dimensions.count(idx_node->name)) {
+            vdm = &engine.var_dimensions.at(idx_node->name);
         }
         int64_t base_low = found_struct_member ? struct_member_lsb : 0;
         uint32_t elem_w = 1;
@@ -2052,15 +2053,25 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 elem_w = stride0;
             } else {
                 std::string tname = "";
-                size_t tnid = engine.get_net_id(scope, idx_node->name);
-                if (tnid != (size_t)-1) tname = engine.netlist[tnid].type_name;
-                if (tname.empty() && engine.var_to_struct_type.count(idx_node->name)) {
+                size_t tnid = (nid != (size_t)-1) ? nid : engine.get_net_id(scope, idx_node->name);
+                if (tnid != (size_t)-1) {
+                    tname = engine.netlist[tnid].type_name;
+                    if (tname.empty() && engine.var_to_struct_type.count(engine.netlist[tnid].name)) {
+                        tname = engine.var_to_struct_type.at(engine.netlist[tnid].name);
+                    }
+                } else if (!scope.empty() && engine.var_to_struct_type.count(scope + "." + idx_node->name)) {
+                    tname = engine.var_to_struct_type.at(scope + "." + idx_node->name);
+                } else if (engine.var_to_struct_type.count(idx_node->name)) {
                     tname = engine.var_to_struct_type.at(idx_node->name);
                 }
                 if (!tname.empty()) {
                     const PackedStructType* st = find_struct_type(tname, scope);
                     if (st && st->total_width > 0) {
-                        elem_w = st->total_width;
+                        uint32_t total_w = (tnid != (size_t)-1) ? engine.netlist[tnid].width : 0;
+                        uint32_t d0_sz = (uint32_t)vdm->dimensions[0].size();
+                        if (total_w == 0 || total_w > d0_sz) {
+                            elem_w = st->total_width;
+                        }
                     }
                 }
                 if (elem_w == 1 && nid != (size_t)-1 && !vdm->dimensions.empty()) {
