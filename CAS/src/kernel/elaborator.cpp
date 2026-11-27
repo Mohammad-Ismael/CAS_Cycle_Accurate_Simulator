@@ -5036,6 +5036,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
     }
 
     size_t non_local_param_idx = 0;
+    std::unordered_set<std::string> overridden_type_params;
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
@@ -5220,6 +5221,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
         }
 
         if (overridden) {
+            if (p.type_name == "type") overridden_type_params.insert(p.name);
             if (debug_out) *debug_out << "     * Parameter override: " << p.name << " = " << (lval.is_string ? lval.str_val : std::to_string(val)) << "\n";
         } else {
             if (!p.is_localparam && p.default_expr) {
@@ -5510,13 +5512,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             const std::string& st_name = pair.first;
             const auto& st_node = pair.second;
             if (!st_node) continue;
-            if (result.struct_types.count(scope + "." + st_name)) {
-                bool is_type_param = false;
-                for (const auto& mp : mod->parameters) {
-                    if (mp.name == st_name && mp.type_name == "type") { is_type_param = true; break; }
-                }
-                if (is_type_param) continue;
-            }
+            if (overridden_type_params.count(st_name)) continue;
 
             PackedStructType st;
             st.name = st_name;
@@ -5736,13 +5732,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             const std::string& st_name = pair.first;
             const auto& st_node = pair.second;
             if (!st_node) continue;
-            if (result.struct_types.count(scope + "." + st_name)) {
-                bool is_type_param = false;
-                for (const auto& mp : mod->parameters) {
-                    if (mp.name == st_name && mp.type_name == "type") { is_type_param = true; break; }
-                }
-                if (is_type_param) continue;
-            }
+            if (overridden_type_params.count(st_name)) continue;
 
             PackedStructType st;
             st.name = st_name;

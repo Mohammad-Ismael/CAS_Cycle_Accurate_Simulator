@@ -303,9 +303,13 @@ module ariane_cas_tb;
 
         // [COMMIT_EVT]
         if (rst_ni && (|zetraa_dut.i_zetraa_core.i_zetraa_core.commit_ack || |zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_valid_if_id) && commit_evt_cnt < 15) begin
-            $display("[COMMIT_EVT] T=%0t fe_val=%b fe_pc=0x%h fe_insn=0x%h ack=%b rvfi_val=%b",
+            $display("[COMMIT_EVT] T=%0t fe_val=%b w=(%0d,%0d) iq_addr=0x%h iq_instr=0x%h fe_pc=0x%h fe_insn=0x%h ack=%b rvfi_val=%b",
                      $time,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_valid_if_id,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_entry_if_id[0]),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.fetch_entry_o[0]),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.address_out,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.instr_data_out[0].instr,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_entry_if_id[0].address,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_entry_if_id[0].instruction,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.commit_ack,
