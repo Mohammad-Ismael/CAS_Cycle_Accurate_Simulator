@@ -5111,6 +5111,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                 SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = tw;
                                 result.simple_types[scope + "." + p.name] = sinfo;
                                 result.simple_types[p.name] = sinfo;
+                                auto pv_it = result.var_dimensions.find(parent_scope + "." + ov_t);
+                                if (pv_it != result.var_dimensions.end()) {
+                                    VariableDimMetadata vdm = pv_it->second;
+                                    vdm.name = scope + "." + p.name;
+                                    result.var_dimensions[scope + "." + p.name] = vdm;
+                                } else if (tw > 1) {
+                                    VariableDimMetadata vdm;
+                                    vdm.name = scope + "." + p.name;
+                                    vdm.dimensions.push_back(ArrayDimInfo{(int64_t)tw - 1, 0, false, false, false});
+                                    vdm.is_vector_or_array = true;
+                                    result.var_dimensions[scope + "." + p.name] = vdm;
+                                }
                             }
                             result.var_to_struct_type[scope + "." + p.name] = ov_t;
                             result.var_to_struct_type[p.name] = ov_t;
@@ -5167,6 +5179,18 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                 SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = tw;
                                 result.simple_types[scope + "." + p.name] = sinfo;
                                 result.simple_types[p.name] = sinfo;
+                                auto pv_it = result.var_dimensions.find(parent_scope + "." + ov_t);
+                                if (pv_it != result.var_dimensions.end()) {
+                                    VariableDimMetadata vdm = pv_it->second;
+                                    vdm.name = scope + "." + p.name;
+                                    result.var_dimensions[scope + "." + p.name] = vdm;
+                                } else if (tw > 1) {
+                                    VariableDimMetadata vdm;
+                                    vdm.name = scope + "." + p.name;
+                                    vdm.dimensions.push_back(ArrayDimInfo{(int64_t)tw - 1, 0, false, false, false});
+                                    vdm.is_vector_or_array = true;
+                                    result.var_dimensions[scope + "." + p.name] = vdm;
+                                }
                             }
                             result.var_to_struct_type[scope + "." + p.name] = ov_t;
                             result.var_to_struct_type[p.name] = ov_t;
@@ -5220,6 +5244,9 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     auto lb = def_t.find('[');
                     auto rb = def_t.rfind(']');
                     if (lb != std::string::npos && rb != std::string::npos && rb > lb) {
+                        std::string base_t = def_t.substr(0, lb);
+                        while (!base_t.empty() && isspace(base_t.front())) base_t.erase(base_t.begin());
+                        while (!base_t.empty() && isspace(base_t.back())) base_t.pop_back();
                         std::string range_s = def_t.substr(lb + 1, rb - lb - 1);
                         auto col = range_s.find(':');
                         if (col != std::string::npos) {
@@ -5230,6 +5257,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                             while (!lsb_s.empty() && isspace(lsb_s.front())) lsb_s.erase(lsb_s.begin());
                             while (!lsb_s.empty() && isspace(lsb_s.back())) lsb_s.pop_back();
                             uint32_t w = 1;
+                            int64_t m_v = 0, l_v = 0;
                             try {
                                 Lexer msb_lex("msb", msb_s);
                                 Parser msb_parser(msb_lex);
@@ -5237,15 +5265,50 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                                 Lexer lsb_lex("lsb", lsb_s);
                                 Parser lsb_parser(lsb_lex);
                                 auto l_expr = lsb_parser.parse_expression();
-                                int64_t m_v = (int64_t)eval_const_expr(m_expr.get(), scope);
-                                int64_t l_v = (int64_t)eval_const_expr(l_expr.get(), scope);
+                                m_v = (int64_t)eval_const_expr(m_expr.get(), scope);
+                                l_v = (int64_t)eval_const_expr(l_expr.get(), scope);
                                 w = (uint32_t)(std::abs(m_v - l_v) + 1);
                             } catch (...) {}
+                            uint32_t bw = 1;
+                            if (!base_t.empty() && base_t != "logic" && base_t != "bit" && base_t != "reg") {
+                                const PackedStructType* st_base = find_struct_type(base_t, scope);
+                                if (st_base && st_base->total_width > 0) {
+                                    bw = st_base->total_width;
+                                } else {
+                                    uint32_t resolved = 0;
+                                    std::string cur_s = scope;
+                                    while (!cur_s.empty()) {
+                                        auto it_st = result.simple_types.find(cur_s + "." + base_t);
+                                        if (it_st != result.simple_types.end() && it_st->second.width > 0) {
+                                            resolved = it_st->second.width;
+                                            break;
+                                        }
+                                        auto dot = cur_s.rfind('.');
+                                        cur_s = (dot == std::string::npos) ? "" : cur_s.substr(0, dot);
+                                    }
+                                    if (resolved == 0) {
+                                        auto it_st = result.simple_types.find(base_t);
+                                        if (it_st != result.simple_types.end() && it_st->second.width > 0) resolved = it_st->second.width;
+                                    }
+                                    if (resolved == 0) resolved = resolve_type_width(base_t);
+                                    if (resolved > 0) bw = resolved;
+                                }
+                            }
+                            w *= bw;
                             Parser::global_simple_typedefs[scope + "." + p.name] = w;
                             Parser::global_simple_typedefs[p.name] = w;
                             SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = w;
                             result.simple_types[scope + "." + p.name] = sinfo;
                             result.simple_types[p.name] = sinfo;
+                            VariableDimMetadata svdm;
+                            svdm.name = scope + "." + p.name;
+                            svdm.dimensions.push_back(ArrayDimInfo{m_v, l_v, false, false, false});
+                            if (bw > 1) {
+                                svdm.dimensions.push_back(ArrayDimInfo{(int64_t)bw - 1, 0, false, false, false});
+                            }
+                            svdm.is_vector_or_array = true;
+                            result.var_dimensions[scope + "." + p.name] = svdm;
+                            result.var_dimensions[p.name] = svdm;
                         }
                     } else {
                         uint32_t tw = 0;
@@ -5606,16 +5669,31 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             if (bw > 0) {
                 pw *= bw;
             }
-            const VariableDimMetadata* base_vdm = Parser::find_type_dim_metadata(td->base_type);
+            const VariableDimMetadata* base_vdm = nullptr;
+            std::string cur_bs = scope;
+            while (!cur_bs.empty()) {
+                auto b_it = result.var_dimensions.find(cur_bs + "." + td->base_type);
+                if (b_it != result.var_dimensions.end()) {
+                    base_vdm = &b_it->second;
+                    break;
+                }
+                auto dot = cur_bs.rfind('.');
+                cur_bs = (dot == std::string::npos) ? "" : cur_bs.substr(0, dot);
+            }
             if (!base_vdm) {
-                auto b_it = result.var_dimensions.find(scope + "." + td->base_type);
+                base_vdm = Parser::find_type_dim_metadata(td->base_type);
+            }
+            if (!base_vdm) {
+                auto b_it = result.var_dimensions.find(td->base_type);
                 if (b_it != result.var_dimensions.end()) base_vdm = &b_it->second;
-                else {
-                    b_it = result.var_dimensions.find(td->base_type);
-                    if (b_it != result.var_dimensions.end()) base_vdm = &b_it->second;
+            }
+            uint64_t base_vdm_w = 1;
+            if (base_vdm) {
+                for (const auto& d : base_vdm->dimensions) {
+                    if (!d.is_unpacked) base_vdm_w *= (uint64_t)d.size();
                 }
             }
-            if (base_vdm) {
+            if (base_vdm && base_vdm_w == bw) {
                 for (const auto& d : base_vdm->dimensions) {
                     if (!d.is_unpacked) sdims.push_back(d);
                 }

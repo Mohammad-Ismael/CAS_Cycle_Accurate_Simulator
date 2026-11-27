@@ -248,6 +248,16 @@ module ariane_cas_tb;
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.resp_ready_i,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_hpdcache_mem_to_axi_read.axi_r_ready_o,
                      zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_resp_wok);
+            $display("[RT_DIAG] T=%0t w_rt=%0d dmux_w_rt=%0d depth=%0d dmux_depth=%0d dmux_id_w=%0d rt0=%0d rt32=%0d dmux_rt32=%0d",
+                     $time,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read_rt),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.mem_resp_rt_i),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.MEM_RESP_RT_DEPTH,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.RT_DEPTH,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.mem_resp_id_i),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read_rt[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read_rt[32],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.mem_resp_rt_i[32]);
             $display("[NOC_RESP_DIAG] T=%0t w=(%0d,%0d,%0d,%0d,%0d) rval=(%b,%b,%b,%b,%b) rdata=(0x%h,0x%h,0x%h,0x%h,0x%h) raw=(0x%h,0x%h)",
                      $time,
                      $bits(zetraa_dut.axi_ariane_resp),
