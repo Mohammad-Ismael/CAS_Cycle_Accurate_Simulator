@@ -4960,30 +4960,50 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
         size_t n = st_node->members.size();
         std::vector<uint32_t> member_widths(n, 1);
+        std::vector<uint32_t> member_ew(n, 1);
+        std::vector<int64_t> member_msb(n, 0);
+        std::vector<int64_t> member_lsb(n, 0);
+        std::vector<int64_t> member_olow(n, 0);
         for (size_t i = 0; i < n; ++i) {
             const auto& mn = st_node->members[i];
             uint32_t mw = mn.width;
+            uint32_t ew = mn.elem_width;
+            int64_t m_msb = mn.msb;
+            int64_t m_lsb = mn.lsb;
+            int64_t m_olow = mn.outer_low;
+            uint32_t base_tw = 1;
+            if (!mn.type_name.empty()) {
+                const PackedStructType* inner_st = find_struct_type(mn.type_name, scope);
+                if (inner_st && inner_st->total_width > 0) base_tw = inner_st->total_width;
+                else {
+                    uint32_t tw = resolve_type_width(mn.type_name);
+                    if (tw > 0) base_tw = tw;
+                }
+            }
             if (mn.msb_expr) {
                 try {
                     int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
                     int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
                     if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
-                        mw = (uint32_t)(std::abs(m - l) + 1);
-                        if (mn.elem_width > 1) mw *= mn.elem_width;
-                        else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
+                        uint32_t dim_sz = (uint32_t)(std::abs(m - l) + 1);
+                        mw = dim_sz;
+                        m_msb = m;
+                        m_lsb = l;
+                        m_olow = std::min(m, l);
+                        if (mn.elem_width > 1) { mw *= mn.elem_width; ew = mn.elem_width; }
+                        else if (base_tw > 1) { mw *= base_tw; ew = base_tw; }
+                        else if (mn.width > mw && mn.width % mw == 0) { ew = mn.width / dim_sz; mw = mn.width; }
                     }
                 } catch (...) {}
             } else if (!mn.type_name.empty()) {
-                const PackedStructType* inner_st = find_struct_type(mn.type_name, scope);
-                if (inner_st && inner_st->total_width > 0) {
-                    mw = inner_st->total_width;
-                } else {
-                    uint32_t tw = resolve_type_width(mn.type_name);
-                    if (tw > 0) mw = tw;
-                }
+                mw = base_tw;
             }
             if (mw > 65536) mw = 1;
             member_widths[i] = mw;
+            member_ew[i] = ew;
+            member_msb[i] = m_msb;
+            member_lsb[i] = m_lsb;
+            member_olow[i] = m_olow;
         }
 
         std::vector<uint32_t> offsets(n, 0);
@@ -5009,10 +5029,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             sm.offset = offsets[i];
             sm.is_signed = mn.is_signed;
             sm.type_name = mn.type_name;
-            sm.msb = mn.msb;
-            sm.lsb = mn.lsb;
-            sm.elem_width = mn.elem_width;
-            sm.outer_low = mn.outer_low;
+            sm.msb = member_msb[i];
+            sm.lsb = member_lsb[i];
+            sm.elem_width = member_ew[i];
+            sm.outer_low = member_olow[i];
             sm.default_expr = mn.default_value;
             st.members.push_back(sm);
         }
@@ -5060,6 +5080,20 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             sm.lsb = mn.lsb;
             sm.elem_width = mn.elem_width;
             sm.outer_low = mn.outer_low;
+            if (sm.elem_width <= 1 && mn.msb_expr) {
+                uint32_t base_tw = 1;
+                if (!mn.type_name.empty()) {
+                    const PackedStructType* inner_st = find_struct_type(mn.type_name, scope);
+                    if (inner_st && inner_st->total_width > 0) base_tw = inner_st->total_width;
+                    else {
+                        uint32_t tw = resolve_type_width(mn.type_name);
+                        if (tw > 0) base_tw = tw;
+                    }
+                }
+                uint32_t dim_sz = (uint32_t)(std::abs(mn.msb - mn.lsb) + 1);
+                if (base_tw > 1) sm.elem_width = base_tw;
+                else if (dim_sz > 1 && sm.width > dim_sz && sm.width % dim_sz == 0) sm.elem_width = sm.width / dim_sz;
+            }
             sm.default_expr = mn.default_value;
             st.members.push_back(sm);
         }
@@ -8498,6 +8532,20 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 sm.lsb = mn.lsb;
                 sm.elem_width = mn.elem_width;
                 sm.outer_low = mn.outer_low;
+                if (sm.elem_width <= 1 && mn.msb_expr) {
+                    uint32_t base_tw = 1;
+                    if (!mn.type_name.empty()) {
+                        const PackedStructType* inner_st = find_struct_type(mn.type_name, pkg_name);
+                        if (inner_st && inner_st->total_width > 0) base_tw = inner_st->total_width;
+                        else {
+                            uint32_t tw = resolve_type_width(mn.type_name);
+                            if (tw > 0) base_tw = tw;
+                        }
+                    }
+                    uint32_t dim_sz = (uint32_t)(std::abs(mn.msb - mn.lsb) + 1);
+                    if (base_tw > 1) sm.elem_width = base_tw;
+                    else if (dim_sz > 1 && sm.width > dim_sz && sm.width % dim_sz == 0) sm.elem_width = sm.width / dim_sz;
+                }
                 sm.default_expr = mn.default_value;
                 s.members.push_back(sm);
             }
