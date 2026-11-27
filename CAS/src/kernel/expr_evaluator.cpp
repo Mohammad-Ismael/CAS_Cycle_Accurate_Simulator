@@ -2074,8 +2074,8 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                         }
                     }
                 }
-                if (elem_w == 1 && nid != (size_t)-1 && !vdm->dimensions.empty()) {
-                    uint32_t total_w = engine.netlist[nid].width;
+                if (elem_w == 1 && !vdm->dimensions.empty()) {
+                    uint32_t total_w = (nid != (size_t)-1) ? engine.netlist[nid].width : target_val.width;
                     uint32_t d0_sz = (uint32_t)vdm->dimensions[0].size();
                     if (d0_sz > 0 && total_w > d0_sz && (total_w % d0_sz == 0)) {
                         elem_w = total_w / d0_sz;
@@ -2088,7 +2088,11 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
             if (idx_val.is_unknown()) return LogicVal::make_x(1);
             int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
-            if (base_low != 0 && raw_idx >= base_low) raw_idx -= base_low;
+            if (vdm && !vdm->dimensions.empty() && vdm->dimensions[0].left < vdm->dimensions[0].right) {
+                raw_idx = vdm->dimensions[0].right - raw_idx;
+            } else if (base_low != 0 && raw_idx >= base_low) {
+                raw_idx -= base_low;
+            }
             else if (vdm && !vdm->dimensions.empty()) {
                 int64_t low = vdm->dimensions[0].low();
                 if (raw_idx >= low) raw_idx -= low;
@@ -2219,7 +2223,11 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 }
                 return LogicVal::make_known(8, (uint8_t)target_val.str_val[raw_idx], false);
             }
-            if (base_low != 0 && raw_idx >= base_low) raw_idx -= base_low;
+            if (vdm && !vdm->dimensions.empty() && vdm->dimensions[0].left < vdm->dimensions[0].right) {
+                raw_idx = vdm->dimensions[0].right - raw_idx;
+            } else if (base_low != 0 && raw_idx >= base_low) {
+                raw_idx -= base_low;
+            }
             if (raw_idx < 0 || (raw_idx * elem_w) >= target_val.width) return LogicVal::make_x(elem_w);
             uint32_t sh = (uint32_t)(raw_idx * elem_w);
             LogicVal elem = target_val.extract_slice(sh, elem_w);
@@ -5447,6 +5455,45 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                         lookup_vname = member_node->var_name.substr(0, dpos);
                         mem_path = member_node->var_name.substr(dpos + 1) + "." + mem_path;
                         nid = engine.get_net_id(scope, lookup_vname);
+                    }
+                }
+                if (nid == (size_t)-1) {
+                    LogicVal p_val;
+                    std::string p_key;
+                    bool found_p = false;
+                    std::string scoped_pv = scope.empty() ? lookup_vname : (scope + "." + lookup_vname);
+                    if (engine.param_val_map.count(scoped_pv)) { p_val = engine.param_val_map.at(scoped_pv); p_key = scoped_pv; found_p = true; }
+                    else if (engine.param_val_map.count(lookup_vname)) { p_val = engine.param_val_map.at(lookup_vname); p_key = lookup_vname; found_p = true; }
+                    else if (current_bp) {
+                        for (const auto& pkg : current_bp->active_wildcard_imports) {
+                            std::string qn = pkg + "::" + lookup_vname;
+                            if (engine.param_val_map.count(qn)) { p_val = engine.param_val_map.at(qn); p_key = qn; found_p = true; break; }
+                        }
+                    }
+                    if (found_p && p_val.width > 0) {
+                        auto it_pvdm = engine.var_dimensions.find(p_key);
+                        if (it_pvdm == engine.var_dimensions.end()) it_pvdm = engine.var_dimensions.find(lookup_vname);
+                        uint32_t ew = 1;
+                        int64_t elem_idx = addr;
+                        if (it_pvdm != engine.var_dimensions.end() && !it_pvdm->second.dimensions.empty()) {
+                            uint32_t d0_sz = (uint32_t)it_pvdm->second.dimensions[0].size();
+                            if (d0_sz > 0 && p_val.width >= d0_sz && (p_val.width % d0_sz == 0)) ew = p_val.width / d0_sz;
+                            if (it_pvdm->second.dimensions[0].left < it_pvdm->second.dimensions[0].right) {
+                                elem_idx = it_pvdm->second.dimensions[0].right - elem_idx;
+                            } else if (it_pvdm->second.dimensions[0].low() > 0 && elem_idx >= it_pvdm->second.dimensions[0].low()) {
+                                elem_idx -= it_pvdm->second.dimensions[0].low();
+                            }
+                        }
+                        if (elem_idx >= 0 && (uint64_t)(elem_idx * ew) < p_val.width) {
+                            LogicVal cur_word = p_val.extract_slice((uint32_t)(elem_idx * ew), ew);
+                            std::string tname = engine.var_to_struct_type.count(p_key) ? engine.var_to_struct_type.at(p_key) : (engine.var_to_struct_type.count(lookup_vname) ? engine.var_to_struct_type.at(lookup_vname) : "");
+                            const PackedStructType* st = find_struct_type_by_member(tname, mem_path, cur_word.width, scope);
+                            if (!st && !tname.empty()) st = find_struct_type(tname, scope);
+                            if (st) {
+                                const StructMember* sm = st->get_member(mem_path);
+                                if (sm) return cur_word.extract_slice(sm->offset, sm->width);
+                            }
+                        }
                     }
                 }
                 if (nid != (size_t)-1) {

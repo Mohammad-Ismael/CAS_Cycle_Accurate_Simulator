@@ -9049,14 +9049,6 @@ std::shared_ptr<PackageNode> Parser::parse_package() {
                     if (ptype.empty()) ptype = current.text;
                     advance();
                 }
-                while (current.type == TokenType::TOKEN_LBRACKET) {
-                    advance();
-                    parse_expression();
-                    if (match(TokenType::TOKEN_COLON)) {
-                        parse_expression();
-                    }
-                    expect(TokenType::TOKEN_RBRACKET, "Expected ']' in parameter range");
-                }
             }
             std::vector<ArrayDimInfo> pdims;
             while (match(TokenType::TOKEN_LBRACKET)) {
