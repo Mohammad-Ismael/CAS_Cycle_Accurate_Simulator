@@ -302,6 +302,16 @@ module ariane_cas_tb;
         end
 
         // [COMMIT_EVT]
+        if (rst_ni && ($time == 5370 || $time == 5390)) begin
+            $display("[IC_DATA_DIAG] T=%0t mem_data=0x%h dmux_w=(%0d,%0d,%0d) dmux_o0=0x%h arb_rdata=0x%h",
+                     $time,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read.mem_resp_r_data,
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.mem_resp_i),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.mem_resp_demux),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.i_mem_resp_read_demux.i_resp_demux.DATA_WIDTH,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.mem_resp_read_arb[0].mem_resp_r_data,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.gen_cache_hpd.i_cache_subsystem.i_axi_arbiter.icache_miss_resp_data_rdata);
+        end
         if (rst_ni && (|zetraa_dut.i_zetraa_core.i_zetraa_core.commit_ack || |zetraa_dut.i_zetraa_core.i_zetraa_core.fetch_valid_if_id) && commit_evt_cnt < 15) begin
             $display("[COMMIT_EVT] T=%0t fe_val=%b w=(%0d,%0d) iq_addr=0x%h iq_instr=0x%h fe_pc=0x%h fe_insn=0x%h ack=%b rvfi_val=%b",
                      $time,

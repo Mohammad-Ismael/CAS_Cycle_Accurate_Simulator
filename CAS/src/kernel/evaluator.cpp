@@ -5249,6 +5249,18 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (nassign->bit_idx2) {
                         LogicVal idx_v2 = eval_expr(nassign->bit_idx2.get(), bp.scope);
                         if (!idx_v2.is_unknown()) {
+                            uint32_t d2_width = 1;
+                            int64_t base_low2 = 0;
+                            if (it_vdm != engine.var_dimensions.end() && it_vdm->second.dimensions.size() > 1) {
+                                base_low2 = it_vdm->second.dimensions[1].low();
+                                if (it_vdm->second.dimensions.size() > 2) {
+                                    uint32_t stride1 = 1;
+                                    for (size_t k = 2; k < it_vdm->second.dimensions.size(); ++k) {
+                                        stride1 *= (uint32_t)it_vdm->second.dimensions[k].size();
+                                    }
+                                    d2_width = stride1;
+                                }
+                            }
                             if (nassign->bit_lsb2) {
                                 LogicVal lsb_v2 = eval_expr(nassign->bit_lsb2.get(), bp.scope);
                                 if (!lsb_v2.is_unknown()) {
@@ -5270,8 +5282,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     }
                                 }
                             } else {
-                                slice_w = 1;
-                                lsb = elem_idx * d1_width + idx_v2.aval;
+                                int64_t signed_idx2 = idx_v2.is_signed ? idx_v2.to_signed() : (int64_t)idx_v2.aval;
+                                if (base_low2 != 0 && signed_idx2 >= base_low2) signed_idx2 -= base_low2;
+                                uint32_t elem_idx2 = (uint32_t)signed_idx2;
+                                slice_w = d2_width;
+                                lsb = elem_idx * d1_width + elem_idx2 * d2_width;
                             }
                         }
                     } else if (nassign->bit_lsb) {
