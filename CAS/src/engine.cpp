@@ -1735,13 +1735,15 @@ void Engine::preload_dram_elf() {
                         for (size_t k = 0; k < ph.p_filesz; ++k) {
                             size_t w_idx = (dram_offset + k) / 8;
                             size_t b_idx = (dram_offset + k) % 8;
-                            if (w_idx < dram_mem->words.size()) {
+                            if (dram_mem->is_valid_index((int64_t)w_idx)) {
+                                size_t off = dram_mem->to_word_offset((int64_t)w_idx);
                                 uint64_t mask = ~(0xFFULL << (b_idx * 8));
-                                dram_mem->words[w_idx].aval = (dram_mem->words[w_idx].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
-                                dram_mem->words[w_idx].bval &= mask;
-                                if (init_val_mem && w_idx < init_val_mem->words.size()) {
-                                    init_val_mem->words[w_idx].aval = (init_val_mem->words[w_idx].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
-                                    init_val_mem->words[w_idx].bval &= mask;
+                                dram_mem->words[off].aval = (dram_mem->words[off].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
+                                dram_mem->words[off].bval &= mask;
+                                if (init_val_mem && init_val_mem->is_valid_index((int64_t)w_idx)) {
+                                    size_t init_off = init_val_mem->to_word_offset((int64_t)w_idx);
+                                    init_val_mem->words[init_off].aval = (init_val_mem->words[init_off].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
+                                    init_val_mem->words[init_off].bval &= mask;
                                 }
                                 loaded_bytes++;
                             }
@@ -1751,7 +1753,7 @@ void Engine::preload_dram_elf() {
             }
             dram_mem->change_counter++;
             if (init_val_mem) init_val_mem->change_counter++;
-            std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into DRAM (" << dram_mem->words.size() << " words)\n" << std::flush;
+            std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into " << dram_mem->name << " (" << dram_mem->words.size() << " words, w0=0x" << std::hex << dram_mem->get_word(0).aval << std::dec << ")\n" << std::flush;
         }
     }
     close(fd);
