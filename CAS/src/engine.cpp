@@ -260,6 +260,12 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             }
             size_t exact_nid = engine.get_net_id(scope, idx->name);
             size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, idx->name);
+            if (raw_nid == (size_t)-1) {
+                auto dpos = idx->name.find('.');
+                if (dpos != std::string::npos) {
+                    raw_nid = engine.get_net_id(scope, idx->name.substr(0, dpos));
+                }
+            }
             if (raw_nid != (size_t)-1) {
                 size_t canon = engine.get_canonical_net_id(raw_nid);
                 if (exact_nid != (size_t)-1) {
@@ -269,6 +275,7 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
                 out_net_ids.push_back((uint32_t)canon);
             }
         }
+        if (idx->index_expr) collect_read_nets_internal(idx->index_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->msb_expr) collect_read_nets_internal(idx->msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->lsb_expr) collect_read_nets_internal(idx->lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (idx->bit_msb_expr) collect_read_nets_internal(idx->bit_msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
@@ -312,6 +319,8 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             }
         }
         if (mem->index_expr) collect_read_nets_internal(mem->index_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        if (mem->member_msb_expr) collect_read_nets_internal(mem->member_msb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        if (mem->member_lsb_expr) collect_read_nets_internal(mem->member_lsb_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         return;
     }
 
@@ -415,8 +424,34 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             size_t canon = engine.get_canonical_net_id(raw_nid);
             out_net_ids.push_back((uint32_t)canon);
         }
+        if (mc->target_expr) collect_read_nets_internal(mc->target_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         for (const auto& arg : mc->args) collect_read_nets_internal(arg.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
         if (mc->with_expr) collect_read_nets_internal(mc->with_expr.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        return;
+    }
+    if (auto smc = dynamic_cast<const StaticMethodCallNode*>(expr)) {
+        for (const auto& arg : smc->args) {
+            collect_read_nets_internal(arg.get(), scope, engine, out_net_ids, out_reads_mem, ctx);
+        }
+        std::string full_fn = smc->class_type_name + "::" + smc->method_name;
+        const FunctionNode* target_fn = engine.find_function(full_fn);
+        if (!target_fn) target_fn = engine.find_function(smc->method_name);
+        if (target_fn) {
+            FuncSensContext local_ctx;
+            FuncSensContext* act_ctx = ctx ? ctx : &local_ctx;
+            if (!act_ctx->visited_fn_names.count(full_fn)) {
+                act_ctx->visited_fn_names.insert(full_fn);
+                std::vector<std::string> added_shadows;
+                if (act_ctx->shadowed_names.insert(target_fn->name).second) added_shadows.push_back(target_fn->name);
+                for (const auto& p : target_fn->inputs) {
+                    if (act_ctx->shadowed_names.insert(p.name).second) added_shadows.push_back(p.name);
+                }
+                for (const auto& s : target_fn->get_body()) {
+                    collect_stmt_read_nets(s.get(), scope, engine, out_net_ids, out_reads_mem, act_ctx);
+                }
+                for (const auto& sname : added_shadows) act_ctx->shadowed_names.erase(sname);
+            }
+        }
         return;
     }
 

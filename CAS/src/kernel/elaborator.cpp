@@ -3721,6 +3721,11 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
         for (auto& a : fn->args) args.push_back(substitute_genvar_in_expr(a.get(), gname, val));
         return std::make_unique<FunctionCallNode>(fn->func_name, std::move(args), fn->arg_names);
     }
+    if (auto smc = dynamic_cast<StaticMethodCallNode*>(expr)) {
+        std::vector<std::unique_ptr<ExpressionNode>> args;
+        for (auto& a : smc->args) args.push_back(substitute_genvar_in_expr(a.get(), gname, val));
+        return std::make_unique<StaticMethodCallNode>(smc->class_type_name, smc->method_name, std::move(args), smc->arg_names);
+    }
     if (auto cst = dynamic_cast<CastNode*>(expr)) {
         return std::make_unique<CastNode>(cst->target_type, substitute_genvar_in_expr(cst->expr.get(), gname, val));
     }
