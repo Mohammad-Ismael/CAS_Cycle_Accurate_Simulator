@@ -181,6 +181,12 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
         return lv;
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_time_literal) {
+            std::string eff_tu = (!Lexer::global_timescale_encountered && Parser::global_timeunit_val.empty()) ? "1s" : Lexer::global_time_unit_str;
+            double unit_fs = Lexer::parse_time_fs_real(eff_tu);
+            if (unit_fs <= 0.0) unit_fs = 1.0;
+            return LogicVal::make_real(num->time_fs_real / unit_fs);
+        }
         if (num->is_real) return LogicVal::make_real(num->real_val);
         LogicVal lv(num->width, num->aval, num->bval, num->is_signed);
         if (num->width > 64 && !num->wide_aval.empty()) {
@@ -1959,6 +1965,12 @@ uint64_t Elaborator::eval_const_expr(ExpressionNode* expr, const std::string& sc
                                      const std::unordered_map<std::string, uint32_t>* local_width) {
     if (!expr) return 0;
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
+        if (num->is_time_literal) {
+            std::string eff_tu = (!Lexer::global_timescale_encountered && Parser::global_timeunit_val.empty()) ? "1s" : Lexer::global_time_unit_str;
+            double unit_fs = Lexer::parse_time_fs_real(eff_tu);
+            if (unit_fs <= 0.0) unit_fs = 1.0;
+            return static_cast<uint64_t>(std::llround(num->time_fs_real / unit_fs));
+        }
         return num->aval;
     }
     if (auto str = dynamic_cast<StringNode*>(expr)) {

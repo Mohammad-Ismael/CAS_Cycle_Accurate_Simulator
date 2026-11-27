@@ -2577,6 +2577,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
 
             if (AsyncTraceBuffer::instance().is_running()) {
                 AsyncTraceBuffer::instance().log_string(fd, out_str);
+                AsyncTraceBuffer::instance().flush();
             } else {
                 auto it = engine.open_files.find(fd);
                 if (it != engine.open_files.end() && it->second.fp) {
