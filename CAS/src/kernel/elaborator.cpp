@@ -3738,6 +3738,12 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     if (auto ma = dynamic_cast<MemberAccessNode*>(expr)) {
         auto node = std::make_unique<MemberAccessNode>(ma->var_name, ma->member_name);
         if (ma->index_expr) node->index_expr = substitute_genvar_in_expr(ma->index_expr.get(), gname, val);
+        node->has_member_select = ma->has_member_select;
+        node->is_part_select = ma->is_part_select;
+        node->is_plus_colon = ma->is_plus_colon;
+        node->is_minus_colon = ma->is_minus_colon;
+        if (ma->member_msb_expr) node->member_msb_expr = substitute_genvar_in_expr(ma->member_msb_expr.get(), gname, val);
+        if (ma->member_lsb_expr) node->member_lsb_expr = substitute_genvar_in_expr(ma->member_lsb_expr.get(), gname, val);
         return node;
     }
     return expr->clone();
