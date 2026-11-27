@@ -348,4 +348,4 @@
 /app/projects/ZETRAA/vendor/pulp-platform/tech_cells_generic/src/rtl/tc_clk.sv
 /app/projects/ZETRAA/vendor/pulp-platform/tech_cells_generic/src/rtl/tc_sram.sv
 /app/projects/ZETRAA/corev_apu/tb/common/mock_uart.sv
-/app/scripts/ariane_cas_tb.sv
+/app/projects/ZETRAA/corev_apu/tb/zetraa_tb.sv

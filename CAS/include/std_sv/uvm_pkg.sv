@@ -220,6 +220,17 @@ class uvm_config_db #(type T = int) extends uvm_resource_db #(T);
     endfunction
 endclass
 
+class uvm_cmdline_processor;
+    static uvm_cmdline_processor m_inst;
+    static function uvm_cmdline_processor get_inst();
+        if (m_inst == null) m_inst = new();
+        return m_inst;
+    endfunction
+    function int get_arg_value(string match, output string value);
+        return $value$plusargs({match, "%s"}, value);
+    endfunction
+endclass
+
 task automatic run_test(string test_name = "");
     uvm_phase ph = new("run");
     uvm_component top = uvm_component::m_top_env;

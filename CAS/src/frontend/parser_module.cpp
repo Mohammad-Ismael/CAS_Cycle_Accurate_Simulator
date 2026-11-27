@@ -2599,6 +2599,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if ((current.type == TokenType::TOKEN_STATIC || current.type == TokenType::TOKEN_AUTOMATIC) &&
+                peek_token().type != TokenType::TOKEN_FUNCTION &&
+                peek_token().type != TokenType::TOKEN_TASK) {
+                advance(); // consume optional static/automatic lifetime qualifier
+            }
             if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
                 advance(); // consume optional const modifier
             }
@@ -2752,6 +2757,11 @@ std::vector<std::unique_ptr<ModuleNode>> Parser::parse_all() {
                 continue;
             }
 
+            if ((current.type == TokenType::TOKEN_STATIC || current.type == TokenType::TOKEN_AUTOMATIC) &&
+                peek_token().type != TokenType::TOKEN_FUNCTION &&
+                peek_token().type != TokenType::TOKEN_TASK) {
+                advance(); // consume optional static/automatic lifetime qualifier
+            }
             if (current.type == TokenType::TOKEN_IDENTIFIER && current.text == "const") {
                 advance(); // consume optional const modifier
             }
