@@ -3454,7 +3454,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
-        if (struct_member_len == 0 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+        if (struct_member_ew <= 1 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             size_t M = it_vdm->second.dimensions.size();
             uint32_t total_dim_size = 1;
             for (const auto& d : it_vdm->second.dimensions) {
@@ -3561,7 +3561,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
-        if (struct_member_len == 0 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+        if (struct_member_ew <= 1 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             if (base_low == 0) base_low = it_vdm->second.dimensions[0].low();
             if (it_vdm->second.dimensions.size() > 1) {
                 d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
