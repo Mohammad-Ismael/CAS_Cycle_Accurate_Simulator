@@ -3681,6 +3681,7 @@ static std::unique_ptr<ExpressionNode> substitute_genvar_in_expr(ExpressionNode*
     if (auto idx = dynamic_cast<IndexSelectNode*>(expr)) {
         auto node = std::make_unique<IndexSelectNode>(idx->name,
             substitute_genvar_in_expr(idx->msb_expr.get(), gname, val));
+        if (idx->index_expr) node->index_expr = substitute_genvar_in_expr(idx->index_expr.get(), gname, val);
         if (idx->lsb_expr) node->lsb_expr = substitute_genvar_in_expr(idx->lsb_expr.get(), gname, val);
         node->is_part_select = idx->is_part_select;
         node->is_plus_colon = idx->is_plus_colon;
