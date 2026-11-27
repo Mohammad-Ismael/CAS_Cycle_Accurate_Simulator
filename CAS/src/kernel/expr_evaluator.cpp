@@ -5423,7 +5423,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                 std::string inst_net = member_node->var_name + "[" + std::to_string(addr) + "]." + member_node->member_name;
                 size_t inst_nid = engine.get_net_id(scope, inst_net);
                 if (inst_nid != (size_t)-1) {
-                    return engine.netlist[inst_nid].value;
+                    return (preponed_override && inst_nid < preponed_override->size())
+                           ? (*preponed_override)[inst_nid]
+                           : engine.netlist[inst_nid].value;
                 }
                 size_t nid = engine.get_net_id(scope, member_node->var_name);
                 std::string mem_path = member_node->member_name;
@@ -5437,7 +5439,9 @@ LogicVal ExprEvaluator::eval(ExpressionNode* expr, const std::string& scope) {
                     }
                 }
                 if (nid != (size_t)-1) {
-                    LogicVal net_val = engine.netlist[nid].value;
+                    LogicVal net_val = (preponed_override && nid < preponed_override->size())
+                                       ? (*preponed_override)[nid]
+                                       : engine.netlist[nid].value;
                     std::string full_name = engine.netlist[nid].name;
                     auto it_vdm = engine.var_dimensions.find(full_name);
                     if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(scope.empty() ? lookup_vname : (scope + "." + lookup_vname));
