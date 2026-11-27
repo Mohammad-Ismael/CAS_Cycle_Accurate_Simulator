@@ -223,19 +223,17 @@ module ariane_cas_tb;
                      zetraa_dut.master[8].r_id);
         end
 
-        if (rst_ni && ($time == 5430 || $time == 5510)) begin
-            $display("[PC_RVFI_DIAG] T=%0t iq_insn=0x%h iq_bits10=%b pc_j0=0x%h pc_j1=0x%h rvfi_w=(%0d,%0d,%0d) rvfi_v=%b rvfi_pc=0x%h rvfi_insn=0x%h",
+        if (rst_ni && $time == 5490) begin
+            $display("[RVFI_DIAG2] T=%0t iw=(%0d,%0d) cw=(%0d,%0d) in_pc=0x%h in_insn=0x%h pr_ack=%b pr_o_ack=%b",
                      $time,
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.fetch_entry_o[0].instruction,
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.fetch_entry_o[0].instruction[1:0],
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.pc_j[0],
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.pc_j[1],
-                     $bits(zetraa_dut.rvfi_instr[0]),
-                     $bits(zetraa_dut.i_rvfi.rvfi_instr_o[0]),
-                     $bits(zetraa_dut.i_rvfi_tracer.rvfi_i[0]),
-                     zetraa_dut.rvfi_instr[0].valid,
-                     zetraa_dut.rvfi_instr[0].pc_rdata,
-                     zetraa_dut.rvfi_instr[0].insn);
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.instr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.csr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.csr),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.commit_instr_i[0].pc,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instruction_i[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instr.commit_ack[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.instr.commit_ack[0]);
         end
         if (rst_ni && ($time == 5370 || $time == 5390)) begin
             $display("[XBAR_ID_DIAG] T=%0t w=(%0d,%0d) s0_ar=0x%h m8_ar=0x%h s0_r=0x%h m8_r=0x%h",
@@ -316,19 +314,17 @@ module ariane_cas_tb;
         end
 
         // [COMMIT_EVT]
-        if (rst_ni && ($time == 5430 || $time == 5510)) begin
-            $display("[PC_RVFI_DIAG] T=%0t iq_insn=0x%h iq_bits10=%b pc_j0=0x%h pc_j1=0x%h rvfi_w=(%0d,%0d,%0d) rvfi_v=%b rvfi_pc=0x%h rvfi_insn=0x%h",
+        if (rst_ni && $time == 5490) begin
+            $display("[RVFI_DIAG2] T=%0t iw=(%0d,%0d) cw=(%0d,%0d) in_pc=0x%h in_insn=0x%h pr_ack=%b pr_o_ack=%b",
                      $time,
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.fetch_entry_o[0].instruction,
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.fetch_entry_o[0].instruction[1:0],
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.pc_j[0],
-                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_frontend.i_instr_queue.pc_j[1],
-                     $bits(zetraa_dut.rvfi_instr[0]),
-                     $bits(zetraa_dut.i_rvfi.rvfi_instr_o[0]),
-                     $bits(zetraa_dut.i_rvfi_tracer.rvfi_i[0]),
-                     zetraa_dut.rvfi_instr[0].valid,
-                     zetraa_dut.rvfi_instr[0].pc_rdata,
-                     zetraa_dut.rvfi_instr[0].insn);
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.instr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.csr),
+                     $bits(zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.csr),
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.commit_instr_i[0].pc,
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instruction_i[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.instr.commit_ack[0],
+                     zetraa_dut.i_zetraa_core.i_zetraa_core.i_cva6_rvfi_probes.rvfi_probes_o.instr.commit_ack[0]);
         end
         if (rst_ni && ($time == 5370 || $time == 5390)) begin
             $display("[IC_DATA_DIAG] T=%0t mem_data=0x%h dmux_w=(%0d,%0d,%0d) dmux_o0=0x%h arb_rdata=0x%h",

@@ -5643,7 +5643,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                             if (sm) {
                                 prefix_mem_offset = sm->offset;
                                 member_struct_type = sm->type_name;
-                                prefix_mem_elem_w = sm->width;
+                                prefix_mem_elem_w = (sm->elem_width > 1) ? sm->elem_width : sm->width;
                                 if (!sm->type_name.empty()) {
                                     const PackedStructType* ist = expr_eval.find_struct_type(sm->type_name, bp.scope);
                                     if (ist && ist->total_width > 0) {

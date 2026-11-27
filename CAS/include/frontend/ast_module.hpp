@@ -448,6 +448,7 @@ struct StructMemberNode : public ASTNode {
     int64_t outer_low = 0;
     std::shared_ptr<ExpressionNode> msb_expr = nullptr;
     std::shared_ptr<ExpressionNode> lsb_expr = nullptr;
+    std::vector<std::pair<std::shared_ptr<ExpressionNode>, std::shared_ptr<ExpressionNode>>> packed_dimensions;
 };
 
 struct StructTypeNode : public ASTNode {

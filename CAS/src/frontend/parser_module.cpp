@@ -4992,6 +4992,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
         std::vector<std::pair<int64_t, int64_t>> member_packed_dims;
         std::shared_ptr<ExpressionNode> mem_msb_expr = nullptr;
         std::shared_ptr<ExpressionNode> mem_lsb_expr = nullptr;
+        std::vector<std::pair<std::shared_ptr<ExpressionNode>, std::shared_ptr<ExpressionNode>>> mem_packed_exprs;
 
         std::shared_ptr<StructTypeNode> nested_st = nullptr;
         if (current.type == TokenType::TOKEN_STRUCT || current.type == TokenType::TOKEN_UNION) {
@@ -5078,6 +5079,10 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 expect(TokenType::TOKEN_COLON, "Expected ':' in member range");
                 auto lsb_e = parse_expression();
                 expect(TokenType::TOKEN_RBRACKET, "Expected ']' in member range");
+                mem_packed_exprs.push_back({
+                    msb_e ? std::shared_ptr<ExpressionNode>(msb_e->clone()) : nullptr,
+                    lsb_e ? std::shared_ptr<ExpressionNode>(lsb_e->clone()) : nullptr
+                });
                 if (!mem_msb_expr && msb_e) {
                     mem_msb_expr = msb_e->clone();
                     if (lsb_e) mem_lsb_expr = lsb_e->clone();
@@ -5221,6 +5226,7 @@ std::shared_ptr<StructTypeNode> Parser::parse_struct_or_union_body() {
                 sm.msb_expr = mem_msb_expr ? mem_msb_expr->clone() : nullptr;
                 sm.lsb_expr = mem_lsb_expr ? mem_lsb_expr->clone() : nullptr;
             }
+            sm.packed_dimensions = mem_packed_exprs;
             if (!member_packed_dims.empty()) {
                 sm.msb = member_packed_dims[0].first;
                 sm.lsb = member_packed_dims[0].second;

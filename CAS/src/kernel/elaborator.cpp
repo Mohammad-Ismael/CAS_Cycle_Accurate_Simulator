@@ -5530,30 +5530,71 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
             size_t n = st_node->members.size();
             std::vector<uint32_t> member_widths(n, 1);
+            std::vector<uint32_t> member_elem_widths(n, 1);
+            std::vector<int64_t> member_msbs(n, 0);
+            std::vector<int64_t> member_lsbs(n, 0);
+            std::vector<int64_t> member_outer_lows(n, 0);
             for (size_t i = 0; i < n; ++i) {
                 const auto& mn = st_node->members[i];
                 uint32_t mw = mn.width;
-                if (mn.msb_expr) {
+                uint32_t ew = mn.elem_width;
+                int64_t m_msb = mn.msb;
+                int64_t m_lsb = mn.lsb;
+                int64_t m_olow = mn.outer_low;
+                uint32_t base_tw = 1;
+                if (!mn.type_name.empty() && mn.type_name != "logic" && mn.type_name != "bit" && mn.type_name != "reg") {
+                    const PackedStructType* inner_st = find_struct_type(mn.type_name, scope);
+                    if (inner_st && inner_st->total_width > 0) {
+                        base_tw = inner_st->total_width;
+                    } else {
+                        uint32_t tw = resolve_type_width(mn.type_name);
+                        if (tw > 0) base_tw = tw;
+                    }
+                }
+                if (!mn.packed_dimensions.empty()) {
+                    try {
+                        uint64_t total_mult = 1;
+                        uint64_t inner_mult = 1;
+                        for (size_t d = 0; d < mn.packed_dimensions.size(); ++d) {
+                            int64_t dm = eval_const_signed_val(eval_const_expr(mn.packed_dimensions[d].first.get(), scope));
+                            int64_t dl = mn.packed_dimensions[d].second ? eval_const_signed_val(eval_const_expr(mn.packed_dimensions[d].second.get(), scope)) : 0;
+                            uint64_t dsz = (uint64_t)(std::abs(dm - dl) + 1);
+                            total_mult *= dsz;
+                            if (d == 0) {
+                                m_msb = dm;
+                                m_lsb = dl;
+                                m_olow = std::min(dm, dl);
+                            } else {
+                                inner_mult *= dsz;
+                            }
+                        }
+                        if (total_mult > 0 && total_mult <= 65536) {
+                            mw = (uint32_t)(total_mult * base_tw);
+                            ew = (mn.packed_dimensions.size() > 1 || base_tw > 1) ? (uint32_t)(inner_mult * base_tw) : 1;
+                        }
+                    } catch (...) {}
+                } else if (mn.msb_expr) {
                     try {
                         int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
                         int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
                         if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
                             mw = (uint32_t)(std::abs(m - l) + 1);
+                            m_msb = m;
+                            m_lsb = l;
+                            m_olow = std::min(m, l);
                             if (mn.elem_width > 1) mw *= mn.elem_width;
                             else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
                         }
                     } catch (...) {}
                 } else if (!mn.type_name.empty()) {
-                    const PackedStructType* inner_st = find_struct_type(mn.type_name, scope);
-                    if (inner_st && inner_st->total_width > 0) {
-                        mw = inner_st->total_width;
-                    } else {
-                        uint32_t tw = resolve_type_width(mn.type_name);
-                        if (tw > 0) mw = tw;
-                    }
+                    mw = base_tw;
                 }
                 if (mw > 65536) mw = 1;
                 member_widths[i] = mw;
+                member_elem_widths[i] = ew;
+                member_msbs[i] = m_msb;
+                member_lsbs[i] = m_lsb;
+                member_outer_lows[i] = m_olow;
             }
 
             std::vector<uint32_t> offsets(n, 0);
@@ -5579,10 +5620,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sm.offset = offsets[i];
                 sm.is_signed = mn.is_signed;
                 sm.type_name = mn.type_name;
-                sm.msb = mn.msb;
-                sm.lsb = mn.lsb;
-                sm.elem_width = mn.elem_width;
-                sm.outer_low = mn.outer_low;
+                sm.msb = member_msbs[i];
+                sm.lsb = member_lsbs[i];
+                sm.elem_width = member_elem_widths[i];
+                sm.outer_low = member_outer_lows[i];
                 sm.default_expr = mn.default_value;
                 st.members.push_back(sm);
             }
@@ -5750,25 +5791,66 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
             size_t n = st_node->members.size();
             std::vector<uint32_t> member_widths(n, 1);
+            std::vector<uint32_t> member_elem_widths(n, 1);
+            std::vector<int64_t> member_msbs(n, 0);
+            std::vector<int64_t> member_lsbs(n, 0);
+            std::vector<int64_t> member_outer_lows(n, 0);
             for (size_t i = 0; i < n; ++i) {
                 const auto& mn = st_node->members[i];
                 uint32_t mw = mn.width;
-                if (mn.msb_expr) {
+                uint32_t ew = mn.elem_width;
+                int64_t m_msb = mn.msb;
+                int64_t m_lsb = mn.lsb;
+                int64_t m_olow = mn.outer_low;
+                uint32_t base_tw = 1;
+                if (!mn.type_name.empty() && mn.type_name != "logic" && mn.type_name != "bit" && mn.type_name != "reg") {
+                    uint32_t tw = get_type_width(mn.type_name, scope);
+                    if (tw > 0) base_tw = tw;
+                }
+                if (!mn.packed_dimensions.empty()) {
+                    try {
+                        uint64_t total_mult = 1;
+                        uint64_t inner_mult = 1;
+                        for (size_t d = 0; d < mn.packed_dimensions.size(); ++d) {
+                            int64_t dm = eval_const_signed_val(eval_const_expr(mn.packed_dimensions[d].first.get(), scope));
+                            int64_t dl = mn.packed_dimensions[d].second ? eval_const_signed_val(eval_const_expr(mn.packed_dimensions[d].second.get(), scope)) : 0;
+                            uint64_t dsz = (uint64_t)(std::abs(dm - dl) + 1);
+                            total_mult *= dsz;
+                            if (d == 0) {
+                                m_msb = dm;
+                                m_lsb = dl;
+                                m_olow = std::min(dm, dl);
+                            } else {
+                                inner_mult *= dsz;
+                            }
+                        }
+                        if (total_mult > 0 && total_mult <= 65536) {
+                            mw = (uint32_t)(total_mult * base_tw);
+                            ew = (mn.packed_dimensions.size() > 1 || base_tw > 1) ? (uint32_t)(inner_mult * base_tw) : 1;
+                        }
+                    } catch (...) {}
+                } else if (mn.msb_expr) {
                     try {
                         int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
                         int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
                         if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
                             mw = (uint32_t)(std::abs(m - l) + 1);
+                            m_msb = m;
+                            m_lsb = l;
+                            m_olow = std::min(m, l);
                             if (mn.elem_width > 1) mw *= mn.elem_width;
                             else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
                         }
                     } catch (...) {}
                 } else if (!mn.type_name.empty()) {
-                    uint32_t tw = get_type_width(mn.type_name, scope);
-                    if (tw > 0) mw = tw;
+                    mw = base_tw;
                 }
                 if (mw > 65536) mw = 1;
                 member_widths[i] = mw;
+                member_elem_widths[i] = ew;
+                member_msbs[i] = m_msb;
+                member_lsbs[i] = m_lsb;
+                member_outer_lows[i] = m_olow;
             }
 
             std::vector<uint32_t> offsets(n, 0);
@@ -5794,10 +5876,10 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 sm.offset = offsets[i];
                 sm.is_signed = mn.is_signed;
                 sm.type_name = mn.type_name;
-                sm.msb = mn.msb;
-                sm.lsb = mn.lsb;
-                sm.elem_width = mn.elem_width;
-                sm.outer_low = mn.outer_low;
+                sm.msb = member_msbs[i];
+                sm.lsb = member_lsbs[i];
+                sm.elem_width = member_elem_widths[i];
+                sm.outer_low = member_outer_lows[i];
                 sm.default_expr = mn.default_value;
                 st.members.push_back(sm);
             }
