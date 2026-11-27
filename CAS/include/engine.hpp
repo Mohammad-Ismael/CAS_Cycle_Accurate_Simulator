@@ -209,6 +209,7 @@ public:
     void set_max_cycles(uint64_t m) { max_cycles = m; }
     void set_top_param_override(const std::string& name, const LogicVal& val) { top_param_overrides[name] = val; }
     void add_plusarg(const std::string& pa) { plusargs.push_back(pa); }
+    void preload_dram_elf();
 
     LogicVal dispatch_dpi_export(const std::string& c_name, const std::vector<LogicVal>& args);
 

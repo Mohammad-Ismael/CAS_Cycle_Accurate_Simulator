@@ -5868,6 +5868,7 @@ void StratifiedScheduler::run_simulation() {
 
     transfer_due_delayed_updates(0);
     execute_time_slot_delta_loop();
+    engine.preload_dram_elf();
 
     engine.vcd_dumper.dump_sample(engine.netlist, current_sim_time);
     engine.evaluator.check_monitor();

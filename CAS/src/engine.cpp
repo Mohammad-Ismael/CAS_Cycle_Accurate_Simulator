@@ -1687,6 +1687,77 @@ size_t Engine::get_net_id(const std::string& scope, const std::string& name) con
 
 
 
+void Engine::preload_dram_elf() {
+#if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
+    std::string preload_elf = "";
+    for (const auto& pa : plusargs) {
+        if (pa.rfind("+PRELOAD=", 0) == 0) preload_elf = pa.substr(9);
+        else if (pa.rfind("+elf_file=", 0) == 0 && preload_elf.empty()) preload_elf = pa.substr(10);
+    }
+    if (preload_elf.empty()) return;
+
+    MemoryArray* dram_mem = nullptr;
+    MemoryArray* init_val_mem = nullptr;
+    for (auto& kv : memory_map) {
+        if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram_wrapper.i_tc_sram.sram") != std::string::npos) {
+            dram_mem = &kv.second;
+        }
+        if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram_wrapper.i_tc_sram.init_val") != std::string::npos) {
+            init_val_mem = &kv.second;
+        }
+    }
+    if (!dram_mem) {
+        for (auto& kv : memory_map) {
+            if (kv.first.find("sram") != std::string::npos && kv.second.words.size() >= 1024) {
+                dram_mem = &kv.second;
+                break;
+            }
+        }
+    }
+    if (!dram_mem) return;
+
+    int fd = open(preload_elf.c_str(), O_RDONLY);
+    if (fd < 0) return;
+    Elf64_Ehdr ehdr;
+    if (read(fd, &ehdr, sizeof(ehdr)) == sizeof(ehdr) &&
+        ehdr.e_ident[EI_MAG0] == ELFMAG0 && ehdr.e_ident[EI_MAG1] == ELFMAG1 &&
+        ehdr.e_ident[EI_MAG2] == ELFMAG2 && ehdr.e_ident[EI_MAG3] == ELFMAG3) {
+        lseek(fd, ehdr.e_phoff, SEEK_SET);
+        std::vector<Elf64_Phdr> phdrs(ehdr.e_phnum);
+        if (read(fd, phdrs.data(), sizeof(Elf64_Phdr) * ehdr.e_phnum) == (ssize_t)(sizeof(Elf64_Phdr) * ehdr.e_phnum)) {
+            size_t loaded_bytes = 0;
+            for (const auto& ph : phdrs) {
+                if (ph.p_type == PT_LOAD && ph.p_filesz > 0 && ph.p_vaddr >= 0x80000000ULL) {
+                    uint64_t dram_offset = ph.p_vaddr - 0x80000000ULL;
+                    std::vector<uint8_t> seg_data(ph.p_filesz);
+                    lseek(fd, ph.p_offset, SEEK_SET);
+                    if (read(fd, seg_data.data(), ph.p_filesz) == (ssize_t)ph.p_filesz) {
+                        for (size_t k = 0; k < ph.p_filesz; ++k) {
+                            size_t w_idx = (dram_offset + k) / 8;
+                            size_t b_idx = (dram_offset + k) % 8;
+                            if (w_idx < dram_mem->words.size()) {
+                                uint64_t mask = ~(0xFFULL << (b_idx * 8));
+                                dram_mem->words[w_idx].aval = (dram_mem->words[w_idx].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
+                                dram_mem->words[w_idx].bval &= mask;
+                                if (init_val_mem && w_idx < init_val_mem->words.size()) {
+                                    init_val_mem->words[w_idx].aval = (init_val_mem->words[w_idx].aval & mask) | ((uint64_t)seg_data[k] << (b_idx * 8));
+                                    init_val_mem->words[w_idx].bval &= mask;
+                                }
+                                loaded_bytes++;
+                            }
+                        }
+                    }
+                }
+            }
+            dram_mem->change_counter++;
+            if (init_val_mem) init_val_mem->change_counter++;
+            std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into DRAM (" << dram_mem->words.size() << " words)\n" << std::flush;
+        }
+    }
+    close(fd);
+#endif
+}
+
 void Engine::run(std::ostream* debug_out) {
     if (debug_out) {
         *debug_out << "[PHASE 4: Scheduler Initialization]\n";
@@ -1749,76 +1820,6 @@ void Engine::run(std::ostream* debug_out) {
 
     VpiRuntime::set_active_engine(this);
     VpiRuntime::dispatch_start_of_simulation(this);
-
-#if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
-    std::string preload_elf = "";
-    for (const auto& pa : plusargs) {
-        if (pa.rfind("+PRELOAD=", 0) == 0) preload_elf = pa.substr(9);
-        else if (pa.rfind("+elf_file=", 0) == 0 && preload_elf.empty()) preload_elf = pa.substr(10);
-    }
-    if (!preload_elf.empty()) {
-        MemoryArray* dram_mem = nullptr;
-        MemoryArray* init_val_mem = nullptr;
-        for (auto& kv : memory_map) {
-            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram.sram") != std::string::npos) {
-                dram_mem = &kv.second;
-            }
-            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram.init_val") != std::string::npos) {
-                init_val_mem = &kv.second;
-            }
-        }
-        if (!dram_mem) {
-            for (auto& kv : memory_map) {
-                if (kv.first.find("sram") != std::string::npos && kv.second.words.size() >= 1024) {
-                    dram_mem = &kv.second;
-                    break;
-                }
-            }
-        }
-        if (dram_mem) {
-            int fd = open(preload_elf.c_str(), O_RDONLY);
-            if (fd >= 0) {
-                Elf64_Ehdr ehdr;
-                if (read(fd, &ehdr, sizeof(ehdr)) == sizeof(ehdr)) {
-                    if (ehdr.e_ident[EI_MAG0] == ELFMAG0 && ehdr.e_ident[EI_MAG1] == ELFMAG1 &&
-                        ehdr.e_ident[EI_MAG2] == ELFMAG2 && ehdr.e_ident[EI_MAG3] == ELFMAG3) {
-                        lseek(fd, ehdr.e_phoff, SEEK_SET);
-                        std::vector<Elf64_Phdr> phdrs(ehdr.e_phnum);
-                        if (read(fd, phdrs.data(), sizeof(Elf64_Phdr) * ehdr.e_phnum) == (ssize_t)(sizeof(Elf64_Phdr) * ehdr.e_phnum)) {
-                            size_t loaded_bytes = 0;
-                            for (const auto& ph : phdrs) {
-                                if (ph.p_type == PT_LOAD && ph.p_filesz > 0 && ph.p_vaddr >= 0x80000000ULL) {
-                                    uint64_t dram_offset = ph.p_vaddr - 0x80000000ULL;
-                                    std::vector<uint8_t> seg_data(ph.p_filesz);
-                                    lseek(fd, ph.p_offset, SEEK_SET);
-                                    if (read(fd, seg_data.data(), ph.p_filesz) == (ssize_t)ph.p_filesz) {
-                                        for (size_t k = 0; k < ph.p_filesz; ++k) {
-                                            size_t w_idx = (dram_offset + k) / 8;
-                                            size_t b_idx = (dram_offset + k) % 8;
-                                            if (w_idx < dram_mem->words.size()) {
-                                                dram_mem->words[w_idx].aval |= ((uint64_t)seg_data[k] << (b_idx * 8));
-                                                dram_mem->words[w_idx].bval = 0;
-                                                if (init_val_mem && w_idx < init_val_mem->words.size()) {
-                                                    init_val_mem->words[w_idx].aval |= ((uint64_t)seg_data[k] << (b_idx * 8));
-                                                    init_val_mem->words[w_idx].bval = 0;
-                                                }
-                                                loaded_bytes++;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            dram_mem->change_counter++;
-                            if (init_val_mem) init_val_mem->change_counter++;
-                            std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into DRAM (" << dram_mem->words.size() << " words)\n" << std::flush;
-                        }
-                    }
-                }
-                close(fd);
-            }
-        }
-    }
-#endif
 
     scheduler.run_simulation();
 
