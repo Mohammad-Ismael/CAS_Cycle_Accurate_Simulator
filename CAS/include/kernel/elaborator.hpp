@@ -377,7 +377,7 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, LogicVal>> defparam_val_overrides;
     std::string resolve_type_in_elaboration(const TypeOpNode* ton, const std::string& scope);
     const PackedStructType* find_struct_type(const std::string& type_name, const std::string& scope) const;
-    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb) const;
+    bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb, uint32_t* out_elem_width = nullptr, int64_t* out_outer_low = nullptr) const;
     bool resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width) const {
         int64_t dummy_lsb = 0;
         return resolve_struct_member_slice(net_id, member_name, scope, out_offset, out_width, dummy_lsb);

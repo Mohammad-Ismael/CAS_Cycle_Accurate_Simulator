@@ -3097,7 +3097,7 @@ const PackedStructType* Elaborator::find_struct_type(const std::string& type_nam
     return nullptr;
 }
 
-bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb) const {
+bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& member_name, const std::string& scope, uint32_t& out_offset, uint32_t& out_width, int64_t& out_lsb, uint32_t* out_elem_width, int64_t* out_outer_low) const {
     if (net_id >= result.netlist.size() || member_name.empty()) return false;
     out_lsb = 0;
 
@@ -3161,6 +3161,8 @@ bool Elaborator::resolve_struct_member_slice(size_t net_id, const std::string& m
             out_offset = accum_off;
             out_width = cur_len;
             out_lsb = sm->lsb;
+            if (out_elem_width) *out_elem_width = (sm->elem_width > 0) ? sm->elem_width : 1;
+            if (out_outer_low) *out_outer_low = sm->outer_low;
             return true;
         }
         const PackedStructType* next_st = nullptr;
@@ -3389,6 +3391,8 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         std::string full_name = (id != (size_t)-1) ? result.netlist[id].name : (scope.empty() ? idx->name : (scope + "." + idx->name));
         uint32_t struct_member_offset = 0;
         uint32_t struct_member_len = 0;
+        uint32_t struct_member_ew = 0;
+        int64_t struct_member_olow = 0;
         int64_t base_low = 0;
         if (id == (size_t)-1) {
             std::string iname = idx->name;
@@ -3409,10 +3413,14 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
                 uint32_t off = 0;
                 uint32_t len = result.netlist[id].width;
                 int64_t memb_lsb = 0;
-                if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb)) {
+                uint32_t memb_ew = 1;
+                int64_t memb_olow = 0;
+                if (resolve_struct_member_slice(id, memb, scope, off, len, memb_lsb, &memb_ew, &memb_olow)) {
                     struct_member_offset = off;
                     struct_member_len = len;
-                    base_low = memb_lsb;
+                    struct_member_ew = memb_ew;
+                    struct_member_olow = memb_olow;
+                    base_low = (memb_ew > 1) ? memb_olow : memb_lsb;
                 }
             }
             if (id == (size_t)-1) {
@@ -3446,7 +3454,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
-        if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+        if (struct_member_len == 0 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             size_t M = it_vdm->second.dimensions.size();
             uint32_t total_dim_size = 1;
             for (const auto& d : it_vdm->second.dimensions) {
@@ -3553,7 +3561,7 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             }
         }
 
-        if (it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
+        if (struct_member_len == 0 && it_vdm != result.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
             if (base_low == 0) base_low = it_vdm->second.dimensions[0].low();
             if (it_vdm->second.dimensions.size() > 1) {
                 d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
@@ -3561,6 +3569,10 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
             } else if (it_vdm->second.dimensions[0].size() > 0 && result.netlist[id].width > (uint32_t)it_vdm->second.dimensions[0].size()) {
                 d1_width = result.netlist[id].width / (uint32_t)it_vdm->second.dimensions[0].size();
             }
+        }
+        if (struct_member_ew > 1) {
+            d1_width = struct_member_ew;
+            base_low = struct_member_olow;
         }
 
         if (idx->has_bit_select && idx->bit_msb_expr) {
@@ -3616,7 +3628,8 @@ NetSliceRef Elaborator::resolve_slice_ref(ExpressionNode* expr, const std::strin
         } else {
             uint64_t off = eval_const_expr(idx->msb_expr.get(), scope);
             if (base_low > 0 && off >= (uint64_t)base_low) off -= (uint64_t)base_low;
-            return {id, (uint32_t)(struct_member_offset + off * d1_width), (struct_member_len > 0) ? struct_member_len : d1_width};
+            uint32_t out_w = (struct_member_ew > 1) ? struct_member_ew : d1_width;
+            return {id, (uint32_t)(struct_member_offset + off * d1_width), out_w};
         }
     }
     if (auto num = dynamic_cast<NumberNode*>(expr)) {
@@ -4281,17 +4294,20 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                     uint32_t m_off = 0;
                     uint32_t m_len = slice.width;
                     int64_t m_lsb = 0;
-                    if (resolve_struct_member_slice(tid, ca_copy->member_name, current_scope, m_off, m_len, m_lsb)) {
+                    uint32_t m_ew = 1;
+                    int64_t m_olow = 0;
+                    if (resolve_struct_member_slice(tid, ca_copy->member_name, current_scope, m_off, m_len, m_lsb, &m_ew, &m_olow)) {
                         slice.offset += m_off;
                         slice.width = m_len;
                         if (ca_copy->has_member_select && ca_copy->member_msb_expr) {
                             uint64_t b_msb = eval_const_expr(ca_copy->member_msb_expr.get(), current_scope);
                             uint64_t b_lsb = ca_copy->member_lsb_expr ? eval_const_expr(ca_copy->member_lsb_expr.get(), current_scope) : b_msb;
                             uint64_t sub_lsb = std::min(b_msb, b_lsb);
-                            if (m_lsb > 0 && sub_lsb >= (uint64_t)m_lsb) sub_lsb -= (uint64_t)m_lsb;
+                            int64_t base_olow = (m_ew > 1) ? m_olow : m_lsb;
+                            if (base_olow > 0 && sub_lsb >= (uint64_t)base_olow) sub_lsb -= (uint64_t)base_olow;
                             uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                            slice.offset += (uint32_t)sub_lsb;
-                            slice.width = sub_w;
+                            slice.offset += (uint32_t)sub_lsb * m_ew;
+                            slice.width = sub_w * m_ew;
                         }
                     }
                 }
@@ -4351,17 +4367,20 @@ void Elaborator::unroll_generate_block(GenerateBlock* blk,
                 uint32_t off = 0;
                 uint32_t len = result.netlist[tid].width;
                 int64_t memb_lsb = 0;
+                uint32_t memb_ew = 1;
+                int64_t memb_olow = 0;
                 if (!effective_member.empty()) {
-                    resolve_struct_member_slice(tid, effective_member, current_scope, off, len, memb_lsb);
+                    resolve_struct_member_slice(tid, effective_member, current_scope, off, len, memb_lsb, &memb_ew, &memb_olow);
                 }
                 if (ca_copy->has_member_select && ca_copy->member_msb_expr) {
                     uint64_t b_msb = eval_const_expr(ca_copy->member_msb_expr.get(), current_scope);
                     uint64_t b_lsb = ca_copy->member_lsb_expr ? eval_const_expr(ca_copy->member_lsb_expr.get(), current_scope) : b_msb;
                     uint64_t sub_lsb = std::min(b_msb, b_lsb);
-                    if (memb_lsb > 0 && sub_lsb >= (uint64_t)memb_lsb) sub_lsb -= (uint64_t)memb_lsb;
+                    int64_t base_olow = (memb_ew > 1) ? memb_olow : memb_lsb;
+                    if (base_olow > 0 && sub_lsb >= (uint64_t)base_olow) sub_lsb -= (uint64_t)base_olow;
                     uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                    off += (uint32_t)sub_lsb;
-                    len = sub_w;
+                    off += (uint32_t)sub_lsb * memb_ew;
+                    len = sub_w * memb_ew;
                 }
                 auto rhs_ptr = ca_copy->rhs.get();
                 result.generated_continuous_assigns.push_back(std::move(ca_copy));
@@ -5590,12 +5609,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                         int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
                         int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
                         if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
-                            mw = (uint32_t)(std::abs(m - l) + 1);
+                            uint32_t dim_sz = (uint32_t)(std::abs(m - l) + 1);
+                            mw = dim_sz;
                             m_msb = m;
                             m_lsb = l;
                             m_olow = std::min(m, l);
-                            if (mn.elem_width > 1) mw *= mn.elem_width;
-                            else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
+                            if (mn.elem_width > 1) { mw *= mn.elem_width; ew = mn.elem_width; }
+                            else if (base_tw > 1) { mw *= base_tw; ew = base_tw; }
+                            else if (mn.width > mw && mn.width % mw == 0) { ew = mn.width / dim_sz; mw = mn.width; }
                         }
                     } catch (...) {}
                 } else if (!mn.type_name.empty()) {
@@ -5846,12 +5867,14 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                         int64_t m = eval_const_signed_val(eval_const_expr(mn.msb_expr.get(), scope));
                         int64_t l = mn.lsb_expr ? eval_const_signed_val(eval_const_expr(mn.lsb_expr.get(), scope)) : 0;
                         if (m >= 0 && l >= 0 && std::abs(m - l) < 65536) {
-                            mw = (uint32_t)(std::abs(m - l) + 1);
+                            uint32_t dim_sz = (uint32_t)(std::abs(m - l) + 1);
+                            mw = dim_sz;
                             m_msb = m;
                             m_lsb = l;
                             m_olow = std::min(m, l);
-                            if (mn.elem_width > 1) mw *= mn.elem_width;
-                            else if (mn.width > mw && mn.width % mw == 0) mw = mn.width;
+                            if (mn.elem_width > 1) { mw *= mn.elem_width; ew = mn.elem_width; }
+                            else if (base_tw > 1) { mw *= base_tw; ew = base_tw; }
+                            else if (mn.width > mw && mn.width % mw == 0) { ew = mn.width / dim_sz; mw = mn.width; }
                         }
                     } catch (...) {}
                 } else if (!mn.type_name.empty()) {
@@ -7236,17 +7259,20 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                     uint32_t m_off = 0;
                     uint32_t m_len = slice.width;
                     int64_t m_lsb = 0;
-                    if (resolve_struct_member_slice(tid, ca->member_name, scope, m_off, m_len, m_lsb)) {
+                    uint32_t m_ew = 1;
+                    int64_t m_olow = 0;
+                    if (resolve_struct_member_slice(tid, ca->member_name, scope, m_off, m_len, m_lsb, &m_ew, &m_olow)) {
                         slice.offset += m_off;
                         slice.width = m_len;
                         if (ca->has_member_select && ca->member_msb_expr) {
                             uint64_t b_msb = eval_const_expr(ca->member_msb_expr.get(), scope);
                             uint64_t b_lsb = ca->member_lsb_expr ? eval_const_expr(ca->member_lsb_expr.get(), scope) : b_msb;
                             uint64_t sub_lsb = std::min(b_msb, b_lsb);
-                            if (m_lsb > 0 && sub_lsb >= (uint64_t)m_lsb) sub_lsb -= (uint64_t)m_lsb;
+                            int64_t base_olow = (m_ew > 1) ? m_olow : m_lsb;
+                            if (base_olow > 0 && sub_lsb >= (uint64_t)base_olow) sub_lsb -= (uint64_t)base_olow;
                             uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                            slice.offset += (uint32_t)sub_lsb;
-                            slice.width = sub_w;
+                            slice.offset += (uint32_t)sub_lsb * m_ew;
+                            slice.width = sub_w * m_ew;
                         }
                     }
                 }
@@ -7315,17 +7341,20 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
             uint32_t off = 0;
             uint32_t len = result.netlist[target_id].width;
             int64_t memb_lsb = 0;
+            uint32_t memb_ew = 1;
+            int64_t memb_olow = 0;
             if (!effective_member.empty()) {
-                resolve_struct_member_slice(target_id, effective_member, scope, off, len, memb_lsb);
+                resolve_struct_member_slice(target_id, effective_member, scope, off, len, memb_lsb, &memb_ew, &memb_olow);
             }
             if (ca->has_member_select && ca->member_msb_expr) {
                 uint64_t b_msb = eval_const_expr(ca->member_msb_expr.get(), scope);
                 uint64_t b_lsb = ca->member_lsb_expr ? eval_const_expr(ca->member_lsb_expr.get(), scope) : b_msb;
                 uint64_t sub_lsb = std::min(b_msb, b_lsb);
-                if (memb_lsb > 0 && sub_lsb >= (uint64_t)memb_lsb) sub_lsb -= (uint64_t)memb_lsb;
+                int64_t base_olow = (memb_ew > 1) ? memb_olow : memb_lsb;
+                if (base_olow > 0 && sub_lsb >= (uint64_t)base_olow) sub_lsb -= (uint64_t)base_olow;
                 uint32_t sub_w = (b_msb >= b_lsb) ? (uint32_t)(b_msb - b_lsb + 1) : (uint32_t)(b_lsb - b_msb + 1);
-                off += (uint32_t)sub_lsb;
-                len = sub_w;
+                off += (uint32_t)sub_lsb * memb_ew;
+                len = sub_w * memb_ew;
             }
             auto new_ca = std::make_unique<ContinuousAssignNode>(ca->target_name, ca->rhs->clone());
             auto rhs_ptr = new_ca->rhs.get();
