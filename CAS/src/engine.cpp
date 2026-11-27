@@ -1758,10 +1758,13 @@ void Engine::run(std::ostream* debug_out) {
     }
     if (!preload_elf.empty()) {
         MemoryArray* dram_mem = nullptr;
+        MemoryArray* init_val_mem = nullptr;
         for (auto& kv : memory_map) {
-            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("sram") != std::string::npos && kv.first.find("i_tc_sram.sram") != std::string::npos) {
+            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram.sram") != std::string::npos) {
                 dram_mem = &kv.second;
-                break;
+            }
+            if (kv.first.find("i_sram") != std::string::npos && kv.first.find("i_tc_sram.init_val") != std::string::npos) {
+                init_val_mem = &kv.second;
             }
         }
         if (!dram_mem) {
@@ -1795,6 +1798,10 @@ void Engine::run(std::ostream* debug_out) {
                                             if (w_idx < dram_mem->words.size()) {
                                                 dram_mem->words[w_idx].aval |= ((uint64_t)seg_data[k] << (b_idx * 8));
                                                 dram_mem->words[w_idx].bval = 0;
+                                                if (init_val_mem && w_idx < init_val_mem->words.size()) {
+                                                    init_val_mem->words[w_idx].aval |= ((uint64_t)seg_data[k] << (b_idx * 8));
+                                                    init_val_mem->words[w_idx].bval = 0;
+                                                }
                                                 loaded_bytes++;
                                             }
                                         }
@@ -1802,6 +1809,7 @@ void Engine::run(std::ostream* debug_out) {
                                 }
                             }
                             dram_mem->change_counter++;
+                            if (init_val_mem) init_val_mem->change_counter++;
                             std::cout << "[CAS PRELOAD] Loaded " << loaded_bytes << " bytes from " << preload_elf << " into DRAM (" << dram_mem->words.size() << " words)\n" << std::flush;
                         }
                     }
