@@ -5920,22 +5920,22 @@ std::unique_ptr<TypedefNode> Parser::parse_typedef() {
             expect(TokenType::TOKEN_COLON, "Expected ':' in base type range");
             auto lsb_e = parse_expression();
             expect(TokenType::TOKEN_RBRACKET, "Expected ']' in base type range");
-            if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-                if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                    width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
-                }
-            }
+            try {
+                int64_t m = (int64_t)eval_const_expr(msb_e.get());
+                int64_t l = (int64_t)eval_const_expr(lsb_e.get());
+                width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+            } catch (...) {}
         }
     } else if (match(TokenType::TOKEN_LBRACKET)) {
         auto msb_e = parse_expression();
         expect(TokenType::TOKEN_COLON, "Expected ':' in base type range");
         auto lsb_e = parse_expression();
         expect(TokenType::TOKEN_RBRACKET, "Expected ']' in base type range");
-        if (auto nm = dynamic_cast<NumberNode*>(msb_e.get())) {
-            if (auto nl = dynamic_cast<NumberNode*>(lsb_e.get())) {
-                width = (nm->aval >= nl->aval) ? (uint32_t)(nm->aval - nl->aval + 1) : (uint32_t)(nl->aval - nm->aval + 1);
-            }
-        }
+        try {
+            int64_t m = (int64_t)eval_const_expr(msb_e.get());
+            int64_t l = (int64_t)eval_const_expr(lsb_e.get());
+            width = (m >= l) ? (uint32_t)(m - l + 1) : (uint32_t)(l - m + 1);
+        } catch (...) {}
         is_signed = false;
         base_type_name = "logic";
     }
