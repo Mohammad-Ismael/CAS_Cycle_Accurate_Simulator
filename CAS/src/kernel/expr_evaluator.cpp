@@ -1690,7 +1690,8 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
         } else {
             std::string scoped_ident = scope.empty() ? idx_node->name : (scope + "." + idx_node->name);
             std::string scoped_mem = scoped_ident;
-            if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+            if (engine.memory_map.find(scoped_mem) == engine.memory_map.end() &&
+                engine.net_map.find(scoped_ident) == engine.net_map.end()) {
                 std::string cur_s = scope;
                 while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + idx_node->name) == engine.memory_map.end()) {
                     auto dot = cur_s.rfind('.');

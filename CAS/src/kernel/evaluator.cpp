@@ -4889,7 +4889,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
         }
 
         std::string scoped_mem_nba = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
-        if (engine.memory_map.find(scoped_mem_nba) == engine.memory_map.end()) {
+        if (engine.memory_map.find(scoped_mem_nba) == engine.memory_map.end() &&
+            engine.net_map.find(scoped_mem_nba) == engine.net_map.end()) {
             std::string cur_s = bp.scope;
             while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + target_name) == engine.memory_map.end()) {
                 auto dot = cur_s.rfind('.');
@@ -5412,7 +5413,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             return;
         }
         std::string scoped_mem = bp.scope.empty() ? mem_assign->mem_name : (bp.scope + "." + mem_assign->mem_name);
-        if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+        if (engine.memory_map.find(scoped_mem) == engine.memory_map.end() &&
+            engine.net_map.find(scoped_mem) == engine.net_map.end()) {
             std::string cur_s = bp.scope;
             while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + mem_assign->mem_name) == engine.memory_map.end()) {
                 auto dot = cur_s.rfind('.');
@@ -6428,7 +6430,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         }
                         std::string scoped_mem = bp.scope.empty() ? target_name : (bp.scope + "." + target_name);
                         if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) scoped_mem = target_name;
-                        if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
+                if (engine.memory_map.find(scoped_mem) != engine.memory_map.end()) {
                             auto& mem = engine.memory_map.at(scoped_mem);
                             std::vector<ExpressionNode*> mem_indices;
                             if (assign->bit_idx) mem_indices.push_back(assign->bit_idx.get());
@@ -7332,7 +7334,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 std::string scoped_mem = scoped_full;
-                if (engine.memory_map.find(scoped_mem) == engine.memory_map.end()) {
+                if (engine.memory_map.find(scoped_mem) == engine.memory_map.end() &&
+                    engine.net_map.find(scoped_full) == engine.net_map.end()) {
                     std::string cur_s = bp.scope;
                     while (!cur_s.empty() && engine.memory_map.find(cur_s + "." + target_name) == engine.memory_map.end()) {
                         auto dot = cur_s.rfind('.');
