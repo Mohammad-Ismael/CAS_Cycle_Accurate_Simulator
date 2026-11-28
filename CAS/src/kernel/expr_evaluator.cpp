@@ -2016,26 +2016,28 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
         }
 
         const VariableDimMetadata* vdm = nullptr;
-        if (nid != (size_t)-1 && engine.var_dimensions.count(engine.netlist[nid].name)) {
-            vdm = &engine.var_dimensions.at(engine.netlist[nid].name);
-        } else if (!scope.empty() && engine.var_dimensions.count(scope + "." + idx_node->name)) {
-            vdm = &engine.var_dimensions.at(scope + "." + idx_node->name);
-        }
-        if (!vdm) {
-            std::string cur_s = scope;
-            while (!cur_s.empty()) {
-                auto dot = cur_s.rfind('.');
-                if (dot == std::string::npos) cur_s = "";
-                else cur_s = cur_s.substr(0, dot);
-                std::string cand = cur_s.empty() ? idx_node->name : (cur_s + "." + idx_node->name);
-                if (engine.var_dimensions.count(cand)) {
-                    vdm = &engine.var_dimensions.at(cand);
-                    break;
+        if (!local && !found_sva_local) {
+            if (nid != (size_t)-1 && engine.var_dimensions.count(engine.netlist[nid].name)) {
+                vdm = &engine.var_dimensions.at(engine.netlist[nid].name);
+            } else if (!scope.empty() && engine.var_dimensions.count(scope + "." + idx_node->name)) {
+                vdm = &engine.var_dimensions.at(scope + "." + idx_node->name);
+            }
+            if (!vdm) {
+                std::string cur_s = scope;
+                while (!cur_s.empty()) {
+                    auto dot = cur_s.rfind('.');
+                    if (dot == std::string::npos) cur_s = "";
+                    else cur_s = cur_s.substr(0, dot);
+                    std::string cand = cur_s.empty() ? idx_node->name : (cur_s + "." + idx_node->name);
+                    if (engine.var_dimensions.count(cand)) {
+                        vdm = &engine.var_dimensions.at(cand);
+                        break;
+                    }
                 }
             }
-        }
-        if (!vdm && nid == (size_t)-1 && engine.var_dimensions.count(idx_node->name)) {
-            vdm = &engine.var_dimensions.at(idx_node->name);
+            if (!vdm && nid == (size_t)-1 && engine.var_dimensions.count(idx_node->name)) {
+                vdm = &engine.var_dimensions.at(idx_node->name);
+            }
         }
         int64_t base_low = found_struct_member ? struct_member_lsb : 0;
         uint32_t elem_w = 1;
