@@ -5346,6 +5346,118 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
 
     size_t non_local_param_idx = 0;
     std::unordered_set<std::string> overridden_type_params;
+    auto bind_type_param = [&](const std::string& ov_t, const std::string& eval_scope, const std::string& param_name) {
+        auto lb = ov_t.find('[');
+        auto rb = ov_t.rfind(']');
+        if (lb != std::string::npos && rb != std::string::npos && rb > lb) {
+            std::string base_t = ov_t.substr(0, lb);
+            while (!base_t.empty() && isspace(base_t.front())) base_t.erase(base_t.begin());
+            while (!base_t.empty() && isspace(base_t.back())) base_t.pop_back();
+            std::string range_s = ov_t.substr(lb + 1, rb - lb - 1);
+            auto col = range_s.find(':');
+            if (col != std::string::npos) {
+                std::string msb_s = range_s.substr(0, col);
+                std::string lsb_s = range_s.substr(col + 1);
+                while (!msb_s.empty() && isspace(msb_s.front())) msb_s.erase(msb_s.begin());
+                while (!msb_s.empty() && isspace(msb_s.back())) msb_s.pop_back();
+                while (!lsb_s.empty() && isspace(lsb_s.front())) lsb_s.erase(lsb_s.begin());
+                while (!lsb_s.empty() && isspace(lsb_s.back())) lsb_s.pop_back();
+                uint32_t w = 1;
+                int64_t m_v = 0, l_v = 0;
+                try {
+                    Lexer msb_lex("msb", msb_s);
+                    Parser msb_parser(msb_lex);
+                    auto m_expr = msb_parser.parse_expression();
+                    Lexer lsb_lex("lsb", lsb_s);
+                    Parser lsb_parser(lsb_lex);
+                    auto l_expr = lsb_parser.parse_expression();
+                    m_v = (int64_t)eval_const_expr(m_expr.get(), eval_scope);
+                    l_v = (int64_t)eval_const_expr(l_expr.get(), eval_scope);
+                    w = (uint32_t)(std::abs(m_v - l_v) + 1);
+                } catch (...) {}
+                uint32_t bw = 1;
+                if (!base_t.empty() && base_t != "logic" && base_t != "bit" && base_t != "reg") {
+                    const PackedStructType* st_base = find_struct_type(base_t, eval_scope);
+                    if (st_base && st_base->total_width > 0) {
+                        bw = st_base->total_width;
+                    } else {
+                        uint32_t resolved = 0;
+                        std::string cur_s = eval_scope;
+                        while (!cur_s.empty()) {
+                            auto it_st = result.simple_types.find(cur_s + "." + base_t);
+                            if (it_st != result.simple_types.end() && it_st->second.width > 0) {
+                                resolved = it_st->second.width;
+                                break;
+                            }
+                            auto dot = cur_s.rfind('.');
+                            cur_s = (dot == std::string::npos) ? "" : cur_s.substr(0, dot);
+                        }
+                        if (resolved == 0) resolved = resolve_type_width(base_t);
+                        if (resolved > 0) bw = resolved;
+                    }
+                }
+                w *= bw;
+                Parser::global_simple_typedefs[scope + "." + param_name] = w;
+                Parser::global_simple_typedefs[param_name] = w;
+                SimpleTypeInfo sinfo; sinfo.name = param_name; sinfo.width = w;
+                result.simple_types[scope + "." + param_name] = sinfo;
+                result.simple_types[param_name] = sinfo;
+                VariableDimMetadata svdm;
+                svdm.name = scope + "." + param_name;
+                svdm.dimensions.push_back(ArrayDimInfo{m_v, l_v, false, false, false});
+                if (bw > 1) svdm.dimensions.push_back(ArrayDimInfo{(int64_t)bw - 1, 0, false, false, false});
+                svdm.is_vector_or_array = true;
+                result.var_dimensions[scope + "." + param_name] = svdm;
+                result.var_dimensions[param_name] = svdm;
+                result.var_to_struct_type[scope + "." + param_name] = ov_t;
+                result.var_to_struct_type[param_name] = ov_t;
+                return;
+            }
+        }
+        uint32_t tw = 0;
+        const PackedStructType* st_ov = find_struct_type(ov_t, eval_scope);
+        if (!st_ov) st_ov = find_struct_type(ov_t, scope);
+        if (st_ov) {
+            tw = st_ov->total_width;
+            result.struct_types[scope + "." + param_name] = *st_ov;
+            result.struct_types[scope + "." + param_name].name = param_name;
+            result.struct_types[param_name] = *st_ov;
+            result.struct_types[param_name].name = param_name;
+        } else {
+            std::string cur_ps = eval_scope;
+            while (!cur_ps.empty()) {
+                auto it_st = result.simple_types.find(cur_ps + "." + ov_t);
+                if (it_st != result.simple_types.end() && it_st->second.width > 0) {
+                    tw = it_st->second.width;
+                    break;
+                }
+                auto dot = cur_ps.rfind('.');
+                cur_ps = (dot == std::string::npos) ? "" : cur_ps.substr(0, dot);
+            }
+            if (tw == 0) tw = resolve_type_width(ov_t);
+        }
+        if (tw > 0) {
+            Parser::global_simple_typedefs[scope + "." + param_name] = tw;
+            Parser::global_simple_typedefs[param_name] = tw;
+            SimpleTypeInfo sinfo; sinfo.name = param_name; sinfo.width = tw;
+            result.simple_types[scope + "." + param_name] = sinfo;
+            result.simple_types[param_name] = sinfo;
+            auto pv_it = result.var_dimensions.find(eval_scope + "." + ov_t);
+            if (pv_it != result.var_dimensions.end()) {
+                VariableDimMetadata vdm = pv_it->second;
+                vdm.name = scope + "." + param_name;
+                result.var_dimensions[scope + "." + param_name] = vdm;
+            } else if (tw > 1) {
+                VariableDimMetadata vdm;
+                vdm.name = scope + "." + param_name;
+                vdm.dimensions.push_back(ArrayDimInfo{(int64_t)tw - 1, 0, false, false, false});
+                vdm.is_vector_or_array = true;
+                result.var_dimensions[scope + "." + param_name] = vdm;
+            }
+        }
+        result.var_to_struct_type[scope + "." + param_name] = ov_t;
+        result.var_to_struct_type[param_name] = ov_t;
+    };
     for (size_t i = 0; i < mod->parameters.size(); ++i) {
         const auto& p = mod->parameters[i];
         uint64_t val = 0;
@@ -5392,50 +5504,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 if (!ov.param_name.empty() && ov.param_name == p.name) {
                     if (p.type_name == "type") {
                         if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
-                            std::string ov_t = ov_id->name;
-                            uint32_t tw = 0;
-                            const PackedStructType* st_ov = find_struct_type(ov_t, parent_scope);
-                            if (!st_ov) st_ov = find_struct_type(ov_t, scope);
-                            if (st_ov) {
-                                tw = st_ov->total_width;
-                                result.struct_types[scope + "." + p.name] = *st_ov;
-                                result.struct_types[scope + "." + p.name].name = p.name;
-                                result.struct_types[p.name] = *st_ov;
-                                result.struct_types[p.name].name = p.name;
-                            } else {
-                                std::string cur_ps = parent_scope;
-                                while (!cur_ps.empty()) {
-                                    auto it_st = result.simple_types.find(cur_ps + "." + ov_t);
-                                    if (it_st != result.simple_types.end() && it_st->second.width > 0) {
-                                        tw = it_st->second.width;
-                                        break;
-                                    }
-                                    auto dot = cur_ps.rfind('.');
-                                    cur_ps = (dot == std::string::npos) ? "" : cur_ps.substr(0, dot);
-                                }
-                                if (tw == 0) tw = resolve_type_width(ov_t);
-                            }
-                            if (tw > 0) {
-                                Parser::global_simple_typedefs[scope + "." + p.name] = tw;
-                                Parser::global_simple_typedefs[p.name] = tw;
-                                SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = tw;
-                                result.simple_types[scope + "." + p.name] = sinfo;
-                                result.simple_types[p.name] = sinfo;
-                                auto pv_it = result.var_dimensions.find(parent_scope + "." + ov_t);
-                                if (pv_it != result.var_dimensions.end()) {
-                                    VariableDimMetadata vdm = pv_it->second;
-                                    vdm.name = scope + "." + p.name;
-                                    result.var_dimensions[scope + "." + p.name] = vdm;
-                                } else if (tw > 1) {
-                                    VariableDimMetadata vdm;
-                                    vdm.name = scope + "." + p.name;
-                                    vdm.dimensions.push_back(ArrayDimInfo{(int64_t)tw - 1, 0, false, false, false});
-                                    vdm.is_vector_or_array = true;
-                                    result.var_dimensions[scope + "." + p.name] = vdm;
-                                }
-                            }
-                            result.var_to_struct_type[scope + "." + p.name] = ov_t;
-                            result.var_to_struct_type[p.name] = ov_t;
+                            bind_type_param(ov_id->name, parent_scope, p.name);
                         }
                         lval = LogicVal::make_known(32, 0);
                         val = 0;
@@ -5460,50 +5529,7 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 } else if (ov.param_name.empty() && oi == non_local_param_idx) {
                     if (p.type_name == "type") {
                         if (auto ov_id = dynamic_cast<IdentifierNode*>(ov.expr.get())) {
-                            std::string ov_t = ov_id->name;
-                            uint32_t tw = 0;
-                            const PackedStructType* st_ov = find_struct_type(ov_t, parent_scope);
-                            if (!st_ov) st_ov = find_struct_type(ov_t, scope);
-                            if (st_ov) {
-                                tw = st_ov->total_width;
-                                result.struct_types[scope + "." + p.name] = *st_ov;
-                                result.struct_types[scope + "." + p.name].name = p.name;
-                                result.struct_types[p.name] = *st_ov;
-                                result.struct_types[p.name].name = p.name;
-                            } else {
-                                std::string cur_ps = parent_scope;
-                                while (!cur_ps.empty()) {
-                                    auto it_st = result.simple_types.find(cur_ps + "." + ov_t);
-                                    if (it_st != result.simple_types.end() && it_st->second.width > 0) {
-                                        tw = it_st->second.width;
-                                        break;
-                                    }
-                                    auto dot = cur_ps.rfind('.');
-                                    cur_ps = (dot == std::string::npos) ? "" : cur_ps.substr(0, dot);
-                                }
-                                if (tw == 0) tw = resolve_type_width(ov_t);
-                            }
-                            if (tw > 0) {
-                                Parser::global_simple_typedefs[scope + "." + p.name] = tw;
-                                Parser::global_simple_typedefs[p.name] = tw;
-                                SimpleTypeInfo sinfo; sinfo.name = p.name; sinfo.width = tw;
-                                result.simple_types[scope + "." + p.name] = sinfo;
-                                result.simple_types[p.name] = sinfo;
-                                auto pv_it = result.var_dimensions.find(parent_scope + "." + ov_t);
-                                if (pv_it != result.var_dimensions.end()) {
-                                    VariableDimMetadata vdm = pv_it->second;
-                                    vdm.name = scope + "." + p.name;
-                                    result.var_dimensions[scope + "." + p.name] = vdm;
-                                } else if (tw > 1) {
-                                    VariableDimMetadata vdm;
-                                    vdm.name = scope + "." + p.name;
-                                    vdm.dimensions.push_back(ArrayDimInfo{(int64_t)tw - 1, 0, false, false, false});
-                                    vdm.is_vector_or_array = true;
-                                    result.var_dimensions[scope + "." + p.name] = vdm;
-                                }
-                            }
-                            result.var_to_struct_type[scope + "." + p.name] = ov_t;
-                            result.var_to_struct_type[p.name] = ov_t;
+                            bind_type_param(ov_id->name, parent_scope, p.name);
                         }
                         lval = LogicVal::make_known(32, 0);
                         val = 0;
