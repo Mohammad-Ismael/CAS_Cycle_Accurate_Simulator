@@ -5239,13 +5239,25 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (st && st->total_width > 0) {
                             d1_width = st->total_width;
                         }
+                        if (d1_width == 1) {
+                            uint32_t total_w = engine.netlist[net_id].width;
+                            uint32_t d0_sz = (uint32_t)it_vdm->second.dimensions[0].size();
+                            if (d0_sz > 0 && total_w > d0_sz && (total_w % d0_sz == 0)) {
+                                d1_width = total_w / d0_sz;
+                            }
+                        }
                     }
                 }
                 LogicVal idx_v = eval_expr(nassign->bit_idx.get(), bp.scope);
                 if (!idx_v.is_unknown()) {
                     uint32_t msb = 0, lsb = 0, slice_w = 0;
                     int64_t signed_idx = idx_v.is_signed ? idx_v.to_signed() : (int64_t)idx_v.aval;
-                    if (base_low != 0 && signed_idx >= base_low) signed_idx -= base_low;
+                    if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty() &&
+                        it_vdm->second.dimensions[0].left < it_vdm->second.dimensions[0].right) {
+                        signed_idx = it_vdm->second.dimensions[0].right - signed_idx;
+                    } else if (base_low != 0 && signed_idx >= base_low) {
+                        signed_idx -= base_low;
+                    }
                     uint32_t elem_idx = (uint32_t)signed_idx;
                     if (nassign->bit_idx2) {
                         LogicVal idx_v2 = eval_expr(nassign->bit_idx2.get(), bp.scope);
@@ -5659,6 +5671,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::string full_target_name = engine.netlist[net_id].name;
                     uint32_t d1_width = 1;
                     int64_t base_low = 0;
+                    bool is_ascending_dim0 = false;
+                    int64_t dim0_right = 0;
                     if (prefix_mem_elem_w > 0) {
                         d1_width = prefix_mem_elem_w;
                     } else {
@@ -5667,8 +5681,21 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         if (it_vdm == engine.var_dimensions.end()) it_vdm = engine.var_dimensions.find(mem_assign->mem_name);
                         if (it_vdm != engine.var_dimensions.end() && !it_vdm->second.dimensions.empty()) {
                             base_low = it_vdm->second.dimensions[0].low();
+                            if (it_vdm->second.dimensions[0].left < it_vdm->second.dimensions[0].right) {
+                                is_ascending_dim0 = true;
+                                dim0_right = it_vdm->second.dimensions[0].right;
+                            }
                             if (it_vdm->second.dimensions.size() > 1) {
-                                d1_width = (uint32_t)it_vdm->second.dimensions[1].size();
+                                d1_width = 1;
+                                for (size_t di = 1; di < it_vdm->second.dimensions.size(); ++di) {
+                                    d1_width *= (uint32_t)it_vdm->second.dimensions[di].size();
+                                }
+                                if (it_vdm->second.dimensions[0].size() > 0) {
+                                    uint32_t by_total = (uint32_t)(engine.netlist[net_id].width / it_vdm->second.dimensions[0].size());
+                                    if (by_total > d1_width && (engine.netlist[net_id].width % it_vdm->second.dimensions[0].size() == 0)) {
+                                        d1_width = by_total;
+                                    }
+                                }
                             } else if (it_vdm->second.dimensions[0].size() > 0) {
                                 d1_width = (uint32_t)(engine.netlist[net_id].width / it_vdm->second.dimensions[0].size());
                             }
@@ -5677,8 +5704,8 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     if (target_st && target_st->total_width > 0 && (d1_width <= 1 || d1_width < target_st->total_width)) {
                         d1_width = target_st->total_width;
                     }
-                    int64_t elem_idx = addr;
-                    if (base_low != 0 && elem_idx >= base_low) elem_idx -= base_low;
+                    int64_t elem_idx = is_ascending_dim0 ? (dim0_right - addr) : addr;
+                    if (!is_ascending_dim0 && base_low != 0 && elem_idx >= base_low) elem_idx -= base_low;
                     uint32_t offset = prefix_mem_offset + (uint32_t)(elem_idx * d1_width);
                     uint32_t slice_w = d1_width;
                     const StructMember* sm = nullptr;
