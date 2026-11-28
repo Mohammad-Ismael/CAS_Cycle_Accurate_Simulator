@@ -2221,7 +2221,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
                 }
                 return LogicVal::make_known(8, (uint8_t)target_val.str_val[raw_idx], false);
             }
-            if (vdm && !vdm->dimensions.empty() && vdm->dimensions[0].left < vdm->dimensions[0].right) {
+            if (nid == (size_t)-1 && vdm && !vdm->dimensions.empty() && vdm->dimensions[0].left < vdm->dimensions[0].right) {
                 raw_idx = vdm->dimensions[0].right - raw_idx;
             } else if (base_low != 0 && raw_idx >= base_low) {
                 raw_idx -= base_low;
