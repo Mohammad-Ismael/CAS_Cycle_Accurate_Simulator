@@ -2088,9 +2088,7 @@ LogicVal ExprEvaluator::eval_index_select(IndexSelectNode* idx_node, const std::
             LogicVal idx_val = eval(idx_node->msb_expr.get(), scope);
             if (idx_val.is_unknown()) return LogicVal::make_x(1);
             int64_t raw_idx = idx_val.is_signed ? idx_val.to_signed() : (int64_t)idx_val.aval;
-            if (vdm && !vdm->dimensions.empty() && vdm->dimensions[0].left < vdm->dimensions[0].right) {
-                raw_idx = vdm->dimensions[0].right - raw_idx;
-            } else if (base_low != 0 && raw_idx >= base_low) {
+            if (base_low != 0 && raw_idx >= base_low) {
                 raw_idx -= base_low;
             }
             else if (vdm && !vdm->dimensions.empty()) {

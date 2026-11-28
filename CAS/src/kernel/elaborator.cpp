@@ -9087,7 +9087,6 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     vdm.is_vector_or_array = true;
                     result.var_dimensions[pkg_name + "::" + p.name] = vdm;
                     result.var_dimensions[pkg_name + "." + p.name] = vdm;
-                    result.var_dimensions[p.name] = vdm;
                 }
             } else {
                 lval = eval_const_logic_val(p.default_expr.get(), pkg_name, p.type_name);
