@@ -216,11 +216,15 @@ LogicVal Elaborator::eval_const_logic_val(ExpressionNode* expr, const std::strin
                     LogicVal lv;
                     const VariableDimMetadata* p_vdm = nullptr;
                     if (result.var_dimensions.count(full_id)) p_vdm = &result.var_dimensions.at(full_id);
-                    else if (result.var_dimensions.count(p.name)) p_vdm = &result.var_dimensions.at(p.name);
                     if ((p_vdm && !p_vdm->dimensions.empty() && !p.type_name.empty()) || (p.msb_expr && p.lsb_expr && !p.type_name.empty())) {
                         uint32_t elem_w = resolve_type_width(p.type_name);
                         if (const PackedStructType* pst_p = find_struct_type(p.type_name, sma->class_type_name)) {
                             if (pst_p->total_width > 0) elem_w = pst_p->total_width;
+                        }
+                        if (p_vdm && p_vdm->dimensions.size() > 1) {
+                            for (size_t di = 1; di < p_vdm->dimensions.size(); ++di) {
+                                elem_w *= (uint32_t)p_vdm->dimensions[di].size();
+                            }
                         }
                         int64_t d_left = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].left : eval_const_signed_val(eval_const_expr(p.msb_expr.get(), sma->class_type_name));
                         int64_t d_right = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].right : eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), sma->class_type_name));
@@ -4909,18 +4913,19 @@ void Elaborator::elaborate_module(ModuleNode* mod, const std::string& scope,
                 bool local_decl = false;
                 for (const auto& lp : mod->parameters) { if (lp.name == p.name) { local_decl = true; break; } }
                 if (local_decl) continue;
-                LogicVal lval = result.param_val_map.count(pkg_name + "::" + p.name)
+                bool has_pkg_vdm = result.var_dimensions.count(pkg_name + "::" + p.name) > 0;
+                LogicVal lval = (has_pkg_vdm && result.param_val_map.count(pkg_name + "::" + p.name))
                     ? result.param_val_map.at(pkg_name + "::" + p.name)
                     : eval_const_logic_val(p.default_expr.get(), scope, p.type_name);
                 result.param_val_map[scope + "." + p.name] = lval;
                 result.param_val_map[p.name] = lval;
                 result.param_map[scope + "." + p.name] = lval.aval;
                 if (parent_scope.empty()) result.param_map[p.name] = lval.aval;
-                if (!p.type_name.empty()) {
-                    result.var_to_struct_type[scope + "." + p.name] = p.type_name;
-                    if (parent_scope.empty()) result.var_to_struct_type[p.name] = p.type_name;
-                }
-                if (result.var_dimensions.count(pkg_name + "::" + p.name)) {
+                if (has_pkg_vdm) {
+                    if (!p.type_name.empty()) {
+                        result.var_to_struct_type[scope + "." + p.name] = p.type_name;
+                        if (parent_scope.empty()) result.var_to_struct_type[p.name] = p.type_name;
+                    }
                     result.var_dimensions[scope + "." + p.name] = result.var_dimensions.at(pkg_name + "::" + p.name);
                 }
             }
@@ -9060,14 +9065,18 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
             LogicVal lval;
             const VariableDimMetadata* p_vdm = nullptr;
             if (result.var_dimensions.count(pkg_name + "::" + p.name)) p_vdm = &result.var_dimensions.at(pkg_name + "::" + p.name);
-            else if (result.var_dimensions.count(p.name)) p_vdm = &result.var_dimensions.at(p.name);
-            if ((p_vdm && !p_vdm->dimensions.empty() && !p.type_name.empty()) || (p.msb_expr && p.lsb_expr && !p.type_name.empty())) {
+            if (p_vdm && !p_vdm->dimensions.empty() && !p.type_name.empty() && p_vdm->dimensions[0].left < p_vdm->dimensions[0].right) {
                 uint32_t elem_w = resolve_type_width(p.type_name);
                 if (const PackedStructType* pst_p = find_struct_type(p.type_name, pkg_name)) {
                     if (pst_p->total_width > 0) elem_w = pst_p->total_width;
                 }
-                int64_t d_left = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].left : eval_const_signed_val(eval_const_expr(p.msb_expr.get(), pkg_name));
-                int64_t d_right = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].right : eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), pkg_name));
+                if (p_vdm->dimensions.size() > 1) {
+                    for (size_t di = 1; di < p_vdm->dimensions.size(); ++di) {
+                        elem_w *= (uint32_t)p_vdm->dimensions[di].size();
+                    }
+                }
+                int64_t d_left = p_vdm->dimensions[0].left;
+                int64_t d_right = p_vdm->dimensions[0].right;
                 uint32_t N = (uint32_t)(std::abs(d_left - d_right) + 1);
                 if (auto ucat = dynamic_cast<UnpackedConcatNode*>(p.default_expr.get())) {
                     if (elem_w > 0 && N > 0 && ucat->elements.size() == N) {
@@ -9080,14 +9089,6 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                     }
                 }
                 if (lval.width == 0) lval = eval_const_logic_val(p.default_expr.get(), pkg_name, p.type_name);
-                if (!p_vdm) {
-                    VariableDimMetadata vdm;
-                    vdm.name = pkg_name + "::" + p.name;
-                    vdm.dimensions.push_back({d_left, d_right, false, false, false});
-                    vdm.is_vector_or_array = true;
-                    result.var_dimensions[pkg_name + "::" + p.name] = vdm;
-                    result.var_dimensions[pkg_name + "." + p.name] = vdm;
-                }
             } else {
                 lval = eval_const_logic_val(p.default_expr.get(), pkg_name, p.type_name);
             }
@@ -9162,14 +9163,18 @@ ElaborationResult Elaborator::elaborate(std::vector<std::unique_ptr<ModuleNode>>
                 LogicVal lval;
                 const VariableDimMetadata* p_vdm = nullptr;
                 if (result.var_dimensions.count(pkg_name + "::" + p.name)) p_vdm = &result.var_dimensions.at(pkg_name + "::" + p.name);
-                else if (result.var_dimensions.count(p.name)) p_vdm = &result.var_dimensions.at(p.name);
-                if ((p_vdm && !p_vdm->dimensions.empty() && !p.type_name.empty()) || (p.msb_expr && p.lsb_expr && !p.type_name.empty())) {
+                if (p_vdm && !p_vdm->dimensions.empty() && !p.type_name.empty() && p_vdm->dimensions[0].left < p_vdm->dimensions[0].right) {
                     uint32_t elem_w = resolve_type_width(p.type_name);
                     if (const PackedStructType* pst_p = find_struct_type(p.type_name, pkg_name)) {
                         if (pst_p->total_width > 0) elem_w = pst_p->total_width;
                     }
-                    int64_t d_left = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].left : eval_const_signed_val(eval_const_expr(p.msb_expr.get(), pkg_name));
-                    int64_t d_right = (p_vdm && !p_vdm->dimensions.empty()) ? p_vdm->dimensions[0].right : eval_const_signed_val(eval_const_expr(p.lsb_expr.get(), pkg_name));
+                    if (p_vdm->dimensions.size() > 1) {
+                        for (size_t di = 1; di < p_vdm->dimensions.size(); ++di) {
+                            elem_w *= (uint32_t)p_vdm->dimensions[di].size();
+                        }
+                    }
+                    int64_t d_left = p_vdm->dimensions[0].left;
+                    int64_t d_right = p_vdm->dimensions[0].right;
                     uint32_t N = (uint32_t)(std::abs(d_left - d_right) + 1);
                     if (auto ucat = dynamic_cast<UnpackedConcatNode*>(p.default_expr.get())) {
                         if (elem_w > 0 && N > 0 && ucat->elements.size() == N) {
