@@ -292,6 +292,9 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
                 out_net_ids.push_back(mem->cached_net_id);
             }
         } else {
+            if (engine.is_memory(scope, mem->var_name)) {
+                out_reads_mem = true;
+            }
             std::string full_name = mem->var_name + "." + mem->member_name;
             if (mem->index_expr) {
                 if (auto num = dynamic_cast<const NumberNode*>(mem->index_expr.get())) {
@@ -306,7 +309,11 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             if (raw_nid == (size_t)-1) {
                 auto dpos = mem->var_name.find('.');
                 if (dpos != std::string::npos) {
-                    raw_nid = engine.get_net_id(scope, mem->var_name.substr(0, dpos));
+                    std::string base = mem->var_name.substr(0, dpos);
+                    if (engine.is_memory(scope, base)) {
+                        out_reads_mem = true;
+                    }
+                    raw_nid = engine.get_net_id(scope, base);
                 }
             }
             if (raw_nid != (size_t)-1) {
