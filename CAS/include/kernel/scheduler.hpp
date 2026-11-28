@@ -195,7 +195,7 @@ public:
     bool commit_native_clock_updates();
 
     void notify_net_changed(size_t net_id, const LogicVal* old_val = nullptr);
-    void notify_mem_changed();
+    void notify_mem_changed(const std::string& mem_scoped_name = "");
     void enqueue_rca(uint32_t rca_idx);
     void enqueue_comb_proc(uint32_t proc_id);
 

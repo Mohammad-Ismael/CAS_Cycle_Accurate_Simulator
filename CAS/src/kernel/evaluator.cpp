@@ -5055,8 +5055,13 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     }
                 }
                 if (has_def) {
+                    LogicVal w = LogicOps::cast_width(def_v, mem.word_width, false);
                     for (size_t i = 0; i < mem.depth; ++i) {
-                        mem.set_raw_word(i, LogicOps::cast_width(def_v, mem.word_width, false));
+                        if (nassign->intra_delay > 0) {
+                            engine.scheduler.queue_delayed_nba_mem(engine.get_sim_time() + nassign->intra_delay, scoped_mem_nba, i, w);
+                        } else {
+                            engine.scheduler.queue_nba_mem(scoped_mem_nba, i, w);
+                        }
                     }
                     return;
                 }
@@ -5069,7 +5074,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
             }
             if (elems.empty() || (!rhs_val.is_unpacked && !dynamic_cast<UnpackedConcatNode*>(nassign->rhs.get()) && !dynamic_cast<ConcatNode*>(nassign->rhs.get()) && !dynamic_cast<ReplicateNode*>(nassign->rhs.get()))) {
                 if (mem.depth == 1) {
-                    mem.set_raw_word(0, LogicOps::cast_width(rhs_val, mem.word_width, false));
+                    LogicVal w = LogicOps::cast_width(rhs_val, mem.word_width, false);
+                    if (nassign->intra_delay > 0) {
+                        engine.scheduler.queue_delayed_nba_mem(engine.get_sim_time() + nassign->intra_delay, scoped_mem_nba, 0, w);
+                    } else {
+                        engine.scheduler.queue_nba_mem(scoped_mem_nba, 0, w);
+                    }
                     return;
                 }
             }
@@ -5079,7 +5089,12 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                     std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
             }
             for (size_t i = 0; i < mem.depth; ++i) {
-                mem.set_raw_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
+                LogicVal w = LogicOps::cast_width(elems[i], mem.word_width, false);
+                if (nassign->intra_delay > 0) {
+                    engine.scheduler.queue_delayed_nba_mem(engine.get_sim_time() + nassign->intra_delay, scoped_mem_nba, i, w);
+                } else {
+                    engine.scheduler.queue_nba_mem(scoped_mem_nba, i, w);
+                }
             }
             return;
         }
@@ -5605,7 +5620,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 LogicVal cur_w = mem.get_word(addr);
                                 if (cur_w != new_word) {
                                     mem.set_word(addr, new_word);
-                                    engine.scheduler.notify_mem_changed();
+                                    engine.scheduler.notify_mem_changed(scoped_mem);
                                 }
                             }
                             return;
@@ -5620,8 +5635,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         engine.scheduler.queue_nba_mem(scoped_mem, addr, rhs_val);
                     }
                 } else {
-                    mem.set_word(addr, rhs_val);
-                    engine.scheduler.notify_mem_changed();
+                    LogicVal cur_w = mem.get_word(addr);
+                    if (cur_w != rhs_val) {
+                        mem.set_word(addr, rhs_val);
+                        engine.scheduler.notify_mem_changed(scoped_mem);
+                    }
                 }
             } else {
                 size_t net_id = engine.get_net_id(bp.scope, mem_assign->mem_name);
@@ -7511,7 +7529,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 LogicVal cur_w = mem.get_raw_word(linear_addr);
                                 if (cur_w != new_val) {
                                     mem.set_raw_word(linear_addr, new_val);
-                                    engine.scheduler.notify_mem_changed();
+                                    engine.scheduler.notify_mem_changed(scoped_mem);
                                 }
                             }
                         }
@@ -7523,6 +7541,7 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                         } else {
                             elems = expr_eval.eval_array_expr(assign->rhs.get(), bp.scope);
                         }
+                        bool mem_changed = false;
                         if (!elems.empty() || dynamic_cast<UnpackedConcatNode*>(assign->rhs.get()) || dynamic_cast<ConcatNode*>(assign->rhs.get()) || dynamic_cast<ReplicateNode*>(assign->rhs.get())) {
                             if (elems.size() != mem.depth) {
                                 throw std::runtime_error("[CAS-DTINPCIL] Concatenation element count (got " +
@@ -7530,7 +7549,11 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                     std::to_string(mem.depth) + ") per IEEE 1800-2023 section 10.10");
                             }
                             for (size_t i = 0; i < mem.depth; ++i) {
-                                mem.set_raw_word(i, LogicOps::cast_width(elems[i], mem.word_width, false));
+                                LogicVal new_w = LogicOps::cast_width(elems[i], mem.word_width, false);
+                                if (mem.get_raw_word(i) != new_w) {
+                                    mem.set_raw_word(i, new_w);
+                                    mem_changed = true;
+                                }
                             }
                         } else {
                             uint32_t ew = mem.word_width;
@@ -7539,11 +7562,17 @@ void Evaluator::execute_statement(StatementNode* stmt, BoundProcess& bp) {
                                 uint64_t mask = (ew >= 64) ? ~0ULL : ((1ULL << ew) - 1);
                                 uint64_t a = (rhs_val.aval >> shift) & mask;
                                 uint64_t b = (rhs_val.bval >> shift) & mask;
-                                mem.set_raw_word(i, LogicVal(ew, a, b));
+                                LogicVal new_w(ew, a, b);
+                                if (mem.get_raw_word(i) != new_w) {
+                                    mem.set_raw_word(i, new_w);
+                                    mem_changed = true;
+                                }
                             }
                         }
+                        if (mem_changed) {
+                            engine.scheduler.notify_mem_changed(scoped_mem);
+                        }
                     }
-                    engine.scheduler.notify_mem_changed();
                     return;
                 }
                 size_t net_id = (size_t)-1;
@@ -8464,8 +8493,11 @@ void Evaluator::execute_streaming_assign(StreamingConcatNode* slhs, ExpressionNo
                         bit_cursor++;
                     }
                 }
-                mem.set_word(idx, LogicVal(ew, a, b));
-                engine.scheduler.notify_mem_changed();
+                LogicVal new_w(ew, a, b);
+                if (mem.get_word(idx) != new_w) {
+                    mem.set_word(idx, new_w);
+                    engine.scheduler.notify_mem_changed(it_mem->first);
+                }
                 continue;
             }
         }

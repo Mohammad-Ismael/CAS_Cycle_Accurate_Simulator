@@ -810,8 +810,29 @@ void StratifiedScheduler::flush_comb_proc_target_saves() {
     }
 }
 
-void StratifiedScheduler::notify_mem_changed() {
+void StratifiedScheduler::notify_mem_changed(const std::string& mem_scoped_name) {
     comb_dirty = true;
+    if (!mem_scoped_name.empty()) {
+        auto it_r = engine.fanout.mem_to_rca.find(mem_scoped_name);
+        if (it_r != engine.fanout.mem_to_rca.end()) {
+            for (uint32_t rca_idx : it_r->second) {
+                enqueue_rca(rca_idx);
+            }
+        }
+        auto it_p = engine.fanout.mem_to_comb_proc.find(mem_scoped_name);
+        if (it_p != engine.fanout.mem_to_comb_proc.end()) {
+            for (uint32_t proc_id : it_p->second) {
+                enqueue_comb_proc(proc_id);
+            }
+        }
+        auto it_m = engine.fanout.mem_to_mca.find(mem_scoped_name);
+        if (it_m != engine.fanout.mem_to_mca.end()) {
+            for (uint32_t mca_idx : it_m->second) {
+                enqueue_mca(mca_idx);
+            }
+        }
+        return;
+    }
     for (uint32_t rca_idx : engine.fanout.mem_reading_rcas) {
         enqueue_rca(rca_idx);
     }
@@ -3453,7 +3474,7 @@ bool StratifiedScheduler::commit_nba_updates() {
                 mem.set_raw_word(mem_up.addr, mem_up.val);
             }
             if (mem.get_raw_word(mem_up.addr) != old_v) {
-                notify_mem_changed();
+                notify_mem_changed(mem_up.mem_scoped_name);
             }
         }
     }

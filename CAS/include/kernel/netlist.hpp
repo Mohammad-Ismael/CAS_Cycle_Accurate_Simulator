@@ -208,9 +208,17 @@ struct FanoutGraph {
     // net_id -> vector of MCA indices
     std::vector<std::vector<uint32_t>> net_to_mca;
 
+    // scoped memory name -> vector of consumer indices
+    std::unordered_map<std::string, std::vector<uint32_t>> mem_to_rca;
+    std::unordered_map<std::string, std::vector<uint32_t>> mem_to_comb_proc;
+    std::unordered_map<std::string, std::vector<uint32_t>> mem_to_mca;
+
     void resize(size_t net_count) {
         net_to_rca.resize(net_count);
         net_to_comb_proc.resize(net_count);
         net_to_mca.resize(net_count);
+        mem_to_rca.clear();
+        mem_to_comb_proc.clear();
+        mem_to_mca.clear();
     }
 };

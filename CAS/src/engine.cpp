@@ -182,6 +182,7 @@ void Engine::load_elaboration(ElaborationResult&& elab_res) {
 struct FuncSensContext {
     std::unordered_set<std::string> visited_fn_names;
     std::unordered_set<std::string> shadowed_names;
+    std::vector<std::string>* read_mems = nullptr;
 };
 
 static size_t resolve_hierarchical_net_id(const Engine& engine, const std::string& scope, const std::string& name) {
@@ -223,8 +224,9 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
             }
             return;
         }
-        if (engine.is_memory(scope, id->name)) {
+        if (auto mname = engine.resolve_memory_name(scope, id->name); !mname.empty()) {
             out_reads_mem = true;
+            if (ctx && ctx->read_mems) ctx->read_mems->push_back(mname);
         }
         size_t exact_nid = engine.get_net_id(scope, id->name);
         size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, id->name);
@@ -255,8 +257,9 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
                 out_net_ids.push_back(idx->cached_net_id);
             }
         } else {
-            if (engine.is_memory(scope, idx->name)) {
+            if (auto mname = engine.resolve_memory_name(scope, idx->name); !mname.empty()) {
                 out_reads_mem = true;
+                if (ctx && ctx->read_mems) ctx->read_mems->push_back(mname);
             }
             size_t exact_nid = engine.get_net_id(scope, idx->name);
             size_t raw_nid = (exact_nid != (size_t)-1) ? exact_nid : resolve_hierarchical_net_id(engine, scope, idx->name);
@@ -292,8 +295,9 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
                 out_net_ids.push_back(mem->cached_net_id);
             }
         } else {
-            if (engine.is_memory(scope, mem->var_name)) {
+            if (auto mname = engine.resolve_memory_name(scope, mem->var_name); !mname.empty()) {
                 out_reads_mem = true;
+                if (ctx && ctx->read_mems) ctx->read_mems->push_back(mname);
             }
             std::string full_name = mem->var_name + "." + mem->member_name;
             if (mem->index_expr) {
@@ -310,8 +314,9 @@ static void collect_read_nets_internal(const ExpressionNode* expr, const std::st
                 auto dpos = mem->var_name.find('.');
                 if (dpos != std::string::npos) {
                     std::string base = mem->var_name.substr(0, dpos);
-                    if (engine.is_memory(scope, base)) {
+                    if (auto mname = engine.resolve_memory_name(scope, base); !mname.empty()) {
                         out_reads_mem = true;
+                        if (ctx && ctx->read_mems) ctx->read_mems->push_back(mname);
                     }
                     raw_nid = engine.get_net_id(scope, base);
                 }
@@ -1392,7 +1397,10 @@ void Engine::build_fanout_graph() {
     for (size_t rca_idx = 0; rca_idx < resolved_continuous_assigns.size(); ++rca_idx) {
         const auto& rca = resolved_continuous_assigns[rca_idx];
         std::vector<uint32_t> read_nets;
+        std::vector<std::string> read_mems;
         bool reads_mem = false;
+        FuncSensContext rca_ctx;
+        rca_ctx.read_mems = &read_mems;
         if (rca.compiled_expr.is_compiled) {
             for (const auto& inst : rca.compiled_expr.instructions) {
                 if (inst.op == Opcode::DONE) break;
@@ -1406,11 +1414,11 @@ void Engine::build_fanout_graph() {
                     if (drv.gate_idx < gates.size()) {
                         const auto& g = gates[drv.gate_idx];
                         for (auto in_expr : g.in_exprs) {
-                            collect_read_nets(in_expr, g.scope, *this, read_nets, reads_mem);
+                            collect_read_nets_internal(in_expr, g.scope, *this, read_nets, reads_mem, &rca_ctx);
                         }
                     }
                 } else if (drv.rhs) {
-                    collect_read_nets(drv.rhs, drv.scope, *this, read_nets, reads_mem);
+                    collect_read_nets_internal(drv.rhs, drv.scope, *this, read_nets, reads_mem, &rca_ctx);
                 }
             }
         }
@@ -1419,6 +1427,11 @@ void Engine::build_fanout_graph() {
 
         if (reads_mem) {
             fanout.mem_reading_rcas.push_back((uint32_t)rca_idx);
+            std::sort(read_mems.begin(), read_mems.end());
+            read_mems.erase(std::unique(read_mems.begin(), read_mems.end()), read_mems.end());
+            for (const auto& mname : read_mems) {
+                fanout.mem_to_rca[mname].push_back((uint32_t)rca_idx);
+            }
         }
 
         for (uint32_t nid : read_nets) {
@@ -1435,6 +1448,7 @@ void Engine::build_fanout_graph() {
         if (bp.proc->type != ProcessType::COMBINATIONAL && !bp.proc->is_always_comb && !bp.proc->is_always_latch) continue;
 
         std::vector<uint32_t> read_nets;
+        std::vector<std::string> read_mems;
         bool reads_mem = false;
         for (const auto& sens : bp.proc->sensitivity_list) {
             size_t raw_nid = get_net_id(bp.scope, sens.signal_name);
@@ -1445,6 +1459,7 @@ void Engine::build_fanout_graph() {
         }
         std::unordered_set<uint32_t> written_nets;
         FuncSensContext sens_ctx;
+        sens_ctx.read_mems = &read_mems;
         for (const auto& s : bp.proc->body) {
             collect_stmt_read_nets(s.get(), bp.scope, *this, read_nets, reads_mem, &sens_ctx);
             collect_stmt_write_nets(s.get(), bp.scope, *this, written_nets);
@@ -1462,6 +1477,11 @@ void Engine::build_fanout_graph() {
 
         if (reads_mem) {
             fanout.mem_reading_comb_procs.push_back((uint32_t)pid);
+            std::sort(read_mems.begin(), read_mems.end());
+            read_mems.erase(std::unique(read_mems.begin(), read_mems.end()), read_mems.end());
+            for (const auto& mname : read_mems) {
+                fanout.mem_to_comb_proc[mname].push_back((uint32_t)pid);
+            }
         }
 
         for (uint32_t nid : read_nets) {
@@ -1477,11 +1497,19 @@ void Engine::build_fanout_graph() {
     for (size_t mca_idx = 0; mca_idx < memory_continuous_assigns.size(); ++mca_idx) {
         const auto& mca = memory_continuous_assigns[mca_idx];
         std::vector<uint32_t> read_nets;
+        std::vector<std::string> read_mems;
         bool reads_mem = false;
-        if (mca.rhs) collect_read_nets(mca.rhs.get(), mca.scope, *this, read_nets, reads_mem);
-        if (mca.index_expr) collect_read_nets(mca.index_expr.get(), mca.scope, *this, read_nets, reads_mem);
+        FuncSensContext mca_ctx;
+        mca_ctx.read_mems = &read_mems;
+        if (mca.rhs) collect_read_nets_internal(mca.rhs.get(), mca.scope, *this, read_nets, reads_mem, &mca_ctx);
+        if (mca.index_expr) collect_read_nets_internal(mca.index_expr.get(), mca.scope, *this, read_nets, reads_mem, &mca_ctx);
         if (reads_mem) {
             fanout.mem_reading_mcas.push_back((uint32_t)mca_idx);
+            std::sort(read_mems.begin(), read_mems.end());
+            read_mems.erase(std::unique(read_mems.begin(), read_mems.end()), read_mems.end());
+            for (const auto& mname : read_mems) {
+                fanout.mem_to_mca[mname].push_back((uint32_t)mca_idx);
+            }
         }
         std::sort(read_nets.begin(), read_nets.end());
         read_nets.erase(std::unique(read_nets.begin(), read_nets.end()), read_nets.end());
